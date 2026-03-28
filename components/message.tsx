@@ -1,14 +1,7 @@
 'use client'
 
-import rehypeExternalLinks from 'rehype-external-links'
-import rehypeKatex from 'rehype-katex'
-import remarkMath from 'remark-math'
-import {
-  defaultRehypePlugins,
-  defaultRemarkPlugins,
-  Streamdown
-} from 'streamdown'
-import type { PluggableList } from 'unified'
+import { math } from '@streamdown/math'
+import { defaultRehypePlugins, Streamdown } from 'streamdown'
 
 import type { SearchResultItem } from '@/lib/types'
 import { cn } from '@/lib/utils'
@@ -36,16 +29,7 @@ export function MarkdownMessage({
     a: Citing
   }
 
-  const rehypePlugins: PluggableList = [
-    ...Object.values(defaultRehypePlugins),
-    [rehypeExternalLinks, { target: '_blank' }],
-    rehypeKatex
-  ]
-
-  const remarkPlugins: PluggableList = [
-    ...Object.values(defaultRemarkPlugins),
-    remarkMath
-  ]
+  const rehypePlugins = Object.values(defaultRehypePlugins)
 
   return (
     <CitationProvider citationMaps={citationMaps}>
@@ -56,8 +40,8 @@ export function MarkdownMessage({
         )}
       >
         <Streamdown
+          plugins={{ math }}
           rehypePlugins={rehypePlugins}
-          remarkPlugins={remarkPlugins}
           components={customComponents}
         >
           {processedMessage}
