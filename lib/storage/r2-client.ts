@@ -16,7 +16,9 @@ export function getR2Client(): S3Client {
   const secretAccessKey = process.env.R2_SECRET_ACCESS_KEY
 
   if (!accessKeyId || !secretAccessKey) {
-    throw new Error('S3 configuration missing: R2_ACCESS_KEY_ID or R2_SECRET_ACCESS_KEY')
+    throw new Error(
+      'S3 configuration missing: R2_ACCESS_KEY_ID or R2_SECRET_ACCESS_KEY'
+    )
   }
 
   if (!s3Endpoint && !accountId) {
