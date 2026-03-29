@@ -14,6 +14,17 @@ const ALLOWED_TYPES = ['image/jpeg', 'image/png', 'application/pdf']
 
 export async function POST(req: NextRequest) {
   try {
+    if (!isObjectStorageConfigured()) {
+      return NextResponse.json(
+        {
+          error: 'File upload storage is not configured',
+          message:
+            'Set R2_ACCESS_KEY_ID, R2_SECRET_ACCESS_KEY, R2_PUBLIC_URL, and either R2_ACCOUNT_ID or S3_ENDPOINT.'
+        },
+        { status: 400 }
+      )
+    }
+
     const userId = await getCurrentUserId()
     if (!userId) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
@@ -79,7 +90,7 @@ async function uploadFileToR2(file: File, userId: string, chatId: string) {
       })
     )
 
-    const publicUrl = `${R2_PUBLIC_URL}/${filePath}`
+    const publicUrl = `${R2_PUBLIC_URL.replace(/\/+$/, '')}/${filePath}`
 
     return {
       filename: file.name,
@@ -90,4 +101,14 @@ async function uploadFileToR2(file: File, userId: string, chatId: string) {
   } catch (error: any) {
     throw new Error('Upload failed: ' + error.message)
   }
+}
+
+function isObjectStorageConfigured() {
+  const hasCredentials =
+    !!process.env.R2_ACCESS_KEY_ID && !!process.env.R2_SECRET_ACCESS_KEY
+  const hasEndpointOrAccount =
+    !!process.env.S3_ENDPOINT || !!process.env.R2_ACCOUNT_ID
+  const hasPublicUrl = !!R2_PUBLIC_URL
+
+  return hasCredentials && hasEndpointOrAccount && hasPublicUrl
 }
