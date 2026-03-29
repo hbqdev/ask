@@ -15,9 +15,10 @@ Edit `.env.local` and set the required variables:
 ```bash
 DATABASE_URL=postgresql://morphic:morphic@postgres:5432/morphic
 OPENAI_API_KEY=your_openai_key
-TAVILY_API_KEY=your_tavily_key
-BRAVE_SEARCH_API_KEY=your_brave_key
 ```
+
+If you switch `SEARCH_API` to `tavily`, set `TAVILY_API_KEY`.  
+`BRAVE_SEARCH_API_KEY` is optional and only needed when using Brave as a dedicated general-search provider.
 
 **Note**: Authentication is disabled by default (`ENABLE_AUTH=false` in `.env.local.example`).
 
@@ -43,9 +44,34 @@ The application will:
 - Wait for the database to be ready
 - Run database migrations automatically
 - Start the Morphic application
-- Start SearXNG (optional search provider)
+- Start SearXNG and connect Morphic to it automatically
 
 3. Visit http://localhost:3000 in your browser.
+
+### Built-in Docker Defaults
+
+When running with `docker compose up -d`, Morphic is automatically configured to use internal Docker services:
+
+- `LOCAL_REDIS_URL=redis://redis:6379`
+- `SEARCH_API=searxng`
+- `SEARXNG_API_URL=http://searxng:8080`
+- `MORPHIC_CLOUD_DEPLOYMENT=false`
+
+Important precedence note:
+
+- Values defined in `docker-compose.yaml` under `services.morphic.environment` take precedence over `.env.local` (`env_file`) values.
+- To override a default from compose, export the variable before startup. Example:
+  - `SEARCH_API=tavily docker compose up -d`
+  - `SEARXNG_API_URL=http://custom-searxng:8080 docker compose up -d`
+
+### File Upload in Docker
+
+File upload requires externally reachable object storage. Docker Compose does not provision storage by default.
+
+- Required: `R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY`, `R2_PUBLIC_URL`
+- Required (one of): `R2_ACCOUNT_ID` (Cloudflare R2) or `S3_ENDPOINT` (generic S3-compatible endpoint)
+
+If these are not set, `/api/upload` returns `400` and upload is disabled.
 
 **Note**: Database data is persisted in a Docker volume. To reset the database, run:
 

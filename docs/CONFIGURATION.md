@@ -353,14 +353,18 @@ LANGFUSE_HOST=https://cloud.langfuse.com
 
 ### File Upload
 
-Enable file upload with Cloudflare R2:
+Enable file upload with Cloudflare R2 or S3-compatible storage:
 
 ```bash
-CLOUDFLARE_R2_ACCESS_KEY_ID=[YOUR_ACCESS_KEY]
-CLOUDFLARE_R2_SECRET_ACCESS_KEY=[YOUR_SECRET_KEY]
-CLOUDFLARE_R2_ACCOUNT_ID=[YOUR_ACCOUNT_ID]
-CLOUDFLARE_R2_BUCKET_NAME=[YOUR_BUCKET_NAME]
+R2_ACCESS_KEY_ID=[YOUR_ACCESS_KEY]
+R2_SECRET_ACCESS_KEY=[YOUR_SECRET_KEY]
+R2_ACCOUNT_ID=[YOUR_ACCOUNT_ID]  # For Cloudflare R2
+# S3_ENDPOINT=[YOUR_S3_ENDPOINT]  # Optional: generic S3-compatible endpoint
+R2_BUCKET_NAME=[YOUR_BUCKET_NAME]
+R2_PUBLIC_URL=[YOUR_PUBLIC_BASE_URL]
 ```
+
+If storage variables are not configured, `/api/upload` returns `400` and uploads are disabled.
 
 ### Alternative Fetch Tool
 

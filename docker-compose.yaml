@@ -19,6 +19,11 @@ services:
       # Authentication settings (default: disabled for personal Docker use)
       ENABLE_AUTH: ${ENABLE_AUTH:-false}
       ANONYMOUS_USER_ID: ${ANONYMOUS_USER_ID:-docker-anonymous}
+      MORPHIC_CLOUD_DEPLOYMENT: 'false'
+      # Docker-internal service URLs
+      LOCAL_REDIS_URL: ${LOCAL_REDIS_URL:-redis://redis:6379}
+      SEARCH_API: ${SEARCH_API:-searxng}
+      SEARXNG_API_URL: ${SEARXNG_API_URL:-http://searxng:8080}
     ports:
       - '3000:3000' # Maps port 3000 on the host to port 3000 in the container.
     depends_on:
