@@ -14,6 +14,11 @@ const ALLOWED_TYPES = ['image/jpeg', 'image/png', 'application/pdf']
 
 export async function POST(req: NextRequest) {
   try {
+    const userId = await getCurrentUserId()
+    if (!userId) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+    }
+
     if (!isObjectStorageConfigured()) {
       return NextResponse.json(
         {
@@ -25,10 +30,6 @@ export async function POST(req: NextRequest) {
       )
     }
 
-    const userId = await getCurrentUserId()
-    if (!userId) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-    }
     const contentType = req.headers.get('content-type') || ''
     if (!contentType.includes('multipart/form-data')) {
       return NextResponse.json(
