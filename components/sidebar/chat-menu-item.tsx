@@ -18,8 +18,7 @@ import {
   AlertDialogDescription,
   AlertDialogFooter,
   AlertDialogHeader,
-  AlertDialogTitle,
-  AlertDialogTrigger
+  AlertDialogTitle
 } from '@/components/ui/alert-dialog'
 import {
   DropdownMenu,
@@ -87,6 +86,11 @@ export function ChatMenuItem({ chat }: ChatMenuItemProps) {
   const [isAlertOpen, setIsAlertOpen] = useState(false)
 
   const handleDeleteChat = useCallback(() => {
+    // Close overlays first so focus and pointer locks are released
+    // before the list updates and this item potentially unmounts.
+    setIsAlertOpen(false)
+    setIsMenuOpen(false)
+
     startTransition(async () => {
       const result = await deleteChat(chat.id)
 
@@ -101,30 +105,11 @@ export function ChatMenuItem({ chat }: ChatMenuItemProps) {
       } else {
         toast.error('An unexpected error occurred while deleting the chat.')
       }
-      setIsAlertOpen(false)
-      setIsMenuOpen(false)
     })
   }, [chat.id, isActive, router, startTransition])
-
-  const handleAlertOpenChange = useCallback(
-    (open: boolean) => {
-      setIsAlertOpen(open)
-      if (!open && !isPending) {
-        setIsMenuOpen(false)
-      }
-    },
-    [isPending, setIsMenuOpen, setIsAlertOpen]
-  )
-
-  const handleMenuOpenChange = useCallback(
-    (open: boolean) => {
-      setIsMenuOpen(open)
-      if (!open && !isPending) {
-        setIsAlertOpen(false)
-      }
-    },
-    [isPending, setIsMenuOpen, setIsAlertOpen]
-  )
+  const handleMenuOpenChange = useCallback((open: boolean) => {
+    setIsMenuOpen(open)
+  }, [])
 
   return (
     <SidebarMenuItem>
@@ -151,51 +136,50 @@ export function ChatMenuItem({ chat }: ChatMenuItemProps) {
           </SidebarMenuAction>
         </DropdownMenuTrigger>
         <DropdownMenuContent side="right" align="start">
-          <AlertDialog open={isAlertOpen} onOpenChange={handleAlertOpenChange}>
-            <AlertDialogTrigger asChild>
-              <DropdownMenuItem
-                className="gap-2 text-destructive focus:text-destructive"
-                onSelect={e => {
-                  e.preventDefault()
-                }}
-              >
-                <Trash2 size={14} />
-                Delete Chat
-              </DropdownMenuItem>
-            </AlertDialogTrigger>
-            <AlertDialogContent>
-              <AlertDialogHeader>
-                <AlertDialogTitle>Are you absolutely sure?</AlertDialogTitle>
-                <AlertDialogDescription>
-                  This action cannot be undone. This will permanently delete
-                  this chat history.
-                </AlertDialogDescription>
-              </AlertDialogHeader>
-              <AlertDialogFooter>
-                <AlertDialogCancel disabled={isPending}>
-                  Cancel
-                </AlertDialogCancel>
-                <AlertDialogAction
-                  disabled={isPending}
-                  onClick={event => {
-                    event.preventDefault()
-                    handleDeleteChat()
-                  }}
-                  className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
-                >
-                  {isPending ? (
-                    <div className="flex items-center justify-center">
-                      <Spinner />
-                    </div>
-                  ) : (
-                    'Delete'
-                  )}
-                </AlertDialogAction>
-              </AlertDialogFooter>
-            </AlertDialogContent>
-          </AlertDialog>
+          <DropdownMenuItem
+            className="gap-2 text-destructive focus:text-destructive"
+            onSelect={event => {
+              event.preventDefault()
+              setIsMenuOpen(false)
+              setIsAlertOpen(true)
+            }}
+          >
+            <Trash2 size={14} />
+            Delete Chat
+          </DropdownMenuItem>
         </DropdownMenuContent>
       </DropdownMenu>
+
+      <AlertDialog open={isAlertOpen} onOpenChange={setIsAlertOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Are you absolutely sure?</AlertDialogTitle>
+            <AlertDialogDescription>
+              This action cannot be undone. This will permanently delete this
+              chat history.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={isPending}>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              disabled={isPending}
+              onClick={event => {
+                event.preventDefault()
+                handleDeleteChat()
+              }}
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+            >
+              {isPending ? (
+                <div className="flex items-center justify-center">
+                  <Spinner />
+                </div>
+              ) : (
+                'Delete'
+              )}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </SidebarMenuItem>
   )
 }

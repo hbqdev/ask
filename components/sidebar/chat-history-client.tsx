@@ -55,15 +55,15 @@ export function ChatHistoryClient() {
 
   useEffect(() => {
     const handleHistoryUpdate = () => {
-      startTransition(() => {
-        fetchInitialChats()
+      startTransition(async () => {
+        await fetchInitialChats()
       })
     }
     window.addEventListener('chat-history-updated', handleHistoryUpdate)
     return () => {
       window.removeEventListener('chat-history-updated', handleHistoryUpdate)
     }
-  }, [fetchInitialChats])
+  }, [fetchInitialChats, startTransition])
 
   const fetchMoreChats = useCallback(async () => {
     if (isLoading || nextOffset === null) return
