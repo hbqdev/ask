@@ -12,8 +12,6 @@
 export interface ChatEventData {
   /** Search mode used for the chat */
   searchMode: 'quick' | 'planning' | 'adaptive'
-  /** Model type preference */
-  modelType: 'speed' | 'quality'
   /** Conversation turn number (1-indexed, represents follow-up count) */
   conversationTurn: number
   /** Whether this is a new chat session */
@@ -24,6 +22,8 @@ export interface ChatEventData {
   chatId: string
   /** User ID (Supabase UUID - pseudonymized identifier) */
   userId: string
+  /** Provider identifier used for the chat */
+  providerId: string
   /** Model identifier used for the chat */
   modelId: string
 }

@@ -224,49 +224,34 @@ If `BRAVE_SEARCH_API_KEY` is not configured, `type="general"` searches will auto
 
 ## Additional AI Providers
 
-Models are configured in `config/models/*.json` files. Each provider requires its corresponding API key to be set in the environment variables.
+Model selection behavior differs by deployment type:
+
+- **Cloud (`MORPHIC_CLOUD_DEPLOYMENT=true`)**: models are fixed by `config/models/cloud.json`
+- **Local/Docker (`MORPHIC_CLOUD_DEPLOYMENT=false`)**: models are fetched dynamically from provider APIs and selected in the UI; selection is persisted in `selectedModel` cookie
+
+If no user-selected model exists in Local/Docker, Morphic falls back to an internal default model.
 
 ### Model Configuration
 
-Model configuration files use the following structure:
+Cloud model configuration uses the following structure:
 
 ```json
 {
-  "version": 1,
+  "version": 2,
   "models": {
-    "byMode": {
-      "quick": {
-        "speed": {
-          "id": "model-id",
-          "name": "Model Name",
-          "provider": "Provider Name",
-          "providerId": "provider-id",
-          "providerOptions": {}
-        },
-        "quality": {
-          "id": "model-id",
-          "name": "Model Name",
-          "provider": "Provider Name",
-          "providerId": "provider-id",
-          "providerOptions": {}
-        }
-      },
-      "adaptive": {
-        "speed": {
-          "id": "model-id",
-          "name": "Model Name",
-          "provider": "Provider Name",
-          "providerId": "provider-id",
-          "providerOptions": {}
-        },
-        "quality": {
-          "id": "model-id",
-          "name": "Model Name",
-          "provider": "Provider Name",
-          "providerId": "provider-id",
-          "providerOptions": {}
-        }
-      }
+    "quick": {
+      "id": "model-id",
+      "name": "Model Name",
+      "provider": "Provider Name",
+      "providerId": "provider-id",
+      "providerOptions": {}
+    },
+    "adaptive": {
+      "id": "model-id",
+      "name": "Model Name",
+      "provider": "Provider Name",
+      "providerId": "provider-id",
+      "providerOptions": {}
     },
     "relatedQuestions": {
       "id": "model-id",
@@ -278,7 +263,9 @@ Model configuration files use the following structure:
 }
 ```
 
-Define all four combinations to control which model runs for every search mode (`quick`, `adaptive`) and preference (`speed`, `quality`). For example, you can pair `quick/speed` with `gemini-2.5-flash-lite` while keeping `adaptive/quality` on GPT-5. The default config ships with OpenAI models for every slot so Morphic works out-of-the-box.
+In Cloud, `quick` and `adaptive` are selected by search mode, and `relatedQuestions` is used for follow-up question generation.
+
+In Local/Docker, `cloud.json` is not used for normal chat model selection.
 
 ### Supported Providers
 
@@ -318,16 +305,7 @@ AI_GATEWAY_API_KEY=[YOUR_AI_GATEWAY_API_KEY]
 OLLAMA_BASE_URL=http://localhost:11434
 ```
 
-Then update your `config/models/*.json` files to use Ollama models:
-
-```json
-{
-  "id": "qwen3:latest",
-  "name": "Qwen 3",
-  "provider": "Ollama",
-  "providerId": "ollama"
-}
-```
+When configured, Ollama models are discovered dynamically and appear in the Local/Docker model selector.
 
 **Important Notes:**
 

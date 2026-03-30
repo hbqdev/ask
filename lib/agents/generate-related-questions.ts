@@ -2,6 +2,7 @@ import { type ModelMessage, Output, streamText } from 'ai'
 
 import { getRelatedQuestionsModel } from '../config/model-types'
 import { relatedQuestionSchema } from '../schema/related'
+import { Model } from '../types/models'
 import { getModel } from '../utils/registry'
 import { isTracingEnabled } from '../utils/telemetry'
 
@@ -10,10 +11,11 @@ import { RELATED_QUESTIONS_PROMPT } from './prompts/related-questions-prompt'
 export function createRelatedQuestionsStream(
   messages: ModelMessage[],
   abortSignal?: AbortSignal,
-  parentTraceId?: string
+  parentTraceId?: string,
+  localSelectedModel?: Model
 ) {
-  // Use the related questions model configuration from JSON
-  const relatedModel = getRelatedQuestionsModel()
+  // Use cloud related-questions model when available, otherwise local default model.
+  const relatedModel = getRelatedQuestionsModel(localSelectedModel)
   const modelId = `${relatedModel.providerId}:${relatedModel.id}`
 
   return streamText({

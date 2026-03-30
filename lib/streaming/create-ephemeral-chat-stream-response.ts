@@ -26,7 +26,7 @@ import { BaseStreamConfig } from './types'
 
 type EphemeralStreamConfig = Pick<
   BaseStreamConfig,
-  'model' | 'abortSignal' | 'searchMode' | 'modelType'
+  'model' | 'abortSignal' | 'searchMode'
 > & {
   messages: UIMessage[]
   chatId?: string
@@ -35,7 +35,7 @@ type EphemeralStreamConfig = Pick<
 export async function createEphemeralChatStreamResponse(
   config: EphemeralStreamConfig
 ): Promise<Response> {
-  const { messages, model, abortSignal, searchMode, modelType, chatId } = config
+  const { messages, model, abortSignal, searchMode, chatId } = config
 
   if (!messages || messages.length === 0) {
     return new Response('messages are required', {
@@ -59,8 +59,7 @@ export async function createEphemeralChatStreamResponse(
         chatId,
         userId: 'guest',
         modelId: `${model.providerId}:${model.id}`,
-        trigger: 'submit-message',
-        modelType
+        trigger: 'submit-message'
       }
     })
   }
@@ -91,8 +90,7 @@ export async function createEphemeralChatStreamResponse(
           model: `${model.providerId}:${model.id}`,
           modelConfig: model,
           parentTraceId,
-          searchMode,
-          modelType
+          searchMode
         })
 
         const result = await researchAgent.stream({
@@ -127,7 +125,8 @@ export async function createEphemeralChatStreamResponse(
             writer,
             messagesForQuestions,
             abortSignal,
-            parentTraceId
+            parentTraceId,
+            model
           )
         }
       } finally {

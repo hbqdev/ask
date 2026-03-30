@@ -1,4 +1,7 @@
-import { loadModelsConfig } from '@/lib/config/load-models-config'
+import {
+  isCloudDeployment,
+  loadModelsConfig
+} from '@/lib/config/load-models-config'
 import { OllamaClient } from '@/lib/ollama/client'
 import { Model } from '@/lib/types/models'
 
@@ -13,23 +16,26 @@ let validationError: Error | null = null
  * Extract all Ollama models from the configuration
  */
 async function getConfiguredOllamaModels(): Promise<Model[]> {
+  if (!isCloudDeployment()) {
+    return []
+  }
+
   const ollamaModels: Model[] = []
 
   try {
     const config = await loadModelsConfig()
 
-    // Check byMode models
-    for (const mode of Object.values(config.models.byMode)) {
-      for (const model of Object.values(mode as Record<string, Model>)) {
-        if (model.providerId === 'ollama') {
-          ollamaModels.push(model)
-        }
-      }
-    }
+    // Check quick/adaptive models
+    const cloudModels = [
+      config.models.quick,
+      config.models.adaptive,
+      config.models.relatedQuestions
+    ]
 
-    // Check relatedQuestions model
-    if (config.models.relatedQuestions?.providerId === 'ollama') {
-      ollamaModels.push(config.models.relatedQuestions)
+    for (const model of cloudModels) {
+      if (model?.providerId === 'ollama') {
+        ollamaModels.push(model)
+      }
     }
   } catch (error) {
     console.warn('Failed to load model configuration:', error)

@@ -10,7 +10,6 @@ A command-line interface for testing the chat API without a browser client. This
 
 - Send messages to the chat API via command line
 - Real-time Server-Sent Events (SSE) streaming output
-- Support for model types (speed/quality) with automatic model selection
 - Configurable search modes (quick/adaptive) or disabled
 - Chat session continuity
 - Message regeneration support
@@ -36,9 +35,6 @@ bun scripts/chat-cli.ts -m "Hello, how are you?"
 # Disable search mode
 bun chat -m "Tell me a joke" --no-search
 
-# Use quality model type for better responses
-bun chat -m "Explain quantum computing" --model-type quality
-
 # Use adaptive search mode for complex queries
 bun chat -m "Research the latest AI developments" --search-mode adaptive
 
@@ -60,7 +56,6 @@ bun chat --help
 - `-s, --search` - Enable search mode with adaptive strategy (default)
 - `--no-search` - Disable search mode
 - `--search-mode <type>` - Search strategy: `quick` or `adaptive`
-- `--model-type <type>` - Model type: `speed` (default) or `quality`
 - `-t, --trigger <type>` - Trigger type: `submit` (default) or `regenerate`
 - `--message-id <id>` - Message ID (required for regenerate trigger)
 - `-h, --help` - Show help message
@@ -70,17 +65,11 @@ bun chat --help
 The script displays:
 
 - 🚀 Request details
-- 🤖 Model type (speed/quality)
 - 🔍 Search mode status (quick/adaptive/disabled)
 - 💬 Chat ID for reference
 - Real-time AI responses with proper formatting
 - 🔧 Tool usage (when search mode is enabled)
 - ✅ Completion status
-
-### Model Types
-
-- **speed**: Fast responses using optimized models (default)
-- **quality**: Higher quality responses using advanced models
 
 ### Search Modes
 
@@ -133,9 +122,9 @@ If you encounter "User not authenticated" errors:
 
 If you encounter "Selected provider is not enabled" errors:
 
-1. Check that the model type is correctly configured in your system
-2. Verify the development server supports the requested model type
-3. Try switching between `--model-type speed` and `--model-type quality`
+1. Verify the selected model/provider is enabled in your local configuration
+2. Check the required provider API key is set in `.env.local`
+3. Retry with `--search-mode quick` to isolate search-specific issues
 
 #### General Issues
 
@@ -150,9 +139,9 @@ If you encounter "Selected provider is not enabled" errors:
 # Test basic functionality
 bun chat -m "Hello, test message" --no-search
 
-# Test with quality model and adaptive search
-bun chat -m "Complex analysis task" --model-type quality --search-mode adaptive
+# Test adaptive search
+bun chat -m "Complex analysis task" --search-mode adaptive
 
 # Debug mode
-DEBUG=1 bun chat -m "Debug test" --model-type speed
+DEBUG=1 bun chat -m "Debug test"
 ```

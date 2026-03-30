@@ -1,7 +1,6 @@
 import { stepCountIs, tool, ToolLoopAgent } from 'ai'
 
 import type { ResearcherTools } from '@/lib/types/agent'
-import { type ModelType } from '@/lib/types/model-type'
 import { type Model } from '@/lib/types/models'
 
 import { fetchTool } from '../tools/fetch'
@@ -69,14 +68,12 @@ export function createResearcher({
   model,
   modelConfig,
   parentTraceId,
-  searchMode = 'adaptive',
-  modelType
+  searchMode = 'adaptive'
 }: {
   model: string
   modelConfig?: Model
   parentTraceId?: string
   searchMode?: SearchMode
-  modelType?: ModelType
 }) {
   try {
     const currentDate = new Date().toLocaleString()
@@ -108,7 +105,7 @@ export function createResearcher({
         systemPrompt = getAdaptiveModePrompt()
         activeToolsList = ['search', 'fetch', 'todoWrite']
         console.log(
-          `[Researcher] Adaptive mode: maxSteps=50, modelType=${modelType}, tools=[${activeToolsList.join(', ')}]`
+          `[Researcher] Adaptive mode: maxSteps=50, tools=[${activeToolsList.join(', ')}]`
         )
         maxSteps = 50
         searchTool = originalSearchTool

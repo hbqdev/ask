@@ -4,6 +4,7 @@ import { UIMessage } from 'ai'
 
 import { loadChat } from '@/lib/actions/chat'
 import { getCurrentUserId } from '@/lib/auth/get-current-user'
+import { getModelSelectorData } from '@/lib/model-selector/get-model-selector-data'
 
 import { Chat } from '@/components/chat'
 
@@ -43,6 +44,16 @@ export default async function SearchPage(props: {
   }
 
   const messages: UIMessage[] = chat.messages
+  const isCloudDeployment = process.env.MORPHIC_CLOUD_DEPLOYMENT === 'true'
+  const modelSelectorData = await getModelSelectorData()
 
-  return <Chat id={id} savedMessages={messages} isGuest={!userId} />
+  return (
+    <Chat
+      id={id}
+      savedMessages={messages}
+      isGuest={!userId}
+      isCloudDeployment={isCloudDeployment}
+      modelSelectorData={modelSelectorData}
+    />
+  )
 }

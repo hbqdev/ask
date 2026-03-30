@@ -14,7 +14,6 @@ interface ChatApiConfig {
   apiUrl: string
   message: string
   chatId?: string
-  modelType?: 'speed' | 'quality'
   searchMode?: 'quick' | 'adaptive' | boolean
   trigger?: 'submit-message' | 'regenerate-message'
   messageId?: string
@@ -88,7 +87,6 @@ class ChatApiTester {
         this.validateUrl(config.apiUrl) || 'http://localhost:3000/api/chat',
       message: config.message || DEFAULT_MESSAGE,
       chatId: config.chatId || this.generateId(),
-      modelType: config.modelType || 'speed',
       searchMode: config.searchMode ?? 'adaptive',
       trigger: config.trigger || 'submit-message',
       messageId: config.messageId
@@ -159,7 +157,6 @@ class ChatApiTester {
 
     console.log('🚀 Sending request to:', this.config.apiUrl)
     console.log('📦 Payload:', JSON.stringify(payload, null, 2))
-    console.log('🤖 Model Type:', this.config.modelType)
     console.log('🔍 Search Mode:', this.config.searchMode)
     console.log('💬 Chat ID:', this.config.chatId)
     console.log('\n---\n')
@@ -169,9 +166,6 @@ class ChatApiTester {
     if (cookies) {
       // If cookies from env exist, append our settings to them
       cookieString = cookies
-      if (!cookieString.includes('modelType=')) {
-        cookieString += `; modelType=${this.config.modelType}`
-      }
       if (!cookieString.includes('searchMode=')) {
         const searchModeValue =
           this.config.searchMode === false ? 'disabled' : this.config.searchMode
@@ -181,10 +175,7 @@ class ChatApiTester {
       // If no cookies from env, just use our settings
       const searchModeValue =
         this.config.searchMode === false ? 'disabled' : this.config.searchMode
-      cookieString = [
-        `modelType=${this.config.modelType}`,
-        `searchMode=${searchModeValue}`
-      ].join('; ')
+      cookieString = [`searchMode=${searchModeValue}`].join('; ')
     }
 
     const headers = {
@@ -343,15 +334,6 @@ function parseArgs(): Partial<ChatApiConfig> {
           process.exit(1)
         }
         break
-      case '--model-type':
-        const modelType = args[++i]
-        if (['speed', 'quality'].includes(modelType)) {
-          config.modelType = modelType as 'speed' | 'quality'
-        } else {
-          console.error('❌ Invalid model type. Use: speed or quality')
-          process.exit(1)
-        }
-        break
       case '-t':
       case '--trigger':
         const trigger = args[++i]
@@ -378,7 +360,6 @@ Options:
   -s, --search            Enable search mode with adaptive strategy (default)
   --no-search             Disable search mode
   --search-mode <type>    Search strategy: quick or adaptive
-  --model-type <type>     Model type: speed (default) or quality
   -t, --trigger <type>    Trigger type: submit (default) or regenerate
   --message-id <id>       Message ID (required for regenerate)
   -h, --help              Show this help message
@@ -389,9 +370,6 @@ Examples:
   
   # Without search mode
   bun scripts/chat-cli.ts -m "Tell me a joke" --no-search
-  
-  # With quality model type
-  bun scripts/chat-cli.ts -m "Tell me a joke" --model-type quality
   
   # Continue existing chat
   bun scripts/chat-cli.ts -c "chat_123" -m "Tell me more"
