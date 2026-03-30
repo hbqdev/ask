@@ -58,7 +58,7 @@ cp .env.local.example .env.local
 OPENAI_API_KEY=your_openai_key
 ```
 
-Other supported providers: Anthropic (`ANTHROPIC_API_KEY`), Google (`GOOGLE_GENERATIVE_AI_API_KEY`), Ollama (`OLLAMA_BASE_URL`), [Vercel AI Gateway](https://sdk.vercel.ai/docs/ai-sdk-core/settings#model) (`AI_GATEWAY_API_KEY` — access 200+ models through a single API). See [CONFIGURATION.md](./docs/CONFIGURATION.md) for details.
+See [supported providers](./docs/CONFIGURATION.md#supported-providers) for other options (Anthropic, Google, Ollama, Vercel AI Gateway).
 
 3. Start all services:
 
