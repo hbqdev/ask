@@ -8,8 +8,7 @@ describe('createEphemeralChatStreamResponse', () => {
       messages: [],
       model: { providerId: 'openai', id: 'gpt-4o-mini' } as any,
       abortSignal: new AbortController().signal,
-      searchMode: 'quick',
-      modelType: 'speed'
+      searchMode: 'quick'
     })
 
     expect(response.status).toBe(400)

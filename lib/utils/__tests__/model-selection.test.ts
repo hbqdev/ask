@@ -1,139 +1,196 @@
-import type { ReadonlyRequestCookies } from 'next/dist/server/web/spec-extension/adapters/request-cookies'
-
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
-import type { ModelType } from '@/lib/types/model-type'
+import { isCloudDeployment } from '@/lib/config/load-models-config'
+import { MODEL_SELECTION_COOKIE } from '@/lib/config/model-selection-cookie'
 import type { Model } from '@/lib/types/models'
 import type { SearchMode } from '@/lib/types/search'
 
+vi.mock('@/lib/config/load-models-config')
 vi.mock('@/lib/config/model-types')
 vi.mock('@/lib/utils/registry')
 
-import { getModelForModeAndType } from '@/lib/config/model-types'
+import { getModelForMode } from '@/lib/config/model-types'
 import { DEFAULT_MODEL, selectModel } from '@/lib/utils/model-selection'
 import { isProviderEnabled } from '@/lib/utils/registry'
 
-const mockGetModelForModeAndType = vi.mocked(getModelForModeAndType)
+const mockIsCloudDeployment = vi.mocked(isCloudDeployment)
+const mockGetModelForMode = vi.mocked(getModelForMode)
 const mockIsProviderEnabled = vi.mocked(isProviderEnabled)
 
-type Matrix = Record<SearchMode, Partial<Record<ModelType, Model>>>
+type Matrix = Partial<Record<SearchMode, Model>>
 
-const quickSpeedModel: Model = {
-  id: 'quick-speed',
-  name: 'Quick Speed',
+const quickModel: Model = {
+  id: 'quick',
+  name: 'Quick',
   provider: 'Provider A',
   providerId: 'provider-a'
 }
 
-const quickQualityModel: Model = {
-  id: 'quick-quality',
-  name: 'Quick Quality',
+const adaptiveModel: Model = {
+  id: 'adaptive',
+  name: 'Adaptive',
   provider: 'Provider B',
   providerId: 'provider-b'
-}
-
-const adaptiveQualityModel: Model = {
-  id: 'adaptive-quality',
-  name: 'Adaptive Quality',
-  provider: 'Provider C',
-  providerId: 'provider-c'
-}
-
-const adaptiveSpeedModel: Model = {
-  id: 'adaptive-speed',
-  name: 'Adaptive Speed',
-  provider: 'Provider D',
-  providerId: 'provider-d'
 }
 
 let matrix: Matrix
 
 function setMatrixImplementation() {
-  mockGetModelForModeAndType.mockImplementation(
-    (mode: SearchMode, type: ModelType) => matrix[mode]?.[type]
-  )
+  mockGetModelForMode.mockImplementation((mode: SearchMode) => matrix[mode])
 }
 
-function createCookieStore(modelType?: string): ReadonlyRequestCookies {
+function createCookieStore(value?: string) {
   return {
     get: (name: string) => {
-      if (name === 'modelType' && modelType) {
-        return { name, value: modelType } as any
+      if (name === MODEL_SELECTION_COOKIE && value) {
+        return { name, value } as { name: string; value: string }
       }
+
       return undefined
     }
-  } as unknown as ReadonlyRequestCookies
+  } as any
 }
 
 describe('selectModel', () => {
   beforeEach(() => {
     vi.clearAllMocks()
+    mockIsCloudDeployment.mockReturnValue(true)
     matrix = {
-      quick: {
-        speed: quickSpeedModel,
-        quality: quickQualityModel
-      },
-      adaptive: {
-        speed: adaptiveSpeedModel,
-        quality: adaptiveQualityModel
-      }
+      quick: quickModel,
+      adaptive: adaptiveModel
     }
     setMatrixImplementation()
     mockIsProviderEnabled.mockReturnValue(true)
   })
 
-  it('returns the cookie-preferred type for the active mode when available', () => {
-    const result = selectModel({
-      cookieStore: createCookieStore('quality'),
-      searchMode: 'quick'
+  it('returns the cloud model for the active mode when available', async () => {
+    const result = await selectModel({
+      searchMode: 'quick',
+      cookieStore: createCookieStore()
     })
-
-    expect(result).toEqual(quickQualityModel)
+    expect(result).toEqual(quickModel)
   })
 
-  it('falls back to speed model for the mode when cookie is absent', () => {
-    const result = selectModel({
-      cookieStore: createCookieStore(),
-      searchMode: 'adaptive'
-    })
-
-    expect(result).toEqual(adaptiveSpeedModel)
-  })
-
-  it('falls back to the other type within the same mode when preferred provider is disabled', () => {
+  it('falls back to the next mode when active mode provider is disabled', async () => {
     mockIsProviderEnabled.mockImplementation(providerId =>
       providerId === 'provider-a' ? false : true
     )
 
-    const result = selectModel({
-      cookieStore: createCookieStore('speed'),
-      searchMode: 'quick'
+    const result = await selectModel({
+      searchMode: 'quick',
+      cookieStore: createCookieStore()
     })
 
-    expect(result).toEqual(quickQualityModel)
+    expect(result).toEqual(adaptiveModel)
   })
 
-  it('falls back to the next mode in priority order when active mode has no enabled models', () => {
+  it('falls back to quick mode when search mode is omitted', async () => {
+    const result = await selectModel({ cookieStore: createCookieStore() })
+    expect(result).toEqual(quickModel)
+  })
+
+  it('falls back to DEFAULT_MODEL when cloud models are unavailable', async () => {
+    matrix = {}
+    setMatrixImplementation()
+    const result = await selectModel({
+      searchMode: 'quick',
+      cookieStore: createCookieStore()
+    })
+    expect(result).toEqual(DEFAULT_MODEL)
+  })
+
+  it('falls back to DEFAULT_MODEL when configured providers are disabled', async () => {
     mockIsProviderEnabled.mockImplementation(providerId =>
       providerId === 'provider-a' || providerId === 'provider-b' ? false : true
     )
 
-    const result = selectModel({
-      cookieStore: createCookieStore('quality'),
-      searchMode: 'quick'
-    })
-
-    expect(result).toEqual(adaptiveQualityModel)
-  })
-
-  it('returns DEFAULT_MODEL when no configured providers are enabled', () => {
-    mockIsProviderEnabled.mockReturnValue(false)
-
-    const result = selectModel({
-      cookieStore: createCookieStore(),
-      searchMode: 'quick'
+    const result = await selectModel({
+      searchMode: 'quick',
+      cookieStore: createCookieStore()
     })
 
     expect(result).toEqual(DEFAULT_MODEL)
+  })
+
+  it('returns cookie-selected model in local/docker mode', async () => {
+    mockIsCloudDeployment.mockReturnValue(false)
+    mockIsProviderEnabled.mockImplementation(
+      providerId => providerId === 'provider-l'
+    )
+
+    const result = await selectModel({
+      cookieStore: createCookieStore('provider-l:local-model')
+    })
+    expect(result).toEqual({
+      id: 'local-model',
+      name: 'local-model',
+      provider: 'provider-l',
+      providerId: 'provider-l'
+    })
+  })
+
+  it('falls back to DEFAULT_MODEL in local/docker mode when cookie is missing', async () => {
+    mockIsCloudDeployment.mockReturnValue(false)
+
+    const result = await selectModel({ cookieStore: createCookieStore() })
+    expect(result).toEqual(DEFAULT_MODEL)
+  })
+
+  it('falls back to DEFAULT_MODEL when local cookie provider is disabled', async () => {
+    mockIsCloudDeployment.mockReturnValue(false)
+    mockIsProviderEnabled.mockImplementation(providerId =>
+      providerId === 'provider-l' ? false : true
+    )
+
+    const result = await selectModel({
+      cookieStore: createCookieStore('provider-l:local-model')
+    })
+    expect(result).toEqual(DEFAULT_MODEL)
+  })
+
+  it('sets ollama think provider options for thinking models from cookie', async () => {
+    mockIsCloudDeployment.mockReturnValue(false)
+    mockIsProviderEnabled.mockImplementation(
+      providerId => providerId === 'ollama'
+    )
+
+    const result = await selectModel({
+      cookieStore: createCookieStore('ollama:deepseek-r1:8b')
+    })
+
+    expect(result).toEqual({
+      id: 'deepseek-r1:8b',
+      name: 'deepseek-r1:8b',
+      provider: 'Ollama',
+      providerId: 'ollama',
+      providerOptions: {
+        ollama: {
+          think: true
+        }
+      }
+    })
+  })
+
+  it('sets ollama think provider options for non-thinking models from cookie', async () => {
+    mockIsCloudDeployment.mockReturnValue(false)
+    mockIsProviderEnabled.mockImplementation(
+      providerId => providerId === 'ollama'
+    )
+
+    const result = await selectModel({
+      cookieStore: createCookieStore('ollama:llama3.2:3b')
+    })
+
+    expect(result).toEqual({
+      id: 'llama3.2:3b',
+      name: 'llama3.2:3b',
+      provider: 'Ollama',
+      providerId: 'ollama',
+      providerOptions: {
+        ollama: {
+          think: true
+        }
+      }
+    })
   })
 })

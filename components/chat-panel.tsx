@@ -10,6 +10,7 @@ import { toast } from 'sonner'
 
 import { UploadedFile } from '@/lib/types'
 import type { UIDataTypes, UIMessage, UITools } from '@/lib/types/ai'
+import type { ModelSelectorData } from '@/lib/types/model-selector'
 import { cn } from '@/lib/utils'
 
 import { useArtifact } from './artifact/artifact-context'
@@ -17,7 +18,7 @@ import { Button } from './ui/button'
 import { IconBlinkingLogo } from './ui/icons'
 import { ActionButtons } from './action-buttons'
 import { FileUploadButton } from './file-upload-button'
-import { ModelTypeSelector } from './model-type-selector'
+import { ModelSelectorClient } from './model-selector-client'
 import { SearchModeSelector } from './search-mode-selector'
 import { UploadedFileList } from './uploaded-file-list'
 
@@ -45,6 +46,9 @@ interface ChatPanelProps {
   onNewChat?: () => void
   /** Whether the current session is guest */
   isGuest?: boolean
+  /** Whether the deployment is cloud mode */
+  isCloudDeployment?: boolean
+  modelSelectorData?: ModelSelectorData
 }
 
 export function ChatPanel({
@@ -63,7 +67,9 @@ export function ChatPanel({
   setUploadedFiles,
   scrollContainerRef,
   onNewChat,
-  isGuest = false
+  isGuest = false,
+  isCloudDeployment = false,
+  modelSelectorData
 }: ChatPanelProps) {
   const router = useRouter()
   const inputRef = useRef<HTMLTextAreaElement>(null)
@@ -283,6 +289,9 @@ export function ChatPanel({
               <SearchModeSelector />
             </div>
             <div className="flex items-center gap-2">
+              {!isCloudDeployment && modelSelectorData && (
+                <ModelSelectorClient data={modelSelectorData} />
+              )}
               {messages.length > 0 && (
                 <Button
                   variant="outline"
@@ -294,9 +303,6 @@ export function ChatPanel({
                 >
                   <MessageCirclePlus className="size-4 group-hover:rotate-12 transition-all" />
                 </Button>
-              )}
-              {process.env.NEXT_PUBLIC_MORPHIC_CLOUD_DEPLOYMENT !== 'true' && (
-                <ModelTypeSelector disabled={isGuest} />
               )}
               <Button
                 type={isLoading ? 'button' : 'submit'}

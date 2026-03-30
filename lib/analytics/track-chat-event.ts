@@ -18,12 +18,12 @@ import type { ChatEventData } from './types'
  * ```typescript
  * await trackChatEvent({
  *   searchMode: 'quick',
- *   modelType: 'quality',
  *   conversationTurn: 1,
  *   isNewChat: true,
  *   trigger: 'submit-message',
  *   chatId: 'clx3k2j5m0000qzrmn4y8b9wy',
  *   userId: '550e8400-e29b-41d4-a716-446655440000',
+ *   providerId: 'openai',
  *   modelId: 'gpt-4'
  * })
  * ```
@@ -38,12 +38,12 @@ export async function trackChatEvent(data: ChatEventData): Promise<void> {
     // Send event to Vercel Analytics
     await track('chat_message_sent', {
       searchMode: data.searchMode,
-      modelType: data.modelType,
       conversationTurn: data.conversationTurn,
       isNewChat: data.isNewChat,
       trigger: data.trigger,
       chatId: data.chatId, // CUID2 - safe for tracking
       userId: data.userId, // Supabase UUID - pseudonymized identifier
+      providerId: data.providerId,
       modelId: data.modelId
     })
   } catch (error) {

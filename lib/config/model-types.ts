@@ -1,20 +1,27 @@
-import { ModelType } from '@/lib/types/model-type'
+import { DEFAULT_MODEL } from '@/lib/config/default-model'
 import { Model } from '@/lib/types/models'
 import { SearchMode } from '@/lib/types/search'
 
-import { getModelsConfig } from './load-models-config'
+import { getModelsConfig, isCloudDeployment } from './load-models-config'
 
-// Retrieve the model assigned to a specific search mode and model type combination.
-export function getModelForModeAndType(
-  mode: SearchMode,
-  type: ModelType
-): Model | undefined {
+// Retrieve the cloud model assigned to a specific search mode.
+export function getModelForMode(mode: SearchMode): Model | undefined {
+  if (!isCloudDeployment()) {
+    return undefined
+  }
+
   const cfg = getModelsConfig()
-  return cfg.models.byMode?.[mode]?.[type]
+  return cfg.models?.[mode]
 }
 
-// Accessor for the related questions model configuration.
-export function getRelatedQuestionsModel(): Model {
+// Accessor for related questions model.
+// In local/docker, reuse the selected local model when available to keep
+// provider routing consistent with the main chat flow.
+export function getRelatedQuestionsModel(localSelectedModel?: Model): Model {
+  if (!isCloudDeployment()) {
+    return localSelectedModel ?? DEFAULT_MODEL
+  }
+
   const cfg = getModelsConfig()
   return cfg.models.relatedQuestions
 }

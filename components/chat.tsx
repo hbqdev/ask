@@ -15,6 +15,7 @@ import {
   isToolCallPart,
   isToolTypePart
 } from '@/lib/types/dynamic-tools'
+import type { ModelSelectorData } from '@/lib/types/model-selector'
 import { cn } from '@/lib/utils'
 
 import { useFileDropzone } from '@/hooks/use-file-dropzone'
@@ -35,12 +36,16 @@ export function Chat({
   id: providedId,
   savedMessages = [],
   query,
-  isGuest = false
+  isGuest = false,
+  isCloudDeployment = false,
+  modelSelectorData
 }: {
   id?: string
   savedMessages?: UIMessage[]
   query?: string
   isGuest?: boolean
+  isCloudDeployment?: boolean
+  modelSelectorData?: ModelSelectorData
 }) {
   const router = useRouter()
 
@@ -489,6 +494,8 @@ export function Chat({
         scrollContainerRef={scrollContainerRef}
         onNewChat={handleNewChat}
         isGuest={isGuest}
+        isCloudDeployment={isCloudDeployment}
+        modelSelectorData={modelSelectorData}
       />
       <DragOverlay visible={dragHandlers.isDragging} />
       <ErrorModal

@@ -3,6 +3,7 @@ import { ModelMessage, UIMessageStreamWriter } from 'ai'
 import { createRelatedQuestionsStream } from '@/lib/agents/generate-related-questions'
 import { generateId } from '@/lib/db/schema'
 import { relatedSchema } from '@/lib/schema/related'
+import { Model } from '@/lib/types/models'
 
 /**
  * Generates and streams related questions if there are tool calls in the response
@@ -11,7 +12,8 @@ export async function streamRelatedQuestions(
   writer: UIMessageStreamWriter,
   messages: ModelMessage[],
   abortSignal?: AbortSignal,
-  parentTraceId?: string
+  parentTraceId?: string,
+  localSelectedModel?: Model
 ): Promise<{
   questionPartId?: string
   questions?: Array<{ question: string }>
@@ -35,7 +37,8 @@ export async function streamRelatedQuestions(
     const relatedQuestionsResult = createRelatedQuestionsStream(
       messages,
       abortSignal,
-      parentTraceId
+      parentTraceId,
+      localSelectedModel
     )
 
     const collectedQuestions: Array<{ question: string }> = []
