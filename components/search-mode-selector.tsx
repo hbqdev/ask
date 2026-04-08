@@ -63,10 +63,7 @@ export function SearchModeSelector() {
     SEARCH_MODE_CONFIGS.findIndex(config => config.value === value),
     0
   )
-  const indicatorStyle = {
-    width: `${100 / SEARCH_MODE_CONFIGS.length}%`,
-    transform: `translateX(${selectedIndex * 100}%)`
-  }
+  const modeCount = SEARCH_MODE_CONFIGS.length
 
   return (
     <>
@@ -131,8 +128,11 @@ export function SearchModeSelector() {
         <div className="relative inline-flex items-center rounded-full bg-background border p-1">
           {/* Animated background indicator */}
           <div
-            className="absolute inset-y-1 rounded-full bg-muted transition-all duration-200 ease-out"
-            style={indicatorStyle}
+            className="absolute inset-1 rounded-full bg-muted transition-all duration-200 ease-out"
+            style={{
+              width: `calc(${100 / modeCount}% - 4px)`,
+              transform: `translateX(${selectedIndex * 100}%)`
+            }}
           />
 
           {/* Mode buttons */}
