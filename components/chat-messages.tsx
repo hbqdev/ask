@@ -67,7 +67,7 @@ export function ChatMessages({
   // Calculate the offset height based on device type
   // Note: pt-14 (56px) on scroll-container must be included in desktop offset
   const offsetHeight = isMobile
-    ? 200 // Mobile: larger offset for mobile header/input (pt-12 = 48px)
+    ? 208 // Mobile: larger offset for mobile header/input (pt-14 = 56px)
     : 196 // Desktop: smaller offset (140px) + pt-14 (56px)
 
   // Extract citation maps from all messages in all sections
@@ -162,7 +162,7 @@ export function ChatMessages({
       role="list"
       aria-roledescription="chat messages"
       className={cn(
-        'relative size-full pt-12 md:pt-14',
+        'relative size-full pt-14',
         sections.length > 0 ? 'flex-1 overflow-y-auto' : ''
       )}
     >
