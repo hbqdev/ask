@@ -26,8 +26,8 @@ import { perfLog, perfTime } from '../utils/perf-logging'
 
 import { persistStreamResults } from './helpers/persist-stream-results'
 import { prepareMessages } from './helpers/prepare-messages'
-import { streamRelatedQuestions } from './helpers/stream-related-questions'
 import { stripReasoningParts } from './helpers/strip-reasoning-parts'
+import { stripSpecFromMessages } from './helpers/strip-spec-from-messages'
 import type { StreamContext } from './helpers/types'
 import { BaseStreamConfig } from './types'
 
@@ -137,9 +137,10 @@ export async function createChatStreamResponse(
         // OpenAI's Responses API requires reasoning items and their following items to be kept together
         // See: https://github.com/vercel/ai/issues/11036
         const isOpenAI = context.modelId.startsWith('openai:')
+        const messagesWithoutSpec = stripSpecFromMessages(messagesToModel)
         const messagesToConvert = isOpenAI
-          ? stripReasoningParts(messagesToModel)
-          : messagesToModel
+          ? stripReasoningParts(messagesWithoutSpec)
+          : messagesWithoutSpec
 
         // Convert to model messages and apply context window management
         let modelMessages = await convertToModelMessages(messagesToConvert)
@@ -204,26 +205,8 @@ export async function createChatStreamResponse(
           })
         )
 
-        const responseMessages = (await result.response).messages
+        await result.response
         perfTime('researchAgent.stream completed', llmStart)
-        // Generate related questions
-        if (responseMessages && responseMessages.length > 0) {
-          // Find the last user message
-          const lastUserMessage = [...modelMessages]
-            .reverse()
-            .find(msg => msg.role === 'user')
-          const messagesForQuestions = lastUserMessage
-            ? [lastUserMessage, ...responseMessages]
-            : responseMessages
-
-          await streamRelatedQuestions(
-            writer,
-            messagesForQuestions,
-            abortSignal,
-            parentTraceId,
-            model
-          )
-        }
       } catch (error) {
         console.error('Stream execution error:', error)
         throw error // This error will be handled by the onError callback

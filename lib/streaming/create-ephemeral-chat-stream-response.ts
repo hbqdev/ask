@@ -20,8 +20,8 @@ import {
   truncateMessages
 } from '../utils/context-window'
 
-import { streamRelatedQuestions } from './helpers/stream-related-questions'
 import { stripReasoningParts } from './helpers/strip-reasoning-parts'
+import { stripSpecFromMessages } from './helpers/strip-spec-from-messages'
 import { BaseStreamConfig } from './types'
 
 type EphemeralStreamConfig = Pick<
@@ -68,9 +68,10 @@ export async function createEphemeralChatStreamResponse(
     execute: async ({ writer }: { writer: UIMessageStreamWriter }) => {
       try {
         const isOpenAI = `${model.providerId}:${model.id}`.startsWith('openai:')
+        const messagesWithoutSpec = stripSpecFromMessages(messages)
         const messagesToConvert = isOpenAI
-          ? stripReasoningParts(messages)
-          : messages
+          ? stripReasoningParts(messagesWithoutSpec)
+          : messagesWithoutSpec
 
         let modelMessages = await convertToModelMessages(messagesToConvert)
 
@@ -113,22 +114,7 @@ export async function createEphemeralChatStreamResponse(
           })
         )
 
-        const responseMessages = (await result.response).messages
-        if (responseMessages && responseMessages.length > 0) {
-          const lastUserMessage = [...modelMessages]
-            .reverse()
-            .find(msg => msg.role === 'user')
-          const messagesForQuestions = lastUserMessage
-            ? [lastUserMessage, ...responseMessages]
-            : responseMessages
-          await streamRelatedQuestions(
-            writer,
-            messagesForQuestions,
-            abortSignal,
-            parentTraceId,
-            model
-          )
-        }
+        await result.response
       } finally {
         if (langfuse) {
           await langfuse.flushAsync()
