@@ -3,7 +3,7 @@ import { createGateway } from '@ai-sdk/gateway'
 import { google } from '@ai-sdk/google'
 import { createOpenAI, openai } from '@ai-sdk/openai'
 import { createProviderRegistry, LanguageModel } from 'ai'
-import { createOllama } from 'ollama-ai-provider-v2'
+import { createOllama } from 'ai-sdk-ollama'
 
 // Build providers object conditionally
 const providers: Record<string, any> = {
@@ -20,15 +20,34 @@ const providers: Record<string, any> = {
 }
 
 // Only add Ollama if OLLAMA_BASE_URL is configured
-if (process.env.OLLAMA_BASE_URL) {
-  providers.ollama = createOllama({
-    baseURL: `${process.env.OLLAMA_BASE_URL}/api`
-  })
+const ollamaProvider = process.env.OLLAMA_BASE_URL
+  ? createOllama({ baseURL: process.env.OLLAMA_BASE_URL })
+  : null
+
+if (ollamaProvider) {
+  providers.ollama = ollamaProvider
 }
 
 export const registry = createProviderRegistry(providers)
 
 export function getModel(model: string): LanguageModel {
+  // For Ollama models, bypass the registry to pass model-level settings
+  // that ai-sdk-ollama requires (think, supportedUrls override).
+  if (model.startsWith('ollama:') && ollamaProvider) {
+    const modelId = model.slice('ollama:'.length)
+    const lm = ollamaProvider(modelId, { think: true })
+
+    // Ollama's Chat API only accepts base64 in the images field, not URLs.
+    // Override supportedUrls to force AI SDK to download images and convert
+    // them to base64 before sending to the model.
+    Object.defineProperty(lm, 'supportedUrls', {
+      value: {},
+      configurable: true
+    })
+
+    return lm
+  }
+
   return registry.languageModel(
     model as Parameters<typeof registry.languageModel>[0]
   )
