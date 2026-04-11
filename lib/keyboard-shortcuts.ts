@@ -69,4 +69,3 @@ export function matchesShortcut(
     event.shiftKey === shortcut.shift
   )
 }
-

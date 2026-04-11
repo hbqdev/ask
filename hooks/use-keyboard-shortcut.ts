@@ -4,7 +4,8 @@ import { useEffect, useRef } from 'react'
 
 import {
   matchesShortcut,
-  type ShortcutDefinition} from '@/lib/keyboard-shortcuts'
+  type ShortcutDefinition
+} from '@/lib/keyboard-shortcuts'
 
 export function useKeyboardShortcut(
   shortcut: ShortcutDefinition,
