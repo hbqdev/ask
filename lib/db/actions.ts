@@ -1,7 +1,8 @@
 'use server'
 
-import { and, asc, desc, eq, gt, inArray, lt, or } from 'drizzle-orm'
+import { and, asc, desc, eq, gt, ilike, inArray, lt, or, sql } from 'drizzle-orm'
 
+import { getCurrentUserId } from '@/lib/auth/get-current-user'
 import type { UIMessage } from '@/lib/types/ai'
 import type { PersistableUIMessage } from '@/lib/types/message-persistence'
 import {
@@ -46,7 +47,10 @@ export async function createChat({
         id,
         title,
         userId,
-        visibility
+        visibility,
+        // Stamp lastViewedAt at creation so new chats land at the top
+        // of the sidebar (Perplexity-style).
+        lastViewedAt: new Date()
       })
       .returning()
 
@@ -286,7 +290,7 @@ export async function getChats(userId: string): Promise<Chat[]> {
       .select()
       .from(chats)
       .where(eq(chats.userId, userId))
-      .orderBy(desc(chats.createdAt))
+      .orderBy(sql`${chats.lastViewedAt} DESC NULLS LAST`, desc(chats.createdAt))
   })
 }
 
@@ -304,7 +308,7 @@ export async function getChatsPage(
         .select()
         .from(chats)
         .where(eq(chats.userId, userId))
-        .orderBy(desc(chats.createdAt))
+        .orderBy(sql`${chats.lastViewedAt} DESC NULLS LAST`, desc(chats.createdAt))
         .limit(limit)
         .offset(offset)
 
@@ -488,6 +492,96 @@ export async function deleteUserNotes(
   }
 }
 
+/**
+ * Bump the `last_viewed_at` timestamp on a chat so the sidebar can
+ * surface recently-viewed threads at the top (Perplexity-style).
+ *
+ * Safe to call on every chat page load. Fire-and-forget from the caller.
+ * Returns silently if the chat doesn't exist, isn't owned by the user,
+ * or there's no signed-in user (guest mode).
+ */
+export async function touchChat(chatId: string): Promise<void> {
+  try {
+    const userId = await getCurrentUserId()
+    if (!userId) return // Guest — no DB write needed
+    await withRLS(userId, async tx => {
+      await tx
+        .update(chats)
+        .set({ lastViewedAt: new Date() })
+        .where(and(eq(chats.id, chatId), eq(chats.userId, userId)))
+    })
+  } catch (error) {
+    // Touch failures should never break the page render.
+    console.warn('touchChat failed (non-fatal):', error)
+  }
+}
+
+export type ChatSearchResult = {
+  chatId: string
+  chatTitle: string
+  snippet: string      // ~150 chars of context around the match
+  role: string         // 'user' | 'assistant'
+  lastViewedAt: Date | null
+}
+
+/**
+ * Full-text search across chat titles and message text.
+ * Returns up to 20 matching chats, most-recently-viewed first.
+ */
+export async function searchUserChats(
+  userId: string,
+  query: string,
+  limit = 20
+): Promise<ChatSearchResult[]> {
+  const term = `%${query}%`
+
+  return withRLS(userId, async tx => {
+    // Search across titles and message text parts, deduplicated per chat.
+    // ILIKE is case-insensitive and sufficient for personal-scale history.
+    const rows = await tx
+      .selectDistinctOn([chats.id], {
+        chatId: chats.id,
+        chatTitle: chats.title,
+        snippet: parts.text_text,
+        role: messages.role,
+        lastViewedAt: chats.lastViewedAt
+      })
+      .from(chats)
+      .leftJoin(messages, eq(messages.chatId, chats.id))
+      .leftJoin(parts, and(eq(parts.messageId, messages.id), eq(parts.type, 'text')))
+      .where(
+        and(
+          eq(chats.userId, userId),
+          or(
+            ilike(chats.title, term),
+            ilike(parts.text_text, term)
+          )
+        )
+      )
+      .orderBy(chats.id, sql`${chats.lastViewedAt} DESC NULLS LAST`)
+      .limit(limit)
+
+    // Trim snippet to ~150 chars centred on the match
+    return rows.map(row => ({
+      chatId: row.chatId,
+      chatTitle: row.chatTitle,
+      snippet: extractSnippet(row.snippet ?? row.chatTitle, query),
+      role: row.role ?? 'user',
+      lastViewedAt: row.lastViewedAt
+    }))
+  })
+}
+
+function extractSnippet(text: string, query: string): string {
+  const MAX = 150
+  const idx = text.toLowerCase().indexOf(query.toLowerCase())
+  if (idx === -1) return text.slice(0, MAX)
+  const start = Math.max(0, idx - 60)
+  const end = Math.min(text.length, start + MAX)
+  const snippet = text.slice(start, end)
+  return (start > 0 ? '…' : '') + snippet + (end < text.length ? '…' : '')
+}
+
 export async function deleteUserLibraryFiles(
   userId: string
 ): Promise<{ success: boolean; error?: string }> {
@@ -592,7 +686,8 @@ export async function createChatWithFirstMessageTransaction({
         title: chatTitle.substring(0, 255),
         userId,
         visibility: 'private',
-        createdAt: new Date()
+        createdAt: new Date(),
+        lastViewedAt: new Date()
       })
       .returning()
 

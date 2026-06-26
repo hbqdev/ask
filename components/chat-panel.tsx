@@ -247,6 +247,66 @@ export function ChatPanel({
     },
     [setUploadedFiles]
   )
+
+  const handleFiles = useCallback(
+    async (files: File[]) => {
+      const newFiles: UploadedFile[] = files.map(file => ({
+        file,
+        status: 'uploading'
+      }))
+      setUploadedFiles(prev => [...prev, ...newFiles])
+      await Promise.all(
+        newFiles.map(async uf => {
+          const formData = new FormData()
+          formData.append('file', uf.file!)
+          formData.append('chatId', chatId)
+          try {
+            const res = await fetch('/api/upload', {
+              method: 'POST',
+              body: formData
+            })
+
+            if (!res.ok) {
+              let reason = `HTTP ${res.status}`
+              try {
+                const body = await res.json()
+                if (body?.error) reason = body.error
+              } catch {
+                // body wasn't JSON
+              }
+              throw new Error(reason)
+            }
+
+            const { file: uploaded } = await res.json()
+            setUploadedFiles(prev =>
+              prev.map(f =>
+                f.file === uf.file
+                  ? {
+                      ...f,
+                      status: 'uploaded',
+                      url: uploaded.url,
+                      name: uploaded.filename,
+                      key: uploaded.key,
+                      mediaType: uploaded.mediaType
+                    }
+                  : f
+              )
+            )
+          } catch (e) {
+            const detail = e instanceof Error ? e.message : 'Unknown error'
+            toast.error(`Failed to upload ${uf.file?.name ?? 'file'} — ${detail}`)
+            setUploadedFiles(prev =>
+              prev.map(f =>
+                f.file === uf.file ? { ...f, status: 'error' } : f
+              )
+            )
+          }
+        })
+      )
+    },
+    [chatId, setUploadedFiles]
+  )
+
   // Scroll to the bottom of the container
   const handleScrollToBottom = () => {
     const scrollContainer = scrollContainerRef.current
@@ -541,6 +601,34 @@ export function ChatPanel({
             className="resize-none w-full min-h-12 bg-transparent border-0 p-3 md:p-4 text-sm placeholder:text-muted-foreground focus-visible:outline-hidden disabled:cursor-not-allowed disabled:opacity-50"
             onChange={handleInputChange}
             onPaste={e => {
+              // Image paste (e.g. screenshot → ⌘V). Must run before text
+              // branches — getData('text') on an image paste is usually empty.
+              if (e.clipboardData?.items) {
+                const imageItem = Array.from(e.clipboardData.items).find(
+                  item =>
+                    item.kind === 'file' &&
+                    (item.type === 'image/png' || item.type === 'image/jpeg')
+                )
+                if (imageItem) {
+                  e.preventDefault()
+                  const blob = imageItem.getAsFile()
+                  if (blob) {
+                    const ext = blob.type === 'image/png' ? 'png' : 'jpg'
+                    const stamp = new Date()
+                      .toISOString()
+                      .replace(/[-:]/g, '')
+                      .replace(/\..+/, '')
+                      .replace('T', '-')
+                    void handleFiles([
+                      new File([blob], `pasted-image-${stamp}.${ext}`, {
+                        type: blob.type
+                      })
+                    ])
+                  }
+                  return
+                }
+              }
+
               const text = e.clipboardData.getData('text')
               const trimmed = text.trim()
               // Only when the textarea is empty — a URL pasted mid-sentence
@@ -610,57 +698,7 @@ export function ChatPanel({
           <div className="flex items-center justify-between p-2 md:p-3">
             <div className="flex items-center gap-2">
               {!isGuest && (
-                <FileUploadButton
-                  onFileSelect={async files => {
-                    const newFiles: UploadedFile[] = files.map(file => ({
-                      file,
-                      status: 'uploading'
-                    }))
-                    setUploadedFiles(prev => [...prev, ...newFiles])
-                    await Promise.all(
-                      newFiles.map(async uf => {
-                        const formData = new FormData()
-                        formData.append('file', uf.file!)
-                        formData.append('chatId', chatId)
-                        try {
-                          const res = await fetch('/api/upload', {
-                            method: 'POST',
-                            body: formData
-                          })
-
-                          if (!res.ok) {
-                            throw new Error('Upload failed')
-                          }
-
-                          const { file: uploaded } = await res.json()
-                          setUploadedFiles(prev =>
-                            prev.map(f =>
-                              f.file === uf.file
-                                ? {
-                                    ...f,
-                                    status: 'uploaded',
-                                    url: uploaded.url,
-                                    name: uploaded.filename,
-                                    key: uploaded.key,
-                                    mediaType: uploaded.mediaType
-                                  }
-                                : f
-                            )
-                          )
-                        } catch (e) {
-                          toast.error(
-                            `Failed to upload ${uf.file?.name ?? 'file'}`
-                          )
-                          setUploadedFiles(prev =>
-                            prev.map(f =>
-                              f.file === uf.file ? { ...f, status: 'error' } : f
-                            )
-                          )
-                        }
-                      })
-                    )
-                  }}
-                />
+                <FileUploadButton onFileSelect={handleFiles} />
               )}
               <SearchModeSelector
                 isAdaptiveAuthRequired={isAdaptiveAuthRequired}

@@ -20,6 +20,10 @@ RUN npm run build
 FROM node:22-slim AS runner
 WORKDIR /app
 
+# poppler-utils provides pdftotext (layout-preserving text extraction)
+# and pdftoppm (PDF page → PNG for scanned PDFs)
+RUN apt-get update && apt-get install -y --no-install-recommends poppler-utils && rm -rf /var/lib/apt/lists/*
+
 # Install bun for dependency management (used for migrations)
 RUN npm install -g bun
 
