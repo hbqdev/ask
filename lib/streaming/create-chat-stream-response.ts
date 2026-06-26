@@ -30,6 +30,7 @@ import { persistStreamResults } from './helpers/persist-stream-results'
 import { prepareMessages } from './helpers/prepare-messages'
 import { stripReasoningParts } from './helpers/strip-reasoning-parts'
 import { stripSpecFromMessages } from './helpers/strip-spec-from-messages'
+import { transformFileParts } from './helpers/transform-file-parts'
 import type { StreamContext } from './helpers/types'
 import { BaseStreamConfig } from './types'
 
@@ -141,8 +142,13 @@ export async function createChatStreamResponse(
       ? stripReasoningParts(messagesWithoutSpec)
       : messagesWithoutSpec
 
+    // Transform file parts before the model sees them:
+    // PDFs → pdftotext extracted text (or rendered page images for scanned PDFs)
+    // Image URLs → base64 data URIs (avoids the model fetching from our upload URL)
+    const messagesForModel = await transformFileParts(messagesToConvert)
+
     // Convert to model messages and apply context window management
-    let modelMessages = await convertToModelMessages(messagesToConvert, {
+    let modelMessages = await convertToModelMessages(messagesForModel, {
       convertDataPart
     })
 

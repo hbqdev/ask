@@ -10,6 +10,7 @@ import { toast } from 'sonner'
 import { summarizeGenui } from '@/lib/analytics/genui-summary'
 import { captureClient, getDistinctId } from '@/lib/analytics/posthog-client'
 import { ChatProvider } from '@/lib/contexts/chat-context'
+import { touchChat } from '@/lib/db/actions'
 import { generateId } from '@/lib/db/schema'
 import {
   getPublicRateLimitDetails,
@@ -212,7 +213,11 @@ export function Chat({
   })
 
   // Keep all request entry points reflected in isStreamingRef so downstream
-  // action handlers can reliably reject overlapping sends.
+  // action handlers can reliably reject overlapping sends. Also fire-and-forget
+  // a `touchChat` so the sidebar re-sorts this thread to the top — only on
+  // actual message sends, not on plain visit. Suggested-prompt chips and the
+  // textarea's Enter handler both go through here, so covering this funnel
+  // covers every user-input entry point.
   const safeSendMessage = useCallback<typeof sendMessage>(
     (...args) => {
       if (isCurrentAdaptiveModeAuthBlocked()) {
@@ -222,13 +227,31 @@ export function Chat({
 
       isStreamingRef.current = true
       try {
-        return sendMessage(...args)
+        const result = sendMessage(...args)
+        // Bump lastViewedAt for existing chats. Skip when providedId is
+        // missing (new chat — createChat already stamps it).
+        if (providedId) {
+          // Optimistic: instantly reorder the sidebar before the DB write.
+          window.dispatchEvent(
+            new CustomEvent('chat-bump', { detail: { chatId: providedId } })
+          )
+          // Background: persist to DB, then confirm sidebar order.
+          void touchChat(providedId).then(() => {
+            window.dispatchEvent(new CustomEvent('chat-history-updated'))
+          })
+        }
+        return result
       } catch (error) {
         isStreamingRef.current = false
         throw error
       }
     },
-    [sendMessage, isCurrentAdaptiveModeAuthBlocked, showAdaptiveModeAuthModal]
+    [
+      sendMessage,
+      isCurrentAdaptiveModeAuthBlocked,
+      showAdaptiveModeAuthModal,
+      providedId
+    ]
   )
 
   const safeRegenerate = useCallback(

@@ -20,6 +20,7 @@ export const chats = pgTable(
     createdAt: timestamp('created_at', { mode: 'string' })
       .defaultNow()
       .notNull(),
+    lastViewedAt: timestamp('last_viewed_at', { mode: 'string' }),
     title: text().notNull(),
     userId: varchar('user_id', { length: 255 }).notNull(),
     visibility: varchar({ length: 256 }).default('private').notNull()
@@ -42,6 +43,11 @@ export const chats = pgTable(
     index('chats_user_id_idx').using(
       'btree',
       table.userId.asc().nullsLast().op('text_ops')
+    ),
+    index('chats_user_id_last_viewed_at_idx').using(
+      'btree',
+      table.userId.asc().nullsLast().op('text_ops'),
+      table.lastViewedAt.desc().nullsLast().op('timestamp_ops')
     ),
     pgPolicy('public_chats_readable', {
       as: 'permissive',

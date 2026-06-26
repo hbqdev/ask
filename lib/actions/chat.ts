@@ -57,6 +57,15 @@ export async function getChatsPage(limit = 20, offset = 0) {
 }
 
 /**
+ * Search the current user's chat history by title and message text.
+ */
+export async function searchChats(query: string) {
+  const userId = await getCurrentUserId()
+  if (!userId) return []
+  return dbActions.searchUserChats(userId, query)
+}
+
+/**
  * Load a chat with messages
  * If requestingUserId is provided, it will be used for authorization
  * Otherwise, no authorization check is performed (assumes already authorized)
