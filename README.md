@@ -1,121 +1,65 @@
 <div align="center">
 
-# Morphic
+# Ask
 
-An AI-powered search engine with a generative UI.
-
-[![DeepWiki](https://img.shields.io/badge/DeepWiki-miurla%2Fmorphic-blue.svg?logo=data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAACwAAAAyCAYAAAAnWDnqAAAAAXNSR0IArs4c6QAAA05JREFUaEPtmUtyEzEQhtWTQyQLHNak2AB7ZnyXZMEjXMGeK/AIi+QuHrMnbChYY7MIh8g01fJoopFb0uhhEqqcbWTp06/uv1saEDv4O3n3dV60RfP947Mm9/SQc0ICFQgzfc4CYZoTPAswgSJCCUJUnAAoRHOAUOcATwbmVLWdGoH//PB8mnKqScAhsD0kYP3j/Yt5LPQe2KvcXmGvRHcDnpxfL2zOYJ1mFwrryWTz0advv1Ut4CJgf5uhDuDj5eUcAUoahrdY/56ebRWeraTjMt/00Sh3UDtjgHtQNHwcRGOC98BJEAEymycmYcWwOprTgcB6VZ5JK5TAJ+fXGLBm3FDAmn6oPPjR4rKCAoJCal2eAiQp2x0vxTPB3ALO2CRkwmDy5WohzBDwSEFKRwPbknEggCPB/imwrycgxX2NzoMCHhPkDwqYMr9tRcP5qNrMZHkVnOjRMWwLCcr8ohBVb1OMjxLwGCvjTikrsBOiA6fNyCrm8V1rP93iVPpwaE+gO0SsWmPiXB+jikdf6SizrT5qKasx5j8ABbHpFTx+vFXp9EnYQmLx02h1QTTrl6eDqxLnGjporxl3NL3agEvXdT0WmEost648sQOYAeJS9Q7bfUVoMGnjo4AZdUMQku50McDcMWcBPvr0SzbTAFDfvJqwLzgxwATnCgnp4wDl6Aa+Ax283gghmj+vj7feE2KBBRMW3FzOpLOADl0Isb5587h/U4gGvkt5v60Z1VLG8BhYjbzRwyQZemwAd6cCR5/XFWLYZRIMpX39AR0tjaGGiGzLVyhse5C9RKC6ai42ppWPKiBagOvaYk8lO7DajerabOZP46Lby5wKjw1HCRx7p9sVMOWGzb/vA1hwiWc6jm3MvQDTogQkiqIhJV0nBQBTU+3okKCFDy9WwferkHjtxib7t3xIUQtHxnIwtx4mpg26/HfwVNVDb4oI9RHmx5WGelRVlrtiw43zboCLaxv46AZeB3IlTkwouebTr1y2NjSpHz68WNFjHvupy3q8TFn3Hos2IAk4Ju5dCo8B3wP7VPr/FGaKiG+T+v+TQqIrOqMTL1VdWV1DdmcbO8KXBz6esmYWYKPwDL5b5FA1a0hwapHiom0r/cKaoqr+27/XcrS5UwSMbQAAAABJRU5ErkJggg==)](https://deepwiki.com/miurla/morphic) [![GitHub stars](https://img.shields.io/github/stars/miurla/morphic?style=flat&colorA=000000&colorB=000000)](https://github.com/miurla/morphic/stargazers) [![GitHub forks](https://img.shields.io/github/forks/miurla/morphic?style=flat&colorA=000000&colorB=000000)](https://github.com/miurla/morphic/network/members)
-
-<a href="https://vercel.com/oss">
-  <img alt="Vercel OSS Program" src="https://vercel.com/oss/program-badge.svg" />
-</a>
-
-<br />
-<br />
-
-<a href="https://trendshift.io/repositories/9207" target="_blank"><img src="https://trendshift.io/api/badge/repositories/9207" alt="miurla%2Fmorphic | Trendshift" style="width: 250px; height: 55px;" width="250" height="55"/></a>
-
-<img src="./public/screenshot-2026-06-10.png" />
+A self-hosted AI search engine with grounded, cited answers and a generative UI.
 
 </div>
 
+## What is Ask?
+
+Ask is a self-hosted AI-powered search tool built for personal and team use. It searches the web before answering every question, cites its sources inline, and renders answers with rich components — tables, headings, images — streamed live from the model.
+
+It runs entirely on your own infrastructure: no cloud dependency, no usage tracking, your data stays yours.
+
 ## Features
 
-- AI-powered search with grounded, cited answers
-- Generative UI — answers render rich inline components (source-credited images, grids, headings) live from a streamed JSON spec, beyond plain markdown
+- Web search before every answer — no responses from memory alone
+- Grounded answers with inline citations
+- Generative UI — rich components streamed live (tables, images, headings)
 - Search modes: Quick and Adaptive
-- Model selector with dynamic provider detection (OpenAI, Anthropic, Google, Ollama, Vercel AI Gateway, OpenAI-compatible providers)
-- Multiple search providers (Tavily, SearXNG, Brave, Exa)
+- Model selector with support for OpenAI, Anthropic, Google, Ollama, and any OpenAI-compatible provider
+- Multiple search providers (SearXNG self-hosted, Tavily, Brave, Exa)
+- Full-text search through your conversation history
+- File upload with PDF extraction and image support
 - Chat history stored in PostgreSQL
-- Share search results with unique URLs
-- File upload support
-- User authentication with Supabase Auth
-- Guest mode for anonymous usage
+- User authentication via Supabase Auth
 - Docker deployment ready
 
-## Installation
-
-### Docker (Recommended)
-
-The quickest way to run Morphic locally:
+## Running with Docker
 
 ```bash
-docker pull ghcr.io/miurla/morphic:latest
-```
-
-Then set up with Docker Compose:
-
-1. Clone the repository and configure environment:
-
-```bash
-git clone https://github.com/miurla/morphic.git
-cd morphic
+git clone https://github.com/hbqdev/ask.git
+cd ask
 cp .env.local.example .env.local
 ```
 
-2. Edit `.env.local` and set at least one AI provider API key:
-
-```bash
-OPENAI_API_KEY=your_openai_key
-```
-
-See [supported providers](./docs/CONFIGURATION.md#supported-providers) for other options (Anthropic, Google, Ollama, Vercel AI Gateway, OpenAI-compatible providers).
-
-3. Start all services:
+Edit `.env.local` with your API keys, then:
 
 ```bash
 docker compose up -d
 ```
 
-4. Visit http://localhost:3000 and select your model from the model selector.
+Docker Compose starts PostgreSQL, Redis, SearXNG, and Ask. SearXNG is included so no external search API key is required to get started.
 
-Docker Compose starts PostgreSQL, Redis, SearXNG, and Morphic automatically. No additional search API key is needed — SearXNG is included.
-
-See the [Docker Guide](./docs/DOCKER.md) for more options including building from source and file upload configuration.
-
-### Local Development
-
-1. Clone and install:
+## Local Development
 
 ```bash
-git clone https://github.com/miurla/morphic.git
-cd morphic
+git clone https://github.com/hbqdev/ask.git
+cd ask
 bun install
-```
-
-2. Configure environment:
-
-```bash
 cp .env.local.example .env.local
-```
-
-Edit `.env.local` and set your API keys:
-
-```bash
-OPENAI_API_KEY=your_openai_key
-TAVILY_API_KEY=your_tavily_key
-```
-
-To enable chat history, authentication, file upload, and other features, see [CONFIGURATION.md](./docs/CONFIGURATION.md).
-
-3. Start the dev server:
-
-```bash
 bun dev
 ```
 
 Visit http://localhost:3000.
 
-## Deploy
+## Based on Morphic
 
-### Vercel
+Ask is a fork of [Morphic](https://github.com/miurla/morphic) by [Yoshiki Miura](https://github.com/miurla), an open-source AI search engine. All credit for the original architecture, generative UI system, and search pipeline goes to the Morphic project and its contributors.
 
-[![Deploy with Vercel](https://vercel.com/button)](https://vercel.com/new/clone?repository-url=https%3A%2F%2Fgithub.com%2Fmiurla%2Fmorphic&env=OPENAI_API_KEY,TAVILY_API_KEY,ENABLE_AUTH)
-
-## Contributing
-
-We welcome contributions! Please see our [Contributing Guide](CONTRIBUTING.md) for details on how to get started, including local development setup.
+This fork adds self-hosted focused changes: local disk uploads, PDF extraction via poppler, forced web search on every turn, conversation history search, and a few UX improvements.
 
 ## License
 
-This project is licensed under the Apache License 2.0 - see the [LICENSE](LICENSE) file for details.
+Apache License 2.0 — see [LICENSE](LICENSE).
