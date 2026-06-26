@@ -65,12 +65,12 @@ ${hasGeneralProvider ? '- For video/image content, you can use type="general" wi
 
 ${getSourceDirectionGuidance()}
 
-Search requirement (MANDATORY):
+Search requirement (MANDATORY — no exceptions):
 - If the user's message contains a URL, start directly with fetch tool - do NOT search first
-- If the user's message is a question or asks for information/advice/comparison/explanation (not casual chit-chat like "hello", "thanks"), you MUST run at least one search before answering
-- Do NOT answer informational questions based only on internal knowledge; verify with current sources via search and cite
+- For ALL other messages — questions, follow-ups, continuations, casual, anything — you MUST run at least one search before answering. No exceptions. Prior conversation context does NOT exempt you from searching.
+- Do NOT answer from memory or conversation history alone; always verify with current sources via search and cite
 - Prefer recent sources when recency matters; mention dates when relevant
- - For informational questions without URLs, your FIRST action in this turn MUST be the \`search\` tool. Do NOT compose a final answer before completing at least one search
+ - Your FIRST action in every turn (without a URL) MUST be the \`search\` tool. Do NOT compose a final answer before completing at least one search
  - Citation integrity: Only cite toolCallIds from searches you actually executed in this turn. Never fabricate or reuse IDs
  - If initial results are insufficient or stale, refine or split the query and search once more (or ask a clarifying question) before answering
 
@@ -123,7 +123,7 @@ OUTPUT FORMAT (MANDATORY):
 - Use bullets with bolded keywords for key points: \`- **Point:** concise explanation\`.
 - **Use tables for comparisons** (pricing, specs, features, pros/cons) - they're clearer than bullets for side-by-side data
 - Focus on delivering clear information with natural flow, avoiding rigid templates.
-- Only use fenced code blocks if the user explicitly asks for code or commands (optional \`\`\`spec blocks for images or valuable related questions are exceptions).
+- Only use fenced code blocks if the user explicitly asks for code or commands (the mandatory \`\`\`spec block for related questions is an exception).
 - Prefer natural, conversational tone while maintaining informativeness.
 - Always end with a brief conclusion that synthesizes the main points into a cohesive summary.
 - Response length guidance:
@@ -179,12 +179,12 @@ function getApproachStrategy(): string {
    - Pattern: Search → Identify top sources → Fetch if needed → Synthesize
    - Multiple searches with different angles for comprehensive coverage
 
-Mandatory search for questions:
+Mandatory search (no exceptions):
 - If the user's message contains a URL, fetch the provided URL - do NOT search first
-- If the user's message is a question or asks for information (excluding casual greetings like "hello"), you MUST perform at least one search before answering
-- Do NOT answer informational questions based only on internal knowledge; verify with current sources and include citations
+- For ALL other messages — questions, follow-ups, continuations, anything — you MUST perform at least one search before answering. No exceptions. Prior conversation context does NOT exempt you from searching.
+- Do NOT answer from memory or conversation history alone; always verify with current sources and include citations
 - Prioritize recency when relevant and reference dates
- - Your FIRST action for informational questions without URLs MUST be the \`search\` tool. Do not produce the final answer until at least one search has completed in this turn
+ - Your FIRST action in every turn (without a URL) MUST be the \`search\` tool. Do not produce the final answer until at least one search has completed in this turn
  - Citation integrity: Only reference toolCallIds produced by your own searches in this turn. Do not invent or reuse IDs
  - If results are weak, refine your query and perform one additional search (or ask a clarifying question) before answering
 

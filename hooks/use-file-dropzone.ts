@@ -65,7 +65,7 @@ export function useFileDropzone({
       await Promise.all(
         initialFiles.map(async uf => {
           const formData = new FormData()
-          formData.append('file', uf.file!)
+          formData.append('file', uf.file)
           formData.append('chatId', chatId)
 
           try {
@@ -86,14 +86,13 @@ export function useFileDropzone({
                       status: 'uploaded',
                       url: uploaded.url,
                       name: uploaded.filename,
-                      key: uploaded.key,
-                      mediaType: uploaded.mediaType
+                      key: uploaded.key
                     }
                   : f
               )
             )
           } catch (err) {
-            toast.error(`Failed to upload ${uf.file?.name ?? 'file'}`)
+            toast.error(`Failed to upload ${uf.file.name}`)
             setUploadedFiles(prev =>
               prev.map(f =>
                 f.file === uf.file ? { ...f, status: 'error' } : f

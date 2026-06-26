@@ -1,34 +1,41 @@
 import { NextRequest, NextResponse } from 'next/server'
-
-import { PutObjectCommand } from '@aws-sdk/client-s3'
+import { promises as fs } from 'node:fs'
+import path from 'node:path'
 
 import { getCurrentUserId } from '@/lib/auth/get-current-user'
-import {
-  getR2Client,
-  getSignedFileUrl,
-  isObjectStorageConfigured,
-  R2_BUCKET_NAME
-} from '@/lib/storage/r2-client'
 
-const MAX_FILE_SIZE = 5 * 1024 * 1024 // 5MB
+// Local-only upload store. Self-hosted deploys don't depend on any cloud
+// storage — files live in /app/uploads inside the container (ephemeral;
+// recreated on `docker compose up -d --force-recreate morphic`).
+
+const MAX_FILE_SIZE = 10 * 1024 * 1024 // 10MB
 const ALLOWED_TYPES = ['image/jpeg', 'image/png', 'application/pdf']
+const UPLOADS_DIR = process.env.UPLOADS_DIR || '/app/uploads'
+
+function sanitizeFilename(filename: string) {
+  return filename.replace(/[^a-z0-9.\-_]/gi, '_').toLowerCase()
+}
+
+// Build the public URL the LLM and the browser will use to fetch the file.
+// Prefer the Host the request came in on so the URL works regardless of
+// whether the user is hitting the LAN IP, the public domain, or a tunnel.
+function publicUrlFor(req: NextRequest, relativePath: string): string {
+  // Strip query strings, force https if the original was https (so mixed
+  // http://localhost vs https://ask.hbqnexus.win don't trip the LLM proxy
+  // when it's behind a TLS-terminating tunnel).
+  const forwardedProto = req.headers.get('x-forwarded-proto')
+  const proto =
+    forwardedProto ||
+    (req.nextUrl.protocol.replace(':', '') as 'http' | 'https') ||
+    'http'
+  return `${proto}://${req.headers.get('host')}${relativePath}`
+}
 
 export async function POST(req: NextRequest) {
   try {
     const userId = await getCurrentUserId()
     if (!userId) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-    }
-
-    if (!isObjectStorageConfigured()) {
-      return NextResponse.json(
-        {
-          error: 'File upload storage is not configured',
-          message:
-            'Set R2_ACCESS_KEY_ID, R2_SECRET_ACCESS_KEY, and either R2_ACCOUNT_ID or S3_ENDPOINT.'
-        },
-        { status: 400 }
-      )
     }
 
     const contentType = req.headers.get('content-type') || ''
@@ -48,7 +55,7 @@ export async function POST(req: NextRequest) {
 
     if (file.size > MAX_FILE_SIZE) {
       return NextResponse.json(
-        { error: 'File too large (max 5MB)' },
+        { error: 'File too large (max 10MB)' },
         { status: 400 }
       )
     }
@@ -59,49 +66,37 @@ export async function POST(req: NextRequest) {
         { status: 400 }
       )
     }
-    const result = await uploadFileToR2(file, userId, chatId)
-    return NextResponse.json({ success: true, file: result }, { status: 200 })
+
+    // Layout: <UPLOADS_DIR>/<userId>/<chatId>/<timestamp>-<sanitized-name>
+    // userId-scoped so a user can only access their own files (the static
+    // route also checks this). chatId-scoped for easy per-thread debugging.
+    const sanitizedName = sanitizeFilename(file.name)
+    const relativePath = `${userId}/chats/${chatId}/${Date.now()}-${sanitizedName}`
+    const absDir = path.join(UPLOADS_DIR, userId, 'chats', chatId)
+    const absPath = path.join(UPLOADS_DIR, relativePath)
+
+    await fs.mkdir(absDir, { recursive: true })
+    const buffer = Buffer.from(await file.arrayBuffer())
+    await fs.writeFile(absPath, buffer)
+
+    const publicUrl = publicUrlFor(req, `/uploads/${relativePath}`)
+    return NextResponse.json(
+      {
+        success: true,
+        file: {
+          filename: file.name,
+          url: publicUrl,
+          mediaType: file.type,
+          type: 'file'
+        }
+      },
+      { status: 200 }
+    )
   } catch (err: any) {
     console.error('Upload Error:', err)
     return NextResponse.json(
       { error: 'Upload failed', message: err.message },
       { status: 500 }
     )
-  }
-}
-
-function sanitizeFilename(filename: string) {
-  return filename.replace(/[^a-z0-9.\-_]/gi, '_').toLowerCase()
-}
-
-async function uploadFileToR2(file: File, userId: string, chatId: string) {
-  const sanitizedFileName = sanitizeFilename(file.name)
-  const filePath = `${userId}/chats/${chatId}/${Date.now()}-${sanitizedFileName}`
-
-  try {
-    const buffer = Buffer.from(await file.arrayBuffer())
-    const r2Client = getR2Client()
-
-    await r2Client.send(
-      new PutObjectCommand({
-        Bucket: R2_BUCKET_NAME,
-        Key: filePath,
-        Body: buffer,
-        ContentType: file.type,
-        CacheControl: 'max-age=3600'
-      })
-    )
-
-    const signedUrl = await getSignedFileUrl(filePath)
-
-    return {
-      filename: file.name,
-      key: filePath,
-      url: signedUrl,
-      mediaType: file.type,
-      type: 'file'
-    }
-  } catch (error: any) {
-    throw new Error('Upload failed: ' + error.message)
   }
 }

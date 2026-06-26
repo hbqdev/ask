@@ -37,7 +37,8 @@ export const chats = pgTable(
       enum: ['public', 'private']
     })
       .notNull()
-      .default('private')
+      .default('private'),
+    lastViewedAt: timestamp('last_viewed_at')
   },
   table => [
     // Indexes
@@ -45,6 +46,10 @@ export const chats = pgTable(
     index('chats_user_id_created_at_idx').on(
       table.userId,
       table.createdAt.desc()
+    ),
+    index('chats_user_id_last_viewed_at_idx').on(
+      table.userId,
+      table.lastViewedAt.desc().nullsLast()
     ),
     index('chats_created_at_idx').on(table.createdAt.desc()),
     // Composite index for RLS subqueries in messages and parts tables
