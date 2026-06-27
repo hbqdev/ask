@@ -6,11 +6,9 @@ A self-hosted AI search engine with grounded, cited answers and a generative UI.
 
 </div>
 
-## What is Ask?
+Ask is a self-hosted fork of [Morphic](https://github.com/miurla/morphic) by [Yoshiki Miura](https://github.com/miurla). All credit for the original architecture, generative UI system, and search pipeline goes to the Morphic project and its contributors. This fork focuses on self-hosted use: local disk uploads, PDF extraction via poppler, forced web search on every turn, conversation history search, and a few UX improvements.
 
-Ask is a self-hosted AI-powered search tool built for personal and team use. It searches the web before answering every question, cites its sources inline, and renders answers with rich components — tables, headings, images — streamed live from the model.
-
-It runs entirely on your own infrastructure: no cloud dependency, no usage tracking, your data stays yours.
+It searches the web before answering every question, cites its sources inline, and renders answers with rich components — tables, headings, images — streamed live from the model. Runs entirely on your own infrastructure: no cloud dependency, no usage tracking, your data stays yours.
 
 ## Features
 
@@ -53,12 +51,6 @@ bun dev
 ```
 
 Visit http://localhost:3000.
-
-## Based on Morphic
-
-Ask is a fork of [Morphic](https://github.com/miurla/morphic) by [Yoshiki Miura](https://github.com/miurla), an open-source AI search engine. All credit for the original architecture, generative UI system, and search pipeline goes to the Morphic project and its contributors.
-
-This fork adds self-hosted focused changes: local disk uploads, PDF extraction via poppler, forced web search on every turn, conversation history search, and a few UX improvements.
 
 ## License
 
