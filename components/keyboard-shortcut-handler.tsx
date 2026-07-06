@@ -3,7 +3,7 @@
 import { toast } from 'sonner'
 
 import { SHORTCUT_EVENTS, SHORTCUTS } from '@/lib/keyboard-shortcuts'
-import { SearchMode } from '@/lib/types/search'
+import { FocusMode, SearchMode } from '@/lib/types/search'
 import { getCookie, setCookie } from '@/lib/utils/cookies'
 
 import { useKeyboardShortcut } from '@/hooks/use-keyboard-shortcut'
@@ -21,6 +21,18 @@ const THEME_CYCLE: Record<string, string> = {
 const SEARCH_MODE_LABELS: Record<SearchMode, string> = {
   quick: 'Quick',
   adaptive: 'Adaptive'
+}
+
+const FOCUS_MODE_CYCLE: Record<FocusMode, FocusMode> = {
+  auto: 'academic',
+  academic: 'discussions',
+  discussions: 'auto'
+}
+
+const FOCUS_MODE_LABELS: Record<FocusMode, string> = {
+  auto: 'Auto',
+  academic: 'Academic',
+  discussions: 'Discussions'
 }
 
 export function KeyboardShortcutHandler() {
@@ -50,6 +62,13 @@ export function KeyboardShortcutHandler() {
     const next: SearchMode = current === 'quick' ? 'adaptive' : 'quick'
     setCookie('searchMode', next)
     toast.info(`Search mode: ${SEARCH_MODE_LABELS[next]}`)
+  })
+
+  useKeyboardShortcut(SHORTCUTS.toggleFocusMode, () => {
+    const current = (getCookie('focusMode') || 'auto') as FocusMode
+    const next = FOCUS_MODE_CYCLE[current] ?? 'auto'
+    setCookie('focusMode', next)
+    toast.info(`Focus: ${FOCUS_MODE_LABELS[next]}`)
   })
 
   useKeyboardShortcut(SHORTCUTS.showShortcuts, () => {
