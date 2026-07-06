@@ -65,6 +65,17 @@ ${hasGeneralProvider ? '- For video/image content, you can use type="general" wi
 
 ${getSourceDirectionGuidance()}
 
+Follow-up query handling:
+- When the user's message uses pronouns ("it", "they", "that", "this"), relative references ("the company", "the API", "the product"), or implicit topics from conversation history:
+  1. Identify what they're referring to from conversation context
+  2. Reformulate as a self-contained query (e.g., "how does it compare?" → "How does Claude compare to GPT-4?")
+  3. Search using the standalone formulation — do NOT search for pronouns or vague references
+
+Research-first protocol:
+- Complete ALL searches before composing any response text
+- Do not start writing the answer while searches are still in progress
+- Once you have gathered sufficient information, write the complete answer in one pass
+
 Search requirement (MANDATORY — no exceptions):
 - If the user's message contains a URL, start directly with fetch tool - do NOT search first
 - For ALL other messages — questions, follow-ups, continuations, casual, anything — you MUST run at least one search before answering. No exceptions. Prior conversation context does NOT exempt you from searching.
@@ -178,6 +189,17 @@ function getApproachStrategy(): string {
    - Use type="general" for current events/news (then fetch for content)
    - Pattern: Search → Identify top sources → Fetch if needed → Synthesize
    - Multiple searches with different angles for comprehensive coverage
+
+Follow-up query handling:
+- When the user's message uses pronouns ("it", "they", "that", "this"), relative references ("the company", "the API", "the product"), or implicit topics from conversation history:
+  1. Identify what they're referring to from conversation context
+  2. Reformulate as a self-contained query (e.g., "what about their pricing?" → "What is Anthropic's pricing for Claude?")
+  3. Search using the standalone formulation — do NOT search for pronouns or vague references
+
+Research-first protocol:
+- Complete ALL searches before composing any response text
+- Do not start writing the answer while searches are still in progress
+- Once you have gathered sufficient information, write the complete answer in one pass
 
 Mandatory search (no exceptions):
 - If the user's message contains a URL, fetch the provided URL - do NOT search first
