@@ -1,5 +1,11 @@
 import { SearchResults } from '@/lib/types'
 
+export interface SearchProviderOptions {
+  type?: 'general' | 'optimized'
+  content_types?: Array<'web' | 'video' | 'image' | 'news'>
+  searchMode?: 'web' | 'academic'
+}
+
 export interface SearchProvider {
   search(
     query: string,
@@ -7,10 +13,7 @@ export interface SearchProvider {
     searchDepth: 'basic' | 'advanced',
     includeDomains: string[],
     excludeDomains: string[],
-    options?: {
-      type?: 'general' | 'optimized'
-      content_types?: Array<'web' | 'video' | 'image' | 'news'>
-    }
+    options?: SearchProviderOptions
   ): Promise<SearchResults>
 }
 
@@ -21,10 +24,7 @@ export abstract class BaseSearchProvider implements SearchProvider {
     searchDepth: 'basic' | 'advanced',
     includeDomains: string[],
     excludeDomains: string[],
-    options?: {
-      type?: 'general' | 'optimized'
-      content_types?: Array<'web' | 'video' | 'image' | 'news'>
-    }
+    options?: SearchProviderOptions
   ): Promise<SearchResults>
 
   protected validateApiKey(

@@ -3,10 +3,13 @@ import { stepCountIs, tool, ToolLoopAgent } from 'ai'
 import type { ResearcherTools } from '@/lib/types/agent'
 import { type Model } from '@/lib/types/models'
 
+import { calculateTool } from '../tools/calculate'
 import { fetchTool } from '../tools/fetch'
 import { createQuestionTool } from '../tools/question'
 import { createSearchTool } from '../tools/search'
+import { synthesisReadyTool } from '../tools/synthesis-ready'
 import { createTodoTools } from '../tools/todo'
+import { weatherTool } from '../tools/weather'
 import { SearchMode } from '../types/search'
 import { getModel } from '../utils/registry'
 import { isTracingEnabled } from '../utils/telemetry'
@@ -146,10 +149,10 @@ export function createResearcher({
     switch (searchMode) {
       case 'quick':
         console.log(
-          '[Researcher] Quick mode: maxSteps=20, tools=[search, fetch]'
+          '[Researcher] Quick mode: maxSteps=20, tools=[search, fetch, calculate, get_weather, synthesis_ready]'
         )
         systemPrompt = QUICK_MODE_PROMPT
-        activeToolsList = ['search', 'fetch']
+        activeToolsList = ['search', 'fetch', 'calculate', 'get_weather', 'synthesis_ready']
         maxSteps = 20
         searchTool = wrapSearchToolWithDedup(
           wrapSearchToolForQuickMode(originalSearchTool),
@@ -160,7 +163,7 @@ export function createResearcher({
       case 'adaptive':
       default:
         systemPrompt = getAdaptiveModePrompt()
-        activeToolsList = ['search', 'fetch', 'todoWrite']
+        activeToolsList = ['search', 'fetch', 'todoWrite', 'calculate', 'get_weather', 'synthesis_ready']
         console.log(
           `[Researcher] Adaptive mode: maxSteps=50, tools=[${activeToolsList.join(', ')}]`
         )
@@ -174,6 +177,9 @@ export function createResearcher({
       search: searchTool,
       fetch: fetchTool,
       askQuestion: askQuestionTool,
+      calculate: calculateTool,
+      get_weather: weatherTool,
+      synthesis_ready: synthesisReadyTool,
       ...todoTools
     } as ResearcherTools
 
