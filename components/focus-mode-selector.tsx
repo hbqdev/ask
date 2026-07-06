@@ -63,7 +63,7 @@ export function FocusModeSelector() {
                   type="button"
                   onClick={() => setCookie('focusMode', config.value)}
                   className={cn(
-                    'relative z-10 flex items-center gap-1.5 rounded-full px-3 py-2 transition-colors duration-[140ms] ease-[var(--motion-ease-out)]',
+                    'relative z-10 flex flex-1 items-center justify-center gap-1.5 rounded-full px-3 py-2 transition-colors duration-[140ms] ease-[var(--motion-ease-out)]',
                     isSelected
                       ? 'text-foreground'
                       : 'text-muted-foreground hover:text-foreground/80'
