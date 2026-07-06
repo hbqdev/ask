@@ -52,6 +52,7 @@ import { ActionButtons } from './action-buttons'
 import { FileUploadButton } from './file-upload-button'
 import { MessageNavigationDots } from './message-navigation-dots'
 import { ModelSelectorClient } from './model-selector-client'
+import { FocusModeSelector } from './focus-mode-selector'
 import { SearchModeSelector } from './search-mode-selector'
 import { UploadedFileList } from './uploaded-file-list'
 
@@ -704,6 +705,7 @@ export function ChatPanel({
                 isAdaptiveAuthRequired={isAdaptiveAuthRequired}
                 onAdaptiveAuthRequired={onAdaptiveModeAuthRequired}
               />
+              <FocusModeSelector />
             </div>
             <div className="flex items-center gap-2">
               {!isCloudDeployment && modelSelectorData && (

@@ -18,7 +18,7 @@ import {
 } from '@/lib/search-mode-availability'
 import { createChatStreamResponse } from '@/lib/streaming/create-chat-stream-response'
 import { createEphemeralChatStreamResponse } from '@/lib/streaming/create-ephemeral-chat-stream-response'
-import { SearchMode } from '@/lib/types/search'
+import { FocusMode, SearchMode } from '@/lib/types/search'
 import { getTextFromParts } from '@/lib/utils/message-utils'
 import { selectModel } from '@/lib/utils/model-selection'
 import { perfLog, perfTime } from '@/lib/utils/perf-logging'
@@ -109,6 +109,14 @@ export async function POST(req: Request) {
         ? (searchModeCookie as SearchMode)
         : 'quick'
 
+    // Get focus mode from cookie
+    const focusModeCookie = cookieStore.get('focusMode')?.value
+    const focusMode: FocusMode =
+      focusModeCookie &&
+      ['auto', 'academic', 'discussions'].includes(focusModeCookie)
+        ? (focusModeCookie as FocusMode)
+        : 'auto'
+
     // Adaptive mode is gated to authenticated users on cloud deployments.
     // Check before model/provider selection so guests always get the
     // intentional auth payload instead of lower-level configuration errors.
@@ -172,6 +180,7 @@ export async function POST(req: Request) {
           model: selectedModel,
           abortSignal,
           searchMode,
+          focusMode,
           chatId
         })
       : await createChatStreamResponse({
@@ -183,7 +192,8 @@ export async function POST(req: Request) {
           messageId,
           abortSignal,
           isNewChat,
-          searchMode
+          searchMode,
+          focusMode
         })
 
     perfTime('createChatStreamResponse resolved', streamStart)

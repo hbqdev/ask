@@ -49,7 +49,8 @@ export async function createChatStreamResponse(
     messageId,
     abortSignal,
     isNewChat,
-    searchMode
+    searchMode,
+    focusMode
   } = config
 
   // Verify that chatId is provided
@@ -125,12 +126,13 @@ export async function createChatStreamResponse(
     const messagesToModel = await prepareMessages(context, message)
     perfTime('prepareMessages completed (stream)', prepareStart)
 
-    // Get the researcher agent with parent trace ID and search mode.
+    // Get the researcher agent with parent trace ID, search mode, and focus mode.
     const researchAgent = researcher({
       model: context.modelId,
       modelConfig: model,
       parentTraceId,
-      searchMode
+      searchMode,
+      focusMode
     })
 
     // For OpenAI models, strip reasoning parts from UIMessages before conversion
