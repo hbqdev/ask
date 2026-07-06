@@ -1,6 +1,12 @@
 'use client'
 
-import { useEffect, useSyncExternalStore } from 'react'
+import {
+  useEffect,
+  useLayoutEffect,
+  useRef,
+  useState,
+  useSyncExternalStore
+} from 'react'
 
 import { FOCUS_MODE_CONFIGS } from '@/lib/config/focus-modes'
 import { FocusMode } from '@/lib/types/search'
@@ -38,20 +44,35 @@ export function FocusModeSelector() {
     FOCUS_MODE_CONFIGS.findIndex(c => c.value === value),
     0
   )
-  const modeCount = FOCUS_MODE_CONFIGS.length
+
+  const containerRef = useRef<HTMLDivElement>(null)
+  const [indicatorStyle, setIndicatorStyle] = useState({ left: 0, width: 0 })
+
+  // Measure the actual selected button's position and size so the indicator
+  // aligns correctly regardless of each button's text width.
+  useLayoutEffect(() => {
+    const container = containerRef.current
+    if (!container) return
+    const buttons = container.querySelectorAll<HTMLButtonElement>('button')
+    const btn = buttons[selectedIndex]
+    if (!btn) return
+    setIndicatorStyle({ left: btn.offsetLeft, width: btn.offsetWidth })
+  }, [selectedIndex])
 
   return (
     <div className="relative inline-flex items-center rounded-full bg-background border p-1">
-      {/* Sliding background indicator */}
+      {/* Sliding indicator — positioned from real DOM measurements, not percentages */}
       <div
-        className="absolute inset-1 rounded-full bg-muted transition-[transform,width] duration-[180ms] ease-[var(--motion-ease-in-out)]"
+        className="absolute rounded-full bg-muted transition-[left,width] duration-[180ms] ease-[var(--motion-ease-in-out)]"
         style={{
-          width: `calc(${100 / modeCount}% - 4px)`,
-          transform: `translateX(${selectedIndex * 100}%)`
+          top: 4,
+          bottom: 4,
+          left: indicatorStyle.left,
+          width: indicatorStyle.width
         }}
       />
 
-      <div className="relative flex items-center">
+      <div ref={containerRef} className="relative flex items-center">
         {FOCUS_MODE_CONFIGS.map(config => {
           const Icon = config.icon
           const isSelected = value === config.value
@@ -63,7 +84,7 @@ export function FocusModeSelector() {
                   type="button"
                   onClick={() => setCookie('focusMode', config.value)}
                   className={cn(
-                    'relative z-10 flex flex-1 items-center justify-center gap-1.5 rounded-full px-3 py-2 transition-colors duration-[140ms] ease-[var(--motion-ease-out)]',
+                    'relative z-10 flex items-center gap-1.5 rounded-full px-3 py-2 transition-colors duration-[140ms] ease-[var(--motion-ease-out)]',
                     isSelected
                       ? 'text-foreground'
                       : 'text-muted-foreground hover:text-foreground/80'
