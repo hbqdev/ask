@@ -5,6 +5,13 @@ import { getSearchTypeDescription } from '@/lib/utils/search-config'
 
 export const searchSchema = z.object({
   query: z.string().describe('The query to search for'),
+  search_mode: z
+    .enum(['web', 'academic'])
+    .optional()
+    .default('web')
+    .describe(
+      'web = general web search (default). academic = scholarly sources only (Google Scholar, arXiv, Semantic Scholar, PubMed). Use academic for: research papers, peer-reviewed evidence, scientific facts, citations.'
+    ),
   type: z
     .enum(['general', 'optimized'])
     .optional()
@@ -48,6 +55,11 @@ export const searchSchema = z.object({
 // Strict schema with all fields required
 export const strictSearchSchema = z.object({
   query: z.string().describe('The query to search for'),
+  search_mode: z
+    .enum(['web', 'academic'])
+    .describe(
+      'web = general web search. academic = scholarly sources (Google Scholar, arXiv, PubMed). Use academic for research/science queries.'
+    ),
   type: z.enum(['general', 'optimized']).describe(getSearchTypeDescription()),
   content_types: z
     .array(z.enum(['web', 'video', 'image', 'news']))

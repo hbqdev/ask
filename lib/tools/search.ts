@@ -25,6 +25,7 @@ export function createSearchTool(fullModel: string) {
     async *execute(
       {
         query,
+        search_mode = 'web',
         type = 'optimized',
         content_types = ['web'],
         max_results = 20,
@@ -126,6 +127,15 @@ export function createSearchTool(fullModel: string) {
                 >
               }
             )
+          } else if (searchAPI === 'searxng') {
+            searchResult = await searchProvider.search(
+              filledQuery,
+              effectiveMaxResults,
+              effectiveSearchDepthForAPI,
+              include_domains,
+              exclude_domains,
+              { searchMode: search_mode as 'web' | 'academic' }
+            )
           } else {
             searchResult = await searchProvider.search(
               filledQuery,
@@ -201,6 +211,7 @@ export async function search(
   const result = await searchTool.execute?.(
     {
       query,
+      search_mode: 'web',
       type: 'general',
       content_types: ['web'],
       max_results: maxResults,

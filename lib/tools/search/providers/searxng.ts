@@ -13,27 +13,37 @@ export class SearXNGSearchProvider extends BaseSearchProvider {
     maxResults: number = 10,
     searchDepth: 'basic' | 'advanced' = 'basic',
     includeDomains: string[] = [],
-    excludeDomains: string[] = []
+    excludeDomains: string[] = [],
+    options?: { searchMode?: 'web' | 'academic' }
   ): Promise<SearchResults> {
     const apiUrl = process.env.SEARXNG_API_URL
     this.validateApiUrl(apiUrl, 'SEARXNG')
+
+    const isAcademic = options?.searchMode === 'academic'
 
     try {
       // Construct the URL with query parameters
       const url = new URL(`${apiUrl}/search`)
       url.searchParams.append('q', query)
       url.searchParams.append('format', 'json')
-      url.searchParams.append('categories', 'general,images')
 
-      // Apply search depth settings
-      if (searchDepth === 'advanced') {
-        url.searchParams.append('time_range', '')
+      if (isAcademic) {
+        url.searchParams.append('categories', 'science')
+        url.searchParams.append('engines', 'google scholar,arxiv,semantic scholar,pubmed')
         url.searchParams.append('safesearch', '0')
-        url.searchParams.append('engines', 'google,bing,duckduckgo,wikipedia')
       } else {
-        url.searchParams.append('time_range', 'year')
-        url.searchParams.append('safesearch', '1')
-        url.searchParams.append('engines', 'google,bing')
+        url.searchParams.append('categories', 'general,images')
+
+        // Apply search depth settings
+        if (searchDepth === 'advanced') {
+          url.searchParams.append('time_range', '')
+          url.searchParams.append('safesearch', '0')
+          url.searchParams.append('engines', 'google,bing,duckduckgo,wikipedia')
+        } else {
+          url.searchParams.append('time_range', 'year')
+          url.searchParams.append('safesearch', '1')
+          url.searchParams.append('engines', 'google,bing')
+        }
       }
 
       // Apply domain filters if provided
