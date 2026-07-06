@@ -16,6 +16,53 @@ import {
   QUICK_MODE_PROMPT
 } from './prompts/search-mode-prompts'
 
+// Wraps the search tool to deduplicate results across calls within one request.
+// When the same URL appears in a later search, it's filtered out so the model
+// doesn't see redundant content.
+function wrapSearchToolWithDedup<T extends ReturnType<typeof createSearchTool>>(
+  originalTool: T,
+  seenUrls: Set<string>
+): T {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  return tool({
+    description: originalTool.description,
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    inputSchema: originalTool.inputSchema as any,
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    toModelOutput: originalTool.toModelOutput as any,
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    async *execute(params: any, context: any) {
+      const executeFunc = originalTool.execute
+      if (!executeFunc) throw new Error('Search tool execute is not defined')
+
+      const result = executeFunc(params, context)
+      const iterable =
+        result &&
+        typeof result === 'object' &&
+        Symbol.asyncIterator in (result as object)
+          ? (result as AsyncIterable<unknown>)
+          : (async function* () {
+              yield await result
+            })()
+
+      for await (const chunk of iterable) {
+        const c = chunk as { state?: string; results?: Array<{ url?: string }> }
+        if (c.state === 'complete' && Array.isArray(c.results)) {
+          const deduped = c.results.filter(r => {
+            if (!r.url) return true
+            if (seenUrls.has(r.url)) return false
+            seenUrls.add(r.url)
+            return true
+          })
+          yield { ...c, results: deduped }
+        } else {
+          yield chunk
+        }
+      }
+    }
+  }) as T
+}
+
 // Enhanced wrapper function with better type safety and streaming support
 function wrapSearchToolForQuickMode<
   T extends ReturnType<typeof createSearchTool>
@@ -86,6 +133,10 @@ export function createResearcher({
     const askQuestionTool = createQuestionTool(model)
     const todoTools = createTodoTools()
 
+    // Per-request URL dedup: same URL found by multiple searches won't be sent
+    // to the model twice (redundant context wastes tokens and confuses citations).
+    const seenUrls = new Set<string>()
+
     let systemPrompt: string
     let activeToolsList: (keyof ResearcherTools)[] = []
     let maxSteps: number
@@ -100,7 +151,10 @@ export function createResearcher({
         systemPrompt = QUICK_MODE_PROMPT
         activeToolsList = ['search', 'fetch']
         maxSteps = 20
-        searchTool = wrapSearchToolForQuickMode(originalSearchTool)
+        searchTool = wrapSearchToolWithDedup(
+          wrapSearchToolForQuickMode(originalSearchTool),
+          seenUrls
+        )
         break
 
       case 'adaptive':
@@ -111,7 +165,7 @@ export function createResearcher({
           `[Researcher] Adaptive mode: maxSteps=50, tools=[${activeToolsList.join(', ')}]`
         )
         maxSteps = 50
-        searchTool = originalSearchTool
+        searchTool = wrapSearchToolWithDedup(originalSearchTool, seenUrls)
         break
     }
 
