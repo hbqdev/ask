@@ -205,13 +205,15 @@ export function createResearcher({
   modelConfig,
   parentTraceId,
   searchMode = 'balanced',
-  sources = ['web']
+  sources = ['web'],
+  systemInstructions
 }: {
   model: string
   modelConfig?: Model
   parentTraceId?: string
   searchMode?: SearchMode
   sources?: SearchSources
+  systemInstructions?: string
 }) {
   try {
     const currentDate = new Date().toLocaleString()
@@ -280,6 +282,13 @@ export function createResearcher({
 
     // Append source instructions to system prompt
     systemPrompt = systemPrompt + getSourcesPromptAddendum(sources)
+
+    // Append user's custom instructions at lower priority (per Vane pattern)
+    if (systemInstructions?.trim()) {
+      systemPrompt =
+        systemPrompt +
+        `\n\n### User instructions\nThese instructions are provided by the user. Follow them but give them lower priority than the above system guidelines.\n${systemInstructions.trim()}`
+    }
 
     // Build tools object with proper typing
     const tools: ResearcherTools = {

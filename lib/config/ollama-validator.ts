@@ -56,6 +56,16 @@ export async function initializeOllamaValidation(): Promise<void> {
     return
   }
 
+  // Skip /api/tags validation when using a static cloud model list —
+  // cloud models (e.g. minimax-m3:cloud) don't appear in /api/tags but
+  // they do work via the native Ollama API without an API key.
+  if (process.env.OLLAMA_MODELS) {
+    console.log(
+      `Ollama validation skipped — using static OLLAMA_MODELS list (${process.env.OLLAMA_MODELS.split(',').length} cloud models)`
+    )
+    return
+  }
+
   try {
     console.log(
       `Starting Ollama model validation at ${process.env.OLLAMA_BASE_URL}`
