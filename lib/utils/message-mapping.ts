@@ -325,7 +325,24 @@ export function mapUIMessagePartsToDBParts(
           }
         }
 
-        // Unknown part type - store as data
+        // Any unregistered tool-* type (synthesis_ready, calculate, get_weather,
+        // future tools) must satisfy the DB constraint requiring tool_tool_call_id
+        // and tool_state to be non-null. Route to tool-dynamic so no migration needed.
+        if (part.type.startsWith('tool-') && isExtendedToolPart(part)) {
+          return {
+            ...basePart,
+            type: 'tool-dynamic',
+            tool_toolCallId: part.toolCallId || generateId(),
+            tool_state: part.state || ('input-available' as ToolState),
+            tool_errorText: part.errorText,
+            tool_dynamic_name: part.type.replace('tool-', ''),
+            tool_dynamic_type: 'dynamic',
+            tool_dynamic_input: part.input,
+            tool_dynamic_output: part.output
+          } as DBMessagePart
+        }
+
+        // Truly unknown part type - store as data
         return {
           ...basePart,
           data_prefix: part.type,

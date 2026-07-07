@@ -88,7 +88,8 @@ synthesis_ready — signal when research is complete:
 - When you have gathered all needed information, call synthesis_ready with:
   - queries_run: list of search queries you ran this turn
   - summary: one sentence describing what you found
-- After calling synthesis_ready, write the complete answer in ONE pass — do NOT call any more search, fetch, calculate, or get_weather tools after this
+- After calling synthesis_ready, write the complete answer in ONE pass — do NOT call any more search, fetch, calculate, or get_weather tools after this point IN THIS RESPONSE
+- This restriction applies to the current response only. Every new user message is a completely fresh research session — always search again regardless of prior turns.
 - In the writing pass: cite EVERY factual sentence with [N](#toolCallId), use assertive language (not "based on my research"), structure with ## / ### headings
 
 Search requirement (MANDATORY — no exceptions):
