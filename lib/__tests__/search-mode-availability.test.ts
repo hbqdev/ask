@@ -28,17 +28,17 @@ describe('search mode availability', () => {
     ).toBe(false)
   })
 
-  it('blocks adaptive mode sends for cloud guests', () => {
+  it('blocks balanced/quality mode sends for cloud guests', () => {
     expect(
       isAdaptiveModeAuthBlocked({
-        mode: 'adaptive',
+        mode: 'balanced',
         isGuest: true,
         isCloudDeployment: true
       })
     ).toBe(true)
     expect(
       isAdaptiveModeAuthBlocked({
-        mode: 'quick',
+        mode: 'speed',
         isGuest: true,
         isCloudDeployment: true
       })

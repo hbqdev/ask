@@ -6,15 +6,16 @@ import { SearchMode } from '@/lib/types/search'
 export interface ModelsConfig {
   version: number
   models: {
-    quick: Model
-    adaptive: Model
+    speed: Model
+    balanced: Model
+    quality: Model
   }
 }
 
 let cachedConfig: ModelsConfig | null = null
 let cachedForCloudDeployment = false
 
-const VALID_SEARCH_MODES: SearchMode[] = ['quick', 'adaptive']
+const VALID_SEARCH_MODES: SearchMode[] = ['speed', 'balanced', 'quality']
 
 function validateModelsConfigStructure(
   json: unknown

@@ -3,7 +3,7 @@
 import { toast } from 'sonner'
 
 import { SHORTCUT_EVENTS, SHORTCUTS } from '@/lib/keyboard-shortcuts'
-import { FocusMode, SearchMode } from '@/lib/types/search'
+import { SearchMode, SearchSources } from '@/lib/types/search'
 import { getCookie, setCookie } from '@/lib/utils/cookies'
 
 import { useKeyboardShortcut } from '@/hooks/use-keyboard-shortcut'
@@ -19,20 +19,23 @@ const THEME_CYCLE: Record<string, string> = {
 }
 
 const SEARCH_MODE_LABELS: Record<SearchMode, string> = {
-  quick: 'Quick',
-  adaptive: 'Adaptive'
+  speed: 'Speed',
+  balanced: 'Balanced',
+  quality: 'Quality'
 }
 
-const FOCUS_MODE_CYCLE: Record<FocusMode, FocusMode> = {
-  auto: 'academic',
-  academic: 'discussions',
-  discussions: 'auto'
+const SEARCH_MODE_CYCLE: Record<string, SearchMode> = {
+  speed: 'balanced',
+  balanced: 'quality',
+  quality: 'speed'
 }
 
-const FOCUS_MODE_LABELS: Record<FocusMode, string> = {
-  auto: 'Auto',
-  academic: 'Academic',
-  discussions: 'Discussions'
+// Cycle: web only → academic only → social only → web only
+const SOURCES_CYCLE: SearchSources[] = [['web'], ['academic'], ['social']]
+const SOURCES_LABELS: Record<string, string> = {
+  '["web"]': 'Web',
+  '["academic"]': 'Academic',
+  '["social"]': 'Social'
 }
 
 export function KeyboardShortcutHandler() {
@@ -58,17 +61,33 @@ export function KeyboardShortcutHandler() {
   })
 
   useKeyboardShortcut(SHORTCUTS.toggleSearchMode, () => {
-    const current = getCookie('searchMode') || 'quick'
-    const next: SearchMode = current === 'quick' ? 'adaptive' : 'quick'
+    const raw = getCookie('searchMode') || 'balanced'
+    // Backward compat: map old values
+    const current =
+      raw === 'quick' ? 'speed' : raw === 'adaptive' ? 'balanced' : raw
+    const next: SearchMode = SEARCH_MODE_CYCLE[current] ?? 'balanced'
     setCookie('searchMode', next)
     toast.info(`Search mode: ${SEARCH_MODE_LABELS[next]}`)
   })
 
-  useKeyboardShortcut(SHORTCUTS.toggleFocusMode, () => {
-    const current = (getCookie('focusMode') || 'auto') as FocusMode
-    const next = FOCUS_MODE_CYCLE[current] ?? 'auto'
-    setCookie('focusMode', next)
-    toast.info(`Focus: ${FOCUS_MODE_LABELS[next]}`)
+  useKeyboardShortcut(SHORTCUTS.toggleSources, () => {
+    const raw = getCookie('sources')
+    let current: SearchSources = ['web']
+    try {
+      if (raw) {
+        const parsed = JSON.parse(raw)
+        if (Array.isArray(parsed) && parsed.length > 0) current = parsed
+      }
+    } catch {
+      // ignore
+    }
+    const currentKey = JSON.stringify(current)
+    const currentIdx = SOURCES_CYCLE.findIndex(
+      s => JSON.stringify(s) === currentKey
+    )
+    const next = SOURCES_CYCLE[(currentIdx + 1) % SOURCES_CYCLE.length]
+    setCookie('sources', JSON.stringify(next))
+    toast.info(`Sources: ${SOURCES_LABELS[JSON.stringify(next)] ?? JSON.stringify(next)}`)
   })
 
   useKeyboardShortcut(SHORTCUTS.showShortcuts, () => {

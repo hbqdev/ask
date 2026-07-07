@@ -1,8 +1,10 @@
-import { IconSearch as Search } from '@tabler/icons-react'
+import {
+  IconAdjustmentsHorizontal,
+  IconBolt,
+  IconStars
+} from '@tabler/icons-react'
 
 import { SearchMode } from '@/lib/types/search'
-
-import { IconLogoOutline } from '@/components/ui/icons'
 
 export interface SearchModeConfig {
   value: SearchMode
@@ -15,18 +17,28 @@ export interface SearchModeConfig {
 // Centralized search mode configuration
 export const SEARCH_MODE_CONFIGS: SearchModeConfig[] = [
   {
-    value: 'quick',
-    label: 'Quick',
-    description: 'Streamlined search for fast, concise responses',
-    icon: Search,
+    value: 'speed',
+    label: 'Speed',
+    description:
+      'Fast answers with focused web search. Best for quick lookups and current events.',
+    icon: IconBolt,
     color: 'text-amber-500'
   },
   {
-    value: 'adaptive',
-    label: 'Adaptive',
-    description: 'Adaptive agentic search with intelligent query understanding',
-    icon: IconLogoOutline,
+    value: 'balanced',
+    label: 'Balanced',
+    description:
+      'Thorough research with intelligent multi-step planning. Best for most queries.',
+    icon: IconAdjustmentsHorizontal,
     color: 'text-violet-500'
+  },
+  {
+    value: 'quality',
+    label: 'Quality',
+    description:
+      'Deep research with comprehensive coverage. Best for complex or research-heavy questions.',
+    icon: IconStars,
+    color: 'text-blue-500'
   }
 ]
 

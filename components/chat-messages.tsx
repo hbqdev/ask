@@ -13,6 +13,7 @@ import { AnimatedLogo } from './ui/animated-logo'
 import { ChatError } from './chat-error'
 import { ChatFooterMessage } from './chat-footer-message'
 import { RenderMessage } from './render-message'
+import { VideoPanel } from './video-panel'
 
 // Import section structure interface
 interface ChatSection {
@@ -273,6 +274,16 @@ export function ChatMessages({
                 </div>
               )
             })}
+            {/* Video panel - shown below completed assistant responses */}
+            {section.assistantMessages.length > 0 &&
+              !(sectionIndex === sections.length - 1 && isLoading) && (() => {
+                const userParts = (section.userMessage.parts ?? []) as any[]
+                const textPart = userParts.find((p: any) => p.type === 'text')
+                const userQuery: string = textPart?.text ?? ''
+                return userQuery ? (
+                  <VideoPanel query={userQuery} className="mt-3" />
+                ) : null
+              })()}
             {/* Show assistant logo and footer message after assistant messages */}
             {showAssistantLogo && sectionIndex === sections.length - 1 && (
               <div className="flex items-center gap-3 py-1 md:py-4">

@@ -65,35 +65,6 @@ ${hasGeneralProvider ? '- For video/image content, you can use type="general" wi
 
 ${getSourceDirectionGuidance()}
 
-Follow-up query handling:
-- When the user's message uses pronouns ("it", "they", "that", "this"), relative references ("the company", "the API", "the product"), or implicit topics from conversation history:
-  1. Identify what they're referring to from conversation context
-  2. Reformulate as a self-contained query (e.g., "how does it compare?" → "How does Claude compare to GPT-4?")
-  3. Search using the standalone formulation — do NOT search for pronouns or vague references
-
-Research-first protocol:
-- Complete ALL searches before composing any response text
-- Do not start writing the answer while searches are still in progress
-- Once you have gathered sufficient information, write the complete answer in one pass
-
-Specialist tools — use these INSTEAD of search:
-- **calculate**: Use for ANY mathematical computation — percentages, formulas, unit conversions, statistics. Pass the expression as a string. NEVER compute math mentally or estimate when calculate is available.
-- **get_weather**: Use for ANY weather query (current conditions, forecast, temperature, rain). Call get_weather directly — do NOT search for weather.
-
-Academic vs. discussion search:
-- Set search_mode: 'academic' when the query asks for research papers, peer-reviewed evidence, scientific facts, or scholarly citations (e.g. "studies on...", "scientific evidence for...", "research shows...")
-- For community opinions, personal experiences, or discussions: add include_domains: ['reddit.com'] to a normal web search
-
-synthesis_ready — signal when research is complete:
-- When you have gathered all needed information, write your COMPLETE final answer AND call synthesis_ready in the SAME response
-  - queries_run: list of search queries you ran this turn
-  - summary: one sentence describing what you found
-- IMPORTANT: Write the full formatted answer FIRST (with all citations and headings), then call synthesis_ready at the end — the loop ends immediately once synthesis_ready is detected
-- Do NOT call synthesis_ready as a separate step first and then write the answer; both must happen in the same response
-- Do NOT call any more search, fetch, calculate, or get_weather tools in the response where you call synthesis_ready
-- Every new user message is a completely fresh research session — always search again regardless of prior turns
-- In your answer: cite EVERY factual sentence with [N](#toolCallId), use assertive language (not "based on my research"), structure with ## / ### headings
-
 Search requirement (MANDATORY — no exceptions):
 - If the user's message contains a URL, start directly with fetch tool - do NOT search first
 - For ALL other messages — questions, follow-ups, continuations, casual, anything — you MUST run at least one search before answering. No exceptions. Prior conversation context does NOT exempt you from searching.
@@ -207,34 +178,6 @@ function getApproachStrategy(): string {
    - Use type="general" for current events/news (then fetch for content)
    - Pattern: Search → Identify top sources → Fetch if needed → Synthesize
    - Multiple searches with different angles for comprehensive coverage
-
-Follow-up query handling:
-- When the user's message uses pronouns ("it", "they", "that", "this"), relative references ("the company", "the API", "the product"), or implicit topics from conversation history:
-  1. Identify what they're referring to from conversation context
-  2. Reformulate as a self-contained query (e.g., "what about their pricing?" → "What is Anthropic's pricing for Claude?")
-  3. Search using the standalone formulation — do NOT search for pronouns or vague references
-
-Research-first protocol:
-- Complete ALL searches before composing any response text
-- Do not start writing the answer while searches are still in progress
-- Once you have gathered sufficient information, write the complete answer in one pass
-
-Specialist tools — use these INSTEAD of search:
-- **calculate**: Use for ANY mathematical computation — percentages, formulas, unit conversions, statistics. NEVER compute math mentally when calculate is available.
-- **get_weather**: Use for ANY weather query (current conditions, forecast, temperature, rain). Call get_weather directly — do NOT search for weather.
-
-Academic vs. discussion search:
-- Set search_mode: 'academic' when the query asks for research papers, peer-reviewed evidence, scientific facts, or scholarly citations (e.g. "studies on...", "scientific evidence for...", "peer-reviewed...")
-- For community opinions, personal experiences, or discussions: add include_domains: ['reddit.com'] to a normal web search
-
-synthesis_ready — signal when research is complete:
-- When all research is done, write your COMPLETE final answer AND call synthesis_ready in the SAME response
-  - queries_run: list of searches performed this turn
-  - summary: one sentence describing key findings
-- IMPORTANT: Write the full formatted answer FIRST (with all citations and headings), then call synthesis_ready at the end — the loop ends immediately once synthesis_ready is detected
-- Do NOT call synthesis_ready as a separate step first and then write the answer; both must happen in the same response
-- Do NOT call any more search, fetch, calculate, or get_weather tools in the response where you call synthesis_ready
-- In your answer: cite EVERY factual sentence with [N](#toolCallId), write assertively (not "based on my research"), use ## / ### headings for structure
 
 Mandatory search (no exceptions):
 - If the user's message contains a URL, fetch the provided URL - do NOT search first
@@ -393,5 +336,6 @@ ${getRelatedQuestionsSpecPrompt()}
 `
 }
 
-// Export static prompts for backward compatibility
-export const QUICK_MODE_PROMPT = getQuickModePrompt()
+// Export static prompts
+export const SPEED_MODE_PROMPT = getQuickModePrompt()
+export const QUICK_MODE_PROMPT = SPEED_MODE_PROMPT // backward compat alias

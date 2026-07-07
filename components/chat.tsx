@@ -121,7 +121,12 @@ export function Chat({
   const isCurrentAdaptiveModeAuthBlocked = useCallback(
     () =>
       isAdaptiveModeAuthBlocked({
-        mode: getCookie('searchMode') === 'adaptive' ? 'adaptive' : 'quick',
+        mode: (() => {
+          const val = getCookie('searchMode')
+          if (val === 'quick' || val === 'speed') return 'speed'
+          if (val === 'quality') return 'quality'
+          return 'balanced'
+        })() as 'speed' | 'balanced' | 'quality',
         isGuest,
         isCloudDeployment
       }),

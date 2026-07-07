@@ -42,14 +42,14 @@ export const SHORTCUTS = {
     key: 'm',
     meta: true,
     shift: true,
-    description: 'Cycle search mode (Quick / Adaptive)'
+    description: 'Cycle search mode (Speed / Balanced / Quality)'
   },
-  toggleFocusMode: {
-    id: 'toggleFocusMode',
+  toggleSources: {
+    id: 'toggleSources',
     key: 'f',
     meta: true,
     shift: true,
-    description: 'Cycle focus mode (Auto / Academic / Discussions)'
+    description: 'Cycle source focus (Web / Academic / Social)'
   },
   showShortcuts: {
     id: 'showShortcuts',

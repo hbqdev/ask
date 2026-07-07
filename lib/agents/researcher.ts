@@ -2,7 +2,6 @@ import { hasToolCall, stepCountIs, tool, ToolLoopAgent } from 'ai'
 
 import type { ResearcherTools } from '@/lib/types/agent'
 import { type Model } from '@/lib/types/models'
-import { type FocusMode } from '@/lib/types/search'
 
 import { calculateTool } from '../tools/calculate'
 import { fetchTool } from '../tools/fetch'
@@ -11,13 +10,13 @@ import { createSearchTool } from '../tools/search'
 import { synthesisReadyTool } from '../tools/synthesis-ready'
 import { createTodoTools } from '../tools/todo'
 import { weatherTool } from '../tools/weather'
-import { SearchMode } from '../types/search'
+import { SearchMode, SearchSources } from '../types/search'
 import { getModel } from '../utils/registry'
 import { isTracingEnabled } from '../utils/telemetry'
 
 import {
   getAdaptiveModePrompt,
-  QUICK_MODE_PROMPT
+  SPEED_MODE_PROMPT
 } from './prompts/search-mode-prompts'
 
 // Wraps the search tool to deduplicate results across calls within one request.
@@ -116,14 +115,22 @@ function wrapSearchToolForQuickMode<
   }) as T
 }
 
-// Enforces focus mode at the tool level so the model physically cannot deviate.
-// 'academic' forces search_mode: 'academic' on every search call.
-// 'discussions' appends reddit.com to include_domains on every search call.
-// 'auto' returns the tool unchanged.
-function wrapSearchToolForFocusMode<
-  T extends ReturnType<typeof createSearchTool>
->(originalTool: T, focusMode: FocusMode): T {
-  if (focusMode === 'auto') return originalTool
+// Enforces source selection at the tool level so the model physically cannot deviate.
+// 'academic' (exclusive) forces search_mode: 'academic' on every search call.
+// 'social' (exclusive) appends reddit.com to include_domains on every search call.
+// Mixed or web-only: returns the tool unchanged (model decides per query).
+function wrapSearchToolForSources<T extends ReturnType<typeof createSearchTool>>(
+  originalTool: T,
+  sources: SearchSources
+): T {
+  const hasWeb = sources.includes('web')
+  const hasAcademic = sources.includes('academic')
+  const hasSocial = sources.includes('social')
+
+  const academicOnly = !hasWeb && hasAcademic && !hasSocial
+  const socialOnly = !hasWeb && !hasAcademic && hasSocial
+
+  if (!academicOnly && !socialOnly) return originalTool
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   return tool({
@@ -137,9 +144,9 @@ function wrapSearchToolForFocusMode<
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       let modifiedParams: any = { ...params }
 
-      if (focusMode === 'academic') {
+      if (academicOnly) {
         modifiedParams.search_mode = 'academic'
-      } else if (focusMode === 'discussions') {
+      } else if (socialOnly) {
         const existing: string[] = Array.isArray(modifiedParams.include_domains)
           ? modifiedParams.include_domains
           : []
@@ -168,12 +175,25 @@ function wrapSearchToolForFocusMode<
   }) as T
 }
 
-function getFocusModePromptAddendum(focusMode: FocusMode): string {
-  if (focusMode === 'academic') {
+function getSourcesPromptAddendum(sources: SearchSources): string {
+  const hasAcademic = sources.includes('academic')
+  const hasSocial = sources.includes('social')
+  const hasWeb = sources.includes('web')
+
+  if (!hasWeb && hasAcademic && !hasSocial) {
     return '\n\n**User-selected Academic focus**: The user has explicitly chosen academic sources. ALL searches are automatically routed to Google Scholar, arXiv, Semantic Scholar, and PubMed. Prioritize peer-reviewed papers, cite authors and publication years when available, and frame your answer in scholarly terms.'
   }
-  if (focusMode === 'discussions') {
-    return '\n\n**User-selected Discussions focus**: The user has explicitly chosen community discussions. ALL searches are automatically routed to Reddit. Prioritize real user opinions, personal experiences, and community consensus. Summarize the range of perspectives rather than presenting a single authoritative answer.'
+  if (!hasWeb && !hasAcademic && hasSocial) {
+    return '\n\n**User-selected Social focus**: The user has explicitly chosen community discussions. ALL searches are automatically routed to Reddit. Prioritize real user opinions, personal experiences, and community consensus.'
+  }
+  if (hasAcademic && hasSocial) {
+    return "\n\n**Multi-source mode**: The user has enabled Web + Academic + Social sources. For research/science questions use search_mode: 'academic'. For community perspectives add include_domains: ['reddit.com']. For general info use standard web search. Choose the appropriate source type per query."
+  }
+  if (hasAcademic) {
+    return "\n\n**Academic sources enabled**: For research/science/medical questions use search_mode: 'academic' to get scholarly results. For other questions use standard web search."
+  }
+  if (hasSocial) {
+    return "\n\n**Social sources enabled**: For opinion/experience/community questions add include_domains: ['reddit.com']. For factual questions use standard web search."
   }
   return ''
 }
@@ -184,14 +204,14 @@ export function createResearcher({
   model,
   modelConfig,
   parentTraceId,
-  searchMode = 'adaptive',
-  focusMode = 'auto'
+  searchMode = 'balanced',
+  sources = ['web']
 }: {
   model: string
   modelConfig?: Model
   parentTraceId?: string
   searchMode?: SearchMode
-  focusMode?: FocusMode
+  sources?: SearchSources
 }) {
   try {
     const currentDate = new Date().toLocaleString()
@@ -212,39 +232,54 @@ export function createResearcher({
 
     // Configure based on search mode
     switch (searchMode) {
-      case 'quick':
+      case 'speed':
         console.log(
-          `[Researcher] Quick mode: maxSteps=20, tools=[search, fetch, calculate, get_weather, synthesis_ready], focusMode=${focusMode}`
+          `[Researcher] Speed mode: maxSteps=20, tools=[search, fetch, calculate, get_weather, synthesis_ready], sources=${JSON.stringify(sources)}`
         )
-        systemPrompt = QUICK_MODE_PROMPT
+        systemPrompt = SPEED_MODE_PROMPT
         activeToolsList = ['search', 'fetch', 'calculate', 'get_weather', 'synthesis_ready']
         maxSteps = 20
-        searchTool = wrapSearchToolForFocusMode(
+        searchTool = wrapSearchToolForSources(
           wrapSearchToolWithDedup(
             wrapSearchToolForQuickMode(originalSearchTool),
             seenUrls
           ),
-          focusMode
+          sources
         )
         break
 
-      case 'adaptive':
+      case 'quality':
+        systemPrompt =
+          getAdaptiveModePrompt() +
+          '\n\n**Quality mode**: Provide the most comprehensive, well-researched answer possible. Use at least 8-10 searches from multiple angles. Fetch full page content for the most relevant sources. Aim for thoroughness over brevity.'
+        activeToolsList = ['search', 'fetch', 'todoWrite', 'calculate', 'get_weather', 'synthesis_ready']
+        console.log(
+          `[Researcher] Quality mode: maxSteps=100, tools=[${activeToolsList.join(', ')}], sources=${JSON.stringify(sources)}`
+        )
+        maxSteps = 100
+        searchTool = wrapSearchToolForSources(
+          wrapSearchToolWithDedup(originalSearchTool, seenUrls),
+          sources
+        )
+        break
+
+      case 'balanced':
       default:
         systemPrompt = getAdaptiveModePrompt()
         activeToolsList = ['search', 'fetch', 'todoWrite', 'calculate', 'get_weather', 'synthesis_ready']
         console.log(
-          `[Researcher] Adaptive mode: maxSteps=50, tools=[${activeToolsList.join(', ')}], focusMode=${focusMode}`
+          `[Researcher] Balanced mode: maxSteps=50, tools=[${activeToolsList.join(', ')}], sources=${JSON.stringify(sources)}`
         )
         maxSteps = 50
-        searchTool = wrapSearchToolForFocusMode(
+        searchTool = wrapSearchToolForSources(
           wrapSearchToolWithDedup(originalSearchTool, seenUrls),
-          focusMode
+          sources
         )
         break
     }
 
-    // Append focus mode instructions to system prompt
-    systemPrompt = systemPrompt + getFocusModePromptAddendum(focusMode)
+    // Append source instructions to system prompt
+    systemPrompt = systemPrompt + getSourcesPromptAddendum(sources)
 
     // Build tools object with proper typing
     const tools: ResearcherTools = {

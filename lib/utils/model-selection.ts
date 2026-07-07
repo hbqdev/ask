@@ -12,7 +12,7 @@ import { Model } from '@/lib/types/models'
 import { SearchMode } from '@/lib/types/search'
 import { isProviderEnabled } from '@/lib/utils/registry'
 
-const MODE_FALLBACK_ORDER: SearchMode[] = ['quick', 'adaptive']
+const MODE_FALLBACK_ORDER: SearchMode[] = ['speed', 'balanced', 'quality']
 const PROVIDER_LABELS: Record<string, string> = {
   openai: 'OpenAI',
   anthropic: 'Anthropic',
@@ -143,7 +143,7 @@ export async function selectModel({
   const requestedMode =
     searchMode && MODE_FALLBACK_ORDER.includes(searchMode)
       ? searchMode
-      : 'quick'
+      : 'balanced'
 
   const modePreferenceOrder: SearchMode[] = Array.from(
     new Set<SearchMode>([requestedMode, ...MODE_FALLBACK_ORDER])
