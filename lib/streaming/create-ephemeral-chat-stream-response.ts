@@ -81,7 +81,7 @@ export async function createEphemeralChatStreamResponse(
     modelMessages = pruneMessages({
       messages: modelMessages,
       reasoning: 'before-last-message',
-      toolCalls: 'before-last-2-messages',
+      toolCalls: 'before-last-message',
       emptyMessages: 'remove'
     })
 
