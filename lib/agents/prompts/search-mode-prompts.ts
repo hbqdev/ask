@@ -85,12 +85,14 @@ Academic vs. discussion search:
 - For community opinions, personal experiences, or discussions: add include_domains: ['reddit.com'] to a normal web search
 
 synthesis_ready — signal when research is complete:
-- When you have gathered all needed information, call synthesis_ready with:
+- When you have gathered all needed information, write your COMPLETE final answer AND call synthesis_ready in the SAME response
   - queries_run: list of search queries you ran this turn
   - summary: one sentence describing what you found
-- After calling synthesis_ready, write the complete answer in ONE pass — do NOT call any more search, fetch, calculate, or get_weather tools after this point IN THIS RESPONSE
-- This restriction applies to the current response only. Every new user message is a completely fresh research session — always search again regardless of prior turns.
-- In the writing pass: cite EVERY factual sentence with [N](#toolCallId), use assertive language (not "based on my research"), structure with ## / ### headings
+- IMPORTANT: Write the full formatted answer FIRST (with all citations and headings), then call synthesis_ready at the end — the loop ends immediately once synthesis_ready is detected
+- Do NOT call synthesis_ready as a separate step first and then write the answer; both must happen in the same response
+- Do NOT call any more search, fetch, calculate, or get_weather tools in the response where you call synthesis_ready
+- Every new user message is a completely fresh research session — always search again regardless of prior turns
+- In your answer: cite EVERY factual sentence with [N](#toolCallId), use assertive language (not "based on my research"), structure with ## / ### headings
 
 Search requirement (MANDATORY — no exceptions):
 - If the user's message contains a URL, start directly with fetch tool - do NOT search first
@@ -226,11 +228,13 @@ Academic vs. discussion search:
 - For community opinions, personal experiences, or discussions: add include_domains: ['reddit.com'] to a normal web search
 
 synthesis_ready — signal when research is complete:
-- When all research is done, call synthesis_ready with:
+- When all research is done, write your COMPLETE final answer AND call synthesis_ready in the SAME response
   - queries_run: list of searches performed this turn
   - summary: one sentence describing key findings
-- After calling synthesis_ready, write the complete answer in ONE pass — do NOT call any more search, fetch, calculate, or get_weather tools after this
-- In the writing pass: cite EVERY factual sentence with [N](#toolCallId), write assertively (not "based on my research"), use ## / ### headings for structure
+- IMPORTANT: Write the full formatted answer FIRST (with all citations and headings), then call synthesis_ready at the end — the loop ends immediately once synthesis_ready is detected
+- Do NOT call synthesis_ready as a separate step first and then write the answer; both must happen in the same response
+- Do NOT call any more search, fetch, calculate, or get_weather tools in the response where you call synthesis_ready
+- In your answer: cite EVERY factual sentence with [N](#toolCallId), write assertively (not "based on my research"), use ## / ### headings for structure
 
 Mandatory search (no exceptions):
 - If the user's message contains a URL, fetch the provided URL - do NOT search first
