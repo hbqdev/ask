@@ -1,5 +1,6 @@
 'use client'
 
+import { useState } from 'react'
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
 
@@ -7,7 +8,8 @@ import {
   IconCompass,
   IconHome,
   IconLibrary,
-  IconPlus
+  IconPlus,
+  IconSettings
 } from '@tabler/icons-react'
 
 import { cn } from '@/lib/utils'
@@ -15,10 +17,12 @@ import { cn } from '@/lib/utils'
 import {
   Sidebar,
   SidebarContent,
+  SidebarFooter,
   SidebarHeader,
   SidebarRail
 } from '@/components/ui/sidebar'
 
+import { SettingsDialog } from './settings-dialog'
 import { IconLogo } from './ui/icons'
 
 const NAV_ITEMS = [
@@ -29,6 +33,7 @@ const NAV_ITEMS = [
 
 export default function AppSidebar() {
   const pathname = usePathname()
+  const [settingsOpen, setSettingsOpen] = useState(false)
 
   return (
     <Sidebar side="left" variant="sidebar" collapsible="offcanvas">
@@ -76,7 +81,20 @@ export default function AppSidebar() {
         })}
       </SidebarContent>
 
+      <SidebarFooter className="flex flex-col items-center pb-4 px-2">
+        <button
+          onClick={() => setSettingsOpen(true)}
+          title="Settings"
+          className="flex flex-col items-center gap-1.5 py-2.5 px-1 rounded-xl w-full transition-all duration-200 cursor-pointer select-none text-muted-foreground hover:bg-muted/60 hover:text-foreground hover:scale-105 active:scale-95"
+        >
+          <IconSettings className="size-5" />
+          <span className="text-[10px] font-medium leading-none">Settings</span>
+        </button>
+      </SidebarFooter>
+
       <SidebarRail />
+
+      <SettingsDialog open={settingsOpen} onOpenChange={setSettingsOpen} />
     </Sidebar>
   )
 }

@@ -14,4 +14,5 @@ export interface BaseStreamConfig {
   isNewChat?: boolean
   searchMode?: SearchMode
   sources?: SearchSources
+  systemInstructions?: string
 }

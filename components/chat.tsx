@@ -160,6 +160,7 @@ export function Chat({
             chatId: chatId,
             messageId,
             analyticsId: getDistinctId(),
+            systemInstructions: typeof localStorage !== 'undefined' ? (localStorage.getItem('systemInstructions') ?? undefined) : undefined,
             ...(isGuest ? { messages } : {}),
             message:
               trigger === 'regenerate-message' &&

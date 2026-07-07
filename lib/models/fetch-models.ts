@@ -388,6 +388,27 @@ export async function fetchOllamaModels(): Promise<Model[]> {
     return []
   }
 
+  // Static list path: cloud models don't appear in /api/tags, so we read
+  // OLLAMA_MODELS (comma-separated) the same way Vane manually lists models.
+  const staticList = process.env.OLLAMA_MODELS
+  if (staticList) {
+    return sortModels(
+      dedupeModels(
+        staticList
+          .split(',')
+          .map(id => id.trim())
+          .filter(Boolean)
+          .map(id => ({
+            id,
+            name: id,
+            provider: 'Ollama Cloud',
+            providerId: 'ollama'
+          }))
+      )
+    )
+  }
+
+  // Dynamic path: fetch locally-installed models from /api/tags
   try {
     const baseUrl = process.env.OLLAMA_BASE_URL
     const url = new URL('/api/tags', baseUrl).toString()
@@ -400,24 +421,37 @@ export async function fetchOllamaModels(): Promise<Model[]> {
           .map(item => String(item?.name ?? ''))
           .filter(Boolean)
           .filter(name => !name.toLowerCase().includes('embed'))
-          .map(
-            name =>
-              ({
-                id: name,
-                name,
-                provider: 'Ollama',
-                providerId: 'ollama',
-                providerOptions: {
-                  ollama: {
-                    think: true
-                  }
-                }
-              }) satisfies Model
-          )
+          .map(name => ({
+            id: name,
+            name,
+            provider: 'Ollama',
+            providerId: 'ollama'
+          }))
       )
     )
   } catch (error) {
     console.warn('[ModelFetch] Failed to fetch Ollama models:', error)
+    return []
+  }
+}
+
+export async function fetchOllamaEmbedModels(): Promise<string[]> {
+  const baseUrl = process.env.OLLAMA_BASE_URL
+  if (!baseUrl) return []
+
+  // Check env override first
+  const envModel = process.env.OLLAMA_EMBED_MODEL
+  if (envModel) return [envModel]
+
+  try {
+    const url = new URL('/api/tags', baseUrl).toString()
+    const json = await fetchJson(url, {})
+    const data = Array.isArray(json?.models) ? json.models : []
+    return data
+      .map((item: Record<string, unknown>) => String(item?.name ?? ''))
+      .filter(Boolean)
+      .filter((name: string) => name.toLowerCase().includes('embed') || name.toLowerCase().includes('minilm') || name.toLowerCase().includes('nomic'))
+  } catch {
     return []
   }
 }

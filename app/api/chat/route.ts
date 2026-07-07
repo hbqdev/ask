@@ -38,7 +38,7 @@ export async function POST(req: Request) {
 
   try {
     const body = await req.json()
-    const { message, messages, chatId, trigger, messageId, isNewChat } = body
+    const { message, messages, chatId, trigger, messageId, isNewChat, systemInstructions } = body
     const analyticsId: unknown = body.analyticsId
 
     // Normalize the message id up front so persistence and analytics agree on it.
@@ -207,7 +207,8 @@ export async function POST(req: Request) {
           abortSignal,
           isNewChat,
           searchMode,
-          sources
+          sources,
+          systemInstructions: typeof systemInstructions === 'string' ? systemInstructions : undefined
         })
 
     perfTime('createChatStreamResponse resolved', streamStart)
