@@ -52,9 +52,10 @@ import { ActionButtons } from './action-buttons'
 import { FileUploadButton } from './file-upload-button'
 import { MessageNavigationDots } from './message-navigation-dots'
 import { ModelSelectorClient } from './model-selector-client'
-import { FocusModeSelector } from './focus-mode-selector'
 import { SearchModeSelector } from './search-mode-selector'
+import { SourceSelector } from './source-selector'
 import { UploadedFileList } from './uploaded-file-list'
+import { WeatherWidget } from './weather-widget'
 
 // Constants for timing delays
 const INPUT_UPDATE_DELAY_MS = 10 // Delay to ensure input value is updated before form submission
@@ -68,7 +69,11 @@ const PASTE_CARD_MIN_CHARS = 400
 const BARE_URL_RE = /^https?:\/\/\S+$/
 
 function getSearchModeSnapshot(): SearchMode {
-  return getCookie('searchMode') === 'adaptive' ? 'adaptive' : 'quick'
+  const val = getCookie('searchMode')
+  if (val === 'quick') return 'speed'
+  if (val === 'adaptive') return 'balanced'
+  if (val === 'speed' || val === 'balanced' || val === 'quality') return val as SearchMode
+  return 'balanced'
 }
 
 interface ChatPanelProps {
@@ -150,7 +155,7 @@ export function ChatPanel({
   const searchMode = useSyncExternalStore(
     subscribeToCookieChange,
     getSearchModeSnapshot,
-    () => 'quick' as SearchMode
+    () => 'balanced' as SearchMode
   )
   const isAdaptiveAuthRequired = requiresAdaptiveModeAuth({
     isGuest,
@@ -230,7 +235,7 @@ export function ChatPanel({
   useEffect(() => {
     if (isFirstRender.current && query && query.trim().length > 0) {
       if (adaptiveModeSubmitBlocked) {
-        setCookie('searchMode', 'quick')
+        setCookie('searchMode', 'balanced')
         return
       }
 
@@ -456,6 +461,12 @@ export function ChatPanel({
             )}
           >
             <MessageNavigationDots sections={sections} />
+          </div>
+        )}
+
+        {messages.length === 0 && (
+          <div className="flex justify-end mb-2">
+            <WeatherWidget />
           </div>
         )}
 
@@ -705,7 +716,7 @@ export function ChatPanel({
                 isAdaptiveAuthRequired={isAdaptiveAuthRequired}
                 onAdaptiveAuthRequired={onAdaptiveModeAuthRequired}
               />
-              <FocusModeSelector />
+              <SourceSelector />
             </div>
             <div className="flex items-center gap-2">
               {!isCloudDeployment && modelSelectorData && (

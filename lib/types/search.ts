@@ -1,8 +1,6 @@
 // Search mode type definition
-export type SearchMode = 'quick' | 'adaptive'
+export type SearchMode = 'speed' | 'balanced' | 'quality'
 
-// Focus mode: controls which sources are searched
-// 'auto' = model decides based on query
-// 'academic' = force scholarly sources (Google Scholar, arXiv, PubMed)
-// 'discussions' = force community sources (Reddit)
-export type FocusMode = 'auto' | 'academic' | 'discussions'
+// Multi-source mode types
+export type SourceMode = 'web' | 'academic' | 'social'
+export type SearchSources = SourceMode[]

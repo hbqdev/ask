@@ -25,8 +25,12 @@ async function getConfiguredOllamaModels(): Promise<Model[]> {
   try {
     const config = await loadModelsConfig()
 
-    // Check quick/adaptive models
-    const cloudModels = [config.models.quick, config.models.adaptive]
+    // Check speed/balanced/quality models
+    const cloudModels = [
+      config.models.speed,
+      config.models.balanced,
+      config.models.quality
+    ]
 
     for (const model of cloudModels) {
       if (model?.providerId === 'ollama') {

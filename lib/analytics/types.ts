@@ -24,7 +24,7 @@ export interface QueryShape {
  */
 export interface ChatEventData {
   /** Search mode used for the chat */
-  searchMode: 'quick' | 'planning' | 'adaptive'
+  searchMode: 'speed' | 'balanced' | 'quality'
   /** Conversation turn number (1-indexed, represents follow-up count) */
   conversationTurn: number
   /** Whether this is a new chat session */

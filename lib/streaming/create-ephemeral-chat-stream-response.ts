@@ -29,7 +29,7 @@ import { BaseStreamConfig } from './types'
 
 type EphemeralStreamConfig = Pick<
   BaseStreamConfig,
-  'model' | 'abortSignal' | 'searchMode' | 'focusMode'
+  'model' | 'abortSignal' | 'searchMode' | 'sources'
 > & {
   messages: UIMessage[]
   chatId?: string
@@ -38,7 +38,7 @@ type EphemeralStreamConfig = Pick<
 export async function createEphemeralChatStreamResponse(
   config: EphemeralStreamConfig
 ): Promise<Response> {
-  const { messages, model, abortSignal, searchMode, focusMode, chatId } = config
+  const { messages, model, abortSignal, searchMode, sources, chatId } = config
 
   if (!messages || messages.length === 0) {
     return new Response('messages are required', {
@@ -81,7 +81,7 @@ export async function createEphemeralChatStreamResponse(
     modelMessages = pruneMessages({
       messages: modelMessages,
       reasoning: 'before-last-message',
-      toolCalls: 'before-last-message',
+      toolCalls: 'before-last-2-messages',
       emptyMessages: 'remove'
     })
 
@@ -95,7 +95,7 @@ export async function createEphemeralChatStreamResponse(
       modelConfig: model,
       parentTraceId,
       searchMode,
-      focusMode
+      sources
     })
 
     const modelId = `${model.providerId}:${model.id}`

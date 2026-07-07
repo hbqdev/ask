@@ -487,8 +487,8 @@ export function createPublicErrorResponse(
 }
 
 export function getPublicRateLimitDetails(error: PublicErrorPayload): string {
-  if (error.mode === 'adaptive') {
-    return 'The limit resets at midnight UTC. You can continue using Quick mode without restrictions.'
+  if (error.mode === 'balanced' || error.mode === 'quality') {
+    return 'The limit resets at midnight UTC. You can continue using Speed mode without restrictions.'
   }
 
   if (error.details) return error.details

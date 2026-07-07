@@ -9,7 +9,7 @@ const SHORTCUT_ENTRIES = [
   SHORTCUTS.toggleSidebar,
   SHORTCUTS.toggleTheme,
   SHORTCUTS.toggleSearchMode,
-  SHORTCUTS.toggleFocusMode,
+  SHORTCUTS.toggleSources,
   SHORTCUTS.showShortcuts
 ] as const
 

@@ -18,7 +18,7 @@ import {
 } from '@/lib/search-mode-availability'
 import { createChatStreamResponse } from '@/lib/streaming/create-chat-stream-response'
 import { createEphemeralChatStreamResponse } from '@/lib/streaming/create-ephemeral-chat-stream-response'
-import { FocusMode, SearchMode } from '@/lib/types/search'
+import { SearchMode, SearchSources } from '@/lib/types/search'
 import { getTextFromParts } from '@/lib/utils/message-utils'
 import { selectModel } from '@/lib/utils/model-selection'
 import { perfLog, perfTime } from '@/lib/utils/perf-logging'
@@ -104,18 +104,32 @@ export async function POST(req: Request) {
 
     // Get search mode from cookie
     const searchModeCookie = cookieStore.get('searchMode')?.value
+    // Backward compat: map old values to new ones
+    const normalizedCookie =
+      searchModeCookie === 'quick'
+        ? 'speed'
+        : searchModeCookie === 'adaptive'
+          ? 'balanced'
+          : searchModeCookie
     const searchMode: SearchMode =
-      searchModeCookie && ['quick', 'adaptive'].includes(searchModeCookie)
-        ? (searchModeCookie as SearchMode)
-        : 'quick'
+      normalizedCookie &&
+      ['speed', 'balanced', 'quality'].includes(normalizedCookie)
+        ? (normalizedCookie as SearchMode)
+        : 'balanced'
 
-    // Get focus mode from cookie
-    const focusModeCookie = cookieStore.get('focusMode')?.value
-    const focusMode: FocusMode =
-      focusModeCookie &&
-      ['auto', 'academic', 'discussions'].includes(focusModeCookie)
-        ? (focusModeCookie as FocusMode)
-        : 'auto'
+    // Get sources from cookie
+    const sourcesCookie = cookieStore.get('sources')?.value
+    let sources: SearchSources = ['web']
+    if (sourcesCookie) {
+      try {
+        const parsed = JSON.parse(sourcesCookie)
+        if (Array.isArray(parsed) && parsed.length > 0) {
+          sources = parsed as SearchSources
+        }
+      } catch {
+        // ignore parse errors, fall back to default
+      }
+    }
 
     // Adaptive mode is gated to authenticated users on cloud deployments.
     // Check before model/provider selection so guests always get the
@@ -130,7 +144,7 @@ export async function POST(req: Request) {
       return new Response(
         JSON.stringify({
           error: ADAPTIVE_MODE_AUTH_REQUIRED_MESSAGE,
-          mode: 'adaptive',
+          mode: 'balanced',
           authRequired: true
         }),
         {
@@ -163,7 +177,7 @@ export async function POST(req: Request) {
       const overallLimitResponse = await checkAndEnforceOverallChatLimit(userId)
       if (overallLimitResponse) return overallLimitResponse
 
-      if (searchMode === 'adaptive') {
+      if (searchMode === 'balanced' || searchMode === 'quality') {
         const adaptiveLimitResponse = await checkAndEnforceAdaptiveLimit(userId)
         if (adaptiveLimitResponse) return adaptiveLimitResponse
       }
@@ -180,7 +194,7 @@ export async function POST(req: Request) {
           model: selectedModel,
           abortSignal,
           searchMode,
-          focusMode,
+          sources,
           chatId
         })
       : await createChatStreamResponse({
@@ -193,7 +207,7 @@ export async function POST(req: Request) {
           abortSignal,
           isNewChat,
           searchMode,
-          focusMode
+          sources
         })
 
     perfTime('createChatStreamResponse resolved', streamStart)
