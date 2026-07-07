@@ -86,7 +86,15 @@ export default async function RootLayout({
         >
           <PostHogProvider userId={user?.id ?? null}>
             <UserProvider hasUser={!!userId}>
-              <SidebarProvider defaultOpen={false}>
+              <SidebarProvider
+                defaultOpen={true}
+                style={
+                  {
+                    '--sidebar-width': '80px',
+                    '--sidebar-width-mobile': '220px'
+                  } as React.CSSProperties
+                }
+              >
                 <LibraryProvider>
                   {userId && <AppSidebar />}
                   <KeyboardShortcutHandler />
