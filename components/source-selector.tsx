@@ -16,18 +16,27 @@ import {
 import { Popover, PopoverContent, PopoverTrigger } from './ui/popover'
 import { Switch } from './ui/switch'
 
+const DEFAULT_SOURCES: SearchSources = ['web']
+let _cachedRaw: string | null | undefined = undefined
+let _cachedSources: SearchSources = DEFAULT_SOURCES
+
 function getSourcesSnapshot(): SearchSources {
+  const raw = getCookie('sources')
+  if (raw === _cachedRaw) return _cachedSources
+  _cachedRaw = raw
   try {
-    const raw = getCookie('sources')
     if (raw) {
       const parsed = JSON.parse(raw)
-      if (Array.isArray(parsed) && parsed.length > 0)
-        return parsed as SearchSources
+      if (Array.isArray(parsed) && parsed.length > 0) {
+        _cachedSources = parsed as SearchSources
+        return _cachedSources
+      }
     }
   } catch {
     // ignore parse errors
   }
-  return ['web']
+  _cachedSources = DEFAULT_SOURCES
+  return _cachedSources
 }
 
 function setSourcesCookie(sources: SearchSources) {
