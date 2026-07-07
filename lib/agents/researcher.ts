@@ -1,4 +1,4 @@
-import { stepCountIs, tool, ToolLoopAgent } from 'ai'
+import { hasToolCall, stepCountIs, tool, ToolLoopAgent } from 'ai'
 
 import type { ResearcherTools } from '@/lib/types/agent'
 import { type Model } from '@/lib/types/models'
@@ -263,7 +263,12 @@ export function createResearcher({
       instructions: `${systemPrompt}\nCurrent date and time: ${currentDate}`,
       tools,
       activeTools: activeToolsList,
-      stopWhen: stepCountIs(maxSteps),
+      // toolChoice: 'required' prevents the model from producing a text-only
+      // step (which stops the loop prematurely in old chats with history).
+      // hasToolCall('synthesis_ready') stops the loop the moment the model
+      // signals it has finished research, even though toolChoice forces a call.
+      toolChoice: 'required',
+      stopWhen: [stepCountIs(maxSteps), hasToolCall('synthesis_ready')],
       ...(modelConfig?.providerOptions && {
         providerOptions: modelConfig.providerOptions
       }),
