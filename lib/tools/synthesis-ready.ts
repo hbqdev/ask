@@ -15,8 +15,6 @@ export const synthesisReadyTool = tool({
   execute: async ({ queries_run, summary }) => ({
     ready: true,
     queries_run,
-    summary,
-    instruction:
-      'Now write the complete answer. Cite every factual sentence with [N](#toolCallId). Use clear headings. Do not refer to "my research" — just assert facts and cite them.'
+    summary
   })
 })
