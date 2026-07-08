@@ -95,6 +95,7 @@ const promptSamples: Record<string, string[]> = {
 interface ActionButtonsProps {
   onSelectPrompt: (prompt: string) => void
   onCategoryClick: (category: string) => void
+  onActiveCategoryChange?: (active: boolean) => void
   inputRef?: React.RefObject<HTMLTextAreaElement>
   className?: string
 }
@@ -102,6 +103,7 @@ interface ActionButtonsProps {
 export function ActionButtons({
   onSelectPrompt,
   onCategoryClick,
+  onActiveCategoryChange,
   inputRef,
   className
 }: ActionButtonsProps) {
@@ -111,6 +113,7 @@ export function ActionButtons({
   const handleCategoryClick = (category: ActionCategory) => {
     setActiveCategory(category.key)
     onCategoryClick(category.label)
+    onActiveCategoryChange?.(true)
     captureClient('example_category_opened', { category: category.key })
   }
 
@@ -120,11 +123,13 @@ export function ActionButtons({
       prompt
     })
     setActiveCategory(null)
+    onActiveCategoryChange?.(false)
     onSelectPrompt(prompt)
   }
 
   const resetToButtons = () => {
     setActiveCategory(null)
+    onActiveCategoryChange?.(false)
   }
 
   // Handle Escape key and clicks outside (including focus loss)
