@@ -1,100 +1,91 @@
-import { NextRequest, NextResponse } from 'next/server'
-
-const TOPICS: Record<string, { queries: string[]; sites: string[] }> = {
+const websitesForTopic = {
   tech: {
-    queries: ['technology news', 'latest tech', 'AI news', 'science and innovation'],
-    sites: ['techcrunch.com', 'wired.com', 'theverge.com'],
+    query: ['technology news', 'latest tech', 'AI', 'science and innovation'],
+    links: ['techcrunch.com', 'wired.com', 'theverge.com'],
   },
   finance: {
-    queries: ['finance news', 'economy', 'stock market', 'investing'],
-    sites: ['bloomberg.com', 'cnbc.com', 'marketwatch.com'],
+    query: ['finance news', 'economy', 'stock market', 'investing'],
+    links: ['bloomberg.com', 'cnbc.com', 'marketwatch.com'],
   },
   art: {
-    queries: ['art news', 'culture', 'modern art', 'cultural events'],
-    sites: ['artnews.com', 'hyperallergic.com', 'theartnewspaper.com'],
+    query: ['art news', 'culture', 'modern art', 'cultural events'],
+    links: ['artnews.com', 'hyperallergic.com', 'theartnewspaper.com'],
   },
   sports: {
-    queries: ['sports news', 'latest sports', 'football basketball tennis'],
-    sites: ['espn.com', 'bbc.com/sport', 'skysports.com'],
+    query: ['sports news', 'latest sports', 'cricket football tennis'],
+    links: ['espn.com', 'bbc.com/sport', 'skysports.com'],
   },
   entertainment: {
-    queries: ['entertainment news', 'movies', 'TV shows'],
-    sites: ['hollywoodreporter.com', 'variety.com', 'deadline.com'],
+    query: ['entertainment news', 'movies', 'TV shows', 'celebrities'],
+    links: ['hollywoodreporter.com', 'variety.com', 'deadline.com'],
   },
 }
 
-export interface DiscoverArticle {
-  title: string
-  url: string
-  content: string
-  thumbnail: string
-}
-
-type Topic = keyof typeof TOPICS
+type Topic = keyof typeof websitesForTopic
 
 async function searchSearxng(
   query: string,
-  apiUrl: string
-): Promise<DiscoverArticle[]> {
-  const url = new URL(`${apiUrl}/search`)
-  url.searchParams.set('q', query)
-  url.searchParams.set('format', 'json')
-  url.searchParams.set('engines', 'bing news')
-  url.searchParams.set('pageno', '1')
-  url.searchParams.set('language', 'en')
-
-  const res = await fetch(url.toString(), {
-    headers: { Accept: 'application/json' },
-    next: { revalidate: 900 },
-  })
-
-  if (!res.ok) return []
-
-  const data = await res.json()
-  return (data.results ?? [])
-    .filter((r: { thumbnail?: string }) => r.thumbnail)
-    .map((r: { title: string; url: string; content?: string; thumbnail: string }) => ({
-      title: r.title,
-      url: r.url,
-      content: r.content ?? '',
-      thumbnail: r.thumbnail,
-    }))
-}
-
-export async function GET(request: NextRequest) {
+  opts: { engines: string[]; pageno: number; language: string }
+) {
   const apiUrl = process.env.SEARXNG_API_URL
-  if (!apiUrl) {
-    return NextResponse.json({ articles: [] }, { status: 503 })
-  }
+  if (!apiUrl) return { results: [] }
 
-  const topic = (request.nextUrl.searchParams.get('topic') ?? 'tech') as Topic
-  const config = TOPICS[topic] ?? TOPICS.tech
+  const url = new URL(`${apiUrl}/search?format=json`)
+  url.searchParams.append('q', query)
+  if (opts.engines) url.searchParams.append('engines', opts.engines.join(','))
+  if (opts.pageno) url.searchParams.append('pageno', String(opts.pageno))
+  if (opts.language) url.searchParams.append('language', opts.language)
+
+  const controller = new AbortController()
+  const timeoutId = setTimeout(() => controller.abort(), 10000)
 
   try {
-    const seen = new Set<string>()
+    const res = await fetch(url.toString(), { signal: controller.signal })
+    if (!res.ok) return { results: [] }
+    const data = await res.json()
+    return { results: data.results ?? [] }
+  } catch {
+    return { results: [] }
+  } finally {
+    clearTimeout(timeoutId)
+  }
+}
 
-    const results = await Promise.all(
-      config.sites.flatMap(site =>
-        config.queries.map(query => searchSearxng(`site:${site} ${query}`, apiUrl))
+export const GET = async (req: Request) => {
+  try {
+    const params = new URL(req.url).searchParams
+    const topic: Topic = (params.get('topic') as Topic) || 'tech'
+    const selectedTopic = websitesForTopic[topic] ?? websitesForTopic.tech
+
+    const seenUrls = new Set<string>()
+
+    const data = (
+      await Promise.all(
+        selectedTopic.links.flatMap(link =>
+          selectedTopic.query.map(async query => {
+            return (
+              await searchSearxng(`site:${link} ${query}`, {
+                engines: ['bing news'],
+                pageno: 1,
+                language: 'en',
+              })
+            ).results
+          })
+        )
       )
     )
-
-    const articles = results
       .flat()
       .filter(item => {
-        if (!item.title || !item.url || seen.has(item.url)) return false
-        seen.add(item.url)
+        const url = item.url?.toLowerCase().trim()
+        if (seenUrls.has(url)) return false
+        seenUrls.add(url)
         return true
       })
       .sort(() => Math.random() - 0.5)
-      .slice(0, 16)
 
-    return NextResponse.json(
-      { articles },
-      { headers: { 'Cache-Control': 's-maxage=900, stale-while-revalidate=60' } }
-    )
+    return Response.json({ blogs: data }, { status: 200 })
   } catch (err) {
-    console.error('[discover]', err)
-    return NextResponse.json({ articles: [] }, { status: 500 })
+    console.error(`An error occurred in discover route: ${err}`)
+    return Response.json({ message: 'An error has occurred' }, { status: 500 })
   }
 }
