@@ -232,21 +232,25 @@ export function ChatPanel({
     )
   }
 
-  // if query is not empty, submit the query
+  // if query is not empty, submit the query.
+  // Guard with offsetParent visibility — Next.js 16 component caching can mount
+  // multiple ChatPanel instances simultaneously; only the visible one should fire.
+  // `append` is intentionally excluded from deps: it's an inline arrow function
+  // that changes on every parent render, causing spurious extra effect runs.
   useEffect(() => {
-    if (isFirstRender.current && query && query.trim().length > 0) {
-      if (adaptiveModeSubmitBlocked) {
-        setCookie('searchMode', 'balanced')
-        return
-      }
-
-      append({
-        role: 'user',
-        parts: [{ type: 'text', text: query }]
-      })
-      isFirstRender.current = false
+    if (!isFirstRender.current || !query || !query.trim()) return
+    if (!scrollContainerRef?.current?.offsetParent) return
+    if (adaptiveModeSubmitBlocked) {
+      setCookie('searchMode', 'balanced')
+      return
     }
-  }, [adaptiveModeSubmitBlocked, append, query])
+    isFirstRender.current = false
+    append({
+      role: 'user',
+      parts: [{ type: 'text', text: query }]
+    })
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [adaptiveModeSubmitBlocked, query])
 
   const handleFileRemove = useCallback(
     (index: number) => {
