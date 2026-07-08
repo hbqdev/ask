@@ -6,10 +6,16 @@ import {
   IconPhoto,
   IconPlayerPlay,
   IconMovie,
+  IconSearch,
   IconX
 } from '@tabler/icons-react'
 
 import { cn } from '@/lib/utils'
+
+function autoMediaSearchEnabled(): boolean {
+  if (typeof localStorage === 'undefined') return true
+  return localStorage.getItem('autoMediaSearch') !== 'false'
+}
 
 interface ImageResult {
   img_src: string
@@ -37,14 +43,18 @@ export function MediaSection({ query, model, className }: MediaSectionProps) {
   const [tab, setTab] = useState<Tab>('images')
   const [images, setImages] = useState<ImageResult[]>([])
   const [videos, setVideos] = useState<VideoResult[]>([])
-  const [loadingImages, setLoadingImages] = useState(true)
-  const [loadingVideos, setLoadingVideos] = useState(true)
+  const [loadingImages, setLoadingImages] = useState(false)
+  const [loadingVideos, setLoadingVideos] = useState(false)
   const [lightboxSrc, setLightboxSrc] = useState<string | null>(null)
+  const [hasSearched, setHasSearched] = useState(false)
   const fetchedRef = useRef(false)
 
-  useEffect(() => {
+  const runSearch = () => {
     if (fetchedRef.current || !query) return
     fetchedRef.current = true
+    setHasSearched(true)
+    setLoadingImages(true)
+    setLoadingVideos(true)
 
     const body = model ? { query, model } : { query }
 
@@ -67,11 +77,33 @@ export function MediaSection({ query, model, className }: MediaSectionProps) {
       .then(d => setVideos(d.videos || []))
       .catch(() => setVideos([]))
       .finally(() => setLoadingVideos(false))
+  }
+
+  useEffect(() => {
+    if (autoMediaSearchEnabled()) {
+      runSearch()
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [query, model])
 
   if (!query) return null
 
   const isLoading = tab === 'images' ? loadingImages : loadingVideos
+
+  if (!hasSearched) {
+    return (
+      <div className={cn('mt-4', className)}>
+        <button
+          type="button"
+          onClick={runSearch}
+          className="flex items-center gap-2 rounded-xl border border-border/50 px-4 py-2.5 text-sm font-medium text-muted-foreground hover:text-foreground hover:bg-muted/30 transition-colors"
+        >
+          <IconSearch className="size-4" />
+          Search images & videos
+        </button>
+      </div>
+    )
+  }
 
   return (
     <div className={cn('mt-4 rounded-xl border border-border/50 overflow-hidden', className)}>
