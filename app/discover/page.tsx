@@ -103,14 +103,12 @@ function MajorNewsCard({ item, isLeft = true }: { item: Discover; isLeft?: boole
   )
 
   return (
-    <a
-      href={item.url}
-      target="_blank"
-      rel="noopener noreferrer"
-      className="w-full group flex flex-row items-stretch gap-6 h-60 py-3"
+    <div
+      className="w-full group flex flex-row items-stretch gap-6 h-60 py-3 cursor-pointer"
+      onClick={() => window.open(item.url, '_blank', 'noopener,noreferrer')}
     >
       {isLeft ? <>{img}{text}</> : <>{text}{img}</>}
-    </a>
+    </div>
   )
 }
 
