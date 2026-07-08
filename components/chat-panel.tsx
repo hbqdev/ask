@@ -7,6 +7,11 @@ import {
   useState,
   useSyncExternalStore
 } from 'react'
+
+// Next.js 16 component caching can mount multiple ChatPanel instances
+// simultaneously during navigation. This module-level set ensures only the
+// first instance to fire submits a given query; clears after 2s so retries work.
+const _pendingQuerySubmits = new Set<string>()
 import Textarea from 'react-textarea-autosize'
 import { useRouter } from 'next/navigation'
 
@@ -233,18 +238,20 @@ export function ChatPanel({
   }
 
   // if query is not empty, submit the query.
-  // Guard with offsetParent visibility — Next.js 16 component caching can mount
-  // multiple ChatPanel instances simultaneously; only the visible one should fire.
+  // Use a module-level dedupe set to guard against Next.js 16 component caching
+  // mounting multiple ChatPanel instances simultaneously — only the first one wins.
   // `append` is intentionally excluded from deps: it's an inline arrow function
   // that changes on every parent render, causing spurious extra effect runs.
   useEffect(() => {
     if (!isFirstRender.current || !query || !query.trim()) return
-    if (!scrollContainerRef?.current?.offsetParent) return
+    if (_pendingQuerySubmits.has(query)) return
     if (adaptiveModeSubmitBlocked) {
       setCookie('searchMode', 'balanced')
       return
     }
     isFirstRender.current = false
+    _pendingQuerySubmits.add(query)
+    setTimeout(() => _pendingQuerySubmits.delete(query), 2000)
     append({
       role: 'user',
       parts: [{ type: 'text', text: query }]
