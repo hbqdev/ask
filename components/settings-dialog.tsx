@@ -18,7 +18,6 @@ import {
   DialogContent,
   DialogTitle
 } from '@/components/ui/dialog'
-import { Textarea } from '@/components/ui/textarea'
 
 // ---------------------------------------------------------------------------
 // localStorage helpers
@@ -37,15 +36,15 @@ function lsSet(key: string, value: string) {
 // Tab definitions
 // ---------------------------------------------------------------------------
 const TABS = [
-  { key: 'preferences', label: 'Preferences', description: 'Customize your application preferences.', icon: IconAdjustments },
-  { key: 'personalization', label: 'Personalization', description: 'Customize the behavior and tone of the model.', icon: IconPalette },
-  { key: 'models', label: 'Models', description: 'View model and server configuration.', icon: IconBrain },
-  { key: 'search', label: 'Search', description: 'Manage search settings.', icon: IconSearch },
+  { key: 'preferences',     label: 'Preferences',     description: 'Customize your application preferences.',           icon: IconAdjustments },
+  { key: 'personalization', label: 'Personalization', description: 'Customize the behavior and tone of the model.',     icon: IconPalette },
+  { key: 'models',          label: 'Models',          description: 'View model and server configuration.',              icon: IconBrain },
+  { key: 'search',          label: 'Search',          description: 'Manage search settings.',                           icon: IconSearch },
 ] as const
 type TabKey = (typeof TABS)[number]['key']
 
 // ---------------------------------------------------------------------------
-// Shared SettingRow — Vane-style card
+// Vane-style card — matches `rounded-xl border border-light-200 bg-light-primary/80 p-4 lg:p-6`
 // ---------------------------------------------------------------------------
 function SettingRow({
   title,
@@ -60,20 +59,20 @@ function SettingRow({
 }) {
   return (
     <section className={cn(
-      'rounded-xl border border-border/60 bg-card/80 p-4 sm:p-6 flex gap-4 transition-colors',
-      inline ? 'items-center justify-between' : 'flex-col'
+      'rounded-xl border border-border bg-background/80 p-4 lg:p-6 transition-colors flex',
+      inline ? 'flex-row items-center justify-between gap-5' : 'flex-col gap-0'
     )}>
-      <div className="flex flex-col gap-0.5 min-w-0">
-        <h4 className="text-sm font-medium leading-none text-foreground">{title}</h4>
-        <p className="text-xs text-muted-foreground leading-relaxed">{description}</p>
+      <div className={cn('flex flex-col', !inline && 'mb-3 lg:mb-5')}>
+        <h4 className="text-sm text-foreground">{title}</h4>
+        <p className="text-[11px] lg:text-xs text-foreground/50">{description}</p>
       </div>
-      <div className={cn('shrink-0', !inline && 'w-full')}>{children}</div>
+      <div className={cn(inline ? 'shrink-0' : 'w-full')}>{children}</div>
     </section>
   )
 }
 
 // ---------------------------------------------------------------------------
-// Vane-style full-width select
+// Vane-style select — matches `bg-light-secondary dark:bg-dark-secondary border-light-200`
 // ---------------------------------------------------------------------------
 function SettingSelect({
   value,
@@ -85,28 +84,27 @@ function SettingSelect({
   options: { value: string; label: string }[]
 }) {
   return (
-    <div className="relative">
+    <div className="relative inline-flex w-full items-center">
       <select
         value={value}
         onChange={e => onChange(e.target.value)}
-        className="w-full appearance-none rounded-lg border border-border bg-background px-3 py-2.5 pr-8 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-ring/40 cursor-pointer"
+        className="bg-muted px-3 py-2 flex items-center overflow-hidden border border-border text-foreground rounded-lg appearance-none w-full pr-10 text-xs lg:text-sm focus:outline-none"
       >
         {options.map(o => (
           <option key={o.value} value={o.value}>{o.label}</option>
         ))}
       </select>
-      <svg
-        className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 size-4 text-muted-foreground"
-        fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}
-      >
-        <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
-      </svg>
+      <span className="pointer-events-none absolute right-3 flex h-4 w-4 items-center justify-center text-foreground/50">
+        <svg fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2} className="h-4 w-4">
+          <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
+        </svg>
+      </span>
     </div>
   )
 }
 
 // ---------------------------------------------------------------------------
-// Vane-style switch (sky-500 when on)
+// Vane-style switch — `h-6 w-12 bg-muted data-checked:bg-sky-500`
 // ---------------------------------------------------------------------------
 function SettingSwitch({ checked, onChange }: { checked: boolean; onChange: (v: boolean) => void }) {
   return (
@@ -116,14 +114,14 @@ function SettingSwitch({ checked, onChange }: { checked: boolean; onChange: (v: 
       aria-checked={checked}
       onClick={() => onChange(!checked)}
       className={cn(
-        'relative inline-flex h-6 w-11 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none',
+        'group relative flex h-6 w-12 shrink-0 cursor-pointer rounded-full p-1 duration-200 ease-in-out focus:outline-none transition-colors',
         checked ? 'bg-sky-500' : 'bg-muted'
       )}
     >
       <span
         className={cn(
-          'pointer-events-none inline-block h-5 w-5 rounded-full bg-white shadow-lg ring-0 transition duration-200 ease-in-out',
-          checked ? 'translate-x-5' : 'translate-x-0'
+          'pointer-events-none inline-block size-4 rounded-full bg-white shadow-lg ring-0 transition duration-200 ease-in-out',
+          checked ? 'translate-x-6' : 'translate-x-0'
         )}
       />
     </button>
@@ -148,7 +146,7 @@ function PreferencesTab() {
   }, [])
 
   return (
-    <div className="space-y-4">
+    <div className="flex-1 space-y-6 overflow-y-auto px-6 py-6">
       <SettingRow title="Theme" description="Choose between light and dark layouts for the app.">
         <SettingSelect
           value={theme ?? 'system'}
@@ -207,17 +205,18 @@ function PersonalizationTab() {
   }, [])
 
   return (
-    <div className="space-y-4">
+    <div className="flex-1 space-y-6 overflow-y-auto px-6 py-6">
       <SettingRow
         title="System Instructions"
         description='Add custom behavior or tone for the model. e.g. "Respond in a friendly and concise tone" or "Use British English."'
       >
-        <Textarea
+        <textarea
           value={instructions}
           onChange={e => setInstructions(e.target.value)}
           onBlur={() => lsSet('systemInstructions', instructions)}
           placeholder='e.g., "Respond in a friendly and concise tone"'
-          className="min-h-[120px] resize-y text-sm"
+          rows={4}
+          className="w-full rounded-lg border border-border bg-background px-3 py-2 lg:px-4 lg:py-3 text-xs lg:text-[13px] text-foreground/80 placeholder:text-foreground/40 focus-visible:outline-none transition-colors resize-none"
         />
       </SettingRow>
     </div>
@@ -231,12 +230,12 @@ function ModelsTab() {
   const ollamaBase = process.env.NEXT_PUBLIC_OLLAMA_BASE_URL ?? 'http://192.168.50.231:11434'
 
   return (
-    <div className="space-y-4">
+    <div className="flex-1 space-y-6 overflow-y-auto px-6 py-6">
       <SettingRow
         title="Chat Model"
         description="Use the model selector in the search bar to choose your active model. Models are served via Ollama."
       >
-        <p className="text-xs text-muted-foreground">
+        <p className="text-xs text-foreground/50">
           Configured via <code className="bg-muted px-1 rounded">OLLAMA_BASE_URL</code> in <code className="bg-muted px-1 rounded">.env</code>
         </p>
       </SettingRow>
@@ -245,7 +244,7 @@ function ModelsTab() {
         title="Ollama Server"
         description="Native Ollama API — no API key required. Cloud models listed via OLLAMA_MODELS."
       >
-        <code className="text-xs bg-muted px-3 py-2 rounded-lg border border-border block">
+        <code className="text-xs bg-muted px-3 py-2 rounded-lg border border-border block text-foreground/80">
           {ollamaBase}
         </code>
       </SettingRow>
@@ -255,10 +254,10 @@ function ModelsTab() {
         description="Used for semantic search over uploaded files (RAG). Set OLLAMA_EMBED_MODEL in .env."
       >
         <div className="space-y-1.5">
-          <p className="text-xs text-muted-foreground">
+          <p className="text-xs text-foreground/50">
             Recommended: <code className="bg-muted px-1 rounded">nomic-embed-text</code> (137 MB) or <code className="bg-muted px-1 rounded">mxbai-embed-large</code> (670 MB)
           </p>
-          <p className="text-xs text-muted-foreground">
+          <p className="text-xs text-foreground/50">
             Pull: <code className="bg-muted px-1 rounded">ollama pull nomic-embed-text</code>
           </p>
         </div>
@@ -274,12 +273,12 @@ function SearchTab() {
   const searxngUrl = process.env.NEXT_PUBLIC_SEARXNG_URL ?? 'https://search.hbqnexus.win'
 
   return (
-    <div className="space-y-4">
+    <div className="flex-1 space-y-6 overflow-y-auto px-6 py-6">
       <SettingRow
         title="SearXNG URL"
         description="The URL of your SearXNG instance used for web search."
       >
-        <code className="text-xs bg-muted px-3 py-2 rounded-lg border border-border block">
+        <code className="text-xs bg-muted px-3 py-2 rounded-lg border border-border block text-foreground/80">
           {searxngUrl}
         </code>
       </SettingRow>
@@ -301,60 +300,78 @@ export function SettingsDialog({ open, onOpenChange }: SettingsDialogProps) {
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-3xl p-0 gap-0 overflow-hidden">
+      <DialogContent className="
+        max-w-none p-0 gap-0 overflow-hidden rounded-xl border border-border
+        w-[calc(100vw-2%)] h-[calc(100vh-2%)]
+        md:w-[calc(100vw-7%)] md:h-[calc(100vh-7%)]
+        lg:w-[calc(100vw-30%)] lg:h-[calc(100vh-20%)]
+      ">
         <DialogTitle className="sr-only">Settings</DialogTitle>
-        <div className="flex h-[600px]">
+        <div className="flex h-full overflow-hidden">
 
-          {/* Sidebar */}
-          <div className="w-56 shrink-0 border-r border-border/60 flex flex-col bg-card/40 overflow-y-auto">
-            {/* Back button */}
-            <button
-              onClick={() => onOpenChange(false)}
-              className="group flex items-center gap-1.5 px-3 py-3 text-sm text-muted-foreground hover:text-foreground transition-colors"
-            >
-              <IconChevronLeft className="size-4 group-hover:-translate-x-0.5 transition-transform duration-150" />
-              Back
-            </button>
+          {/* Sidebar — matches Vane: w-[240px] px-3 pt-3 */}
+          <div className="hidden lg:flex flex-col justify-between w-[240px] shrink-0 border-r border-border h-full px-3 pt-3 overflow-y-auto">
+            <div className="flex flex-col">
+              {/* Back button — matches Vane: p-2 rounded-lg hover:bg-muted text-[14px] */}
+              <button
+                onClick={() => onOpenChange(false)}
+                className="group flex flex-row items-center hover:bg-muted p-2 rounded-lg"
+              >
+                <IconChevronLeft
+                  size={18}
+                  className="text-foreground/50 group-hover:text-foreground/70"
+                />
+                <p className="text-foreground/50 group-hover:text-foreground/70 text-[14px]">
+                  Back
+                </p>
+              </button>
 
-            {/* Nav items */}
-            <div className="flex flex-col gap-0.5 px-2 mt-4">
-              {TABS.map(({ key, label, icon: Icon }) => (
-                <button
-                  key={key}
-                  onClick={() => setActiveTab(key)}
-                  className={cn(
-                    'flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm transition-colors text-left w-full',
-                    activeTab === key
-                      ? 'bg-muted text-foreground font-medium'
-                      : 'text-muted-foreground hover:text-foreground hover:bg-muted/50'
-                  )}
-                >
-                  <Icon className="size-4 shrink-0" />
-                  {label}
-                </button>
-              ))}
+              {/* Nav items — matches Vane: space-y-1 mt-8, px-2 py-1.5 */}
+              <div className="flex flex-col items-start space-y-1 mt-8">
+                {TABS.map(({ key, label, icon: Icon }) => (
+                  <button
+                    key={key}
+                    onClick={() => setActiveTab(key)}
+                    className={cn(
+                      'flex flex-row items-center space-x-2 px-2 py-1.5 rounded-lg w-full text-sm hover:bg-muted transition duration-200 active:scale-95',
+                      activeTab === key
+                        ? 'bg-muted text-foreground/90'
+                        : 'text-foreground/70'
+                    )}
+                  >
+                    <Icon size={17} />
+                    <p>{label}</p>
+                  </button>
+                ))}
+              </div>
             </div>
 
-            {/* Version at bottom */}
-            <div className="mt-auto px-5 py-4">
-              <p className="text-xs text-muted-foreground/60">Ask — self-hosted</p>
+            {/* Footer — matches Vane: py-[18px] px-2 */}
+            <div className="flex flex-col space-y-1 py-[18px] px-2">
+              <p className="text-xs text-foreground/70">Ask — self-hosted</p>
             </div>
           </div>
 
           {/* Content */}
-          <div className="flex-1 flex flex-col overflow-hidden">
-            {/* Section header */}
-            <div className="border-b border-border/60 px-6 py-5 shrink-0">
-              <h4 className="text-sm font-medium text-foreground">{activeSection.label}</h4>
-              <p className="text-xs text-muted-foreground">{activeSection.description}</p>
+          <div className="w-full flex flex-col overflow-hidden">
+            {/* Section header — matches Vane: border-b px-6 pb-6 lg:pt-6 */}
+            <div className="border-b border-border/60 px-6 pb-6 lg:pt-6 flex-shrink-0">
+              <div className="flex flex-col">
+                <h4 className="font-medium text-foreground text-sm">
+                  {activeSection.label}
+                </h4>
+                <p className="text-[11px] lg:text-xs text-foreground/50">
+                  {activeSection.description}
+                </p>
+              </div>
             </div>
 
-            {/* Scrollable settings */}
-            <div className="flex-1 overflow-y-auto px-6 py-6">
-              {activeTab === 'preferences' && <PreferencesTab />}
+            {/* Scrollable section content */}
+            <div className="flex-1 overflow-y-auto">
+              {activeTab === 'preferences'     && <PreferencesTab />}
               {activeTab === 'personalization' && <PersonalizationTab />}
-              {activeTab === 'models' && <ModelsTab />}
-              {activeTab === 'search' && <SearchTab />}
+              {activeTab === 'models'          && <ModelsTab />}
+              {activeTab === 'search'          && <SearchTab />}
             </div>
           </div>
 
