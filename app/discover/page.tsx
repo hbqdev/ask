@@ -280,7 +280,6 @@ const Page = () => {
         )}
       </div>
     </div>
-    </div>
   )
 }
 
