@@ -18,6 +18,7 @@ services:
       - "${HOST_PORT:-3738}:3000"
     volumes:
       - uploads:/app/uploads
+      - model-cache:/app/model-cache
     depends_on:
       postgres:
         condition: service_healthy
@@ -56,3 +57,5 @@ volumes:
     name: ask-redis-data
   uploads:
     name: morphic-uploads
+  model-cache:
+    name: ask-model-cache
