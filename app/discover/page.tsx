@@ -20,6 +20,17 @@ function articleLink(url: string) {
   return `/?q=${encodeURIComponent(`Summary: ${url}`)}`
 }
 
+// Bing news thumbnails: strip all params except `id` (same as Vane)
+function thumbSrc(raw: string) {
+  try {
+    const u = new URL(raw)
+    const id = u.searchParams.get('id')
+    return id ? `${u.origin}${u.pathname}?id=${id}` : raw
+  } catch {
+    return raw
+  }
+}
+
 function MajorCard({ item, imageLeft = true }: { item: DiscoverArticle; imageLeft?: boolean }) {
   return (
     <a
@@ -31,7 +42,7 @@ function MajorCard({ item, imageLeft = true }: { item: DiscoverArticle; imageLef
           <div className="relative w-72 xl:w-80 shrink-0 h-full overflow-hidden rounded-2xl">
             <img
               className="object-cover w-full h-full group-hover:scale-105 transition-transform duration-500"
-              src={item.thumbnail}
+              src={thumbSrc(item.thumbnail)}
               alt={item.title}
               loading="lazy"
             />
@@ -58,7 +69,7 @@ function MajorCard({ item, imageLeft = true }: { item: DiscoverArticle; imageLef
           <div className="relative w-72 xl:w-80 shrink-0 h-full overflow-hidden rounded-2xl">
             <img
               className="object-cover w-full h-full group-hover:scale-105 transition-transform duration-500"
-              src={item.thumbnail}
+              src={thumbSrc(item.thumbnail)}
               alt={item.title}
               loading="lazy"
             />
