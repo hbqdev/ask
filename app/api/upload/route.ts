@@ -3,6 +3,7 @@ import { promises as fs } from 'node:fs'
 import path from 'node:path'
 
 import { getCurrentUserId } from '@/lib/auth/get-current-user'
+import { processFileForRAG } from '@/lib/embeddings/upload-rag'
 
 // Local-only upload store. Self-hosted deploys don't depend on any cloud
 // storage — files live in /app/uploads inside the container (ephemeral;
@@ -78,6 +79,12 @@ export async function POST(req: NextRequest) {
     await fs.mkdir(absDir, { recursive: true })
     const buffer = Buffer.from(await file.arrayBuffer())
     await fs.writeFile(absPath, buffer)
+
+    // Build RAG index (chunks + embeddings) for text-based files.
+    // Runs async — errors are logged but don't fail the upload response.
+    processFileForRAG(absPath, file.type, file.name).catch(err =>
+      console.error('[upload] RAG processing failed:', err)
+    )
 
     const publicUrl = publicUrlFor(req, `/uploads/${relativePath}`)
     return NextResponse.json(
