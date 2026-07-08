@@ -87,7 +87,7 @@ export function SourceSelector() {
           />
         </button>
       </PopoverTrigger>
-      <PopoverContent className="w-64 p-2" align="start" sideOffset={8}>
+      <PopoverContent className="w-80 p-2" align="start" sideOffset={8}>
         <div className="space-y-1">
           {SOURCE_MODE_CONFIGS.map(config => {
             const Icon = config.icon
@@ -105,7 +105,7 @@ export function SourceSelector() {
                 <Icon className={cn('size-4 shrink-0', config.color)} />
                 <div className="flex-1 min-w-0">
                   <div className="text-sm font-medium">{config.label}</div>
-                  <div className="text-xs text-muted-foreground truncate">
+                  <div className="text-xs text-muted-foreground">
                     {config.description}
                   </div>
                 </div>
