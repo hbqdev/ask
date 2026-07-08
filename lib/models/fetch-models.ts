@@ -5,15 +5,6 @@ import { isProviderEnabled } from '@/lib/utils/registry'
 
 export type ModelsByProvider = Record<string, Model[]>
 
-// Strips tag suffixes like ":cloud", ":latest" and title-cases the base name.
-// "deepseek-v4-flash:cloud" → "Deepseek V4 Flash"
-function prettifyModelId(id: string): string {
-  const base = id.replace(/:.*$/, '') // strip ":cloud", ":latest", etc.
-  return base
-    .split(/[-_]/)
-    .map(part => part.charAt(0).toUpperCase() + part.slice(1))
-    .join(' ')
-}
 
 const MODEL_CACHE_TTL_MS = 2 * 60 * 1000
 const DATE_SNAPSHOT_SUFFIX_REGEX = /-\d{4}-\d{2}-\d{2}$/
@@ -410,7 +401,7 @@ export async function fetchOllamaModels(): Promise<Model[]> {
           .filter(Boolean)
           .map(id => ({
             id,
-            name: prettifyModelId(id),
+            name: id,
             provider: 'Ollama Cloud',
             providerId: 'ollama'
           }))

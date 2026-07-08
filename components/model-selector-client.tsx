@@ -1,11 +1,10 @@
 'use client'
 
 import { useMemo, useState } from 'react'
-import Image from 'next/image'
 
 import {
-  IconCheck as Check,
-  IconChevronDown as ChevronDown
+  IconChevronDown as ChevronDown,
+  IconCpu as Cpu
 } from '@tabler/icons-react'
 
 import {
@@ -18,44 +17,10 @@ import { cn } from '@/lib/utils'
 import { setCookie } from '@/lib/utils/cookies'
 
 import { Button } from './ui/button'
-import {
-  Command,
-  CommandEmpty,
-  CommandGroup,
-  CommandInput,
-  CommandItem,
-  CommandList
-} from './ui/command'
 import { Popover, PopoverContent, PopoverTrigger } from './ui/popover'
 
 function modelKey(model: Model): string {
   return `${model.providerId}:${model.id}`
-}
-
-const PROVIDER_LOGO_BY_ID: Record<string, string> = {
-  openai: '/providers/logos/openai.svg',
-  anthropic: '/providers/logos/anthropic.svg',
-  google: '/providers/logos/google.svg',
-  gateway: '/providers/logos/gateway.svg',
-  'openai-compatible': '/providers/logos/openai-compatible.svg',
-  ollama: '/providers/logos/ollama.svg'
-}
-
-function ProviderLogo({ providerId }: { providerId: string }) {
-  const logoSrc = PROVIDER_LOGO_BY_ID[providerId]
-  if (!logoSrc) {
-    return <span className="size-4 rounded-full bg-muted-foreground/30" />
-  }
-
-  return (
-    <Image
-      src={logoSrc}
-      alt={`${providerId} logo`}
-      width={16}
-      height={16}
-      className="size-4 shrink-0 object-contain"
-    />
-  )
 }
 
 interface ModelSelectorClientProps {
@@ -64,14 +29,15 @@ interface ModelSelectorClientProps {
 
 export function ModelSelectorClient({ data }: ModelSelectorClientProps) {
   const [open, setOpen] = useState(false)
+  const [search, setSearch] = useState('')
   const [selectedModelKey, setSelectedModelKey] = useState<string>(
     data.selectedModelKey
   )
 
   const providerEntries = useMemo(
     () =>
-      Object.entries(data.modelsByProvider).sort(([providerA], [providerB]) =>
-        providerA.localeCompare(providerB)
+      Object.entries(data.modelsByProvider).sort(([a], [b]) =>
+        a.localeCompare(b)
       ),
     [data.modelsByProvider]
   )
@@ -91,15 +57,28 @@ export function ModelSelectorClient({ data }: ModelSelectorClientProps) {
 
   const selectedModel = selectableByKey[selectedModelKey]
 
-  if (!data.enabled) {
-    return null
-  }
+  const filteredEntries = useMemo(() => {
+    if (!search) return providerEntries
+    const q = search.toLowerCase()
+    return providerEntries
+      .map(([provider, models]) => [
+        provider,
+        models.filter(
+          m =>
+            m.name.toLowerCase().includes(q) ||
+            provider.toLowerCase().includes(q)
+        )
+      ] as [string, Model[]])
+      .filter(([, models]) => models.length > 0)
+  }, [providerEntries, search])
+
+  if (!data.enabled) return null
 
   if (!data.hasAvailableModels) {
     return (
       <Button
         variant="outline"
-        className="h-auto gap-1 rounded-full border-none bg-muted px-3 py-2 text-sm shadow-none transition-[background-color,color,box-shadow,transform]"
+        className="h-auto gap-1 rounded-full border-none bg-muted px-3 py-2 text-sm shadow-none"
         disabled
         title="No enabled models are available"
       >
@@ -110,9 +89,7 @@ export function ModelSelectorClient({ data }: ModelSelectorClientProps) {
     )
   }
 
-  if (!selectedModel) {
-    return null
-  }
+  if (!selectedModel) return null
 
   return (
     <Popover open={open} onOpenChange={setOpen}>
@@ -123,8 +100,8 @@ export function ModelSelectorClient({ data }: ModelSelectorClientProps) {
           aria-expanded={open}
           className="h-auto gap-1 rounded-full border-none bg-muted px-3 py-2 text-sm shadow-none transition-[background-color,color,box-shadow,transform]"
         >
-          <ProviderLogo providerId={selectedModel.providerId} />
-          <span className="truncate max-w-48 text-xs font-medium">
+          <Cpu className="size-3.5 text-sky-500 shrink-0" />
+          <span className="truncate max-w-40 text-xs font-medium">
             {selectedModel.name}
           </span>
           <ChevronDown
@@ -135,53 +112,95 @@ export function ModelSelectorClient({ data }: ModelSelectorClientProps) {
           />
         </Button>
       </PopoverTrigger>
-      <PopoverContent className="w-[300px] p-0" align="end" sideOffset={6}>
-        <Command>
-          <CommandInput placeholder="Search models..." />
-          <CommandList>
-            <CommandEmpty>No model found.</CommandEmpty>
-            {providerEntries.map(([provider, models]) => (
-              <CommandGroup key={provider} heading={provider}>
-                {models.map(model => {
-                  const value = modelKey(model)
-                  const isSelected = selectedModelKey === value
-                  return (
-                    <CommandItem
-                      key={value}
-                      value={`${value} ${model.name} ${provider}`}
-                      onSelect={() => {
-                        const nextModel = selectableByKey[value]
-                        if (!nextModel) {
-                          return
-                        }
+      <PopoverContent className="w-[280px] p-0 overflow-hidden" align="end" sideOffset={6}>
+        {/* Search */}
+        <div className="p-2 border-b border-border/50">
+          <div className="relative">
+            <svg className="absolute left-2.5 top-1/2 -translate-y-1/2 size-3.5 text-muted-foreground" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+              <circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/>
+            </svg>
+            <input
+              type="text"
+              placeholder="Search models..."
+              value={search}
+              onChange={e => setSearch(e.target.value)}
+              className="w-full pl-8 pr-3 py-1.5 text-xs bg-muted rounded-md placeholder:text-muted-foreground focus:outline-none"
+            />
+          </div>
+        </div>
 
-                        setSelectedModelKey(value)
-                        setCookie(
-                          MODEL_SELECTION_COOKIE,
-                          serializeModelSelectionCookie({
-                            providerId: nextModel.providerId,
-                            modelId: nextModel.id
-                          })
-                        )
-                        setOpen(false)
-                      }}
-                      className="cursor-pointer"
-                    >
-                      <Check
+        {/* Model list */}
+        <div className="max-h-[280px] overflow-y-auto">
+          {filteredEntries.length === 0 ? (
+            <p className="text-center py-6 text-xs text-muted-foreground">No model found.</p>
+          ) : (
+            filteredEntries.map(([provider, models], providerIndex) => (
+              <div key={provider}>
+                {/* Provider header — ALL CAPS, muted, sticky */}
+                <div className="px-3 py-2 sticky top-0 bg-popover border-b border-border/40">
+                  <p className="text-[10px] font-medium tracking-wider uppercase text-muted-foreground">
+                    {provider}
+                  </p>
+                </div>
+
+                <div className="px-1.5 py-1.5 space-y-0.5">
+                  {models.map(model => {
+                    const value = modelKey(model)
+                    const isSelected = selectedModelKey === value
+                    return (
+                      <button
+                        key={value}
+                        type="button"
+                        onClick={() => {
+                          const nextModel = selectableByKey[value]
+                          if (!nextModel) return
+                          setSelectedModelKey(value)
+                          setCookie(
+                            MODEL_SELECTION_COOKIE,
+                            serializeModelSelectionCookie({
+                              providerId: nextModel.providerId,
+                              modelId: nextModel.id
+                            })
+                          )
+                          setOpen(false)
+                        }}
                         className={cn(
-                          'h-4 w-4',
-                          isSelected ? 'opacity-100' : 'opacity-0'
+                          'w-full flex items-center gap-2.5 px-2.5 py-2 rounded-lg text-left transition-colors duration-150 cursor-pointer',
+                          isSelected
+                            ? 'bg-muted'
+                            : 'hover:bg-muted/60'
                         )}
-                      />
-                      <ProviderLogo providerId={model.providerId} />
-                      <span className="truncate">{model.name}</span>
-                    </CommandItem>
-                  )
-                })}
-              </CommandGroup>
-            ))}
-          </CommandList>
-        </Command>
+                      >
+                        <Cpu
+                          className={cn(
+                            'size-3.5 shrink-0',
+                            isSelected
+                              ? 'text-sky-500'
+                              : 'text-muted-foreground'
+                          )}
+                        />
+                        <span
+                          className={cn(
+                            'text-xs truncate',
+                            isSelected
+                              ? 'text-sky-500 font-medium'
+                              : 'text-foreground/70'
+                          )}
+                        >
+                          {model.name}
+                        </span>
+                      </button>
+                    )
+                  })}
+                </div>
+
+                {providerIndex < filteredEntries.length - 1 && (
+                  <div className="h-px bg-border/40 mx-3" />
+                )}
+              </div>
+            ))
+          )}
+        </div>
       </PopoverContent>
     </Popover>
   )
