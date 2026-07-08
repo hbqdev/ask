@@ -128,7 +128,7 @@ const Page = () => {
 
   return (
     <div className="h-full overflow-y-auto bg-[#ffffff] dark:bg-[#0d1117]">
-      <div className="max-w-screen-lg lg:mx-auto mx-4">
+      <div className="w-full max-w-screen-lg mx-auto px-4">
         <div className="flex flex-col pt-10 border-b border-[#e8edf1] dark:border-[#21262d] pb-6 px-2">
           <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4">
             <div className="flex items-center justify-center">
