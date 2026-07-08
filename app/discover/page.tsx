@@ -38,27 +38,35 @@ function thumbUrl(raw: string) {
 
 function SmallNewsCard({ item }: { item: Discover }) {
   return (
-    <a
-      href={`/?q=Summary: ${item.url}`}
-      className="rounded-3xl overflow-hidden bg-[#f6f8fa] dark:bg-[#161b22] shadow-sm shadow-black/10 dark:shadow-black/25 group flex flex-col"
-    >
-      <div className="relative aspect-video overflow-hidden">
-        <img
-          className="object-cover w-full h-full group-hover:scale-105 transition-transform duration-300"
-          src={thumbUrl(item.thumbnail)}
-          alt={item.title}
-          loading="lazy"
-        />
+    <div className="relative rounded-3xl overflow-hidden bg-[#f6f8fa] dark:bg-[#161b22] shadow-sm shadow-black/10 dark:shadow-black/25 group flex flex-col">
+      <a href={item.url} target="_blank" rel="noopener noreferrer" className="flex flex-col flex-1">
+        <div className="relative aspect-video overflow-hidden">
+          <img
+            className="object-cover w-full h-full group-hover:scale-105 transition-transform duration-300"
+            src={thumbUrl(item.thumbnail)}
+            alt={item.title}
+            loading="lazy"
+          />
+        </div>
+        <div className="p-4 pb-2">
+          <h3 className="font-semibold text-sm mb-2 leading-tight line-clamp-2 group-hover:text-cyan-500 dark:group-hover:text-cyan-300 transition duration-200">
+            {item.title}
+          </h3>
+          <p className="text-black/60 dark:text-white/60 text-xs leading-relaxed line-clamp-2">
+            {item.content}
+          </p>
+        </div>
+      </a>
+      <div className="px-4 pb-3 flex justify-end">
+        <a
+          href={`/?q=${encodeURIComponent(`Summary: ${item.url}`)}`}
+          title="Summarize with Ask"
+          className="opacity-0 group-hover:opacity-100 transition-opacity duration-200 text-[10px] font-semibold px-2.5 py-1 rounded-full bg-cyan-500/15 text-cyan-700 dark:text-cyan-300 hover:bg-cyan-500/25 border border-cyan-500/30"
+        >
+          Ask
+        </a>
       </div>
-      <div className="p-4">
-        <h3 className="font-semibold text-sm mb-2 leading-tight line-clamp-2 group-hover:text-cyan-500 dark:group-hover:text-cyan-300 transition duration-200">
-          {item.title}
-        </h3>
-        <p className="text-black/60 dark:text-white/60 text-xs leading-relaxed line-clamp-2">
-          {item.content}
-        </p>
-      </div>
-    </a>
+    </div>
   )
 }
 
@@ -74,22 +82,31 @@ function MajorNewsCard({ item, isLeft = true }: { item: Discover; isLeft?: boole
     </div>
   )
   const text = (
-    <div className="flex flex-col justify-center flex-1 py-4">
+    <div className="flex flex-col justify-center flex-1 py-4 min-w-0">
       <h2
         className="text-3xl font-light mb-3 leading-tight line-clamp-3 group-hover:text-cyan-500 dark:group-hover:text-cyan-300 transition duration-200"
         style={{ fontFamily: 'Georgia, serif' }}
       >
         {item.title}
       </h2>
-      <p className="text-black/60 dark:text-white/60 text-base leading-relaxed line-clamp-4">
+      <p className="text-black/60 dark:text-white/60 text-base leading-relaxed line-clamp-3">
         {item.content}
       </p>
+      <a
+        href={`/?q=${encodeURIComponent(`Summary: ${item.url}`)}`}
+        onClick={e => e.stopPropagation()}
+        className="mt-3 self-start opacity-0 group-hover:opacity-100 transition-opacity duration-200 text-xs font-semibold px-3 py-1.5 rounded-full bg-cyan-500/15 text-cyan-700 dark:text-cyan-300 hover:bg-cyan-500/25 border border-cyan-500/30"
+      >
+        Summarize with Ask
+      </a>
     </div>
   )
 
   return (
     <a
-      href={`/?q=Summary: ${item.url}`}
+      href={item.url}
+      target="_blank"
+      rel="noopener noreferrer"
       className="w-full group flex flex-row items-stretch gap-6 h-60 py-3"
     >
       {isLeft ? <>{img}{text}</> : <>{text}{img}</>}
