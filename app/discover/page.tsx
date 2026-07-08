@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react'
 
-import { Globe2Icon } from 'lucide-react'
+import { IconWorld } from '@tabler/icons-react'
 
 import { cn } from '@/lib/utils'
 
@@ -207,7 +207,7 @@ export default function DiscoverPage() {
       <div className="flex flex-col pt-10 border-b border-border/20 pb-6 px-2">
         <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4">
           <div className="flex items-center gap-3">
-            <Globe2Icon size={40} className="mb-1" />
+            <IconWorld size={40} className="mb-1" />
             <h1 className="text-5xl font-light">Discover</h1>
           </div>
           <div className="flex flex-row items-center gap-2 overflow-x-auto pb-1">
