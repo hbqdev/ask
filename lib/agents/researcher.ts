@@ -16,6 +16,7 @@ import { isTracingEnabled } from '../utils/telemetry'
 
 import {
   getAdaptiveModePrompt,
+  getQualityModePrompt,
   SPEED_MODE_PROMPT
 } from './prompts/search-mode-prompts'
 
@@ -251,9 +252,7 @@ export function createResearcher({
         break
 
       case 'quality':
-        systemPrompt =
-          getAdaptiveModePrompt() +
-          '\n\n**Quality mode**: Provide the most comprehensive, well-researched answer possible. Use at least 8-10 searches from multiple angles. Fetch full page content for the most relevant sources. Aim for thoroughness over brevity.'
+        systemPrompt = getQualityModePrompt()
         activeToolsList = ['search', 'fetch', 'todoWrite', 'calculate', 'get_weather', 'synthesis_ready']
         console.log(
           `[Researcher] Quality mode: maxSteps=100, tools=[${activeToolsList.join(', ')}], sources=${JSON.stringify(sources)}`

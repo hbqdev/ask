@@ -3,7 +3,7 @@ import { z } from 'zod'
 
 export const synthesisReadyTool = tool({
   description:
-    'Call this ONCE when all research is complete and you are ready to write the final answer. Do not call any more search, fetch, or calculate tools after this. After calling this, immediately write the complete, well-cited response.',
+    'Signal that research is complete. IMPORTANT: Write your complete, well-cited final answer as your text response IN THIS SAME MESSAGE before calling this tool — do NOT write the answer after. This tool call ends the research phase, so your answer must appear as text content in the same step. Do not call any more search or fetch tools after this.',
   inputSchema: z.object({
     queries_run: z
       .array(z.string())
