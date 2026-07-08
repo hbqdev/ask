@@ -116,37 +116,32 @@ export function WeatherWidget({ className }: { className?: string }) {
 
   if (loading) {
     return (
-      <div
-        className={cn('rounded-2xl bg-muted/50 animate-pulse', className)}
-        style={{ width: 160, height: 100 }}
-      />
+      <div className={cn('rounded-2xl bg-muted/50 animate-pulse w-full h-24', className)} />
     )
   }
 
   if (!weather) return null
 
-  const condition = WMO_CONDITIONS[weather.code] ?? {
-    label: 'Unknown',
-    icon: '🌡️'
-  }
+  const condition = WMO_CONDITIONS[weather.code] ?? { label: 'Unknown', icon: '🌡️' }
 
   return (
     <div
       className={cn(
-        'rounded-2xl border border-border/50 bg-card/50 backdrop-blur-sm p-3 text-sm select-none',
+        'rounded-2xl border border-border/50 bg-card/80 backdrop-blur-sm px-4 py-3 select-none w-full h-24 flex flex-row items-center gap-4',
         className
       )}
-      style={{ width: 160 }}
     >
-      <div className="text-xs text-muted-foreground truncate">{weather.city}</div>
-      <div className="flex items-center gap-2 mt-0.5">
-        <span className="text-2xl">{condition.icon}</span>
-        <span className="text-xl font-semibold">{weather.temp}°C</span>
+      <div className="flex flex-col items-center gap-1 shrink-0">
+        <span className="text-3xl leading-none">{condition.icon}</span>
+        <span className="text-lg font-semibold leading-none">{weather.temp}°C</span>
       </div>
-      <div className="text-xs text-muted-foreground">{condition.label}</div>
-      <div className="flex items-center gap-2 mt-1 text-xs text-muted-foreground">
-        <span>💨 {weather.windSpeed} km/h</span>
-        <span>💧 {weather.humidity}%</span>
+      <div className="flex flex-col gap-0.5 min-w-0">
+        <div className="text-sm font-medium truncate">{weather.city}</div>
+        <div className="text-xs text-muted-foreground">{condition.label}</div>
+        <div className="flex items-center gap-2 mt-1 text-xs text-muted-foreground">
+          <span>💨 {weather.windSpeed} km/h</span>
+          <span>💧 {weather.humidity}%</span>
+        </div>
       </div>
     </div>
   )

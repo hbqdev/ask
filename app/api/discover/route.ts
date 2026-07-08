@@ -55,14 +55,19 @@ export const GET = async (req: Request) => {
   try {
     const params = new URL(req.url).searchParams
     const topic: Topic = (params.get('topic') as Topic) || 'tech'
+    const isPreview = params.get('mode') === 'preview'
     const selectedTopic = websitesForTopic[topic] ?? websitesForTopic.tech
+
+    // Preview mode: hit just one link + one query for speed (used by the home news widget)
+    const links = isPreview ? [selectedTopic.links[0]] : selectedTopic.links
+    const queries = isPreview ? [selectedTopic.query[0]] : selectedTopic.query
 
     const seenUrls = new Set<string>()
 
     const data = (
       await Promise.all(
-        selectedTopic.links.flatMap(link =>
-          selectedTopic.query.map(async query => {
+        links.flatMap(link =>
+          queries.map(async query => {
             return (
               await searchSearxng(`site:${link} ${query}`, {
                 engines: ['bing news'],
@@ -79,12 +84,11 @@ export const GET = async (req: Request) => {
         const url = item.url?.toLowerCase().trim()
         if (!url || seenUrls.has(url)) return false
         seenUrls.add(url)
-        // drop entries with very short titles (author names, malformed results)
         if (!item.title || item.title.trim().length < 20) return false
         return true
       })
       .sort(() => Math.random() - 0.5)
-      .slice(0, 40)
+      .slice(0, isPreview ? 5 : 40)
 
     return Response.json({ blogs: data }, { status: 200 })
   } catch (err) {

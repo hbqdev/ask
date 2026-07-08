@@ -55,6 +55,7 @@ import { ModelSelectorClient } from './model-selector-client'
 import { SearchModeSelector } from './search-mode-selector'
 import { SourceSelector } from './source-selector'
 import { UploadedFileList } from './uploaded-file-list'
+import { NewsArticleWidget } from './news-article-widget'
 import { WeatherWidget } from './weather-widget'
 
 // Constants for timing delays
@@ -464,12 +465,6 @@ export function ChatPanel({
           </div>
         )}
 
-        {messages.length === 0 && (
-          <div className="flex justify-end mb-2">
-            <WeatherWidget />
-          </div>
-        )}
-
         <div
           className={cn(
             'relative flex w-full flex-col gap-2 rounded-3xl border border-input bg-muted transition-[box-shadow] duration-[140ms] ease-[var(--motion-ease-out)]',
@@ -788,6 +783,17 @@ export function ChatPanel({
             inputRef={inputRef}
             className="mt-2 hidden md:block"
           />
+        )}
+
+        {messages.length === 0 && (
+          <div className="mt-3 hidden sm:flex flex-row gap-3 w-full">
+            <div className="flex-1">
+              <WeatherWidget />
+            </div>
+            <div className="flex-1">
+              <NewsArticleWidget />
+            </div>
+          </div>
         )}
       </form>
     </div>
