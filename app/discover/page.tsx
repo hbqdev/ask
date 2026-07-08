@@ -213,6 +213,7 @@ export default function DiscoverPage() {
   }, [activeTopic])
 
   return (
+    <div className="h-full overflow-y-auto">
     <div className="max-w-5xl mx-auto px-4">
       {/* Header */}
       <div className="flex flex-col pt-10 border-b border-border/20 pb-6 px-2">
@@ -244,6 +245,7 @@ export default function DiscoverPage() {
       <div className="pt-5 pb-16 lg:pb-8">
         {loading ? <LoadingSpinner /> : <DiscoverLayout articles={articles} />}
       </div>
+    </div>
     </div>
   )
 }
