@@ -101,7 +101,7 @@ export function RenderMessage({
   // New rendering: interleave text parts with grouped non-text segments
   const elements: React.ReactNode[] = []
   let buffer: any[] = []
-  const flushBuffer = (keySuffix: string) => {
+  const flushBuffer = (keySuffix: string, hasSubsequentText = false) => {
     if (buffer.length === 0) return
     elements.push(
       <ResearchProcessSection
@@ -113,6 +113,7 @@ export function RenderMessage({
         onOpenChange={onOpenChange}
         status={status}
         addToolResult={addToolResult}
+        hasSubsequentText={hasSubsequentText}
       />
     )
     buffer = []
@@ -125,28 +126,9 @@ export function RenderMessage({
         return
       }
 
-      // Check if there's buffered content before this text part
-      const hasBufferedContent = buffer.length > 0
-
       // Flush accumulated non-text first, marking that text follows
-      if (hasBufferedContent) {
-        // Create a custom flush that passes hasSubsequentText
-        if (buffer.length > 0) {
-          elements.push(
-            <ResearchProcessSection
-              key={`${messageId}-proc-seg-${index}`}
-              message={message}
-              messageId={messageId}
-              parts={buffer}
-              getIsOpen={getIsOpen}
-              onOpenChange={onOpenChange}
-              status={status}
-              addToolResult={addToolResult}
-              hasSubsequentText={true}
-            />
-          )
-          buffer = []
-        }
+      if (buffer.length > 0) {
+        flushBuffer(`seg-${index}`, true)
       }
 
       const remainingParts = message.parts?.slice(index + 1) || []
