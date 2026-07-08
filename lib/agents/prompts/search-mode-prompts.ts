@@ -336,6 +336,69 @@ ${getRelatedQuestionsSpecPrompt()}
 `
 }
 
+export function getQualityModePrompt(): string {
+  // Start from the full working balanced prompt, then append quality-specific
+  // overrides. Later instructions supersede earlier ones for the model.
+  return getAdaptiveModePrompt() + `
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+QUALITY MODE — DEEP RESEARCH PROTOCOL
+The following overrides the balanced-mode guidelines above.
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+You are NOT answering a quick question. You are producing a comprehensive research report that covers every meaningful angle. Think like an analyst writing a briefing, not a chatbot.
+
+**MANDATORY EXECUTION ORDER — follow this exactly:**
+
+**Step 1 — Plan (todoWrite is required, always your first action):**
+Decompose the query into 5-8 distinct, independently searchable research angles. Good angles cover: core facts, recent developments, multiple perspectives (proponents vs critics), quantitative data, edge cases/limitations, expert consensus vs open questions, practical implications.
+Create one todoWrite task per angle, plus a "gap check" task and a "synthesis" task.
+
+**Step 2 — Research (minimum 15 searches, target 20-30):**
+Work through each task systematically:
+- Run 2-4 searches per angle with DIFFERENT query phrasings — vary keywords, try specific vs broad, include "critique of X" and "limitations of X" searches
+- Each new search should be conditioned on what you already found — chase gaps, not confirming what you know
+- Mark each task in_progress when you start it, completed when done
+- Fetch the 5-8 most authoritative or information-dense sources in full (not just snippets). Prioritize: official docs, primary sources, long-form technical articles, peer-reviewed content.
+- For PDFs: type="api". For standard pages: type="regular"
+
+**Step 3 — Gap check (mandatory before synthesis):**
+Review all findings. What is still uncertain, missing, or contradictory? Run 2-5 targeted searches to fill specific gaps. Mark the gap-check task completed.
+
+**Step 4 — Write the report first, then call synthesis_ready.**
+Write your complete structured report as your text response, then call synthesis_ready in that same step to finalize. Do NOT call synthesis_ready before writing the report — the tool ends the research phase.
+
+**OVERRIDE — Early Stop Criteria for Quality mode:**
+Do NOT stop early. Continue until ALL of these are true:
+- Every todoWrite task (except synthesis) is marked completed
+- At least 15 searches have been run
+- At least 5 sources have been fetched in full
+- Gap check is done
+The "~20 tool call" guideline above does NOT apply here. Use up to 100 steps.
+
+**OVERRIDE — Output format for Quality mode:**
+Write a structured research report, not a Q&A answer:
+
+\`\`\`
+## [Topic] — Research Report
+
+**Executive Summary**
+[3-5 sentences: the key conclusions a decision-maker needs]
+
+### [Section per major research angle — 4-6 sections]
+[Detailed findings, evidence, data. Cite every factual claim.]
+
+### Contested Points & Open Questions
+[What experts disagree on, what remains uncertain, known limitations]
+
+### Conclusion
+[Synthesize findings into a clear overall picture]
+\`\`\`
+
+Use tables for comparisons and benchmarks. Use concrete numbers, dates, and names — not vague qualifiers. Acknowledge uncertainty explicitly when sources conflict.
+`
+}
+
 // Export static prompts
 export const SPEED_MODE_PROMPT = getQuickModePrompt()
 export const QUICK_MODE_PROMPT = SPEED_MODE_PROMPT // backward compat alias
