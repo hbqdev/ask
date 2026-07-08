@@ -35,7 +35,7 @@ function SmallNewsCard({ item }: { item: Discover }) {
   return (
     <a
       href={`/?q=Summary: ${item.url}`}
-      className="rounded-3xl overflow-hidden bg-zinc-100 dark:bg-zinc-900 shadow-sm group flex flex-col"
+      className="rounded-3xl overflow-hidden bg-[#f6f8fa] dark:bg-[#161b22] shadow-sm shadow-black/10 dark:shadow-black/25 group flex flex-col"
     >
       <div className="relative aspect-video overflow-hidden">
         <img
@@ -127,9 +127,9 @@ const Page = () => {
   }, [activeTopic])
 
   return (
-    <div className="h-full overflow-y-auto">
-      <div>
-        <div className="flex flex-col pt-10 border-b border-black/10 dark:border-white/10 pb-6 px-2">
+    <div className="h-full overflow-y-auto bg-[#ffffff] dark:bg-[#0d1117]">
+      <div className="max-w-screen-lg lg:mx-auto mx-4">
+        <div className="flex flex-col pt-10 border-b border-[#e8edf1] dark:border-[#21262d] pb-6 px-2">
           <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4">
             <div className="flex items-center justify-center">
               <IconWorld size={45} className="mb-2.5" />
@@ -199,7 +199,7 @@ const Page = () => {
                   while (index < discover.length) {
                     if (sections.length > 0) {
                       sections.push(
-                        <hr key={`sep-${index}`} className="border-t border-black/10 dark:border-white/10 my-3 w-full" />
+                        <hr key={`sep-${index}`} className="border-t border-[#e8edf1] dark:border-[#21262d] my-3 w-full" />
                       )
                     }
 
@@ -212,7 +212,7 @@ const Page = () => {
 
                     if (index < discover.length) {
                       sections.push(
-                        <hr key={`sep-${index}-after`} className="border-t border-black/10 dark:border-white/10 my-3 w-full" />
+                        <hr key={`sep-${index}-after`} className="border-t border-[#e8edf1] dark:border-[#21262d] my-3 w-full" />
                       )
                     }
 
@@ -230,7 +230,7 @@ const Page = () => {
 
                     if (index < discover.length) {
                       sections.push(
-                        <hr key={`sep-${index}-after-small`} className="border-t border-black/10 dark:border-white/10 my-3 w-full" />
+                        <hr key={`sep-${index}-after-small`} className="border-t border-[#e8edf1] dark:border-[#21262d] my-3 w-full" />
                       )
                     }
 
@@ -242,7 +242,7 @@ const Page = () => {
                         )
                         if (i === 0) {
                           sections.push(
-                            <hr key={`sep-double-${index + i}`} className="border-t border-black/10 dark:border-white/10 my-3 w-full" />
+                            <hr key={`sep-double-${index + i}`} className="border-t border-[#e8edf1] dark:border-[#21262d] my-3 w-full" />
                           )
                         }
                       })
@@ -256,7 +256,7 @@ const Page = () => {
 
                     if (index < discover.length) {
                       sections.push(
-                        <hr key={`sep-${index}-after-major`} className="border-t border-black/10 dark:border-white/10 my-3 w-full" />
+                        <hr key={`sep-${index}-after-major`} className="border-t border-[#e8edf1] dark:border-[#21262d] my-3 w-full" />
                       )
                     }
 
@@ -279,6 +279,7 @@ const Page = () => {
           </div>
         )}
       </div>
+    </div>
     </div>
   )
 }
