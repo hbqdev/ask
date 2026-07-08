@@ -65,7 +65,7 @@ export const GET = async (req: Request) => {
           selectedTopic.query.map(async query => {
             return (
               await searchSearxng(`site:${link} ${query}`, {
-                engines: ['bing news', 'google news'],
+                engines: ['bing news'],
                 pageno: 1,
                 language: 'en',
               })
