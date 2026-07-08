@@ -169,27 +169,42 @@ export const fetchTool = tool({
       url
     }
 
-    let results: SearchResultsType
+    try {
+      let results: SearchResultsType
 
-    if (type === 'regular') {
-      // Use regular fetch for direct HTML retrieval
-      results = await fetchRegularData(url)
-    } else {
-      // Use API-based extraction (Jina or Tavily)
-      const useJina = process.env.JINA_API_KEY
-      if (useJina) {
-        results = await fetchJinaReaderData(url)
+      if (type === 'regular') {
+        results = await fetchRegularData(url)
       } else {
-        results = await fetchTavilyExtractData(url)
+        const useJina = process.env.JINA_API_KEY
+        if (useJina) {
+          results = await fetchJinaReaderData(url)
+        } else {
+          results = await fetchTavilyExtractData(url)
+        }
       }
-    }
 
-    logToolPayload('fetch', url, { results: results.results })
+      logToolPayload('fetch', url, { results: results.results })
 
-    // Yield final results with complete state
-    yield {
-      state: 'complete' as const,
-      ...results
+      yield {
+        state: 'complete' as const,
+        ...results
+      }
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Unknown fetch error'
+      console.error('Fetch error:', message)
+      // Return a graceful result so the agent can continue rather than crashing the stream
+      yield {
+        state: 'complete' as const,
+        results: [
+          {
+            title: `Fetch failed: ${url}`,
+            content: `Could not retrieve this page (${message}). Skip this URL and continue with other sources.`,
+            url
+          }
+        ],
+        query: '',
+        images: []
+      }
     }
   }
 })

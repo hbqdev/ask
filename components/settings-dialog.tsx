@@ -6,8 +6,7 @@ import {
   IconAdjustments,
   IconBrain,
   IconChevronLeft,
-  IconPalette,
-  IconSearch
+  IconPalette
 } from '@tabler/icons-react'
 import { useTheme } from '@/components/theme-provider'
 
@@ -36,10 +35,9 @@ function lsSet(key: string, value: string) {
 // Tab definitions
 // ---------------------------------------------------------------------------
 const TABS = [
-  { key: 'preferences',     label: 'Preferences',     description: 'Customize your application preferences.',           icon: IconAdjustments },
-  { key: 'personalization', label: 'Personalization', description: 'Customize the behavior and tone of the model.',     icon: IconPalette },
-  { key: 'models',          label: 'Models',          description: 'View model and server configuration.',              icon: IconBrain },
-  { key: 'search',          label: 'Search',          description: 'Manage search settings.',                           icon: IconSearch },
+  { key: 'preferences',     label: 'Preferences',     description: 'Customize your application preferences.',       icon: IconAdjustments },
+  { key: 'personalization', label: 'Personalization', description: 'Customize the behavior and tone of the model.', icon: IconPalette },
+  { key: 'models',          label: 'Models',          description: 'View model and server configuration.',          icon: IconBrain },
 ] as const
 type TabKey = (typeof TABS)[number]['key']
 
@@ -267,26 +265,6 @@ function ModelsTab() {
 }
 
 // ---------------------------------------------------------------------------
-// Search tab
-// ---------------------------------------------------------------------------
-function SearchTab() {
-  const searxngUrl = process.env.NEXT_PUBLIC_SEARXNG_URL ?? 'https://search.hbqnexus.win'
-
-  return (
-    <div className="flex-1 space-y-6 overflow-y-auto px-6 py-6">
-      <SettingRow
-        title="SearXNG URL"
-        description="The URL of your SearXNG instance used for web search."
-      >
-        <code className="text-xs bg-muted px-3 py-2 rounded-lg border border-border block text-foreground/80">
-          {searxngUrl}
-        </code>
-      </SettingRow>
-    </div>
-  )
-}
-
-// ---------------------------------------------------------------------------
 // Main dialog
 // ---------------------------------------------------------------------------
 interface SettingsDialogProps {
@@ -371,7 +349,6 @@ export function SettingsDialog({ open, onOpenChange }: SettingsDialogProps) {
               {activeTab === 'preferences'     && <PreferencesTab />}
               {activeTab === 'personalization' && <PersonalizationTab />}
               {activeTab === 'models'          && <ModelsTab />}
-              {activeTab === 'search'          && <SearchTab />}
             </div>
           </div>
 
