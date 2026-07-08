@@ -52,12 +52,12 @@ async function searchSearxng(
 
   const data = await res.json()
   return (data.results ?? [])
-    .filter((r: { img_src?: string }) => r.img_src)
-    .map((r: { title: string; url: string; content: string; img_src: string }) => ({
+    .filter((r: { thumbnail?: string }) => r.thumbnail)
+    .map((r: { title: string; url: string; content?: string; thumbnail: string }) => ({
       title: r.title,
       url: r.url,
-      content: r.content,
-      thumbnail: r.img_src,
+      content: r.content ?? '',
+      thumbnail: r.thumbnail,
     }))
 }
 
