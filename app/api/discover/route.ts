@@ -65,7 +65,7 @@ export const GET = async (req: Request) => {
           selectedTopic.query.map(async query => {
             return (
               await searchSearxng(`site:${link} ${query}`, {
-                engines: ['bing news'],
+                engines: ['bing news', 'google news'],
                 pageno: 1,
                 language: 'en',
               })
@@ -77,8 +77,10 @@ export const GET = async (req: Request) => {
       .flat()
       .filter(item => {
         const url = item.url?.toLowerCase().trim()
-        if (seenUrls.has(url)) return false
+        if (!url || seenUrls.has(url)) return false
         seenUrls.add(url)
+        // drop entries with very short titles (author names, malformed results)
+        if (!item.title || item.title.trim().length < 20) return false
         return true
       })
       .sort(() => Math.random() - 0.5)
