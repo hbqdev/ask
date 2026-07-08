@@ -60,8 +60,8 @@ export const chats = pgTable(
       as: 'permissive',
       for: 'all',
       to: 'public',
-      using: sql`user_id = current_setting('app.current_user_id', true)`,
-      withCheck: sql`user_id = current_setting('app.current_user_id', true)`
+      using: sql`user_id = (select current_setting('app.current_user_id', true))`,
+      withCheck: sql`user_id = (select current_setting('app.current_user_id', true))`
     }),
     pgPolicy('public_chats_readable', {
       as: 'permissive',
@@ -101,12 +101,12 @@ export const messages = pgTable(
       using: sql`EXISTS (
         SELECT 1 FROM ${chats}
         WHERE ${chats}.id = chat_id
-        AND ${chats}.user_id = current_setting('app.current_user_id', true)
+        AND ${chats}.user_id = (select current_setting('app.current_user_id', true))
       )`,
       withCheck: sql`EXISTS (
         SELECT 1 FROM ${chats}
         WHERE ${chats}.id = chat_id
-        AND ${chats}.user_id = current_setting('app.current_user_id', true)
+        AND ${chats}.user_id = (select current_setting('app.current_user_id', true))
       )`
     }),
     pgPolicy('public_chat_messages_readable', {
@@ -238,13 +238,13 @@ export const parts = pgTable(
         SELECT 1 FROM ${messages}
         INNER JOIN ${chats} ON ${chats}.id = ${messages}.chat_id
         WHERE ${messages}.id = message_id
-        AND ${chats}.user_id = current_setting('app.current_user_id', true)
+        AND ${chats}.user_id = (select current_setting('app.current_user_id', true))
       )`,
       withCheck: sql`EXISTS (
         SELECT 1 FROM ${messages}
         INNER JOIN ${chats} ON ${chats}.id = ${messages}.chat_id
         WHERE ${messages}.id = message_id
-        AND ${chats}.user_id = current_setting('app.current_user_id', true)
+        AND ${chats}.user_id = (select current_setting('app.current_user_id', true))
       )`
     }),
     pgPolicy('public_chat_parts_readable', {
@@ -297,8 +297,8 @@ export const notes = pgTable(
       as: 'permissive',
       for: 'all',
       to: 'public',
-      using: sql`user_id = current_setting('app.current_user_id', true)`,
-      withCheck: sql`user_id = current_setting('app.current_user_id', true)`
+      using: sql`user_id = (select current_setting('app.current_user_id', true))`,
+      withCheck: sql`user_id = (select current_setting('app.current_user_id', true))`
     })
   ]
 ).enableRLS()
@@ -340,8 +340,8 @@ export const libraryFiles = pgTable(
       as: 'permissive',
       for: 'all',
       to: 'public',
-      using: sql`user_id = current_setting('app.current_user_id', true)`,
-      withCheck: sql`user_id = current_setting('app.current_user_id', true)`
+      using: sql`user_id = (select current_setting('app.current_user_id', true))`,
+      withCheck: sql`user_id = (select current_setting('app.current_user_id', true))`
     })
   ]
 ).enableRLS()
@@ -391,7 +391,7 @@ export const feedback = pgTable(
       as: 'permissive',
       for: 'update',
       to: 'public',
-      using: sql`user_id = current_setting('app.current_user_id', true)`,
+      using: sql`user_id = (select current_setting('app.current_user_id', true))`,
       withCheck: sql`user_id IS NULL`
     })
   ]
