@@ -25,7 +25,12 @@ const topics: { key: string; display: string }[] = [
 function thumbUrl(raw: string) {
   try {
     const u = new URL(raw)
-    return u.origin + u.pathname + `?id=${u.searchParams.get('id')}`
+    // Bing News thumbnails use ?id= as the only meaningful param — strip the rest
+    if (u.hostname.includes('bing.com') && u.searchParams.has('id')) {
+      return `${u.origin}${u.pathname}?id=${u.searchParams.get('id')}`
+    }
+    // Google News and all other engines: use URL as-is
+    return raw
   } catch {
     return raw
   }
