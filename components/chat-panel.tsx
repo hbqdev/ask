@@ -784,18 +784,18 @@ export function ChatPanel({
             className="mt-2 hidden md:block"
           />
         )}
-
-        {messages.length === 0 && (
-          <div className="mt-3 hidden sm:flex flex-row gap-3 w-full">
-            <div className="flex-1">
-              <WeatherWidget />
-            </div>
-            <div className="flex-1">
-              <NewsArticleWidget />
-            </div>
-          </div>
-        )}
       </form>
+
+      {messages.length === 0 && (
+        <div className="max-w-full md:max-w-3xl w-full mx-auto mt-3 hidden sm:flex flex-row gap-3">
+          <div className="flex-1">
+            <WeatherWidget />
+          </div>
+          <div className="flex-1">
+            <NewsArticleWidget />
+          </div>
+        </div>
+      )}
     </div>
   )
 }
