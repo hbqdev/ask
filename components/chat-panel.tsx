@@ -138,6 +138,7 @@ export function ChatPanel({
   const [isComposing, setIsComposing] = useState(false) // Composition state
   const [enterDisabled, setEnterDisabled] = useState(false) // Disable Enter after composition ends
   const [isInputFocused, setIsInputFocused] = useState(false) // Track input focus
+  const [isActionExpanded, setIsActionExpanded] = useState(false)
   // Large pastes become separate "content cards" (the target), keeping the
   // textarea for the instruction. See PASTE_CARD_MIN_CHARS.
   const [contentCards, setContentCards] = useState<string[]>([])
@@ -781,12 +782,13 @@ export function ChatPanel({
               inputRef.current?.focus()
             }}
             inputRef={inputRef}
+            onActiveCategoryChange={setIsActionExpanded}
             className="mt-2 hidden md:block"
           />
         )}
       </form>
 
-      {messages.length === 0 && (
+      {messages.length === 0 && !isActionExpanded && (
         <div className="max-w-full md:max-w-3xl w-full mx-auto mt-3 hidden sm:flex flex-row gap-3">
           <div className="flex-1">
             <WeatherWidget />
