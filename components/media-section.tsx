@@ -3,9 +3,9 @@
 import { useEffect, useRef, useState } from 'react'
 
 import {
+  IconMovie,
   IconPhoto,
   IconPlayerPlay,
-  IconMovie,
   IconSearch,
   IconX
 } from '@tabler/icons-react'

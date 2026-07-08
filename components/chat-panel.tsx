@@ -44,6 +44,8 @@ import {
   subscribeToCookieChange
 } from '@/lib/utils/cookies'
 
+import { useClientSettingEnabled } from '@/hooks/use-client-setting'
+
 import { useArtifact } from './artifact/artifact-context'
 import { Button } from './ui/button'
 import { IconBlinkingLogo } from './ui/icons'
@@ -57,10 +59,10 @@ import { ActionButtons } from './action-buttons'
 import { FileUploadButton } from './file-upload-button'
 import { MessageNavigationDots } from './message-navigation-dots'
 import { ModelSelectorClient } from './model-selector-client'
+import { NewsArticleWidget } from './news-article-widget'
 import { SearchModeSelector } from './search-mode-selector'
 import { SourceSelector } from './source-selector'
 import { UploadedFileList } from './uploaded-file-list'
-import { NewsArticleWidget } from './news-article-widget'
 import { WeatherWidget } from './weather-widget'
 
 // Constants for timing delays
@@ -172,6 +174,8 @@ export function ChatPanel({
     isGuest,
     isCloudDeployment
   })
+  const showWeatherWidget = useClientSettingEnabled('showWeatherWidget')
+  const showNewsWidget = useClientSettingEnabled('showNewsWidget')
 
   const handleCompositionStart = () => setIsComposing(true)
 
@@ -354,14 +358,18 @@ export function ChatPanel({
         </div>
       )}
 
-      {messages.length === 0 && (
+      {messages.length === 0 && (showWeatherWidget || showNewsWidget) && (
         <div className="max-w-full md:max-w-3xl w-full mx-auto mb-3 hidden sm:flex flex-row gap-3">
-          <div className="flex-1">
-            <WeatherWidget />
-          </div>
-          <div className="flex-1">
-            <NewsArticleWidget />
-          </div>
+          {showWeatherWidget && (
+            <div className="flex-1">
+              <WeatherWidget />
+            </div>
+          )}
+          {showNewsWidget && (
+            <div className="flex-1">
+              <NewsArticleWidget />
+            </div>
+          )}
         </div>
       )}
       {uploadedFiles.length > 0 && (
