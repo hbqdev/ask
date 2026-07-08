@@ -1,4 +1,4 @@
-import { hasToolCall, stepCountIs, tool, ToolLoopAgent } from 'ai'
+import { stepCountIs, tool, ToolLoopAgent } from 'ai'
 
 import type { ResearcherTools } from '@/lib/types/agent'
 import { type Model } from '@/lib/types/models'
@@ -7,7 +7,6 @@ import { calculateTool } from '../tools/calculate'
 import { fetchTool } from '../tools/fetch'
 import { createQuestionTool } from '../tools/question'
 import { createSearchTool } from '../tools/search'
-import { synthesisReadyTool } from '../tools/synthesis-ready'
 import { createTodoTools } from '../tools/todo'
 import { weatherTool } from '../tools/weather'
 import { SearchMode, SearchSources } from '../types/search'
@@ -237,10 +236,10 @@ export function createResearcher({
     switch (searchMode) {
       case 'speed':
         console.log(
-          `[Researcher] Speed mode: maxSteps=20, tools=[search, fetch, calculate, get_weather, synthesis_ready], sources=${JSON.stringify(sources)}`
+          `[Researcher] Speed mode: maxSteps=20, tools=[search, fetch, calculate, get_weather], sources=${JSON.stringify(sources)}`
         )
         systemPrompt = SPEED_MODE_PROMPT
-        activeToolsList = ['search', 'fetch', 'calculate', 'get_weather', 'synthesis_ready']
+        activeToolsList = ['search', 'fetch', 'calculate', 'get_weather']
         maxSteps = 20
         searchTool = wrapSearchToolForSources(
           wrapSearchToolWithDedup(
@@ -253,7 +252,7 @@ export function createResearcher({
 
       case 'quality':
         systemPrompt = getQualityModePrompt()
-        activeToolsList = ['search', 'fetch', 'todoWrite', 'calculate', 'get_weather', 'synthesis_ready']
+        activeToolsList = ['search', 'fetch', 'todoWrite', 'calculate', 'get_weather']
         console.log(
           `[Researcher] Quality mode: maxSteps=100, tools=[${activeToolsList.join(', ')}], sources=${JSON.stringify(sources)}`
         )
@@ -267,7 +266,7 @@ export function createResearcher({
       case 'balanced':
       default:
         systemPrompt = getAdaptiveModePrompt()
-        activeToolsList = ['search', 'fetch', 'todoWrite', 'calculate', 'get_weather', 'synthesis_ready']
+        activeToolsList = ['search', 'fetch', 'todoWrite', 'calculate', 'get_weather']
         console.log(
           `[Researcher] Balanced mode: maxSteps=50, tools=[${activeToolsList.join(', ')}], sources=${JSON.stringify(sources)}`
         )
@@ -296,7 +295,6 @@ export function createResearcher({
       askQuestion: askQuestionTool,
       calculate: calculateTool,
       get_weather: weatherTool,
-      synthesis_ready: synthesisReadyTool,
       ...todoTools
     } as ResearcherTools
 
@@ -306,12 +304,13 @@ export function createResearcher({
       instructions: `${systemPrompt}\nCurrent date and time: ${currentDate}`,
       tools,
       activeTools: activeToolsList,
-      // toolChoice: 'required' prevents the model from producing a text-only
-      // step (which stops the loop prematurely in old chats with history).
-      // hasToolCall('synthesis_ready') stops the loop the moment the model
-      // signals it has finished research, even though toolChoice forces a call.
-      toolChoice: 'required',
-      stopWhen: [stepCountIs(maxSteps), hasToolCall('synthesis_ready')],
+      // No toolChoice forcing and no dedicated "done" tool — matches upstream
+      // Morphic's proven pattern. The loop naturally stops the moment the
+      // model responds with plain text and no tool calls; forcing a tool
+      // call on every step (as a prior version did) left weaker models with
+      // no valid way to finish except an unfamiliar "stop" tool, causing
+      // them to loop on search/fetch instead of ever producing an answer.
+      stopWhen: stepCountIs(maxSteps),
       ...(modelConfig?.providerOptions && {
         providerOptions: modelConfig.providerOptions
       }),

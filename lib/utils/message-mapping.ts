@@ -325,9 +325,9 @@ export function mapUIMessagePartsToDBParts(
           }
         }
 
-        // Any unregistered tool-* type (synthesis_ready, calculate, get_weather,
-        // future tools) must satisfy the DB constraint requiring tool_tool_call_id
-        // and tool_state to be non-null. Route to tool-dynamic so no migration needed.
+        // Any unregistered tool-* type (calculate, get_weather, future tools)
+        // must satisfy the DB constraint requiring tool_tool_call_id and
+        // tool_state to be non-null. Route to tool-dynamic so no migration needed.
         if (part.type.startsWith('tool-') && isExtendedToolPart(part)) {
           return {
             ...basePart,

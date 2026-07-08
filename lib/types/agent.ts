@@ -10,7 +10,6 @@ import type { calculateTool } from '../tools/calculate'
 import type { fetchTool } from '../tools/fetch'
 import type { createQuestionTool } from '../tools/question'
 import type { createSearchTool } from '../tools/search'
-import type { synthesisReadyTool } from '../tools/synthesis-ready'
 import type { createTodoTools } from '../tools/todo'
 import type { weatherTool } from '../tools/weather'
 
@@ -21,7 +20,6 @@ export type ResearcherTools = {
   askQuestion: ReturnType<typeof createQuestionTool>
   calculate: typeof calculateTool
   get_weather: typeof weatherTool
-  synthesis_ready: typeof synthesisReadyTool
 } & ReturnType<typeof createTodoTools>
 
 // Type alias for the researcher agent using ToolLoopAgent
