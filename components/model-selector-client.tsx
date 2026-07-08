@@ -124,7 +124,7 @@ export function ModelSelectorClient({ data }: ModelSelectorClientProps) {
           className="h-auto gap-1 rounded-full border-none bg-muted px-3 py-2 text-sm shadow-none transition-[background-color,color,box-shadow,transform]"
         >
           <ProviderLogo providerId={selectedModel.providerId} />
-          <span className="truncate max-w-40 text-xs font-medium">
+          <span className="truncate max-w-48 text-xs font-medium">
             {selectedModel.name}
           </span>
           <ChevronDown
