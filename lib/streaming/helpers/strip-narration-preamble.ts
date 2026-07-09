@@ -28,19 +28,44 @@ const NARRATION_STARTERS: RegExp[] = [
   /^(?:refining the content)/i
 ]
 
+/**
+ * True if `text` (trimmed) starts with a known narration pattern. Exported
+ * so the stream transform can decide, chunk by chunk, whether an
+ * in-progress buffer is still a plausible narration prefix — separate
+ * from `stripNarrationPreamble`, which needs the complete text (including
+ * the heading) to make its strip/no-strip decision.
+ */
+export function looksLikeNarrationStart(text: string): boolean {
+  const trimmed = text.trim()
+  if (!trimmed) return false
+  return NARRATION_STARTERS.some(re => re.test(trimmed))
+}
+
+/**
+ * Find the first level-2 markdown heading (`## `) at the start of a line,
+ * or immediately after a Vercel AI SDK channel marker like `<channel|>`
+ * (these get concatenated into the text part when the model emits
+ * channel-switch tokens in the same text-delta stream as the answer).
+ * Returns null if no heading is present yet.
+ *
+ * NOTE: we use `<[a-z]+\|>` rather than `<\|[^|]*\|>` because the latter
+ * pattern is ambiguous to some JavaScript regex engines when `<\|`
+ * appears at the start of an alternation group.
+ */
+export function findHeadingMatch(
+  text: string
+): { index: number; markerLength: number } | null {
+  const match = /(^|\n|<[a-z]+\|>)(##\s)/.exec(text)
+  if (!match) return null
+  return { index: match.index, markerLength: match[1].length }
+}
+
 export function stripNarrationPreamble(text: string): string {
   if (!text || typeof text !== 'string') return text
 
-  // Match `## ` at start of line OR immediately after a Vercel AI SDK
-  // channel marker like `<channel|>` (these get concatenated into the
-  // text part when the model emits channel-switch tokens in the same
-  // text-delta stream as the answer).
   // No heading at all → could be a refusal, short factual answer, or
   // single-line response. Leave it alone.
-  // NOTE: we use `<[a-z]+\|>` rather than `<\|[^|]*\|>` because the
-  // latter pattern is ambiguous to some JavaScript regex engines when
-  // `<\|` appears at the start of an alternation group.
-  const headingMatch = /(^|\n|<[a-z]+\|>)(##\s)/.exec(text)
+  const headingMatch = findHeadingMatch(text)
   if (!headingMatch) return text
 
   // The heading must appear after at least some leading content.
@@ -56,12 +81,11 @@ export function stripNarrationPreamble(text: string): string {
   // The preamble must itself look like narration. If the user-visible
   // intro is genuine content (e.g. an intro sentence before the first
   // heading), preserve it.
-  const looksLikeNarration = NARRATION_STARTERS.some(re => re.test(preamble))
-  if (!looksLikeNarration) return text
+  if (!looksLikeNarrationStart(preamble)) return text
 
   // Strip the preamble. The slice starts at the start of the `## `
   // heading (skipping any preceding channel marker) so we don't leave
   // stray `<channel|>` tokens in the output.
-  const headingStart = headingMatch.index + headingMatch[1].length
+  const headingStart = headingMatch.index + headingMatch.markerLength
   return text.slice(headingStart).trim()
 }
