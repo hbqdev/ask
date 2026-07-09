@@ -112,7 +112,6 @@ export function createSearchTool(fullModel: string) {
           // Use the provider factory to get the appropriate search provider
           const searchProvider = createSearchProvider(searchAPI)
 
-          // Pass content_types only for Brave provider
           if (searchAPI === 'brave') {
             searchResult = await searchProvider.search(
               filledQuery,
@@ -134,7 +133,12 @@ export function createSearchTool(fullModel: string) {
               effectiveSearchDepthForAPI,
               include_domains,
               exclude_domains,
-              { searchMode: search_mode as 'web' | 'academic' }
+              {
+                searchMode: search_mode as 'web' | 'academic',
+                content_types: content_types as Array<
+                  'web' | 'video' | 'image' | 'news'
+                >
+              }
             )
           } else {
             searchResult = await searchProvider.search(

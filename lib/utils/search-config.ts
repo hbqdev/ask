@@ -4,11 +4,13 @@
  */
 
 /**
- * Checks if a dedicated "general" search provider is available
- * Currently checks for Brave Search, but can be extended for other providers
+ * Checks if a dedicated "general" search provider is available.
+ * Brave Search supports it directly; SearXNG supports it too via its
+ * `categories` param (general,images,videos in one request) — see
+ * SearXNGSearchProvider.search(). Tavily/Exa/Firecrawl don't.
  */
 export function isGeneralSearchProviderAvailable(): boolean {
-  return !!process.env.BRAVE_SEARCH_API_KEY
+  return !!process.env.BRAVE_SEARCH_API_KEY || !!process.env.SEARXNG_API_URL
 }
 
 /**
@@ -18,6 +20,9 @@ export function getGeneralSearchProviderName(): string {
   if (process.env.BRAVE_SEARCH_API_KEY) {
     return 'Brave Search'
   }
+  if (process.env.SEARXNG_API_URL) {
+    return 'SearXNG'
+  }
   return 'primary provider'
 }
 
@@ -25,8 +30,8 @@ export function getGeneralSearchProviderName(): string {
  * Checks if the general search provider supports multimedia content types
  */
 export function supportsMultimediaContentTypes(): boolean {
-  // Currently only Brave supports video/image content_types
-  return !!process.env.BRAVE_SEARCH_API_KEY
+  // Brave and SearXNG both support video/image content_types
+  return !!process.env.BRAVE_SEARCH_API_KEY || !!process.env.SEARXNG_API_URL
 }
 
 /**
@@ -107,12 +112,17 @@ export function getSearchStrategyGuidance(): string {
 }
 
 /**
- * Gets the appropriate search provider type for "general" searches
- * Returns 'brave' if available, otherwise null to indicate fallback
+ * Gets the appropriate search provider type for "general" searches.
+ * Prefers Brave when configured, falls back to SearXNG (also multimedia-
+ * capable), otherwise null to indicate the caller should fall back to the
+ * primary optimized-search provider.
  */
-export function getGeneralSearchProviderType(): 'brave' | null {
+export function getGeneralSearchProviderType(): 'brave' | 'searxng' | null {
   if (process.env.BRAVE_SEARCH_API_KEY) {
     return 'brave'
+  }
+  if (process.env.SEARXNG_API_URL) {
+    return 'searxng'
   }
   return null
 }
