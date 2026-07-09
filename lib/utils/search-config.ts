@@ -74,9 +74,12 @@ export function getContentTypesGuidance(): string {
   - Uses ${providerName} for enhanced multimedia support
   - Returns search results without deep content extraction
   - Best for:
-    - Today's news, current events, recent updates
+    - Today's news, current events, recent updates: content_types: ['news']
     - Videos: content_types: ['video'] or ['web', 'video']
     - Images: content_types: ['image'] or ['web', 'image']
+    - Programming/software/library/package questions: content_types: ['it'] (searches GitHub, StackOverflow, npm, PyPI, MDN)
+    - Location/place questions ("where is X"): content_types: ['map']
+    - Song/artist/album questions: content_types: ['music']
     - When you need the LATEST information where recency matters
   - Pattern: type="general" search → identify sources → fetch for content`
   } else {

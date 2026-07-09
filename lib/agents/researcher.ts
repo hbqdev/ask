@@ -115,14 +115,17 @@ function wrapSearchToolForQuickMode<
   }) as T
 }
 
-// Enforces source selection at the tool level so the model physically cannot deviate.
-// 'academic' (exclusive) forces search_mode: 'academic' on every search call.
-// 'social' (exclusive) appends reddit.com to include_domains on every search call.
-// Mixed or web-only: returns the tool unchanged (model decides per query).
-function wrapSearchToolForSources<T extends ReturnType<typeof createSearchTool>>(
-  originalTool: T,
-  sources: SearchSources
-): T {
+// Enforces source selection at the tool level so the model physically cannot
+// deviate — but only when exactly one non-web source is selected alone
+// (Web off). 'academic' (exclusive) forces search_mode: 'academic' on every
+// search call. 'social' (exclusive) forces search_mode: 'social' on every
+// search call. Two non-web sources together (Academic+Social, Web off)
+// don't get a single fixed search_mode forced — a single search_mode can't
+// represent "pick either of these two", so that combination stays advisory
+// (model chooses per query, same as any combination that includes Web).
+export function wrapSearchToolForSources<
+  T extends ReturnType<typeof createSearchTool>
+>(originalTool: T, sources: SearchSources): T {
   const hasWeb = sources.includes('web')
   const hasAcademic = sources.includes('academic')
   const hasSocial = sources.includes('social')
@@ -141,18 +144,9 @@ function wrapSearchToolForSources<T extends ReturnType<typeof createSearchTool>>
     toModelOutput: originalTool.toModelOutput as any,
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     async *execute(params: any, context: any) {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      let modifiedParams: any = { ...params }
-
-      if (academicOnly) {
-        modifiedParams.search_mode = 'academic'
-      } else if (socialOnly) {
-        const existing: string[] = Array.isArray(modifiedParams.include_domains)
-          ? modifiedParams.include_domains
-          : []
-        modifiedParams.include_domains = existing.includes('reddit.com')
-          ? existing
-          : [...existing, 'reddit.com']
+      const modifiedParams = {
+        ...params,
+        search_mode: academicOnly ? ('academic' as const) : ('social' as const)
       }
 
       const executeFunc = originalTool.execute
@@ -175,25 +169,31 @@ function wrapSearchToolForSources<T extends ReturnType<typeof createSearchTool>>
   }) as T
 }
 
-function getSourcesPromptAddendum(sources: SearchSources): string {
+export function getSourcesPromptAddendum(sources: SearchSources): string {
   const hasAcademic = sources.includes('academic')
   const hasSocial = sources.includes('social')
   const hasWeb = sources.includes('web')
 
+  const zeroResultsGuidance =
+    '\n\nIf a search returns zero or very few results: retry ONCE with shorter, simpler, less-quoted terms (drop exact-phrase quoting and extra qualifiers first). If results are still sparse after that retry, do not keep second-guessing the date, the model name, or your own knowledge — write the best answer you can from what you found (or say clearly that source coverage was limited for this query) and move on. Never let a thin result set turn into open-ended self-doubt in your response.'
+
   if (!hasWeb && hasAcademic && !hasSocial) {
-    return '\n\n**User-selected Academic focus**: The user has explicitly chosen academic sources. ALL searches are automatically routed to Google Scholar, arXiv, Semantic Scholar, and PubMed. Prioritize peer-reviewed papers, cite authors and publication years when available, and frame your answer in scholarly terms.'
+    return `\n\n**User-selected Academic focus**: The user has explicitly chosen academic sources. ALL searches are automatically routed to search_mode: 'academic' (Google Scholar, arXiv, Semantic Scholar, PubMed, and other science sources) regardless of what you pass. Prioritize peer-reviewed papers, cite authors and publication years when available, and frame your answer in scholarly terms.${zeroResultsGuidance}`
   }
   if (!hasWeb && !hasAcademic && hasSocial) {
-    return '\n\n**User-selected Social focus**: The user has explicitly chosen community discussions. ALL searches are automatically routed to Reddit. Prioritize real user opinions, personal experiences, and community consensus.'
+    return `\n\n**User-selected Social focus**: The user has explicitly chosen community discussions. ALL searches are automatically routed to search_mode: 'social' (Reddit, Lemmy, Mastodon, Hacker News) regardless of what you pass. Prioritize real user opinions, personal experiences, and community consensus.${zeroResultsGuidance}`
+  }
+  if (!hasWeb && hasAcademic && hasSocial) {
+    return "\n\n**Academic + Social focus (no Web)**: The user has excluded general web results. For research/science questions use search_mode: 'academic'. For opinions/experiences/community questions use search_mode: 'social'. Choose the appropriate one per query — do not use standard web search."
   }
   if (hasAcademic && hasSocial) {
-    return "\n\n**Multi-source mode**: The user has enabled Web + Academic + Social sources. For research/science questions use search_mode: 'academic'. For community perspectives add include_domains: ['reddit.com']. For general info use standard web search. Choose the appropriate source type per query."
+    return "\n\n**Multi-source mode**: The user has enabled Web + Academic + Social sources. For research/science questions use search_mode: 'academic'. For community perspectives use search_mode: 'social'. For general info use standard web search (search_mode: 'web'). Choose the appropriate source type per query."
   }
   if (hasAcademic) {
     return "\n\n**Academic sources enabled**: For research/science/medical questions use search_mode: 'academic' to get scholarly results. For other questions use standard web search."
   }
   if (hasSocial) {
-    return "\n\n**Social sources enabled**: For opinion/experience/community questions add include_domains: ['reddit.com']. For factual questions use standard web search."
+    return "\n\n**Social sources enabled**: For opinion/experience/community questions use search_mode: 'social'. For factual questions use standard web search."
   }
   return ''
 }
@@ -252,7 +252,13 @@ export function createResearcher({
 
       case 'quality':
         systemPrompt = getQualityModePrompt()
-        activeToolsList = ['search', 'fetch', 'todoWrite', 'calculate', 'get_weather']
+        activeToolsList = [
+          'search',
+          'fetch',
+          'todoWrite',
+          'calculate',
+          'get_weather'
+        ]
         console.log(
           `[Researcher] Quality mode: maxSteps=100, tools=[${activeToolsList.join(', ')}], sources=${JSON.stringify(sources)}`
         )
@@ -266,7 +272,13 @@ export function createResearcher({
       case 'balanced':
       default:
         systemPrompt = getAdaptiveModePrompt()
-        activeToolsList = ['search', 'fetch', 'todoWrite', 'calculate', 'get_weather']
+        activeToolsList = [
+          'search',
+          'fetch',
+          'todoWrite',
+          'calculate',
+          'get_weather'
+        ]
         console.log(
           `[Researcher] Balanced mode: maxSteps=50, tools=[${activeToolsList.join(', ')}], sources=${JSON.stringify(sources)}`
         )

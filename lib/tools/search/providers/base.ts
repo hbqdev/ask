@@ -1,9 +1,20 @@
 import { SearchResults } from '@/lib/types'
 
+export type SearchContentType =
+  | 'web'
+  | 'video'
+  | 'image'
+  | 'news'
+  | 'it'
+  | 'map'
+  | 'music'
+
+export type SearchModeOption = 'web' | 'academic' | 'social'
+
 export interface SearchProviderOptions {
   type?: 'general' | 'optimized'
-  content_types?: Array<'web' | 'video' | 'image' | 'news'>
-  searchMode?: 'web' | 'academic'
+  content_types?: SearchContentType[]
+  searchMode?: SearchModeOption
 }
 
 export interface SearchProvider {
