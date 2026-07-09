@@ -1,0 +1,30 @@
+name: ask-stack-admin-feature
+
+services:
+  ask:
+    container_name: ask-admin-feature
+    ports: !override
+      - "${ADMIN_FEATURE_HOST_PORT:-3739}:3000"
+    volumes: !override
+      - uploads-admin-feature:/app/uploads
+      - model-cache-admin-feature:/app/model-cache
+
+  postgres:
+    container_name: ask-postgres-admin-feature
+    volumes: !override
+      - postgres-data-admin-feature:/var/lib/postgresql/data
+
+  redis:
+    container_name: ask-redis-admin-feature
+    volumes: !override
+      - redis-data-admin-feature:/data
+
+volumes:
+  postgres-data-admin-feature:
+    name: ask-postgres-data-admin-feature
+  redis-data-admin-feature:
+    name: ask-redis-data-admin-feature
+  uploads-admin-feature:
+    name: ask-uploads-admin-feature
+  model-cache-admin-feature:
+    name: ask-model-cache-admin-feature
