@@ -77,6 +77,13 @@ export interface SearXNGResult {
   img_src?: string
   publishedDate?: string
   score?: number
+  // Video-category fields (present when categories includes "videos")
+  category?: string
+  thumbnail?: string
+  length?: string
+  source?: string
+  engine?: string
+  author?: string
 }
 
 export interface SearXNGResponse {
