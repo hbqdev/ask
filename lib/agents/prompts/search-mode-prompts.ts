@@ -280,6 +280,7 @@ Fetch tool usage:
 - **For PDF URLs (ending in .pdf)**: ALWAYS use \`type: "api"\` - regular type will fail on PDFs
 - **For complex JavaScript-rendered pages**: Use \`type: "api"\` for better extraction
 - **For regular web pages**: Use default \`type: "regular"\` for fast HTML fetching
+- **For YouTube URLs (youtube.com/watch, youtube.com/shorts, youtu.be)**: Fetching automatically retrieves the video's transcript, so the actual spoken content becomes available to cite — not just the title. When a video-content search surfaces a relevant video for the query (tutorials, how-tos, reviews, interviews, technical demos, explainers), fetch it the same way you'd fetch a relevant webpage. Don't force a video search on every query — only when the topic is one people commonly search video content for
 
 When using the ask_question tool:
 - Create clear, concise questions
@@ -369,7 +370,9 @@ ${getRelatedQuestionsSpecPrompt()}
 export function getQualityModePrompt(): string {
   // Start from the full working balanced prompt, then append quality-specific
   // overrides. Later instructions supersede earlier ones for the model.
-  return getAdaptiveModePrompt() + `
+  return (
+    getAdaptiveModePrompt() +
+    `
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 QUALITY MODE — DEEP RESEARCH PROTOCOL
@@ -427,6 +430,7 @@ Write a structured research report, not a Q&A answer:
 
 Use tables for comparisons and benchmarks. Use concrete numbers, dates, and names — not vague qualifiers. Acknowledge uncertainty explicitly when sources conflict.
 `
+  )
 }
 
 // Export static prompts

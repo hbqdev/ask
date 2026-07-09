@@ -1,4 +1,9 @@
 import { tool, UIToolInvocation } from 'ai'
+import {
+  fetchTranscript,
+  toPlainText,
+  YoutubeTranscriptNotAvailableLanguageError
+} from 'youtube-transcript-plus'
 
 import { fetchSchema } from '@/lib/schema/fetch'
 import { SearchResults as SearchResultsType } from '@/lib/types'
@@ -6,6 +11,63 @@ import { logToolPayload } from '@/lib/utils/usage-logging'
 
 const CONTENT_CHARACTER_LIMIT = 50000
 const TITLE_CHARACTER_LIMIT = 100
+
+// Matches youtube.com/watch, youtube.com/shorts, youtu.be, and m.youtube.com
+// variants. Anything else falls through to the regular/api fetch paths.
+const YOUTUBE_URL_PATTERN =
+  /^https?:\/\/(?:www\.|m\.)?(?:youtube\.com\/(?:watch|shorts\/)|youtu\.be\/)/i
+
+export function isYoutubeUrl(url: string): boolean {
+  return YOUTUBE_URL_PATTERN.test(url)
+}
+
+export async function fetchYoutubeTranscriptData(
+  url: string
+): Promise<SearchResultsType> {
+  // Prefer English captions since the model's citations and the app's UI
+  // are English-first; some videos only expose non-English tracks (e.g.
+  // Arabic subtitles on an English-language talk), so fall back to
+  // whatever track is available rather than failing the whole fetch.
+  let videoDetails, segments
+  try {
+    ;({ videoDetails, segments } = await fetchTranscript(url, {
+      videoDetails: true,
+      lang: 'en'
+    }))
+  } catch (error) {
+    if (error instanceof YoutubeTranscriptNotAvailableLanguageError) {
+      ;({ videoDetails, segments } = await fetchTranscript(url, {
+        videoDetails: true
+      }))
+    } else {
+      throw error
+    }
+  }
+
+  const transcriptText = toPlainText(segments, ' ')
+  const content =
+    transcriptText.length > CONTENT_CHARACTER_LIMIT
+      ? transcriptText.substring(0, CONTENT_CHARACTER_LIMIT) + '...[truncated]'
+      : transcriptText
+
+  const rawTitle = videoDetails.title || url
+  const title =
+    rawTitle.length > TITLE_CHARACTER_LIMIT
+      ? rawTitle.substring(0, TITLE_CHARACTER_LIMIT) + '...'
+      : rawTitle
+
+  return {
+    results: [
+      {
+        title,
+        content,
+        url
+      }
+    ],
+    query: '',
+    images: []
+  }
+}
 
 async function fetchRegularData(url: string): Promise<SearchResultsType> {
   try {
@@ -160,7 +222,7 @@ async function fetchTavilyExtractData(url: string): Promise<SearchResultsType> {
 
 export const fetchTool = tool({
   description:
-    'Fetch content from any URL. By default uses "regular" type which performs fast, direct HTML fetching without external APIs - ideal for most websites. IMPORTANT: "regular" type does NOT support PDFs and will fail on PDF URLs. Use "api" type when you need: 1) PDF content extraction (required for .pdf URLs), 2) Complex JavaScript-rendered pages, 3) Better markdown formatting, 4) Table extraction. The "api" type requires Jina or Tavily API keys and uses Jina Reader if available, otherwise falls back to Tavily Extract.',
+    'Fetch content from any URL. By default uses "regular" type which performs fast, direct HTML fetching without external APIs - ideal for most websites. IMPORTANT: "regular" type does NOT support PDFs and will fail on PDF URLs. Use "api" type when you need: 1) PDF content extraction (required for .pdf URLs), 2) Complex JavaScript-rendered pages, 3) Better markdown formatting, 4) Table extraction. The "api" type requires Jina or Tavily API keys and uses Jina Reader if available, otherwise falls back to Tavily Extract. For YouTube URLs (youtube.com/watch, youtube.com/shorts, youtu.be), this tool automatically fetches the video\'s transcript/captions instead of the HTML page, so the video\'s actual spoken content becomes available to cite - the "type" param is ignored for these URLs.',
   inputSchema: fetchSchema,
   async *execute({ url, type = 'regular' }) {
     // Yield initial fetching state
@@ -172,7 +234,20 @@ export const fetchTool = tool({
     try {
       let results: SearchResultsType
 
-      if (type === 'regular') {
+      if (isYoutubeUrl(url)) {
+        try {
+          results = await fetchYoutubeTranscriptData(url)
+        } catch (transcriptError) {
+          // No captions, transcripts disabled, video unavailable, etc. —
+          // fall back to a regular HTML fetch so the model still gets the
+          // video page's title/description instead of a failed step.
+          console.error(
+            'YouTube transcript fetch failed, falling back to regular fetch:',
+            transcriptError
+          )
+          results = await fetchRegularData(url)
+        }
+      } else if (type === 'regular') {
         results = await fetchRegularData(url)
       } else {
         const useJina = process.env.JINA_API_KEY
@@ -190,7 +265,8 @@ export const fetchTool = tool({
         ...results
       }
     } catch (error) {
-      const message = error instanceof Error ? error.message : 'Unknown fetch error'
+      const message =
+        error instanceof Error ? error.message : 'Unknown fetch error'
       console.error('Fetch error:', message)
       // Return a graceful result so the agent can continue rather than crashing the stream
       yield {

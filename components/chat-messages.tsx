@@ -12,7 +12,6 @@ import { extractCitationMapsFromMessages } from '@/lib/utils/citation'
 import { AnimatedLogo } from './ui/animated-logo'
 import { ChatError } from './chat-error'
 import { ChatFooterMessage } from './chat-footer-message'
-import { MediaSection } from './media-section'
 import { RenderMessage } from './render-message'
 
 // Import section structure interface
@@ -241,54 +240,38 @@ export function ChatMessages({
             </div>
 
             {/* Assistant messages */}
-            {(() => {
-              const userParts = (section.userMessage.parts ?? []) as any[]
-              const textPart = userParts.find((p: any) => p.type === 'text')
-              const userQuery: string = textPart?.text ?? ''
-              const sectionComplete =
-                !(sectionIndex === sections.length - 1 && isLoading) &&
-                section.assistantMessages.length > 0
+            {section.assistantMessages.map((assistantMessage, messageIndex) => {
+              const isLatestMessage =
+                sectionIndex === sections.length - 1 &&
+                messageIndex === section.assistantMessages.length - 1
 
               return (
-                <>
-                  {section.assistantMessages.map((assistantMessage, messageIndex) => {
-                    const isLatestMessage =
-                      sectionIndex === sections.length - 1 &&
-                      messageIndex === section.assistantMessages.length - 1
-
-                    return (
-                      <div
-                        key={assistantMessage.id}
-                        className="flex flex-col gap-2 md:gap-4"
-                      >
-                        <RenderMessage
-                          message={assistantMessage}
-                          messageId={assistantMessage.id}
-                          getIsOpen={(id, partType, hasNextPart) =>
-                            getIsOpen(id, partType, hasNextPart, assistantMessage)
-                          }
-                          onOpenChange={handleOpenChange}
-                          chatId={chatId}
-                          isGuest={isGuest}
-                          isCloudDeployment={isCloudDeployment}
-                          libraryAvailable={libraryAvailable}
-                          status={status}
-                          addToolResult={addToolResult}
-                          onUpdateMessage={onUpdateMessage}
-                          reload={reload}
-                          isLatestMessage={isLatestMessage}
-                          citationMaps={allCitationMaps}
-                          onQuoteContext={onQuoteContext}
-                        />
-                      </div>
-                    )
-                  })}
-                  {sectionComplete && userQuery && (
-                    <MediaSection query={userQuery} />
-                  )}
-                </>
+                <div
+                  key={assistantMessage.id}
+                  className="flex flex-col gap-2 md:gap-4"
+                >
+                  <RenderMessage
+                    message={assistantMessage}
+                    messageId={assistantMessage.id}
+                    getIsOpen={(id, partType, hasNextPart) =>
+                      getIsOpen(id, partType, hasNextPart, assistantMessage)
+                    }
+                    onOpenChange={handleOpenChange}
+                    chatId={chatId}
+                    isGuest={isGuest}
+                    isCloudDeployment={isCloudDeployment}
+                    libraryAvailable={libraryAvailable}
+                    status={status}
+                    addToolResult={addToolResult}
+                    onUpdateMessage={onUpdateMessage}
+                    reload={reload}
+                    isLatestMessage={isLatestMessage}
+                    citationMaps={allCitationMaps}
+                    onQuoteContext={onQuoteContext}
+                  />
+                </div>
               )
-            })()}
+            })}
             {/* Show assistant logo and footer message after assistant messages */}
             {showAssistantLogo && sectionIndex === sections.length - 1 && (
               <div className="flex items-center gap-3 py-1 md:py-4">
