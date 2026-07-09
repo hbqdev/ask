@@ -29,7 +29,11 @@ vi.mock('@/lib/utils/usage-logging', () => ({
   logToolPayload: vi.fn()
 }))
 
-import { fetchYoutubeTranscriptData, isYoutubeUrl } from '../fetch'
+import {
+  fetchRegularData,
+  fetchYoutubeTranscriptData,
+  isYoutubeUrl
+} from '../fetch'
 
 describe('isYoutubeUrl', () => {
   it('matches standard watch URLs', () => {
@@ -191,4 +195,62 @@ describe('fetchYoutubeTranscriptData', () => {
       fetchYoutubeTranscriptData('https://youtu.be/dQw4w9WgXcQ')
     ).rejects.toThrow('Transcripts are disabled for this video')
   })
+})
+
+describe('fetchRegularData retry behavior', () => {
+  afterEach(() => {
+    vi.unstubAllGlobals()
+  })
+
+  it('succeeds without retrying when the first request succeeds', async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      headers: new Headers({ 'content-type': 'text/html' }),
+      text: async () => '<title>A Page</title><body>Hello</body>'
+    })
+    vi.stubGlobal('fetch', fetchMock)
+
+    const result = await fetchRegularData('https://example.com/page')
+
+    expect(fetchMock).toHaveBeenCalledTimes(1)
+    expect(result.results[0].title).toBe('A Page')
+  })
+
+  it('retries a transient 403 and succeeds on a later attempt', async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce({
+        ok: false,
+        status: 403,
+        statusText: 'Forbidden'
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        headers: new Headers({ 'content-type': 'text/html' }),
+        text: async () => '<title>Now It Works</title><body>Content</body>'
+      })
+    vi.stubGlobal('fetch', fetchMock)
+
+    const result = await fetchRegularData('https://example.com/flaky')
+
+    expect(fetchMock).toHaveBeenCalledTimes(2)
+    expect(result.results[0].title).toBe('Now It Works')
+  }, 10000)
+
+  it('still fails after exhausting retries on a persistent 403', async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: false,
+      status: 403,
+      statusText: 'Forbidden'
+    })
+    vi.stubGlobal('fetch', fetchMock)
+
+    await expect(
+      fetchRegularData('https://example.com/blocked')
+    ).rejects.toThrow('HTTP 403: Forbidden')
+    // maxRetries: 2 means 3 total attempts (1 initial + 2 retries)
+    expect(fetchMock).toHaveBeenCalledTimes(3)
+  }, 10000)
 })

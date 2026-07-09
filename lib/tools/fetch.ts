@@ -7,6 +7,7 @@ import {
 
 import { fetchSchema } from '@/lib/schema/fetch'
 import { SearchResults as SearchResultsType } from '@/lib/types'
+import { retryWithBackoff } from '@/lib/utils/retry'
 import { logToolPayload } from '@/lib/utils/usage-logging'
 
 const CONTENT_CHARACTER_LIMIT = 50000
@@ -69,25 +70,45 @@ export async function fetchYoutubeTranscriptData(
   }
 }
 
-async function fetchRegularData(url: string): Promise<SearchResultsType> {
-  try {
-    const controller = new AbortController()
-    const timeoutId = setTimeout(() => controller.abort(), 10000) // 10 second timeout
-
-    const response = await fetch(url, {
-      signal: controller.signal,
-      headers: {
-        'User-Agent': 'Mozilla/5.0 (compatible; Ask/1.0)',
-        Accept:
-          'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8'
+// Some sites (verywellhealth.com, health.com, goodrx.com, etc.) intermittently
+// 403 a plain fetch — observed to succeed on a bare retry seconds later, so
+// this looks like bot-detection flakiness rather than a hard block. Retry
+// HTTP-status failures with backoff; a genuinely blocked/unsupported URL
+// still fails after all attempts and falls through to the "Fetch failed"
+// placeholder below.
+async function fetchWithRetry(url: string): Promise<Response> {
+  return retryWithBackoff(
+    async () => {
+      const controller = new AbortController()
+      const timeoutId = setTimeout(() => controller.abort(), 10000) // 10 second timeout
+      let response: Response
+      try {
+        response = await fetch(url, {
+          signal: controller.signal,
+          headers: {
+            'User-Agent': 'Mozilla/5.0 (compatible; Ask/1.0)',
+            Accept:
+              'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8'
+          }
+        })
+      } finally {
+        clearTimeout(timeoutId)
       }
-    })
 
-    clearTimeout(timeoutId)
+      if (!response.ok) {
+        throw new Error(`HTTP ${response.status}: ${response.statusText}`)
+      }
+      return response
+    },
+    { maxRetries: 2, initialDelayMs: 500 }
+  )
+}
 
-    if (!response.ok) {
-      throw new Error(`HTTP ${response.status}: ${response.statusText}`)
-    }
+export async function fetchRegularData(
+  url: string
+): Promise<SearchResultsType> {
+  try {
+    const response = await fetchWithRetry(url)
 
     const contentType = response.headers.get('content-type') || ''
     if (
