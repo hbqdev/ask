@@ -4,10 +4,7 @@ import { useCallback, useState } from 'react'
 
 import type { ReasoningPart } from '@ai-sdk/provider-utils'
 import { UseChatHelpers } from '@ai-sdk/react'
-import {
-  IconChevronDown as ChevronDown,
-  IconRoute as Waypoints
-} from '@tabler/icons-react'
+import { IconChevronDown as ChevronDown } from '@tabler/icons-react'
 
 import type { ToolPart, UIDataTypes, UIMessage, UITools } from '@/lib/types/ai'
 import type { DynamicToolPart } from '@/lib/types/dynamic-tools'
@@ -317,6 +314,12 @@ export function ResearchProcessSection({
   if (segments.length === 0 || segments.every(seg => seg.length === 0))
     return null
 
+  // Still actively researching: no text has followed this segment yet, and
+  // the message hasn't finished streaming. Matches Perplexity's live status
+  // line before the answer starts.
+  const isInProgress =
+    !hasSubsequentText && (status === 'streaming' || status === 'submitted')
+
   return (
     <div className="space-y-2">
       {segments.map((seg, sidx) => {
@@ -326,11 +329,11 @@ export function ResearchProcessSection({
 
         // Count total parts in this segment
         const totalParts = seg.length
-        const needsParentCollapsible = totalParts >= 5
 
         // Parent collapsible ID
         const parentId = `${messageId}-parent-${sidx}`
-        // If user has explicitly set state, use that; otherwise auto-collapse when text follows
+        // If user has explicitly set state, use that; otherwise auto-open
+        // while actively researching and auto-collapse once text follows.
         const isParentOpen =
           parentOpenStates[parentId] ?? (hasSubsequentText ? false : true)
 
@@ -368,40 +371,44 @@ export function ResearchProcessSection({
           </div>
         )
 
-        if (needsParentCollapsible) {
-          return (
-            <Collapsible
-              key={`${messageId}-seg-${sidx}`}
-              open={isParentOpen}
-              onOpenChange={open => {
-                setParentOpenStates(prev => ({ ...prev, [parentId]: open }))
-              }}
-            >
-              <CollapsibleTrigger asChild>
-                <button
-                  type="button"
-                  className="flex items-center px-1 py-0.5 gap-2 text-sm rounded-lg group"
+        // Always summarize behind a single "Completed N steps" line —
+        // never render the step list unwrapped, regardless of count.
+        return (
+          <Collapsible
+            key={`${messageId}-seg-${sidx}`}
+            open={isParentOpen}
+            onOpenChange={open => {
+              setParentOpenStates(prev => ({ ...prev, [parentId]: open }))
+            }}
+          >
+            <CollapsibleTrigger asChild>
+              <button
+                type="button"
+                className="flex items-center px-1 py-0.5 gap-2 text-sm rounded-lg group"
+              >
+                <span
+                  className={cn(
+                    'font-medium text-muted-foreground group-hover:text-muted-foreground/70',
+                    isInProgress && 'animate-pulse'
+                  )}
                 >
-                  <Waypoints className="size-4 text-muted-foreground group-hover:text-muted-foreground/70" />
-                  <span className="font-medium text-muted-foreground group-hover:text-muted-foreground/70">
-                    Research Process ({totalParts} steps)
-                  </span>
-                  <ChevronDown
-                    className={cn(
-                      'size-4 text-muted-foreground group-hover:text-muted-foreground/70 transition-transform duration-200',
-                      isParentOpen && 'rotate-180'
-                    )}
-                  />
-                </button>
-              </CollapsibleTrigger>
-              <CollapsibleContent className="data-[state=closed]:animate-collapse-up data-[state=open]:animate-collapse-down">
-                <div className="pt-2">{segmentContent}</div>
-              </CollapsibleContent>
-            </Collapsible>
-          )
-        }
-
-        return <div key={`${messageId}-seg-${sidx}`}>{segmentContent}</div>
+                  {isInProgress
+                    ? `Working on it — ${totalParts} step${totalParts === 1 ? '' : 's'} so far`
+                    : `Completed ${totalParts} step${totalParts === 1 ? '' : 's'}`}
+                </span>
+                <ChevronDown
+                  className={cn(
+                    'size-4 text-muted-foreground group-hover:text-muted-foreground/70 transition-transform duration-200',
+                    isParentOpen && 'rotate-180'
+                  )}
+                />
+              </button>
+            </CollapsibleTrigger>
+            <CollapsibleContent className="data-[state=closed]:animate-collapse-up data-[state=open]:animate-collapse-down">
+              <div className="pt-2">{segmentContent}</div>
+            </CollapsibleContent>
+          </Collapsible>
+        )
       })}
     </div>
   )

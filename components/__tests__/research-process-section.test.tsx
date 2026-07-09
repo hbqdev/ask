@@ -1,7 +1,7 @@
 import React from 'react'
 
 import type { ReasoningPart } from '@ai-sdk/provider-utils'
-import { fireEvent, render, screen } from '@testing-library/react'
+import { fireEvent, render, screen, within } from '@testing-library/react'
 import { beforeEach, describe, expect, Mock, test, vi } from 'vitest'
 
 import type { ToolPart, UIMessage } from '@/lib/types/ai'
@@ -203,6 +203,113 @@ describe('ResearchProcessSection', () => {
     })
   })
 
+  describe('Summary line wrapping', () => {
+    test('always wraps the step list behind a single summary trigger, regardless of count', () => {
+      // A single reasoning part used to render unwrapped; it must now be
+      // wrapped behind a "Completed N steps" summary trigger just like a
+      // larger group.
+      const singlePart = [
+        { type: 'reasoning', text: 'Single reasoning' } as ReasoningPart
+      ]
+
+      const message = {
+        id: 'test-message',
+        role: 'assistant' as const,
+        parts: singlePart
+      }
+
+      // Parent starts open by default (no hasSubsequentText passed), so the
+      // inner reasoning-section mock is also present in the DOM.
+      render(
+        <ResearchProcessSection
+          message={message}
+          messageId="test-7"
+          getIsOpen={mockGetIsOpen}
+          onOpenChange={mockOnOpenChange}
+        />
+      )
+
+      expect(screen.getByText('Completed 1 step')).toBeInTheDocument()
+      expect(screen.getByTestId('reasoning-section')).toBeInTheDocument()
+    })
+
+    test('shows an in-progress label while streaming with no subsequent text yet', () => {
+      const singlePart = [
+        { type: 'reasoning', text: 'Still thinking' } as ReasoningPart
+      ]
+
+      const message = {
+        id: 'test-message',
+        role: 'assistant' as const,
+        parts: singlePart
+      }
+
+      render(
+        <ResearchProcessSection
+          message={message}
+          messageId="test-7b"
+          getIsOpen={mockGetIsOpen}
+          onOpenChange={mockOnOpenChange}
+          status="streaming"
+          hasSubsequentText={false}
+        />
+      )
+
+      expect(
+        screen.getByText('Working on it — 1 step so far')
+      ).toBeInTheDocument()
+    })
+
+    test('switches to "Completed N steps" once subsequent text exists', () => {
+      const singlePart = [
+        { type: 'reasoning', text: 'Done thinking' } as ReasoningPart
+      ]
+
+      const message = {
+        id: 'test-message',
+        role: 'assistant' as const,
+        parts: singlePart
+      }
+
+      render(
+        <ResearchProcessSection
+          message={message}
+          messageId="test-7c"
+          getIsOpen={mockGetIsOpen}
+          onOpenChange={mockOnOpenChange}
+          status="streaming"
+          hasSubsequentText={true}
+        />
+      )
+
+      expect(screen.getByText('Completed 1 step')).toBeInTheDocument()
+    })
+
+    test('pluralizes the step count correctly', () => {
+      const parts: any[] = [
+        { type: 'reasoning', text: 'First' } as ReasoningPart,
+        { type: 'reasoning', text: 'Second' } as ReasoningPart
+      ]
+
+      const message: UIMessage = {
+        id: 'test-message',
+        role: 'assistant',
+        parts
+      }
+
+      render(
+        <ResearchProcessSection
+          message={message}
+          messageId="test-7d"
+          getIsOpen={mockGetIsOpen}
+          onOpenChange={mockOnOpenChange}
+        />
+      )
+
+      expect(screen.getByText('Completed 2 steps')).toBeInTheDocument()
+    })
+  })
+
   describe('Accordion Behavior', () => {
     test('handles accordion state for grouped sections', () => {
       const parts: any[] = [
@@ -225,10 +332,11 @@ describe('ResearchProcessSection', () => {
         />
       )
 
+      // Parent summary is open by default, so both inner reasoning buttons
+      // are present alongside the outer summary trigger. Click the first
+      // inner reasoning button (index 1 — index 0 is the summary trigger).
       const buttons = screen.getAllByRole('button')
-
-      // Click first button to open
-      fireEvent.click(buttons[0])
+      fireEvent.click(buttons[1])
 
       // Should call onOpenChange
       expect(mockOnOpenChange).toHaveBeenCalled()
@@ -246,7 +354,10 @@ describe('ResearchProcessSection', () => {
       )
     })
 
-    test('handles single sections differently from grouped sections', () => {
+    test('clicking the summary trigger does not call onOpenChange directly', () => {
+      // The outer "Completed N steps" trigger manages its own local
+      // open/closed state — it must not be conflated with the per-part
+      // onOpenChange callback used by individual steps.
       const singlePart = [
         { type: 'reasoning', text: 'Single reasoning' } as ReasoningPart
       ]
@@ -266,8 +377,38 @@ describe('ResearchProcessSection', () => {
         />
       )
 
-      const button = screen.getByRole('button')
-      fireEvent.click(button)
+      const summaryTrigger = screen.getByText('Completed 1 step')
+      fireEvent.click(summaryTrigger)
+
+      expect(mockOnOpenChange).not.toHaveBeenCalled()
+    })
+
+    test('clicking an inner step button still calls onOpenChange directly for single sections', () => {
+      const singlePart = [
+        { type: 'reasoning', text: 'Single reasoning' } as ReasoningPart
+      ]
+
+      const message = {
+        id: 'test-message',
+        role: 'assistant' as const,
+        parts: singlePart
+      }
+
+      render(
+        <ResearchProcessSection
+          message={message}
+          messageId="test-7"
+          getIsOpen={mockGetIsOpen}
+          onOpenChange={mockOnOpenChange}
+        />
+      )
+
+      // Parent summary defaults open, so the inner reasoning-section mock's
+      // button is present. Query within it specifically.
+      const innerButton = within(
+        screen.getByTestId('reasoning-section')
+      ).getByRole('button')
+      fireEvent.click(innerButton)
 
       // For single sections, should directly call onOpenChange
       expect(mockOnOpenChange).toHaveBeenCalledWith(

@@ -1,6 +1,9 @@
 import { describe, expect, it } from 'vitest'
 
-import { stripNarrationPreamble } from '../strip-narration-preamble'
+import {
+  looksLikeNarrationStart,
+  stripNarrationPreamble
+} from '../strip-narration-preamble'
 
 describe('stripNarrationPreamble', () => {
   it('returns text unchanged when there is no ## heading', () => {
@@ -109,5 +112,69 @@ describe('stripNarrationPreamble', () => {
       'Here is the answer.'
     const out = stripNarrationPreamble(text)
     expect(out).toBe('## Answer\nHere is the answer.')
+  })
+
+  it('strips narration even when preceded by an unrelated garbled first sentence', () => {
+    // Real bug observed with gemma4:31b:cloud: the model prepends an
+    // unrelated or garbled sentence before its actual self-talk kicks in,
+    // e.g. "Coins are not mentioned yet." before "I have enough search
+    // results...". A whole-string ^-anchored check on the full preamble
+    // misses this since the narration pattern isn't at position 0 of the
+    // preamble — looksLikeNarrationStart must check each sentence.
+    const text =
+      'Coins are not mentioned yet. I have enough search results from the ' +
+      'first call to provide a comprehensive answer. The first search ' +
+      'result covers general causes, triggers, and nutritional deficiencies.\n' +
+      '\n' +
+      'Wait, I should be thorough. I want to make sure I distinguish between ' +
+      '"cause" (unknown) and "triggers" (known).\n' +
+      '\n' +
+      "I'll write the final answer now.\n" +
+      '## Causes and Triggers of Canker Sores 👄\n' +
+      '\n' +
+      'While the exact cause is not fully understood...'
+    const out = stripNarrationPreamble(text)
+    expect(out.startsWith('## Causes and Triggers of Canker Sores')).toBe(true)
+    expect(out).not.toMatch(/Coins are not mentioned/)
+    expect(out).not.toMatch(/I have enough search results/)
+  })
+})
+
+describe('looksLikeNarrationStart', () => {
+  it('matches when the whole string starts with a narration pattern', () => {
+    expect(looksLikeNarrationStart('I have enough info to answer.')).toBe(true)
+  })
+
+  it('matches when a narration pattern appears at a later sentence boundary', () => {
+    expect(
+      looksLikeNarrationStart(
+        'Coins are not mentioned yet. I have enough search results.'
+      )
+    ).toBe(true)
+  })
+
+  it('matches across a newline boundary, not just ". "', () => {
+    expect(
+      looksLikeNarrationStart('Some garbled text\nLet me synthesize this.')
+    ).toBe(true)
+  })
+
+  it('does not match a narration phrase appearing mid-sentence (not at a boundary)', () => {
+    expect(
+      looksLikeNarrationStart('The doctor said I have enough vitamins.')
+    ).toBe(false)
+  })
+
+  it('does not match genuine content with no narration pattern anywhere', () => {
+    expect(
+      looksLikeNarrationStart(
+        'Canker sores are painful ulcers that affect many people.'
+      )
+    ).toBe(false)
+  })
+
+  it('returns false for empty or whitespace-only input', () => {
+    expect(looksLikeNarrationStart('')).toBe(false)
+    expect(looksLikeNarrationStart('   ')).toBe(false)
   })
 })
