@@ -1,8 +1,7 @@
 import {
   consumeStream,
   convertToModelMessages,
-  pruneMessages,
-  smoothStream
+  pruneMessages
 } from 'ai'
 import { randomUUID } from 'crypto'
 import { Langfuse } from 'langfuse'
@@ -28,6 +27,8 @@ import { isUsageLogging, logUsage } from '../utils/usage-logging'
 import { convertDataPart } from './helpers/convert-data-part'
 import { persistStreamResults } from './helpers/persist-stream-results'
 import { prepareMessages } from './helpers/prepare-messages'
+import { stripNarrationFromMessage } from './helpers/strip-narration-from-message'
+import { stripNarrationPreamble } from './helpers/strip-narration-preamble'
 import { stripReasoningParts } from './helpers/strip-reasoning-parts'
 import { stripSpecFromMessages } from './helpers/strip-spec-from-messages'
 import { transformFileParts } from './helpers/transform-file-parts'
@@ -36,6 +37,79 @@ import { BaseStreamConfig } from './types'
 
 // Constants
 const DEFAULT_CHAT_TITLE = 'Untitled'
+
+/**
+ * A `StreamTextTransform` factory that does two things on every text
+ * part emitted by the agent:
+ *
+ * 1. Strip narration: while we're still in the leading narration (we
+ *    haven't seen the first `## ` heading yet in the accumulated text),
+ *    we hold text-delta chunks back. The moment the buffer crosses the
+ *    `## ` boundary, we emit only the post-`## ` portion of the buffer
+ *    and pass all subsequent text-delta chunks through unchanged. If
+ *    the stream ends without ever producing a `## ` (refusals, short
+ *    factual answers), we flush the entire buffer on text-end so the
+ *    response is never lost.
+ *
+ * 2. Coalesce buffer: we don't add an artificial inter-chunk delay
+ *    (so the UI feels snappy), but we DO buffer the leading narration
+ *    silently, so the user only ever sees the post-`## ` text appear.
+ *    After the heading, chunks stream through verbatim.
+ */
+function smoothAndStripNarration() {
+  return (_options: { tools: any; stopStream: () => void }) => {
+    let buffer = ''
+    let currentTextId: string | undefined
+    let narrationMode = true
+
+    return new TransformStream({
+      transform(chunk: any, controller: TransformStreamDefaultController) {
+        if (chunk.type === 'text-start') {
+          // Begin a new text part. Reset buffers.
+          buffer = ''
+          currentTextId = chunk.id
+          narrationMode = true
+          controller.enqueue(chunk)
+          return
+        }
+
+        if (chunk.type === 'text-delta') {
+          if (narrationMode) {
+            buffer += chunk.text
+            const cleaned = stripNarrationPreamble(buffer)
+            if (cleaned === buffer) {
+              // Still in narration; hold the chunk back.
+              return
+            }
+            // We crossed the heading. Emit text-start (already done above)
+            // plus a single text-delta with only the post-## content.
+            narrationMode = false
+            controller.enqueue({ ...chunk, text: cleaned })
+            return
+          }
+          // After narration, pass through.
+          controller.enqueue(chunk)
+          return
+        }
+
+        if (chunk.type === 'text-end') {
+          if (narrationMode && buffer) {
+            // Stream ended without a `## ` heading — emit the full
+            // buffer so we never drop a refusal or short answer.
+            controller.enqueue({ ...chunk, text: buffer })
+            narrationMode = false
+          }
+          controller.enqueue(chunk)
+          buffer = ''
+          return
+        }
+
+        // Pass through reasoning, tool, finish, start, etc. unchanged.
+        controller.enqueue(chunk)
+      }
+    })
+  }
+}
 
 export async function createChatStreamResponse(
   config: BaseStreamConfig
@@ -197,7 +271,7 @@ export async function createChatStreamResponse(
     const result = await researchAgent.stream({
       messages: modelMessages,
       abortSignal,
-      experimental_transform: smoothStream({ chunking: 'word' }),
+      experimental_transform: smoothAndStripNarration(),
       ...(isUsageLogging() && {
         onStepFinish: step => {
           logUsage(
@@ -235,9 +309,17 @@ export async function createChatStreamResponse(
           perfTime('researchAgent.stream completed', llmStart)
           if (isAborted || !responseMessage) return
 
+          // Clean the assembled responseMessage of any narration preamble
+          // before persistence. The stream transform already filters
+          // outgoing text-delta, but if the stream was interrupted or the
+          // transform state got out of sync, the assembled message may
+          // still contain the leading narration. Strip it here so the
+          // DB row is clean even on a partial response.
+          const cleanedMessage = stripNarrationFromMessage(responseMessage)
+
           // Persist stream results to database
           await persistStreamResults(
-            responseMessage,
+            cleanedMessage,
             chatId,
             userId,
             titlePromise,

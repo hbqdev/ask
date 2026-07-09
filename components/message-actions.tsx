@@ -18,7 +18,10 @@ import { stripSpecBlocks } from '@/lib/render/strip-spec-blocks'
 import type { SearchResultItem } from '@/lib/types'
 import type { UIDataTypes, UIMessage, UITools } from '@/lib/types/ai'
 import { cn } from '@/lib/utils'
-import { processCitations } from '@/lib/utils/citation'
+import {
+  collapseCitationArtifacts,
+  processCitations
+} from '@/lib/utils/citation'
 
 import { useLibrary } from './library/library-context'
 import { Button } from './ui/button'
@@ -74,7 +77,11 @@ export function MessageActions({
   const { openLibrary, upsertCachedNote } = useLibrary()
   const mappedMessage = useMemo(() => {
     if (!message) return ''
-    return processCitations(message, citationMaps || {})
+    // Collapse any whitespace/punctuation artifacts left by stripped
+    // fabricated anchors (e.g. "[1](#fetch_prevention)" → "" leaves "text .")
+    return collapseCitationArtifacts(
+      processCitations(message, citationMaps || {})
+    )
   }, [message, citationMaps])
 
   const [isSubmittingFeedback, setIsSubmittingFeedback] = useState(false)

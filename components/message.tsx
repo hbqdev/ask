@@ -12,7 +12,10 @@ import {
 import { mergeStreamdownSpecRenderer } from '@/lib/render/streamdown-spec'
 import type { SearchResultItem } from '@/lib/types'
 import { cn } from '@/lib/utils'
-import { processCitations } from '@/lib/utils/citation'
+import {
+  collapseCitationArtifacts,
+  processCitations
+} from '@/lib/utils/citation'
 
 import { CitationProvider } from './citation-context'
 import { Citing } from './custom-link'
@@ -35,7 +38,11 @@ export function MarkdownMessage({
   citationMaps?: Record<string, Record<number, SearchResultItem>>
 }) {
   // Process citations to replace [number](#toolCallId) with [number](actual-url)
-  const processedMessage = processCitations(message || '', citationMaps || {})
+  // then collapse any whitespace/punctuation artifacts left by stripped
+  // fabricated anchors (e.g. "[1](#fetch_prevention)" → "" leaves "text .")
+  const processedMessage = collapseCitationArtifacts(
+    processCitations(message || '', citationMaps || {})
+  )
 
   const streamdownProps = useMemo<Partial<StreamdownProps>>(
     () => ({

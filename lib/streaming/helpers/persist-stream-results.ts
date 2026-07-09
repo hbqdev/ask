@@ -6,6 +6,8 @@ import { SearchMode } from '@/lib/types/search'
 import { perfTime } from '@/lib/utils/perf-logging'
 import { retryDatabaseOperation } from '@/lib/utils/retry'
 
+import { stripNarrationFromMessage } from './strip-narration-from-message'
+
 const DEFAULT_CHAT_TITLE = 'Untitled'
 
 export async function persistStreamResults(
@@ -21,9 +23,16 @@ export async function persistStreamResults(
   >,
   initialUserMessage?: UIMessage
 ) {
+  // Strip any "thinking out loud" narration preamble from text parts
+  // before persisting. Belt-and-suspenders: callers should already pass
+  // a cleaned message, but this keeps the helper correct-by-construction.
+  // stripNarrationFromMessage is idempotent (a no-op on already-clean
+  // text), so the double-application is safe.
+  const cleanedMessage = stripNarrationFromMessage(responseMessage)
+
   // Attach metadata to the response message
-  responseMessage.metadata = {
-    ...(responseMessage.metadata || {}),
+  cleanedMessage.metadata = {
+    ...(cleanedMessage.metadata || {}),
     ...(parentTraceId && { traceId: parentTraceId }),
     ...(searchMode && { searchMode }),
     ...(modelId && { modelId })
@@ -81,13 +90,13 @@ export async function persistStreamResults(
   // Save message with retry logic
   const saveStart = performance.now()
   try {
-    await upsertMessage(chatId, responseMessage, userId)
+    await upsertMessage(chatId, cleanedMessage, userId)
     perfTime('upsertMessage (AI response) completed', saveStart)
   } catch (error) {
     console.error('Error saving message:', error)
     try {
       await retryDatabaseOperation(
-        () => upsertMessage(chatId, responseMessage, userId),
+        () => upsertMessage(chatId, cleanedMessage, userId),
         'save message'
       )
       perfTime('upsertMessage (AI response) completed after retry', saveStart)
