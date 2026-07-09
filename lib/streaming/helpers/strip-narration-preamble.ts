@@ -29,8 +29,17 @@ const NARRATION_STARTERS: RegExp[] = [
 ]
 
 /**
- * True if `text` (trimmed) starts with a known narration pattern. Exported
- * so the stream transform can decide, chunk by chunk, whether an
+ * True if `text` (trimmed), or any sentence within it, starts with a known
+ * narration pattern. Checking every sentence (not just the string as a
+ * whole) matters because some models prepend an unrelated or garbled
+ * sentence before the actual self-talk kicks in — e.g. "Coins are not
+ * mentioned yet. I have enough search results..." — which would defeat a
+ * whole-string `^`-anchored check even though the narration is obviously
+ * present. Each candidate sentence is still matched with the same
+ * `^`-anchored patterns, so a narration phrase appearing mid-sentence in
+ * genuine content (not at a sentence boundary) is not a false positive.
+ *
+ * Exported so the stream transform can decide, chunk by chunk, whether an
  * in-progress buffer is still a plausible narration prefix — separate
  * from `stripNarrationPreamble`, which needs the complete text (including
  * the heading) to make its strip/no-strip decision.
@@ -38,7 +47,12 @@ const NARRATION_STARTERS: RegExp[] = [
 export function looksLikeNarrationStart(text: string): boolean {
   const trimmed = text.trim()
   if (!trimmed) return false
-  return NARRATION_STARTERS.some(re => re.test(trimmed))
+  if (NARRATION_STARTERS.some(re => re.test(trimmed))) return true
+
+  const sentences = trimmed.split(/(?<=[.!?])\s+|\n+/)
+  return sentences.some(sentence =>
+    NARRATION_STARTERS.some(re => re.test(sentence.trim()))
+  )
 }
 
 /**

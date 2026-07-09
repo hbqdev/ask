@@ -68,6 +68,27 @@ describe('smoothAndStripNarration', () => {
     expect(assembled).toBe(deltas.join(''))
   })
 
+  it('strips narration even when preceded by an unrelated garbled sentence, streamed chunk by chunk', async () => {
+    // Real bug: gemma4:31b:cloud prepended "Coins are not mentioned yet."
+    // before its actual self-talk. Streamed as small deltas the way the
+    // real model output arrives, to also exercise the buffer's per-chunk
+    // narration-plausibility check (NARRATION_SNIFF_LIMIT), not just the
+    // final assembled string.
+    const deltas = [
+      'Coins are not ',
+      'mentioned yet. ',
+      'I have enough search ',
+      'results to answer.\n',
+      '## Causes of Canker Sores\n',
+      'The exact cause is unknown.'
+    ]
+    const { assembled } = await runTransform(deltas)
+    expect(assembled.startsWith('## Causes of Canker Sores')).toBe(true)
+    expect(assembled).not.toMatch(/Coins are not mentioned/)
+    expect(assembled).not.toMatch(/I have enough search/)
+    expect(assembled).toContain('The exact cause is unknown.')
+  })
+
   it('preserves a short factual answer with no heading', async () => {
     const deltas = ['Paris.']
     const { assembled } = await runTransform(deltas)
