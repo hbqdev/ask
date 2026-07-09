@@ -12,6 +12,7 @@ import {
   IconSettings
 } from '@tabler/icons-react'
 
+import { SHORTCUT_EVENTS } from '@/lib/keyboard-shortcuts'
 import { cn } from '@/lib/utils'
 
 import {
@@ -22,8 +23,8 @@ import {
   SidebarRail
 } from '@/components/ui/sidebar'
 
-import { SettingsDialog } from './settings-dialog'
 import { IconLogo } from './ui/icons'
+import { SettingsDialog } from './settings-dialog'
 
 const NAV_ITEMS = [
   { href: '/', icon: IconHome, label: 'Home', exact: true },
@@ -34,6 +35,19 @@ const NAV_ITEMS = [
 export default function AppSidebar() {
   const pathname = usePathname()
   const [settingsOpen, setSettingsOpen] = useState(false)
+
+  // Dispatch the same event the keyboard shortcut uses, so the chat panel's
+  // handleNewChat resets state (chatId, messages, input, files, error modal)
+  // before the route change lands. Plain <Link href="/"> alone doesn't reset
+  // state and Next.js 16 component caching leaves the old chatId in place —
+  // navigating from within an existing chat would land on "/" without ever
+  // starting a new one until a hard refresh.
+  const handleNewChatClick = (e: React.MouseEvent<HTMLAnchorElement>) => {
+    if (e.metaKey || e.ctrlKey || e.shiftKey || e.altKey || e.button !== 0) {
+      return
+    }
+    window.dispatchEvent(new Event(SHORTCUT_EVENTS.newChat))
+  }
 
   return (
     <Sidebar side="left" variant="sidebar" collapsible="offcanvas">
@@ -49,6 +63,7 @@ export default function AppSidebar() {
           href="/"
           title="New chat"
           className="flex items-center justify-center size-9 rounded-xl bg-primary/10 hover:bg-primary/20 text-primary transition-all duration-200 hover:scale-110 active:scale-95"
+          onClick={handleNewChatClick}
         >
           <IconPlus className="size-4" strokeWidth={2.5} />
         </Link>
@@ -56,9 +71,7 @@ export default function AppSidebar() {
 
       <SidebarContent className="flex flex-col items-center gap-1 py-4 px-2">
         {NAV_ITEMS.map(({ href, icon: Icon, label, exact }) => {
-          const isActive = exact
-            ? pathname === href
-            : pathname.startsWith(href)
+          const isActive = exact ? pathname === href : pathname.startsWith(href)
           return (
             <Link key={href} href={href} className="w-full" title={label}>
               <div

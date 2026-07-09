@@ -4,8 +4,9 @@ import Link from 'next/link'
 
 import { IconPlus as Plus } from '@tabler/icons-react'
 
-import { SidebarMenuButton, SidebarMenuItem } from '@/components/ui/sidebar'
 import { SHORTCUT_EVENTS } from '@/lib/keyboard-shortcuts'
+
+import { SidebarMenuButton, SidebarMenuItem } from '@/components/ui/sidebar'
 
 export function NewChatMenuItem() {
   // Dispatch the same event the keyboard shortcut uses, so the chat panel's
