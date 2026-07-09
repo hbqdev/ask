@@ -38,6 +38,12 @@ COPY --from=builder /app/node_modules ./node_modules
 COPY --from=builder /app/drizzle ./drizzle
 COPY --from=builder /app/lib/db ./lib/db
 COPY --from=builder /app/drizzle.config.ts ./drizzle.config.ts
+# Copy lib/streaming so operational scripts (e.g. narration cleanup) can
+# import their helpers without rebuilding the whole app.
+COPY --from=builder /app/lib/streaming ./lib/streaming
+# Copy operational scripts (DB cleanup, backfills, etc.) so they can be
+# invoked from inside the container via `bun run <script>`.
+COPY --from=builder /app/scripts ./scripts
 
 # Create entrypoint script for database migration
 RUN echo '#!/bin/sh\n\

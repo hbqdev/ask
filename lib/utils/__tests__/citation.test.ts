@@ -4,6 +4,7 @@ import type { SearchResultItem } from '@/lib/types'
 import type { UIMessage } from '@/lib/types/ai'
 
 import {
+  collapseCitationArtifacts,
   extractCitationMaps,
   isCitationLabel,
   processCitations
@@ -277,6 +278,55 @@ describe('processCitations', () => {
       expect(isCitationLabel('global.example.')).toBe(false)
       expect(isCitationLabel('.global.example')).toBe(false)
       expect(isCitationLabel('global example')).toBe(false)
+    })
+  })
+
+  describe('collapseCitationArtifacts', () => {
+    it('collapses double spaces left by a stripped citation', () => {
+      expect(collapseCitationArtifacts('text  more')).toBe('text more')
+    })
+
+    it('collapses ".."' , () => {
+      expect(collapseCitationArtifacts('text..')).toBe('text.')
+    })
+
+    it('fixes "text . word" artifact (model wrote "text ." before [1])', () => {
+      // After processCitations strips [1](#fake) from "text .[1](#fake) more",
+      // the artifact is "text . more". Collapse to "text. more".
+      expect(collapseCitationArtifacts('text . more')).toBe('text. more')
+    })
+
+    it('preserves normal sentence breaks (no false positives)', () => {
+      // A normal sentence "Hello. World" should NOT be collapsed to "Hello.World"
+      expect(collapseCitationArtifacts('Hello. World')).toBe('Hello. World')
+    })
+
+    it('collapses ". ,more" pattern to ". more"', () => {
+      // Model wrote "text. ,more" — the comma+space came from a stripped citation
+      expect(collapseCitationArtifacts('text. ,more')).toBe('text. more')
+    })
+
+    it('preserves newlines (does not collapse them)', () => {
+      expect(collapseCitationArtifacts('text\n\nmore')).toBe('text\n\nmore')
+    })
+
+    it('returns empty string for empty input', () => {
+      expect(collapseCitationArtifacts('')).toBe('')
+    })
+
+    it('handles a realistic stripped-citation scenario', () => {
+      // The bug report: model wrote "important fact.[1](#fetch_prevention) more
+      // text" (or with a space before the bracket). After processCitations
+      // strips the bracket, the result should be clean — no double spaces,
+      // no double periods, no orphaned commas.
+      const stripped = processCitations(
+        'important fact.[1](#fake) more text',
+        mockCitationMaps
+      )
+      const cleaned = collapseCitationArtifacts(stripped)
+      expect(cleaned).not.toMatch(/  /) // no double spaces
+      expect(cleaned).not.toMatch(/\.\./) // no double periods
+      expect(cleaned).toMatch(/fact\.\s+more/) // period + whitespace + word
     })
   })
 })
