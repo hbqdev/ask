@@ -1,4 +1,4 @@
-import { IconBrandReddit, IconGlobe, IconSchool } from '@tabler/icons-react'
+import { IconGlobe, IconMessages, IconSchool } from '@tabler/icons-react'
 
 import { SourceMode } from '@/lib/types/search'
 
@@ -21,15 +21,16 @@ export const SOURCE_MODE_CONFIGS: SourceModeConfig[] = [
   {
     value: 'academic',
     label: 'Academic',
-    description: 'Scholarly sources: arXiv, Google Scholar, PubMed',
+    description:
+      'Scholarly sources: arXiv, Google Scholar, PubMed, Semantic Scholar',
     icon: IconSchool,
     color: 'text-emerald-500'
   },
   {
     value: 'social',
-    label: 'Social',
-    description: 'Community discussions on Reddit',
-    icon: IconBrandReddit,
+    label: 'Social Media',
+    description: 'Community discussions: Reddit, Lemmy, Mastodon, Hacker News',
+    icon: IconMessages,
     color: 'text-orange-500'
   }
 ]

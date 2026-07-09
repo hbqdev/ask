@@ -52,19 +52,23 @@ export function SourceSelector() {
   )
 
   const toggleSource = (source: SourceMode) => {
-    if (source === 'web') return // web always stays on
     const hasSource = sources.includes(source)
     if (hasSource) {
-      const newSources = sources.filter(s => s !== source)
-      setSourcesCookie(newSources.length === 0 ? ['web'] : newSources)
+      // Never allow toggling off the last remaining source — at least one
+      // must always stay selected.
+      if (sources.length === 1) return
+      setSourcesCookie(sources.filter(s => s !== source))
     } else {
       setSourcesCookie([...sources, source] as SearchSources)
     }
   }
 
-  // Label for trigger button
-  const extraCount = sources.filter(s => s !== 'web').length
-  const triggerLabel = extraCount > 0 ? `Web +${extraCount}` : 'Web'
+  // Label for trigger button — e.g. "Web", "Web +2", "Academic", "Academic +1"
+  const [primary, ...rest] = sources
+  const primaryLabel =
+    SOURCE_MODE_CONFIGS.find(c => c.value === primary)?.label ?? 'Web'
+  const triggerLabel =
+    rest.length > 0 ? `${primaryLabel} +${rest.length}` : primaryLabel
 
   return (
     <Popover open={open} onOpenChange={setOpen}>
@@ -92,15 +96,17 @@ export function SourceSelector() {
           {SOURCE_MODE_CONFIGS.map(config => {
             const Icon = config.icon
             const isActive = sources.includes(config.value)
-            const isWeb = config.value === 'web'
+            // The last remaining active source can't be toggled off — at
+            // least one source must always stay selected.
+            const isLastActive = isActive && sources.length === 1
             return (
               <div
                 key={config.value}
                 className={cn(
                   'flex items-center gap-3 rounded-lg px-3 py-2.5',
-                  !isWeb && 'cursor-pointer hover:bg-muted/50'
+                  !isLastActive && 'cursor-pointer hover:bg-muted/50'
                 )}
-                onClick={() => !isWeb && toggleSource(config.value)}
+                onClick={() => toggleSource(config.value)}
               >
                 <Icon className={cn('size-4 shrink-0', config.color)} />
                 <div className="flex-1 min-w-0">
@@ -111,8 +117,8 @@ export function SourceSelector() {
                 </div>
                 <Switch
                   checked={isActive}
-                  onCheckedChange={() => !isWeb && toggleSource(config.value)}
-                  disabled={isWeb}
+                  onCheckedChange={() => toggleSource(config.value)}
+                  disabled={isLastActive}
                   onClick={e => e.stopPropagation()}
                   className="shrink-0"
                 />

@@ -14,6 +14,10 @@ import {
   DEFAULT_PROVIDER,
   SearchProviderType
 } from './search/providers'
+import type {
+  SearchContentType,
+  SearchModeOption
+} from './search/providers/base'
 
 /**
  * Creates a search tool with the appropriate schema for the given model.
@@ -121,9 +125,7 @@ export function createSearchTool(fullModel: string) {
               exclude_domains,
               {
                 type: type as 'general' | 'optimized',
-                content_types: content_types as Array<
-                  'web' | 'video' | 'image' | 'news'
-                >
+                content_types: content_types as SearchContentType[]
               }
             )
           } else if (searchAPI === 'searxng') {
@@ -134,10 +136,8 @@ export function createSearchTool(fullModel: string) {
               include_domains,
               exclude_domains,
               {
-                searchMode: search_mode as 'web' | 'academic',
-                content_types: content_types as Array<
-                  'web' | 'video' | 'image' | 'news'
-                >
+                searchMode: search_mode as SearchModeOption,
+                content_types: content_types as SearchContentType[]
               }
             )
           } else {

@@ -159,4 +159,152 @@ describe('SearXNGSearchProvider', () => {
     const calledUrl = new URL(fetchMock.mock.calls[0][0])
     expect(calledUrl.searchParams.get('categories')).toBe('science')
   })
+
+  it('uses the "social media" category when searchMode is "social"', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(mockSearxngResponse([]))
+    vi.stubGlobal('fetch', fetchMock)
+
+    await provider.search('best keyboard', 10, 'basic', [], [], {
+      searchMode: 'social'
+    })
+
+    const calledUrl = new URL(fetchMock.mock.calls[0][0])
+    expect(calledUrl.searchParams.get('categories')).toBe('social media')
+  })
+
+  it('adds it/map/music categories to the combined request when requested', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(mockSearxngResponse([]))
+    vi.stubGlobal('fetch', fetchMock)
+
+    await provider.search('react useEffect', 10, 'basic', [], [], {
+      content_types: ['it']
+    })
+    let calledUrl = new URL(fetchMock.mock.calls[0][0])
+    expect(calledUrl.searchParams.get('categories')).toBe('general,images,it')
+
+    await provider.search('eiffel tower', 10, 'basic', [], [], {
+      content_types: ['map']
+    })
+    calledUrl = new URL(fetchMock.mock.calls[1][0])
+    expect(calledUrl.searchParams.get('categories')).toBe('general,images,map')
+
+    await provider.search('bohemian rhapsody', 10, 'basic', [], [], {
+      content_types: ['music']
+    })
+    calledUrl = new URL(fetchMock.mock.calls[2][0])
+    expect(calledUrl.searchParams.get('categories')).toBe(
+      'general,images,music'
+    )
+  })
+
+  it('adds the news category when requested', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(mockSearxngResponse([]))
+    vi.stubGlobal('fetch', fetchMock)
+
+    await provider.search('latest ai news', 10, 'basic', [], [], {
+      content_types: ['news']
+    })
+
+    const calledUrl = new URL(fetchMock.mock.calls[0][0])
+    expect(calledUrl.searchParams.get('categories')).toBe('general,images,news')
+  })
+
+  it('merges it/map/music/news category results into the plain results array, not a dedicated field', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      mockSearxngResponse([
+        {
+          title: 'React useEffect docs',
+          url: 'https://react.dev/reference/react/useEffect',
+          content: 'useEffect docs.',
+          category: 'it'
+        },
+        {
+          title: 'Eiffel Tower',
+          url: 'https://openstreetmap.org/way/1',
+          content: 'A landmark in Paris.',
+          category: 'map'
+        },
+        {
+          title: 'Bohemian Rhapsody',
+          url: 'https://soundcloud.com/queen/bohemian-rhapsody',
+          content: 'A song by Queen.',
+          category: 'music'
+        },
+        {
+          title: 'AI news today',
+          url: 'https://reuters.com/ai-news',
+          content: 'Breaking AI news.',
+          category: 'news'
+        },
+        {
+          title: 'A general web result',
+          url: 'https://example.com/article',
+          content: 'Some article content.'
+        }
+      ])
+    )
+    vi.stubGlobal('fetch', fetchMock)
+
+    const result = await provider.search('mixed query', 10, 'basic', [], [], {
+      content_types: ['it', 'map', 'music', 'news']
+    })
+
+    expect(result.results).toHaveLength(5)
+    expect(result.results.map(r => r.title)).toEqual([
+      'A general web result',
+      'React useEffect docs',
+      'Eiffel Tower',
+      'Bohemian Rhapsody',
+      'AI news today'
+    ])
+    // None of these are images or videos.
+    expect(result.images).toEqual([])
+    expect(result.videos).toEqual([])
+  })
+
+  it('embeds a single include_domains entry as a site: query operator', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(mockSearxngResponse([]))
+    vi.stubGlobal('fetch', fetchMock)
+
+    await provider.search('canker sore', 10, 'basic', ['reddit.com'], [], {})
+
+    const calledUrl = new URL(fetchMock.mock.calls[0][0])
+    expect(calledUrl.searchParams.get('q')).toBe('canker sore site:reddit.com')
+  })
+
+  it('embeds exclude_domains as -site: query operators, one per domain', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(mockSearxngResponse([]))
+    vi.stubGlobal('fetch', fetchMock)
+
+    await provider.search(
+      'canker sore',
+      10,
+      'basic',
+      [],
+      ['pinterest.com', 'quora.com'],
+      {}
+    )
+
+    const calledUrl = new URL(fetchMock.mock.calls[0][0])
+    expect(calledUrl.searchParams.get('q')).toBe(
+      'canker sore -site:pinterest.com -site:quora.com'
+    )
+  })
+
+  it('does not embed a site: operator when include_domains has more than one entry (unsupported by SearXNG)', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(mockSearxngResponse([]))
+    vi.stubGlobal('fetch', fetchMock)
+
+    await provider.search(
+      'canker sore',
+      10,
+      'basic',
+      ['reddit.com', 'lemmy.world'],
+      [],
+      {}
+    )
+
+    const calledUrl = new URL(fetchMock.mock.calls[0][0])
+    expect(calledUrl.searchParams.get('q')).toBe('canker sore')
+  })
 })
