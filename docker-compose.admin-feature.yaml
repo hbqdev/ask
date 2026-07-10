@@ -4,7 +4,7 @@ services:
   ask:
     container_name: ask-admin-feature
     ports: !override
-      - "${ADMIN_FEATURE_HOST_PORT:-3739}:3000"
+      - '${ADMIN_FEATURE_HOST_PORT:-3739}:3000'
     volumes: !override
       - uploads-admin-feature:/app/uploads
       - model-cache-admin-feature:/app/model-cache
@@ -19,6 +19,13 @@ services:
     volumes: !override
       - redis-data-admin-feature:/data
 
+  searxng:
+    container_name: ask-searxng-admin-feature
+    volumes: !override
+      - ./searxng-limiter.toml:/etc/searxng/limiter.toml
+      - ./searxng-settings.yml:/etc/searxng/settings.yml
+      - searxng-data-admin-feature:/data
+
 volumes:
   postgres-data-admin-feature:
     name: ask-postgres-data-admin-feature
@@ -28,3 +35,5 @@ volumes:
     name: ask-uploads-admin-feature
   model-cache-admin-feature:
     name: ask-model-cache-admin-feature
+  searxng-data-admin-feature:
+    name: ask-searxng-data-admin-feature

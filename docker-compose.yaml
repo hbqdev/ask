@@ -15,7 +15,7 @@ services:
       MORPHIC_CLOUD_DEPLOYMENT: 'false'
       LOCAL_REDIS_URL: redis://redis:6379
     ports:
-      - "${HOST_PORT:-3738}:3000"
+      - '${HOST_PORT:-3738}:3000'
     volumes:
       - uploads:/app/uploads
       - model-cache:/app/model-cache
@@ -23,6 +23,8 @@ services:
       postgres:
         condition: service_healthy
       redis:
+        condition: service_started
+      searxng:
         condition: service_started
     restart: unless-stopped
 
@@ -50,6 +52,22 @@ services:
     command: redis-server --appendonly yes
     restart: unless-stopped
 
+  # Locally-bundled SearXNG instance, used as an automatic failover target
+  # when the primary instance (SEARXNG_API_URL, typically an existing
+  # external SearXNG deployment) is unreachable. See SEARXNG_FALLBACK_API_URL
+  # in .env and lib/utils/searxng-client.ts for the failover logic. Not
+  # exposed to the host — only reachable from the `ask` container.
+  searxng:
+    image: searxng/searxng
+    container_name: ask-searxng
+    environment:
+      SEARXNG_SECRET: ${SEARXNG_SECRET}
+    volumes:
+      - ./searxng-limiter.toml:/etc/searxng/limiter.toml
+      - ./searxng-settings.yml:/etc/searxng/settings.yml
+      - searxng_data:/data
+    restart: unless-stopped
+
 volumes:
   postgres_data:
     name: ask-postgres-data
@@ -59,3 +77,5 @@ volumes:
     name: morphic-uploads
   model-cache:
     name: ask-model-cache
+  searxng_data:
+    name: ask-searxng-data
