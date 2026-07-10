@@ -12,6 +12,7 @@ export type PublicErrorCode =
   | 'provider_rate_limit'
   | 'provider_unavailable'
   | 'rate_limit'
+  | 'unsupported_input'
   | 'unknown'
 
 export type PublicErrorPayload = {
@@ -54,6 +55,7 @@ const PUBLIC_ERROR_CODES: ReadonlySet<string> = new Set([
   'provider_rate_limit',
   'provider_unavailable',
   'rate_limit',
+  'unsupported_input',
   'unknown'
 ])
 
@@ -115,6 +117,22 @@ const MODEL_UNAVAILABLE_PATTERNS = [
   /no such model/i,
   /model .*unavailable/i,
   /unsupported model/i
+]
+
+// Matches provider errors thrown when an attachment's type isn't accepted by
+// the selected model (e.g. a text-only model rejecting an image attachment).
+// Distinct from MODEL_UNAVAILABLE_PATTERNS: the model itself is fine, it's the
+// input that doesn't fit — so the fix is "remove it / switch models", not
+// "pick a different model because this one is down".
+const UNSUPPORTED_INPUT_PATTERNS = [
+  /does not support image/i,
+  /does not support images/i,
+  /does not support vision/i,
+  /does not support multimodal/i,
+  /image input is not supported/i,
+  /images? (?:are|is) not supported/i,
+  /vision is not supported/i,
+  /invalid input type: ?image/i
 ]
 
 const SYSTEM_PATTERNS = [
@@ -336,6 +354,16 @@ function classifyError(snapshot: ErrorSnapshot, fallbackMessage?: string) {
       code: 'model_unavailable' as const,
       type: 'general' as const,
       error: 'The selected model is unavailable. Please choose another model.',
+      retryable: false
+    }
+  }
+
+  if (matchesAny(combined, UNSUPPORTED_INPUT_PATTERNS)) {
+    return {
+      code: 'unsupported_input' as const,
+      type: 'general' as const,
+      error:
+        'The selected model does not support image input. Remove the attached image or switch to a vision-capable model, then try again.',
       retryable: false
     }
   }
