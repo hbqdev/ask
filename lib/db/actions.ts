@@ -309,13 +309,32 @@ export async function getChats(userId: string): Promise<Chat[]> {
   })
 }
 
+export type ChatSortOption = 'recent' | 'newest' | 'oldest' | 'title'
+
+function getChatSortOrderBy(sort: ChatSortOption) {
+  switch (sort) {
+    case 'newest':
+      return [desc(chats.createdAt)]
+    case 'oldest':
+      return [asc(chats.createdAt)]
+    case 'title':
+      return [asc(sql`lower(${chats.title})`)]
+    case 'recent':
+    default:
+      // Recently-viewed chats bubble to the top (Perplexity/ChatGPT-style);
+      // falls back to creation date for chats that have never been reopened.
+      return [sql`${chats.lastViewedAt} DESC NULLS LAST`, desc(chats.createdAt)]
+  }
+}
+
 /**
  * Get chats with pagination
  */
 export async function getChatsPage(
   userId: string,
   limit = 20,
-  offset = 0
+  offset = 0,
+  sort: ChatSortOption = 'recent'
 ): Promise<{ chats: Chat[]; nextOffset: number | null }> {
   try {
     return withRLS(userId, async tx => {
@@ -323,10 +342,7 @@ export async function getChatsPage(
         .select()
         .from(chats)
         .where(eq(chats.userId, userId))
-        .orderBy(
-          sql`${chats.lastViewedAt} DESC NULLS LAST`,
-          desc(chats.createdAt)
-        )
+        .orderBy(...getChatSortOrderBy(sort))
         .limit(limit)
         .offset(offset)
 

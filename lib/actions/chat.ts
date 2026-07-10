@@ -50,12 +50,16 @@ export async function getChats() {
  * per-chat badge data (search mode used, file attachment count) for the
  * library list.
  */
-export async function getChatsPage(limit = 20, offset = 0) {
+export async function getChatsPage(
+  limit = 20,
+  offset = 0,
+  sort: dbActions.ChatSortOption = 'recent'
+) {
   const userId = await getCurrentUserId()
   if (!userId) {
     return { chats: [], nextOffset: null, badges: {} }
   }
-  const page = await dbActions.getChatsPage(userId, limit, offset)
+  const page = await dbActions.getChatsPage(userId, limit, offset, sort)
   const badges = await dbActions.getChatBadgeData(
     userId,
     page.chats.map(chat => chat.id)
