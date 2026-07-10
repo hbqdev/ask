@@ -218,6 +218,16 @@ export async function createChatStreamResponse(
     }
 
     return result.toUIMessageStreamResponse({
+      // Tell intermediary proxies/CDNs (e.g. Cloudflare) not to rewrite this
+      // body (Auto Minify, Rocket Loader, etc.) — those transformations
+      // require buffering the full response, which defeats streaming and
+      // makes the progress indicator only appear once generation finishes.
+      // `no-cache` is restated alongside it since the AI SDK's own default
+      // header would otherwise be dropped (the merge only fills in a default
+      // for a header key that isn't already present).
+      headers: {
+        'Cache-Control': 'no-cache, no-transform'
+      },
       messageMetadata: ({ part }) => {
         if (part.type === 'start') {
           return {
