@@ -1,11 +1,13 @@
 import { NextRequest, NextResponse } from 'next/server'
 
 import { getChatsPage } from '@/lib/actions/chat'
+import type { ChatBadgeData } from '@/lib/db/actions'
 import { Chat as DBChat } from '@/lib/db/schema'
 
 interface ChatPageResponse {
   chats: DBChat[]
   nextOffset: number | null
+  badges: Record<string, ChatBadgeData>
 }
 
 export async function GET(request: NextRequest) {
@@ -19,7 +21,7 @@ export async function GET(request: NextRequest) {
   } catch (error) {
     console.error('API route error fetching chats:', error)
     return NextResponse.json<ChatPageResponse>(
-      { chats: [], nextOffset: null },
+      { chats: [], nextOffset: null, badges: {} },
       { status: 500 }
     )
   }

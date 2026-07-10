@@ -1,17 +1,13 @@
 'use client'
 
-import {
-  useCallback,
-  useEffect,
-  useRef,
-  useState,
-  useTransition
-} from 'react'
+import { useCallback, useEffect, useRef, useState, useTransition } from 'react'
 import Link from 'next/link'
 import { usePathname, useRouter } from 'next/navigation'
 
 import {
+  IconClock,
   IconLibrary,
+  IconPaperclip,
   IconSearch,
   IconTrash,
   IconX
@@ -19,6 +15,8 @@ import {
 import { toast } from 'sonner'
 
 import { clearChats, deleteChat } from '@/lib/actions/chat'
+import { getSearchModeConfig } from '@/lib/config/search-modes'
+import type { ChatBadgeData } from '@/lib/db/actions'
 import { Chat as DBChat } from '@/lib/db/schema'
 import { cn } from '@/lib/utils'
 
@@ -38,6 +36,7 @@ import { Spinner } from '@/components/ui/spinner'
 interface ChatPageResponse {
   chats: DBChat[]
   nextOffset: number | null
+  badges: Record<string, ChatBadgeData>
 }
 
 function timeAgo(date: Date | string): string {
@@ -53,9 +52,13 @@ function timeAgo(date: Date | string): string {
 
 function ChatRow({
   chat,
+  badge,
+  isLast,
   onDelete
 }: {
   chat: DBChat
+  badge: ChatBadgeData | undefined
+  isLast: boolean
   onDelete: (id: string) => void
 }) {
   const pathname = usePathname()
@@ -78,35 +81,56 @@ function ChatRow({
     })
   }, [chat.id, isActive, router, onDelete])
 
+  const modeConfig = badge?.searchMode
+    ? getSearchModeConfig(badge.searchMode)
+    : undefined
+  const ModeIcon = modeConfig?.icon
+
   return (
     <>
       <div
         className={cn(
-          'group flex items-center gap-3 px-4 py-3 rounded-xl transition-colors duration-150',
-          isActive ? 'bg-primary/8 border border-primary/20' : 'hover:bg-muted/50'
+          'group relative flex items-start gap-3 px-4 py-3.5 transition-colors duration-150',
+          !isLast && 'border-b border-border',
+          isActive ? 'bg-primary/8' : 'hover:bg-muted/50'
         )}
       >
         <Link
           href={`/search/${chat.id}`}
-          className="flex-1 min-w-0 flex flex-col gap-0.5"
+          className="flex-1 min-w-0 flex flex-col gap-1.5"
         >
           <span
             className={cn(
-              'text-sm font-medium truncate leading-snug',
+              'text-sm font-medium leading-snug line-clamp-2',
               isActive ? 'text-primary' : 'text-foreground'
             )}
           >
             {chat.title || 'Untitled'}
           </span>
-          <span className="text-xs text-muted-foreground">
-            {timeAgo(chat.createdAt)}
-          </span>
+          <div className="flex flex-wrap items-center gap-1.5">
+            <span className="inline-flex items-center gap-1 text-xs text-muted-foreground">
+              <IconClock className="size-3" />
+              {timeAgo(chat.createdAt)}
+            </span>
+            {modeConfig && ModeIcon && (
+              <span className="inline-flex items-center gap-1 text-xs text-muted-foreground border border-border rounded-full px-2 py-0.5">
+                <ModeIcon className={cn('size-3', modeConfig.color)} />
+                {modeConfig.label}
+              </span>
+            )}
+            {!!badge?.fileCount && (
+              <span className="inline-flex items-center gap-1 text-xs text-muted-foreground border border-border rounded-full px-2 py-0.5">
+                <IconPaperclip className="size-3" />
+                {badge.fileCount} {badge.fileCount === 1 ? 'file' : 'files'}
+              </span>
+            )}
+          </div>
         </Link>
 
         <button
           onClick={() => setConfirm(true)}
           disabled={isPending}
-          className="opacity-0 group-hover:opacity-100 transition-opacity duration-150 p-1.5 rounded-lg hover:bg-destructive/10 hover:text-destructive text-muted-foreground"
+          className="opacity-0 group-hover:opacity-100 transition-opacity duration-150 p-1.5 rounded-lg hover:bg-destructive/10 hover:text-destructive text-muted-foreground shrink-0"
           title="Delete chat"
         >
           {isPending ? (
@@ -146,6 +170,7 @@ function ChatRow({
 export default function LibraryPage() {
   const router = useRouter()
   const [chats, setChats] = useState<DBChat[]>([])
+  const [badges, setBadges] = useState<Record<string, ChatBadgeData>>({})
   const [nextOffset, setNextOffset] = useState<number | null>(null)
   const [isLoading, setIsLoading] = useState(true)
   const [isPending, startTransition] = useTransition()
@@ -166,9 +191,13 @@ export default function LibraryPage() {
     setIsLoading(true)
     try {
       const res = await fetch('/api/chats?offset=0&limit=30')
-      const { chats: data, nextOffset: next } =
-        (await res.json()) as ChatPageResponse
+      const {
+        chats: data,
+        nextOffset: next,
+        badges: newBadges
+      } = (await res.json()) as ChatPageResponse
       setChats(data)
+      setBadges(newBadges)
       setNextOffset(next)
     } catch {
       toast.error('Failed to load chats')
@@ -192,9 +221,13 @@ export default function LibraryPage() {
     setIsLoading(true)
     try {
       const res = await fetch(`/api/chats?offset=${nextOffset}&limit=30`)
-      const { chats: data, nextOffset: next } =
-        (await res.json()) as ChatPageResponse
+      const {
+        chats: data,
+        nextOffset: next,
+        badges: newBadges
+      } = (await res.json()) as ChatPageResponse
       setChats(prev => [...prev, ...data])
+      setBadges(prev => ({ ...prev, ...newBadges }))
       setNextOffset(next)
     } catch {
       toast.error('Failed to load more chats')
@@ -274,19 +307,23 @@ export default function LibraryPage() {
       <div className="max-w-2xl mx-auto w-full px-4 py-8 flex flex-col gap-6">
         {/* Header */}
         <div className="flex items-start justify-between gap-4">
-          <div className="flex flex-col gap-1">
-            <div className="flex items-center gap-2.5">
-              <IconLibrary className="size-6 text-primary" />
-              <h1 className="text-2xl font-bold">Library</h1>
+          <div className="flex flex-col gap-1.5">
+            <div className="flex items-center gap-3">
+              <IconLibrary className="size-8 text-primary" />
+              <h1 className="text-3xl font-bold tracking-tight">Library</h1>
             </div>
-            <p className="text-sm text-muted-foreground">Your past searches</p>
+            <p className="text-sm text-muted-foreground">
+              Your past chats and searches
+            </p>
           </div>
 
           <div className="flex items-center gap-2 mt-1">
             {!isEmpty && (
-              <span className="text-xs font-medium text-muted-foreground bg-muted px-2.5 py-1 rounded-full">
+              <span className="inline-flex items-center gap-1.5 text-xs font-medium text-muted-foreground border border-border px-2.5 py-1 rounded-full">
+                <IconLibrary className="size-3.5" />
                 {chats.length}
-                {nextOffset !== null ? '+' : ''} chats
+                {nextOffset !== null ? '+' : ''}{' '}
+                {chats.length === 1 && nextOffset === null ? 'chat' : 'chats'}
               </span>
             )}
             <Button
@@ -325,24 +362,29 @@ export default function LibraryPage() {
 
         {/* Content */}
         {isSearchMode ? (
-          <div className="flex flex-col gap-1">
+          <div className="rounded-2xl border border-border overflow-hidden bg-card">
             {isSearching && (
               <div className="flex justify-center py-8">
                 <Spinner />
               </div>
             )}
-            {!isSearching && searchResults !== null && searchResults.length === 0 && (
-              <p className="text-center text-muted-foreground text-sm py-8">
-                No results for &ldquo;{searchQuery}&rdquo;
-              </p>
-            )}
+            {!isSearching &&
+              searchResults !== null &&
+              searchResults.length === 0 && (
+                <p className="text-center text-muted-foreground text-sm py-8">
+                  No results for &ldquo;{searchQuery}&rdquo;
+                </p>
+              )}
             {!isSearching &&
               searchResults &&
-              searchResults.map(r => (
+              searchResults.map((r, i) => (
                 <Link
                   key={r.chatId}
                   href={`/search/${r.chatId}`}
-                  className="flex flex-col gap-0.5 px-4 py-3 rounded-xl hover:bg-muted/50 transition-colors"
+                  className={cn(
+                    'flex flex-col gap-0.5 px-4 py-3.5 hover:bg-muted/50 transition-colors',
+                    i !== searchResults.length - 1 && 'border-b border-border'
+                  )}
                 >
                   <span className="text-sm font-medium text-foreground truncate">
                     {r.chatTitle}
@@ -356,14 +398,17 @@ export default function LibraryPage() {
               ))}
           </div>
         ) : isLoading && chats.length === 0 ? (
-          <div className="flex flex-col gap-1">
+          <div className="rounded-2xl border border-border overflow-hidden bg-card">
             {Array.from({ length: 8 }).map((_, i) => (
               <div
                 key={i}
-                className="flex flex-col gap-1.5 px-4 py-3 rounded-xl"
+                className={cn(
+                  'flex flex-col gap-2 px-4 py-3.5',
+                  i !== 7 && 'border-b border-border'
+                )}
               >
                 <div className="h-4 w-3/4 bg-muted rounded animate-pulse" />
-                <div className="h-3 w-1/4 bg-muted rounded animate-pulse" />
+                <div className="h-3 w-1/3 bg-muted rounded-full animate-pulse" />
               </div>
             ))}
           </div>
@@ -378,10 +423,18 @@ export default function LibraryPage() {
             </Link>
           </div>
         ) : (
-          <div className="flex flex-col gap-1">
-            {displayList!.map(chat => (
-              <ChatRow key={chat.id} chat={chat} onDelete={handleDelete} />
-            ))}
+          <div className="flex flex-col gap-3">
+            <div className="rounded-2xl border border-border overflow-hidden bg-card">
+              {displayList!.map((chat, i) => (
+                <ChatRow
+                  key={chat.id}
+                  chat={chat}
+                  badge={badges[chat.id]}
+                  isLast={i === displayList!.length - 1}
+                  onDelete={handleDelete}
+                />
+              ))}
+            </div>
             <div ref={loadMoreRef} style={{ height: '1px' }} />
             {(isLoading || isPending) && (
               <div className="flex justify-center py-4">

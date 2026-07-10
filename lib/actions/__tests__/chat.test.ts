@@ -67,9 +67,9 @@ describe('Chat Actions', () => {
   })
 
   describe('getChatsPage', () => {
-    it('should return paginated chats for authenticated user', async () => {
+    it('should return paginated chats with badge data for authenticated user', async () => {
       const userId = 'user-123'
-      const mockResult = {
+      const mockPage = {
         chats: [
           {
             id: 'chat-1',
@@ -81,14 +81,19 @@ describe('Chat Actions', () => {
         ],
         nextOffset: 20
       }
+      const mockBadges = { 'chat-1': { fileCount: 2 } }
 
       vi.mocked(getCurrentUserId).mockResolvedValue(userId)
-      vi.mocked(dbActions.getChatsPage).mockResolvedValue(mockResult)
+      vi.mocked(dbActions.getChatsPage).mockResolvedValue(mockPage)
+      vi.mocked(dbActions.getChatBadgeData).mockResolvedValue(mockBadges)
 
       const result = await getChatsPage(20, 0)
 
-      expect(result).toEqual(mockResult)
+      expect(result).toEqual({ ...mockPage, badges: mockBadges })
       expect(dbActions.getChatsPage).toHaveBeenCalledWith(userId, 20, 0)
+      expect(dbActions.getChatBadgeData).toHaveBeenCalledWith(userId, [
+        'chat-1'
+      ])
     })
 
     it('should return empty result for unauthenticated user', async () => {
@@ -96,8 +101,9 @@ describe('Chat Actions', () => {
 
       const result = await getChatsPage()
 
-      expect(result).toEqual({ chats: [], nextOffset: null })
+      expect(result).toEqual({ chats: [], nextOffset: null, badges: {} })
       expect(dbActions.getChatsPage).not.toHaveBeenCalled()
+      expect(dbActions.getChatBadgeData).not.toHaveBeenCalled()
     })
   })
 

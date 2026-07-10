@@ -1,10 +1,22 @@
 'use server'
 
-import { and, asc, desc, eq, gt, ilike, inArray, lt, or, sql } from 'drizzle-orm'
+import {
+  and,
+  asc,
+  desc,
+  eq,
+  gt,
+  ilike,
+  inArray,
+  lt,
+  or,
+  sql
+} from 'drizzle-orm'
 
 import { getCurrentUserId } from '@/lib/auth/get-current-user'
 import type { UIMessage } from '@/lib/types/ai'
 import type { PersistableUIMessage } from '@/lib/types/message-persistence'
+import type { SearchMode } from '@/lib/types/search'
 import {
   buildUIMessageFromDB,
   mapUIMessagePartsToDBParts,
@@ -290,7 +302,10 @@ export async function getChats(userId: string): Promise<Chat[]> {
       .select()
       .from(chats)
       .where(eq(chats.userId, userId))
-      .orderBy(sql`${chats.lastViewedAt} DESC NULLS LAST`, desc(chats.createdAt))
+      .orderBy(
+        sql`${chats.lastViewedAt} DESC NULLS LAST`,
+        desc(chats.createdAt)
+      )
   })
 }
 
@@ -308,7 +323,10 @@ export async function getChatsPage(
         .select()
         .from(chats)
         .where(eq(chats.userId, userId))
-        .orderBy(sql`${chats.lastViewedAt} DESC NULLS LAST`, desc(chats.createdAt))
+        .orderBy(
+          sql`${chats.lastViewedAt} DESC NULLS LAST`,
+          desc(chats.createdAt)
+        )
         .limit(limit)
         .offset(offset)
 
@@ -323,6 +341,68 @@ export async function getChatsPage(
     console.error('Error fetching chat page:', error)
     return { chats: [], nextOffset: null }
   }
+}
+
+export interface ChatBadgeData {
+  searchMode?: SearchMode
+  fileCount: number
+}
+
+/**
+ * Batches two lightweight lookups per chat for the library list — the
+ * search mode of the most recent message (reflects how the chat is
+ * currently configured, not its full history) and a count of file
+ * attachments — scoped to the given chatIds in two grouped queries rather
+ * than one per chat.
+ */
+export async function getChatBadgeData(
+  userId: string,
+  chatIds: string[]
+): Promise<Record<string, ChatBadgeData>> {
+  if (chatIds.length === 0) return {}
+
+  return withRLS(userId, async tx => {
+    const [searchModeRows, fileCountRows] = await Promise.all([
+      tx
+        .selectDistinctOn([messages.chatId], {
+          chatId: messages.chatId,
+          searchMode: sql<string>`${messages.metadata}->>'searchMode'`
+        })
+        .from(messages)
+        .where(
+          and(
+            inArray(messages.chatId, chatIds),
+            sql`${messages.metadata}->>'searchMode' IS NOT NULL`
+          )
+        )
+        .orderBy(messages.chatId, desc(messages.createdAt)),
+      tx
+        .select({
+          chatId: messages.chatId,
+          fileCount: sql<number>`count(*)::int`
+        })
+        .from(parts)
+        .innerJoin(messages, eq(parts.messageId, messages.id))
+        .where(and(inArray(messages.chatId, chatIds), eq(parts.type, 'file')))
+        .groupBy(messages.chatId)
+    ])
+
+    const result: Record<string, ChatBadgeData> = {}
+    for (const id of chatIds) {
+      result[id] = { fileCount: 0 }
+    }
+    for (const row of searchModeRows) {
+      if (result[row.chatId]) {
+        result[row.chatId].searchMode = row.searchMode as SearchMode
+      }
+    }
+    for (const row of fileCountRows) {
+      if (result[row.chatId]) {
+        result[row.chatId].fileCount = row.fileCount
+      }
+    }
+    return result
+  })
 }
 
 /**
@@ -519,8 +599,8 @@ export async function touchChat(chatId: string): Promise<void> {
 export type ChatSearchResult = {
   chatId: string
   chatTitle: string
-  snippet: string      // ~150 chars of context around the match
-  role: string         // 'user' | 'assistant'
+  snippet: string // ~150 chars of context around the match
+  role: string // 'user' | 'assistant'
   lastViewedAt: Date | null
 }
 
@@ -548,14 +628,14 @@ export async function searchUserChats(
       })
       .from(chats)
       .leftJoin(messages, eq(messages.chatId, chats.id))
-      .leftJoin(parts, and(eq(parts.messageId, messages.id), eq(parts.type, 'text')))
+      .leftJoin(
+        parts,
+        and(eq(parts.messageId, messages.id), eq(parts.type, 'text'))
+      )
       .where(
         and(
           eq(chats.userId, userId),
-          or(
-            ilike(chats.title, term),
-            ilike(parts.text_text, term)
-          )
+          or(ilike(chats.title, term), ilike(parts.text_text, term))
         )
       )
       .orderBy(chats.id, sql`${chats.lastViewedAt} DESC NULLS LAST`)
