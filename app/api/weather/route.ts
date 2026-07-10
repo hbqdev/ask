@@ -15,8 +15,14 @@ export async function GET(req: NextRequest) {
     url.searchParams.set('longitude', lon)
     url.searchParams.set(
       'current',
-      'temperature_2m,relative_humidity_2m,wind_speed_10m,weather_code,is_day'
+      'temperature_2m,relative_humidity_2m,wind_speed_10m,wind_gusts_10m,weather_code,is_day,apparent_temperature,uv_index,precipitation_probability'
     )
+    url.searchParams.set(
+      'daily',
+      'sunrise,sunset,uv_index_max,weather_code,temperature_2m_max,temperature_2m_min'
+    )
+    url.searchParams.set('hourly', 'temperature_2m,weather_code')
+    url.searchParams.set('forecast_days', '6')
     url.searchParams.set('timezone', 'auto')
 
     const res = await fetch(url.toString(), { next: { revalidate: 300 } })
