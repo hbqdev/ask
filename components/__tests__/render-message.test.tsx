@@ -80,4 +80,60 @@ describe('RenderMessage', () => {
     ).map(node => node.getAttribute('data-testid'))
     expect(order).toEqual(['research-process', 'answer-section'])
   })
+
+  test('collapses narration between many tool rounds into a single research process', () => {
+    const message: UIMessage = {
+      id: 'assistant-msg',
+      role: 'assistant',
+      parts: [
+        { type: 'reasoning', text: 'Round 1 reasoning' } as any,
+        {
+          type: 'tool-search',
+          toolCallId: 'tool-1',
+          state: 'output-available',
+          input: {},
+          output: {}
+        } as any,
+        { type: 'text', text: 'Let me start researching.' } as any,
+        { type: 'reasoning', text: 'Round 2 reasoning' } as any,
+        {
+          type: 'tool-search',
+          toolCallId: 'tool-2',
+          state: 'output-available',
+          input: {},
+          output: {}
+        } as any,
+        { type: 'text', text: 'I have a good initial overview.' } as any,
+        {
+          type: 'tool-fetch',
+          toolCallId: 'tool-3',
+          state: 'output-available',
+          input: {},
+          output: {}
+        } as any,
+        { type: 'text', text: 'Final answer' } as any
+      ]
+    } as UIMessage
+
+    render(
+      <RenderMessage
+        message={message}
+        messageId={message.id}
+        getIsOpen={() => true}
+        onOpenChange={() => {}}
+      />
+    )
+
+    const processSections = screen.getAllByTestId('research-process')
+    expect(processSections).toHaveLength(1)
+    expect(processSections[0]).toHaveTextContent(
+      'reasoning,tool-search,reasoning,tool-search,tool-fetch'
+    )
+
+    const answerSections = screen.getAllByTestId('answer-section')
+    expect(answerSections).toHaveLength(1)
+    expect(answerSections[0]).toHaveTextContent('Final answer')
+    expect(screen.queryByText('Let me start researching.')).toBeNull()
+    expect(screen.queryByText('I have a good initial overview.')).toBeNull()
+  })
 })

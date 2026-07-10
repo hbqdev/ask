@@ -126,18 +126,28 @@ export function RenderMessage({
         return
       }
 
+      const remainingParts = message.parts?.slice(index + 1) || []
+      const hasMoreTextParts = remainingParts.some(isNonEmptyTextPart)
+      const isLastTextPart = !hasMoreTextParts
+
+      // Interim narration between tool rounds (e.g. Quality mode's brief
+      // "Let me start researching..." commentary before/after each search
+      // round) is process chatter, not user-facing content — skip
+      // rendering it so it doesn't fragment the transcript into many small
+      // "Completed N steps" blocks. Only the true final answer flushes the
+      // accumulated steps buffer and renders.
+      if (!isLastTextPart) {
+        return
+      }
+
       // Flush accumulated non-text first, marking that text follows
       if (buffer.length > 0) {
         flushBuffer(`seg-${index}`, true)
       }
 
-      const remainingParts = message.parts?.slice(index + 1) || []
-      const hasMoreTextParts = remainingParts.some(isNonEmptyTextPart)
-      const isLastTextPart = !hasMoreTextParts
       const isStreamingComplete =
         status !== 'streaming' && status !== 'submitted'
-      const shouldShowActions =
-        isLastTextPart && (isLatestMessage ? isStreamingComplete : true)
+      const shouldShowActions = isLatestMessage ? isStreamingComplete : true
 
       elements.push(
         <AnswerSection
