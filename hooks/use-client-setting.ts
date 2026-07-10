@@ -23,3 +23,29 @@ export function useClientSettingEnabled(key: string): boolean {
 
   return enabled
 }
+
+/**
+ * Reads a string preference from localStorage (matching settings-dialog.tsx's
+ * lsGet/lsSet convention), falling back to `defaultValue` when unset. Re-reads
+ * live when settings-dialog dispatches `client-config-changed`.
+ */
+export function useClientSettingValue(
+  key: string,
+  defaultValue: string
+): string {
+  const [value, setValue] = useState(defaultValue)
+
+  useEffect(() => {
+    const read = () => setValue(localStorage.getItem(key) ?? defaultValue)
+    read()
+
+    const onChange = (e: Event) => {
+      const detail = (e as CustomEvent<string>).detail
+      if (detail === undefined || detail === key) read()
+    }
+    window.addEventListener('client-config-changed', onChange)
+    return () => window.removeEventListener('client-config-changed', onChange)
+  }, [key, defaultValue])
+
+  return value
+}
