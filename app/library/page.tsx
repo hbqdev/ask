@@ -5,6 +5,8 @@ import Link from 'next/link'
 import { usePathname, useRouter } from 'next/navigation'
 
 import {
+  IconArrowsSort,
+  IconCheck,
   IconClock,
   IconLibrary,
   IconPaperclip,
@@ -16,7 +18,7 @@ import { toast } from 'sonner'
 
 import { clearChats, deleteChat } from '@/lib/actions/chat'
 import { getSearchModeConfig } from '@/lib/config/search-modes'
-import type { ChatBadgeData } from '@/lib/db/actions'
+import type { ChatBadgeData, ChatSortOption } from '@/lib/db/actions'
 import { Chat as DBChat } from '@/lib/db/schema'
 import { cn } from '@/lib/utils'
 
@@ -31,12 +33,76 @@ import {
   AlertDialogTitle
 } from '@/components/ui/alert-dialog'
 import { Button } from '@/components/ui/button'
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger
+} from '@/components/ui/popover'
 import { Spinner } from '@/components/ui/spinner'
 
 interface ChatPageResponse {
   chats: DBChat[]
   nextOffset: number | null
   badges: Record<string, ChatBadgeData>
+}
+
+const SORT_OPTIONS: { value: ChatSortOption; label: string }[] = [
+  { value: 'recent', label: 'Recent activity' },
+  { value: 'newest', label: 'Newest' },
+  { value: 'oldest', label: 'Oldest' },
+  { value: 'title', label: 'Title A-Z' }
+]
+
+function SortDropdown({
+  value,
+  onChange
+}: {
+  value: ChatSortOption
+  onChange: (sort: ChatSortOption) => void
+}) {
+  const [open, setOpen] = useState(false)
+  const selected = SORT_OPTIONS.find(o => o.value === value)
+
+  return (
+    <Popover open={open} onOpenChange={setOpen}>
+      <PopoverTrigger asChild>
+        <button
+          type="button"
+          className={cn(
+            'inline-flex items-center gap-1.5 rounded-full border border-input bg-background px-3 py-1.5 text-xs font-medium text-foreground',
+            'transition-colors hover:bg-muted focus:outline-none'
+          )}
+          aria-label="Sort chats"
+        >
+          <IconArrowsSort className="size-3.5 text-muted-foreground" />
+          {selected?.label ?? 'Sort'}
+        </button>
+      </PopoverTrigger>
+      <PopoverContent className="w-48 p-1" align="end" sideOffset={6}>
+        {SORT_OPTIONS.map(option => {
+          const isSelected = option.value === value
+          return (
+            <button
+              key={option.value}
+              type="button"
+              onClick={() => {
+                onChange(option.value)
+                setOpen(false)
+              }}
+              className={cn(
+                'flex w-full items-center justify-between gap-2 rounded-sm px-2.5 py-2 text-left text-sm',
+                'transition-colors hover:bg-muted focus:outline-none',
+                isSelected && 'bg-muted/50'
+              )}
+            >
+              {option.label}
+              {isSelected && <IconCheck className="size-4 shrink-0" />}
+            </button>
+          )
+        })}
+      </PopoverContent>
+    </Popover>
+  )
 }
 
 function timeAgo(date: Date | string): string {
@@ -171,6 +237,7 @@ export default function LibraryPage() {
   const router = useRouter()
   const [chats, setChats] = useState<DBChat[]>([])
   const [badges, setBadges] = useState<Record<string, ChatBadgeData>>({})
+  const [sort, setSort] = useState<ChatSortOption>('recent')
   const [nextOffset, setNextOffset] = useState<number | null>(null)
   const [isLoading, setIsLoading] = useState(true)
   const [isPending, startTransition] = useTransition()
@@ -190,7 +257,7 @@ export default function LibraryPage() {
   const fetchInitial = useCallback(async () => {
     setIsLoading(true)
     try {
-      const res = await fetch('/api/chats?offset=0&limit=30')
+      const res = await fetch(`/api/chats?offset=0&limit=30&sort=${sort}`)
       const {
         chats: data,
         nextOffset: next,
@@ -204,7 +271,7 @@ export default function LibraryPage() {
     } finally {
       setIsLoading(false)
     }
-  }, [])
+  }, [sort])
 
   useEffect(() => {
     fetchInitial()
@@ -220,7 +287,9 @@ export default function LibraryPage() {
     if (isLoading || nextOffset === null) return
     setIsLoading(true)
     try {
-      const res = await fetch(`/api/chats?offset=${nextOffset}&limit=30`)
+      const res = await fetch(
+        `/api/chats?offset=${nextOffset}&limit=30&sort=${sort}`
+      )
       const {
         chats: data,
         nextOffset: next,
@@ -234,7 +303,7 @@ export default function LibraryPage() {
     } finally {
       setIsLoading(false)
     }
-  }, [nextOffset, isLoading])
+  }, [nextOffset, isLoading, sort])
 
   useEffect(() => {
     const el = loadMoreRef.current
@@ -325,6 +394,9 @@ export default function LibraryPage() {
                 {nextOffset !== null ? '+' : ''}{' '}
                 {chats.length === 1 && nextOffset === null ? 'chat' : 'chats'}
               </span>
+            )}
+            {!isEmpty && !isSearchMode && (
+              <SortDropdown value={sort} onChange={setSort} />
             )}
             <Button
               variant="ghost"

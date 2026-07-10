@@ -90,7 +90,12 @@ describe('Chat Actions', () => {
       const result = await getChatsPage(20, 0)
 
       expect(result).toEqual({ ...mockPage, badges: mockBadges })
-      expect(dbActions.getChatsPage).toHaveBeenCalledWith(userId, 20, 0)
+      expect(dbActions.getChatsPage).toHaveBeenCalledWith(
+        userId,
+        20,
+        0,
+        'recent'
+      )
       expect(dbActions.getChatBadgeData).toHaveBeenCalledWith(userId, [
         'chat-1'
       ])
@@ -104,6 +109,25 @@ describe('Chat Actions', () => {
       expect(result).toEqual({ chats: [], nextOffset: null, badges: {} })
       expect(dbActions.getChatsPage).not.toHaveBeenCalled()
       expect(dbActions.getChatBadgeData).not.toHaveBeenCalled()
+    })
+
+    it('should forward an explicit sort option to the DB layer', async () => {
+      const userId = 'user-123'
+      vi.mocked(getCurrentUserId).mockResolvedValue(userId)
+      vi.mocked(dbActions.getChatsPage).mockResolvedValue({
+        chats: [],
+        nextOffset: null
+      })
+      vi.mocked(dbActions.getChatBadgeData).mockResolvedValue({})
+
+      await getChatsPage(20, 0, 'title')
+
+      expect(dbActions.getChatsPage).toHaveBeenCalledWith(
+        userId,
+        20,
+        0,
+        'title'
+      )
     })
   })
 
