@@ -3,7 +3,48 @@ import { z } from 'zod'
 
 import { getSearchTypeDescription } from '@/lib/utils/search-config'
 
-export const searchSchema = z.object({
+const CONTENT_TYPE_VALUES = [
+  'web',
+  'video',
+  'image',
+  'news',
+  'it',
+  'map',
+  'music'
+] as const
+
+// Some models confuse `type` (general vs optimized) with `content_types`
+// (news/video/it/map/music) and call the tool with e.g. `type: "news"`,
+// which fails schema validation before execute() ever runs. Recover by
+// moving the value into content_types and falling back type to "general" —
+// the same type content_types itself requires ("Only applicable when type
+// is general").
+function normalizeSearchToolInput(value: unknown): unknown {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) {
+    return value
+  }
+  const input = value as Record<string, unknown>
+  const rawType = input.type
+  if (
+    typeof rawType !== 'string' ||
+    !(CONTENT_TYPE_VALUES as readonly string[]).includes(rawType)
+  ) {
+    return input
+  }
+
+  const existingContentTypes = Array.isArray(input.content_types)
+    ? (input.content_types as unknown[])
+    : []
+  return {
+    ...input,
+    type: 'general',
+    content_types: existingContentTypes.includes(rawType)
+      ? existingContentTypes
+      : [...existingContentTypes, rawType]
+  }
+}
+
+const searchObjectSchema = z.object({
   query: z.string().describe('The query to search for'),
   search_mode: z
     .enum(['web', 'academic', 'social'])
@@ -52,8 +93,13 @@ export const searchSchema = z.object({
     )
 })
 
+export const searchSchema = z.preprocess(
+  normalizeSearchToolInput,
+  searchObjectSchema
+)
+
 // Strict schema with all fields required
-export const strictSearchSchema = z.object({
+const strictSearchObjectSchema = z.object({
   query: z.string().describe('The query to search for'),
   search_mode: z
     .enum(['web', 'academic', 'social'])
@@ -85,6 +131,11 @@ export const strictSearchSchema = z.object({
       "A list of domains to specifically exclude from the search results. Default is None, which doesn't exclude any domains."
     )
 })
+
+export const strictSearchSchema = z.preprocess(
+  normalizeSearchToolInput,
+  strictSearchObjectSchema
+)
 
 /**
  * Returns the appropriate search schema based on the full model name.
