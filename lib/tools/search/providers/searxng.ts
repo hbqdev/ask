@@ -5,6 +5,7 @@ import {
   SearXNGResult,
   SerperSearchResultItem
 } from '@/lib/types'
+import { fetchSearxngJson } from '@/lib/utils/searxng-client'
 
 import { BaseSearchProvider, SearchContentType, SearchModeOption } from './base'
 
@@ -41,8 +42,10 @@ export class SearXNGSearchProvider extends BaseSearchProvider {
       content_types?: SearchContentType[]
     }
   ): Promise<SearchResults> {
-    const apiUrl = process.env.SEARXNG_API_URL
-    this.validateApiUrl(apiUrl, 'SEARXNG')
+    this.validateApiUrl(
+      process.env.SEARXNG_API_URL ?? process.env.SEARXNG_FALLBACK_API_URL,
+      'SEARXNG'
+    )
 
     const isAcademic = options?.searchMode === 'academic'
     const isSocial = options?.searchMode === 'social'
@@ -68,59 +71,55 @@ export class SearXNGSearchProvider extends BaseSearchProvider {
         effectiveQuery += ` -site:${domain}`
       }
 
-      const url = new URL(`${apiUrl}/search`)
-      url.searchParams.append('q', effectiveQuery)
-      url.searchParams.append('format', 'json')
+      const buildUrl = (baseUrl: string) => {
+        const url = new URL(`${baseUrl}/search`)
+        url.searchParams.append('q', effectiveQuery)
+        url.searchParams.append('format', 'json')
 
-      if (isAcademic) {
-        // SearXNG's own 'science' category already includes arxiv, google
-        // scholar, pubmed, semantic scholar, crossref, openalex, and more —
-        // broader than and inclusive of the old hardcoded engine list, so
-        // there's no need to pin `engines` here.
-        url.searchParams.append('categories', 'science')
-        url.searchParams.append('safesearch', '0')
-      } else if (isSocial) {
-        // SearXNG's own 'social media' category covers Reddit, Lemmy,
-        // Mastodon, Hacker News, 9gag, and boardreader — broader than the
-        // old reddit.com-only domain-filter hack (which never worked
-        // anyway, see the include_domains comment above).
-        url.searchParams.append('categories', 'social media')
-        url.searchParams.append('safesearch', '0')
-      } else {
-        // SearXNG accepts a comma-separated category list in one request
-        // and tags each result with its own `category` field, so
-        // requesting videos/news/it/map/music alongside general/images
-        // costs nothing extra — no second round-trip needed.
-        const categories = ['general', 'images', ...extraCategories].join(',')
-        url.searchParams.append('categories', categories)
-
-        // Apply search depth settings
-        if (searchDepth === 'advanced') {
-          url.searchParams.append('time_range', '')
+        if (isAcademic) {
+          // SearXNG's own 'science' category already includes arxiv, google
+          // scholar, pubmed, semantic scholar, crossref, openalex, and more —
+          // broader than and inclusive of the old hardcoded engine list, so
+          // there's no need to pin `engines` here.
+          url.searchParams.append('categories', 'science')
           url.searchParams.append('safesearch', '0')
-          url.searchParams.append('engines', 'google,bing,duckduckgo,wikipedia')
+        } else if (isSocial) {
+          // SearXNG's own 'social media' category covers Reddit, Lemmy,
+          // Mastodon, Hacker News, 9gag, and boardreader — broader than the
+          // old reddit.com-only domain-filter hack (which never worked
+          // anyway, see the include_domains comment above).
+          url.searchParams.append('categories', 'social media')
+          url.searchParams.append('safesearch', '0')
         } else {
-          url.searchParams.append('time_range', 'year')
-          url.searchParams.append('safesearch', '1')
-          url.searchParams.append('engines', 'google,bing')
+          // SearXNG accepts a comma-separated category list in one request
+          // and tags each result with its own `category` field, so
+          // requesting videos/news/it/map/music alongside general/images
+          // costs nothing extra — no second round-trip needed.
+          const categories = ['general', 'images', ...extraCategories].join(',')
+          url.searchParams.append('categories', categories)
+
+          // Apply search depth settings
+          if (searchDepth === 'advanced') {
+            url.searchParams.append('time_range', '')
+            url.searchParams.append('safesearch', '0')
+            url.searchParams.append(
+              'engines',
+              'google,bing,duckduckgo,wikipedia'
+            )
+          } else {
+            url.searchParams.append('time_range', 'year')
+            url.searchParams.append('safesearch', '1')
+            url.searchParams.append('engines', 'google,bing')
+          }
         }
+
+        return url.toString()
       }
 
-      // Fetch results from SearXNG
-      const response = await fetch(url.toString(), {
-        method: 'GET',
-        headers: {
-          Accept: 'application/json'
-        }
-      })
-
-      if (!response.ok) {
-        const errorText = await response.text()
-        console.error(`SearXNG API error (${response.status}):`, errorText)
-        throw new Error('Search failed')
-      }
-
-      const data: SearXNGResponse = await response.json()
+      // Fetch results from SearXNG, automatically failing over to
+      // SEARXNG_FALLBACK_API_URL if the primary instance is unreachable.
+      const { data: rawData, baseUrlUsed } = await fetchSearxngJson(buildUrl)
+      const data = rawData as SearXNGResponse
 
       // Separate results into: images (has img_src), videos (dedicated
       // `videos` field, only when requested), link-style extra categories
@@ -162,7 +161,9 @@ export class SearXNGSearchProvider extends BaseSearchProvider {
         images: imageResults
           .map(result => {
             const imgSrc = result.img_src || ''
-            return imgSrc.startsWith('http') ? imgSrc : `${apiUrl}${imgSrc}`
+            return imgSrc.startsWith('http')
+              ? imgSrc
+              : `${baseUrlUsed}${imgSrc}`
           })
           .filter(Boolean),
         videos: videoResults.map(

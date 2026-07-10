@@ -144,6 +144,23 @@ SEARXNG_API_URL=http://localhost:8080
 SEARXNG_SECRET=""  # generate with: openssl rand -base64 32
 ```
 
+#### Automatic Failover
+
+`SEARXNG_API_URL` is treated as the primary instance — it can point at an
+existing external SearXNG deployment (e.g. one you already run for general
+browsing) instead of the bundled container. If you also set
+`SEARXNG_FALLBACK_API_URL` (typically `http://searxng:8080`, the bundled
+container's internal address), every search automatically retries against
+the fallback instance if the primary is unreachable, times out, or errors —
+see `lib/utils/searxng-client.ts`. A short cooldown window (~30s) skips
+retrying a known-down primary on every request during a sustained outage,
+then resumes trying it once the window passes.
+
+```bash
+SEARXNG_API_URL=https://your-existing-instance.example.com
+SEARXNG_FALLBACK_API_URL=http://searxng:8080
+```
+
 #### Advanced Configuration
 
 ```bash

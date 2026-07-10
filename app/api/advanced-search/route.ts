@@ -13,6 +13,7 @@ import {
   SearXNGResult,
   SearXNGSearchResults
 } from '@/lib/types'
+import { fetchSearxngJson } from '@/lib/utils/searxng-client'
 
 /**
  * Maximum number of results to fetch from SearXNG.
@@ -187,8 +188,7 @@ async function advancedSearchXNGSearch(
   includeDomains: string[] = [],
   excludeDomains: string[] = []
 ): Promise<SearXNGSearchResults> {
-  const apiUrl = process.env.SEARXNG_API_URL
-  if (!apiUrl) {
+  if (!process.env.SEARXNG_API_URL && !process.env.SEARXNG_FALLBACK_API_URL) {
     throw new Error('SEARXNG_API_URL is not set in the environment variables')
   }
 
@@ -202,36 +202,27 @@ async function advancedSearchXNGSearch(
   )
 
   try {
-    const url = new URL(`${apiUrl}/search`)
-    url.searchParams.append('q', query)
-    url.searchParams.append('format', 'json')
-    url.searchParams.append('categories', 'general,images')
-
-    // Add time_range if it's not 'None'
-    if (SEARXNG_TIME_RANGE !== 'None') {
-      url.searchParams.append('time_range', SEARXNG_TIME_RANGE)
-    }
-
-    url.searchParams.append('safesearch', SEARXNG_SAFESEARCH)
-    url.searchParams.append('engines', SEARXNG_ENGINES)
-
     const resultsPerPage = 10
     const pageno = Math.ceil(maxResults / resultsPerPage)
-    url.searchParams.append('pageno', String(pageno))
 
-    //console.log('SearXNG API URL:', url.toString()) // Log the full URL for debugging
-
-    const data:
-      | SearXNGResponse
-      | { error: string; status: number; data: string } =
-      await fetchJsonWithRetry(url.toString(), 3)
-
-    if ('error' in data) {
-      console.error('Invalid response from SearXNG:', data)
-      throw new Error(
-        `Invalid response from SearXNG: ${data.error}. Status: ${data.status}. Data: ${data.data}`
-      )
-    }
+    // Fetches from SearXNG, automatically failing over to
+    // SEARXNG_FALLBACK_API_URL if the primary instance is unreachable.
+    const { data: rawData, baseUrlUsed: apiUrl } = await fetchSearxngJson(
+      baseUrl => {
+        const url = new URL(`${baseUrl}/search`)
+        url.searchParams.append('q', query)
+        url.searchParams.append('format', 'json')
+        url.searchParams.append('categories', 'general,images')
+        if (SEARXNG_TIME_RANGE !== 'None') {
+          url.searchParams.append('time_range', SEARXNG_TIME_RANGE)
+        }
+        url.searchParams.append('safesearch', SEARXNG_SAFESEARCH)
+        url.searchParams.append('engines', SEARXNG_ENGINES)
+        url.searchParams.append('pageno', String(pageno))
+        return url.toString()
+      }
+    )
+    const data = rawData as SearXNGResponse
 
     if (!data || !Array.isArray(data.results)) {
       console.error('Invalid response structure from SearXNG:', data)
@@ -535,53 +526,6 @@ const httpsAgent = new https.Agent({
   rejectUnauthorized: true // change to false if you want to ignore SSL certificate errors
   //but use this with caution.
 })
-
-async function fetchJsonWithRetry(url: string, retries: number): Promise<any> {
-  for (let i = 0; i < retries; i++) {
-    try {
-      return await fetchJson(url)
-    } catch (error) {
-      if (i === retries - 1) throw error
-      await new Promise(resolve => setTimeout(resolve, 1000 * (i + 1)))
-    }
-  }
-}
-
-function fetchJson(url: string): Promise<any> {
-  return new Promise((resolve, reject) => {
-    const protocol = url.startsWith('https:') ? https : http
-    const agent = url.startsWith('https:') ? httpsAgent : httpAgent
-    const request = protocol.get(url, { agent }, res => {
-      let data = ''
-      res.on('data', chunk => {
-        data += chunk
-      })
-      res.on('end', () => {
-        try {
-          // Check if the response is JSON
-          if (res.headers['content-type']?.includes('application/json')) {
-            resolve(JSON.parse(data))
-          } else {
-            // If not JSON, return an object with the raw data and status
-            resolve({
-              error: 'Invalid JSON response',
-              status: res.statusCode,
-              data: data.substring(0, 200) // Include first 200 characters of the response
-            })
-          }
-        } catch (e) {
-          reject(e)
-        }
-      })
-    })
-    request.on('error', reject)
-    request.on('timeout', () => {
-      request.destroy()
-      reject(new Error('Request timed out'))
-    })
-    request.setTimeout(15000) // 15 second timeout
-  })
-}
 
 async function fetchHtmlWithTimeout(
   url: string,
