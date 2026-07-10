@@ -5,7 +5,6 @@ import { useRouter } from 'next/navigation'
 
 import type { User } from '@supabase/supabase-js'
 import {
-  IconLink as Link2,
   IconLogout as LogOut,
   IconUserCircle as UserRound
 } from '@tabler/icons-react'
@@ -19,16 +18,12 @@ import {
   DropdownMenuItem,
   DropdownMenuLabel,
   DropdownMenuSeparator,
-  DropdownMenuSub,
-  DropdownMenuSubContent,
-  DropdownMenuSubTrigger,
   DropdownMenuTrigger
 } from '@/components/ui/dropdown-menu'
 
 import { AccountSettingsDialog } from '@/components/account-settings-dialog'
 
 import { Button } from './ui/button'
-import { ExternalLinkItems } from './external-link-items'
 
 interface UserMenuProps {
   user: User
@@ -103,15 +98,6 @@ export default function UserMenu({ user }: UserMenuProps) {
             <UserRound className="size-4" />
             <span>Account</span>
           </DropdownMenuItem>
-          <DropdownMenuSub>
-            <DropdownMenuSubTrigger>
-              <Link2 className="size-4" />
-              <span>Links</span>
-            </DropdownMenuSubTrigger>
-            <DropdownMenuSubContent>
-              <ExternalLinkItems />
-            </DropdownMenuSubContent>
-          </DropdownMenuSub>
           <DropdownMenuSeparator />
           <DropdownMenuItem onClick={handleLogout}>
             <LogOut className="size-4" />
