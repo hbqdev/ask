@@ -46,14 +46,21 @@ export async function getChats() {
 }
 
 /**
- * Get chats with pagination for the current user
+ * Get chats with pagination for the current user, along with lightweight
+ * per-chat badge data (search mode used, file attachment count) for the
+ * library list.
  */
 export async function getChatsPage(limit = 20, offset = 0) {
   const userId = await getCurrentUserId()
   if (!userId) {
-    return { chats: [], nextOffset: null }
+    return { chats: [], nextOffset: null, badges: {} }
   }
-  return dbActions.getChatsPage(userId, limit, offset)
+  const page = await dbActions.getChatsPage(userId, limit, offset)
+  const badges = await dbActions.getChatBadgeData(
+    userId,
+    page.chats.map(chat => chat.id)
+  )
+  return { ...page, badges }
 }
 
 /**
