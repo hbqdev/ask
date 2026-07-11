@@ -5,11 +5,13 @@ import { usePathname } from 'next/navigation'
 
 import { User } from '@supabase/supabase-js'
 
+import { useChatHeaderInfo } from '@/lib/contexts/chat-header-context'
 import { cn } from '@/lib/utils'
 
 import { useSidebar } from '@/components/ui/sidebar'
 
 import { Button } from './ui/button'
+import { ChatHeader } from './chat-header'
 import { FeedbackModal } from './feedback-modal'
 import GuestMenu from './guest-menu'
 import UserMenu from './user-menu'
@@ -23,6 +25,7 @@ export const Header: React.FC<HeaderProps> = ({ user }) => {
   const pathname = usePathname()
   const [feedbackOpen, setFeedbackOpen] = useState(false)
   const isRootPage = pathname === '/'
+  const { info: chatHeaderInfo } = useChatHeaderInfo()
 
   return (
     <>
@@ -33,8 +36,14 @@ export const Header: React.FC<HeaderProps> = ({ user }) => {
           'w-full'
         )}
       >
-        {/* This div can be used for a logo or title on the left if needed */}
-        <div></div>
+        <div className="min-w-0">
+          {chatHeaderInfo && (
+            <ChatHeader
+              chatId={chatHeaderInfo.chatId}
+              title={chatHeaderInfo.title}
+            />
+          )}
+        </div>
 
         <div className="flex items-center gap-2">
           {isRootPage && (

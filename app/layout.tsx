@@ -4,6 +4,7 @@ import { Inter as FontSans } from 'next/font/google'
 import { Analytics } from '@vercel/analytics/next'
 
 import { getCurrentUserId } from '@/lib/auth/get-current-user'
+import { ChatHeaderProvider } from '@/lib/contexts/chat-header-context'
 import { UserProvider } from '@/lib/contexts/user-context'
 import { hasSupabasePublicConfig } from '@/lib/supabase/keys'
 import { createClient } from '@/lib/supabase/server'
@@ -98,12 +99,14 @@ export default async function RootLayout({
                 <LibraryProvider>
                   {userId && <AppSidebar />}
                   <KeyboardShortcutHandler />
-                  <div className="flex flex-col flex-1 min-w-0">
-                    <Header user={user} />
-                    <main className="flex flex-1 min-h-0 min-w-0 overflow-hidden">
-                      <ArtifactRoot>{children}</ArtifactRoot>
-                    </main>
-                  </div>
+                  <ChatHeaderProvider>
+                    <div className="flex flex-col flex-1 min-w-0">
+                      <Header user={user} />
+                      <main className="flex flex-1 min-h-0 min-w-0 overflow-hidden">
+                        <ArtifactRoot>{children}</ArtifactRoot>
+                      </main>
+                    </div>
+                  </ChatHeaderProvider>
                 </LibraryProvider>
               </SidebarProvider>
             </UserProvider>

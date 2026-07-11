@@ -48,6 +48,7 @@ export type AnswerSectionProps = {
     messageId: string,
     options?: ChatRequestOptions
   ) => Promise<void | string | null | undefined>
+  onDelete?: () => Promise<void> | void
   citationMaps?: Record<string, Record<number, SearchResultItem>>
   isGuest?: boolean
   isCloudDeployment?: boolean
@@ -65,6 +66,7 @@ export function AnswerSection({
   metadata,
   status,
   reload,
+  onDelete,
   citationMaps,
   isGuest = false,
   isCloudDeployment = false,
@@ -321,6 +323,7 @@ export function AnswerSection({
             isCloudDeployment={isCloudDeployment}
             libraryAvailable={libraryAvailable}
             reload={handleReload}
+            onDelete={onDelete}
             status={status}
             visible={showActions}
             citationMaps={citationMaps}

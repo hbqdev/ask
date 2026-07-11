@@ -339,6 +339,30 @@ export async function deleteMessagesFromIndex(
 }
 
 /**
+ * Delete a single conversational turn (an exact set of message IDs — a
+ * user message plus its assistant response(s)) without affecting any other
+ * message in the chat.
+ */
+export async function deleteMessages(chatId: string, messageIds: string[]) {
+  const userId = await getCurrentUserId()
+  if (!userId) {
+    return { success: false, error: 'User not authenticated' }
+  }
+
+  // Verify access
+  const chat = await dbActions.getChat(chatId, userId)
+  if (!chat || chat.userId !== userId) {
+    return { success: false, error: 'Unauthorized' }
+  }
+
+  const result = await dbActions.deleteMessagesByIds(chatId, messageIds, userId)
+
+  revalidateTag(`chat-${chatId}`, 'max')
+
+  return { success: true, count: result.count }
+}
+
+/**
  * Save or update chat title if it's the first conversation
  * @param chat Existing chat object (null if new chat)
  * @param chatId The chat ID

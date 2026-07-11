@@ -7,9 +7,11 @@ import { useChat } from '@ai-sdk/react'
 import { DefaultChatTransport } from 'ai'
 import { toast } from 'sonner'
 
+import { deleteMessages } from '@/lib/actions/chat'
 import { summarizeGenui } from '@/lib/analytics/genui-summary'
 import { captureClient, getDistinctId } from '@/lib/analytics/posthog-client'
 import { ChatProvider } from '@/lib/contexts/chat-context'
+import { useChatHeaderInfo } from '@/lib/contexts/chat-header-context'
 import { touchChat } from '@/lib/db/actions'
 import { generateId } from '@/lib/db/schema'
 import {
@@ -52,6 +54,7 @@ export function Chat({
   id: providedId,
   savedMessages = [],
   query,
+  title,
   isGuest = false,
   isCloudDeployment = false,
   libraryAvailable = true,
@@ -60,12 +63,14 @@ export function Chat({
   id?: string
   savedMessages?: UIMessage[]
   query?: string
+  title?: string
   isGuest?: boolean
   isCloudDeployment?: boolean
   libraryAvailable?: boolean
   modelSelectorData?: ModelSelectorData
 }) {
   const router = useRouter()
+  const { setInfo: setChatHeaderInfo } = useChatHeaderInfo()
 
   // Generate a stable chatId on the client side
   // - If providedId exists (e.g., /search/[id]), use it for existing chats
@@ -160,7 +165,10 @@ export function Chat({
             chatId: chatId,
             messageId,
             analyticsId: getDistinctId(),
-            systemInstructions: typeof localStorage !== 'undefined' ? (localStorage.getItem('systemInstructions') ?? undefined) : undefined,
+            systemInstructions:
+              typeof localStorage !== 'undefined'
+                ? (localStorage.getItem('systemInstructions') ?? undefined)
+                : undefined,
             ...(isGuest ? { messages } : {}),
             message:
               trigger === 'regenerate-message' &&
@@ -326,6 +334,30 @@ export function Chat({
 
     return result
   }, [messages])
+
+  // Publish this chat's title/id up to the app-wide Header (rendered as a
+  // sibling in layout.tsx) so the title + options menu render in that
+  // always-on-top, full-width bar instead of a bar nested in the scrolling
+  // message column. Only the chat instance actually visible at the current
+  // URL should own the header — guards against stale/duplicate Chat
+  // instances briefly kept mounted by Next.js router caching.
+  useEffect(() => {
+    const isCurrentChat =
+      window.location.pathname === `/search/${chatId}` ||
+      (window.location.pathname === '/' && sections.length > 0)
+
+    if (!isCurrentChat) return
+
+    if (sections.length > 0) {
+      setChatHeaderInfo({ chatId, title })
+    } else {
+      setChatHeaderInfo(prev => (prev?.chatId === chatId ? null : prev))
+    }
+
+    return () => {
+      setChatHeaderInfo(prev => (prev?.chatId === chatId ? null : prev))
+    }
+  }, [chatId, title, sections.length, setChatHeaderInfo])
 
   // Listen for copy message shortcut
   // Uses ref to avoid re-registering listener on every messages change.
@@ -501,6 +533,31 @@ export function Chat({
     }
   }
 
+  const handleDeleteSection = async (section: ChatSection) => {
+    if (!chatId) {
+      toast.error('Chat ID is missing for delete.')
+      return
+    }
+
+    const idsToDelete = new Set([
+      section.userMessage.id,
+      ...section.assistantMessages.map(m => m.id)
+    ])
+
+    try {
+      const result = await deleteMessages(chatId, Array.from(idsToDelete))
+      if (!result.success) {
+        toast.error(result.error ?? 'Failed to delete response')
+        return
+      }
+      setMessages(prev => prev.filter(m => !idsToDelete.has(m.id)))
+      toast.success('Response deleted')
+    } catch (error) {
+      console.error('Error deleting section:', error)
+      toast.error(toPublicErrorPayload(error).error)
+    }
+  }
+
   const onSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault()
 
@@ -615,6 +672,7 @@ export function Chat({
           scrollContainerRef={scrollContainerRef}
           onUpdateMessage={handleUpdateAndReloadMessage}
           reload={handleReloadFrom}
+          onDeleteSection={handleDeleteSection}
           error={error}
           onQuoteContext={handleQuoteContext}
         />
