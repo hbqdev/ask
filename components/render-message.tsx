@@ -119,6 +119,8 @@ export function RenderMessage({
     buffer = []
   }
 
+  const isStreamingComplete = status !== 'streaming' && status !== 'submitted'
+
   message.parts?.forEach((part: any, index: number) => {
     if (part.type === 'text') {
       // Ignore empty text chunks (some providers emit them before reasoning/tool parts).
@@ -130,13 +132,25 @@ export function RenderMessage({
       const hasMoreTextParts = remainingParts.some(isNonEmptyTextPart)
       const isLastTextPart = !hasMoreTextParts
 
-      // Interim narration between tool rounds (e.g. Quality mode's brief
-      // "Let me start researching..." commentary before/after each search
-      // round) is process chatter, not user-facing content — skip
-      // rendering it so it doesn't fragment the transcript into many small
-      // "Completed N steps" blocks. Only the true final answer flushes the
-      // accumulated steps buffer and renders.
-      if (!isLastTextPart) {
+      // Interim narration between tool rounds (e.g. "Let me start
+      // researching...", "Excellent! Let me update todos...") is process
+      // chatter, not user-facing content. Once streaming is finished we
+      // know the whole parts array, so "is this the last text part" is a
+      // reliable check. But *while still streaming*, nothing has followed
+      // the current text part *yet* — that's inherent to live streaming —
+      // so "last so far" can't distinguish real final content from
+      // narration that a tool call will follow a moment later. Instead,
+      // lean on the "First-token rule" every mode's prompt enforces: the
+      // true final answer must start with a markdown heading, and nothing
+      // else may. That's knowable immediately, without waiting for more
+      // parts to arrive, so it's what mutes interim narration during
+      // streaming instead of letting it flash on screen first.
+      const looksLikeFinalAnswer = /^#{1,6}\s/.test(part.text.trimStart())
+      const shouldRenderAsAnswer = isStreamingComplete
+        ? isLastTextPart
+        : looksLikeFinalAnswer
+
+      if (!shouldRenderAsAnswer) {
         return
       }
 
@@ -145,9 +159,8 @@ export function RenderMessage({
         flushBuffer(`seg-${index}`, true)
       }
 
-      const isStreamingComplete =
-        status !== 'streaming' && status !== 'submitted'
-      const shouldShowActions = isLatestMessage ? isStreamingComplete : true
+      const shouldShowActions =
+        isLastTextPart && (isLatestMessage ? isStreamingComplete : true)
 
       elements.push(
         <AnswerSection

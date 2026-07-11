@@ -41,3 +41,20 @@ describe('search mode prompt emoji/density guidance', () => {
     expect(prompt).toMatch(/AT MOST ONE emoji/i)
   })
 })
+
+// Regression guard for a real production issue: Quality mode's 15-30+
+// search/fetch rounds each ended with a short narration line ("Let me
+// search for...", "Good, I have some results..."). The UI already hides
+// these from the final rendered transcript, but while the response is
+// still streaming, each one is briefly visible before being superseded by
+// the next tool round — there's no way to know client-side that a given
+// text chunk isn't the final answer until more parts arrive. The real fix
+// is to stop the model from narrating between rounds at all.
+describe('Quality mode silent-execution guidance', () => {
+  it('instructs the model not to narrate between tool calls', () => {
+    const prompt = getQualityModePrompt()
+
+    expect(prompt).toMatch(/no narration between tool calls/i)
+    expect(prompt).toMatch(/Call tools back-to-back silently/i)
+  })
+})

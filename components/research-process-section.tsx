@@ -1,6 +1,6 @@
 'use client'
 
-import { useCallback, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 
 import type { ReasoningPart } from '@ai-sdk/provider-utils'
 import { UseChatHelpers } from '@ai-sdk/react'
@@ -311,14 +311,26 @@ export function ResearchProcessSection({
     Record<string, boolean>
   >({})
 
-  if (segments.length === 0 || segments.every(seg => seg.length === 0))
-    return null
-
   // Still actively researching: no text has followed this segment yet, and
   // the message hasn't finished streaming. Matches Perplexity's live status
   // line before the answer starts.
   const isInProgress =
     !hasSubsequentText && (status === 'streaming' || status === 'submitted')
+
+  // Peek open for a couple seconds when research starts so the user sees
+  // it's doing something, then auto-collapse to just the pulsing summary
+  // line — a research run can take minutes, and it shouldn't stay expanded
+  // scrolling live updates the whole time. Never resets back open once
+  // triggered; the summary line keeps updating its step count regardless.
+  const [autoCollapsed, setAutoCollapsed] = useState(false)
+  useEffect(() => {
+    if (!isInProgress || autoCollapsed) return
+    const timer = setTimeout(() => setAutoCollapsed(true), 2000)
+    return () => clearTimeout(timer)
+  }, [isInProgress, autoCollapsed])
+
+  if (segments.length === 0 || segments.every(seg => seg.length === 0))
+    return null
 
   return (
     <div className="space-y-2">
@@ -332,10 +344,13 @@ export function ResearchProcessSection({
 
         // Parent collapsible ID
         const parentId = `${messageId}-parent-${sidx}`
-        // If user has explicitly set state, use that; otherwise auto-open
-        // while actively researching and auto-collapse once text follows.
+        // If user has explicitly set state, use that; otherwise: closed
+        // once text follows, open for an initial 2-second peek while
+        // actively researching (then auto-collapsed), open by default in
+        // the rare case research ended with no answer following at all.
         const isParentOpen =
-          parentOpenStates[parentId] ?? (hasSubsequentText ? false : true)
+          parentOpenStates[parentId] ??
+          (hasSubsequentText ? false : isInProgress ? !autoCollapsed : true)
 
         const segmentContent = (
           <div className={containerClass}>
