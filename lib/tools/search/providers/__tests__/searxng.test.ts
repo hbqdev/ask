@@ -307,4 +307,174 @@ describe('SearXNGSearchProvider', () => {
     const calledUrl = new URL(fetchMock.mock.calls[0][0])
     expect(calledUrl.searchParams.get('q')).toBe('canker sore')
   })
+
+  describe('degoog merge', () => {
+    function mockDegoogResponse(results: any[]) {
+      return {
+        ok: true,
+        status: 200,
+        json: async () => ({ query: 'test query', results })
+      }
+    }
+
+    function dispatchingFetchMock(opts: {
+      searxng?: 'ok' | 'fail'
+      degoog?: 'ok' | 'fail'
+      searxngResults?: any[]
+      degoogResults?: any[]
+    }) {
+      return vi.fn(async (url: string) => {
+        if (url.includes('/api/search')) {
+          if (opts.degoog === 'fail') throw new Error('degoog down')
+          return mockDegoogResponse(opts.degoogResults ?? [])
+        }
+        if (opts.searxng === 'fail') throw new Error('searxng down')
+        return mockSearxngResponse(opts.searxngResults ?? [])
+      })
+    }
+
+    // degoog-client.ts keeps its circuit breaker state at module scope —
+    // tests that make it fail would otherwise leak a "breaker open" state
+    // into later tests in this file. Reset modules and re-import a fresh
+    // provider (which re-imports a fresh degoog-client too) per test.
+    async function freshProvider() {
+      vi.resetModules()
+      const { SearXNGSearchProvider: Fresh } = await import('../searxng')
+      return new Fresh()
+    }
+
+    beforeEach(() => {
+      process.env.DEGOOG_API_URL = 'https://degoog.example.com'
+    })
+
+    afterEach(() => {
+      delete process.env.DEGOOG_API_URL
+      delete process.env.DEGOOG_API_KEY
+    })
+
+    it('merges degoog results into the response when both succeed', async () => {
+      const fetchMock = dispatchingFetchMock({
+        searxng: 'ok',
+        degoog: 'ok',
+        searxngResults: [
+          {
+            title: 'SearXNG result',
+            url: 'https://searxng-only.example.com',
+            content: 'From SearXNG'
+          }
+        ],
+        degoogResults: [
+          {
+            title: 'Degoog result',
+            url: 'https://degoog-only.example.com',
+            snippet: 'From degoog',
+            source: 'Reddit'
+          }
+        ]
+      })
+      vi.stubGlobal('fetch', fetchMock)
+      const freshInstance = await freshProvider()
+
+      const result = await freshInstance.search(
+        'query',
+        10,
+        'basic',
+        [],
+        [],
+        {}
+      )
+
+      expect(fetchMock).toHaveBeenCalledTimes(2)
+      const urls = result.results.map(r => r.url)
+      expect(urls).toContain('https://searxng-only.example.com')
+      expect(urls).toContain('https://degoog-only.example.com')
+    })
+
+    it('falls back to SearXNG-only results when degoog fails', async () => {
+      const fetchMock = dispatchingFetchMock({
+        searxng: 'ok',
+        degoog: 'fail',
+        searxngResults: [
+          {
+            title: 'SearXNG result',
+            url: 'https://searxng-only.example.com',
+            content: 'From SearXNG'
+          }
+        ]
+      })
+      vi.stubGlobal('fetch', fetchMock)
+      const freshInstance = await freshProvider()
+
+      const result = await freshInstance.search(
+        'query',
+        10,
+        'basic',
+        [],
+        [],
+        {}
+      )
+
+      expect(result.results).toHaveLength(1)
+      expect(result.results[0].url).toBe('https://searxng-only.example.com')
+    })
+
+    it('falls back to degoog-only results when SearXNG fails', async () => {
+      const fetchMock = dispatchingFetchMock({
+        searxng: 'fail',
+        degoog: 'ok',
+        degoogResults: [
+          {
+            title: 'Degoog result',
+            url: 'https://degoog-only.example.com',
+            snippet: 'From degoog'
+          }
+        ]
+      })
+      vi.stubGlobal('fetch', fetchMock)
+      const freshInstance = await freshProvider()
+
+      const result = await freshInstance.search(
+        'query',
+        10,
+        'basic',
+        [],
+        [],
+        {}
+      )
+
+      expect(result.results).toEqual([
+        {
+          title: 'Degoog result',
+          url: 'https://degoog-only.example.com',
+          content: 'From degoog'
+        }
+      ])
+      expect(result.images).toEqual([])
+      expect(result.videos).toEqual([])
+    })
+
+    it('throws when both SearXNG and degoog fail', async () => {
+      const fetchMock = dispatchingFetchMock({
+        searxng: 'fail',
+        degoog: 'fail'
+      })
+      vi.stubGlobal('fetch', fetchMock)
+      const freshInstance = await freshProvider()
+
+      await expect(
+        freshInstance.search('query', 10, 'basic', [], [], {})
+      ).rejects.toThrow('searxng down')
+    })
+
+    it('does not call degoog at all when DEGOOG_API_URL is not configured', async () => {
+      delete process.env.DEGOOG_API_URL
+      const fetchMock = vi.fn().mockResolvedValue(mockSearxngResponse([]))
+      vi.stubGlobal('fetch', fetchMock)
+      const freshInstance = await freshProvider()
+
+      await freshInstance.search('query', 10, 'basic', [], [], {})
+
+      expect(fetchMock).toHaveBeenCalledTimes(1)
+    })
+  })
 })

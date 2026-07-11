@@ -1,13 +1,21 @@
 import {
+  DegoogResponse,
   SearchResultItem,
   SearchResults,
   SearXNGResponse,
   SearXNGResult,
   SerperSearchResultItem
 } from '@/lib/types'
+import { fetchDegoogJson } from '@/lib/utils/degoog-client'
 import { fetchSearxngJson } from '@/lib/utils/searxng-client'
 
 import { BaseSearchProvider, SearchContentType, SearchModeOption } from './base'
+import { mergeWithDegoogResults, toSearchResultItem } from './merge-degoog'
+
+// degoog returns at most 20 results per call; request enough headroom over
+// what we'll actually keep so the post-merge dedup/slice has real results
+// to choose from instead of just SearXNG's list padded with nothing.
+const DEGOOG_MAX_RESULTS = 20
 
 // Maps a content_type to the SearXNG category it requests. 'web' has no
 // dedicated category of its own — it's covered by the always-included
@@ -116,9 +124,60 @@ export class SearXNGSearchProvider extends BaseSearchProvider {
         return url.toString()
       }
 
-      // Fetch results from SearXNG, automatically failing over to
-      // SEARXNG_FALLBACK_API_URL if the primary instance is unreachable.
-      const { data: rawData, baseUrlUsed } = await fetchSearxngJson(buildUrl)
+      const buildDegoogUrl = (baseUrl: string) => {
+        const url = new URL(`${baseUrl}/api/search`)
+        url.searchParams.append('q', effectiveQuery)
+        url.searchParams.append('type', 'web')
+        url.searchParams.append(
+          'max_results',
+          String(Math.min(DEGOOG_MAX_RESULTS, maxResults * 2))
+        )
+        return url.toString()
+      }
+
+      // Query SearXNG and degoog concurrently so latency stays close to
+      // whichever is slower, not the sum of both. degoog is a complement,
+      // not a dependency: fetchDegoogJson resolves to `null` when it isn't
+      // configured, and a real degoog failure is caught here rather than
+      // failing the whole search — SearXNG succeeding alone is exactly
+      // today's behavior. The reverse also degrades gracefully: if
+      // SearXNG's primary AND fallback are both down but degoog succeeds,
+      // we still return degoog's results instead of throwing.
+      const [searxngSettled, degoogSettled] = await Promise.allSettled([
+        fetchSearxngJson(buildUrl),
+        fetchDegoogJson(buildDegoogUrl)
+      ])
+
+      if (degoogSettled.status === 'rejected') {
+        console.warn(
+          '[degoog] search failed, continuing without it:',
+          degoogSettled.reason
+        )
+      }
+      const degoogData =
+        degoogSettled.status === 'fulfilled' && degoogSettled.value
+          ? (degoogSettled.value.data as DegoogResponse)
+          : null
+      const degoogResults = degoogData?.results ?? []
+
+      if (searxngSettled.status === 'rejected') {
+        if (degoogResults.length === 0) {
+          // Both failed (or degoog isn't configured/returned nothing) —
+          // nothing to degrade to.
+          throw searxngSettled.reason
+        }
+        // SearXNG is down but degoog isn't — return degoog-only results
+        // rather than fail the whole search.
+        return {
+          results: degoogResults.slice(0, maxResults).map(toSearchResultItem),
+          query,
+          images: [],
+          videos: [],
+          number_of_results: degoogResults.length
+        }
+      }
+
+      const { data: rawData, baseUrlUsed } = searxngSettled.value
       const data = rawData as SearXNGResponse
 
       // Separate results into: images (has img_src), videos (dedicated
@@ -148,15 +207,20 @@ export class SearXNGSearchProvider extends BaseSearchProvider {
         )
         .slice(0, maxResults)
 
+      const baseResults = [...generalResults, ...extraLinkResults].map(
+        (result: SearXNGResult): SearchResultItem => ({
+          title: result.title,
+          url: result.url,
+          content: result.content
+        })
+      )
+
       // Format the results to match the expected SearchResults structure
       return {
-        results: [...generalResults, ...extraLinkResults].map(
-          (result: SearXNGResult): SearchResultItem => ({
-            title: result.title,
-            url: result.url,
-            content: result.content
-          })
-        ),
+        results:
+          degoogResults.length > 0
+            ? mergeWithDegoogResults(baseResults, degoogResults, maxResults)
+            : baseResults,
         query: data.query,
         images: imageResults
           .map(result => {
