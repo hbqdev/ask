@@ -2,6 +2,9 @@
 
 import { useEffect, useState } from 'react'
 
+import { IconSparkles } from '@tabler/icons-react'
+
+import { SUMMARIZE_LABEL } from '@/lib/constants'
 import { cn } from '@/lib/utils'
 
 interface Article {
@@ -43,7 +46,9 @@ export function NewsArticleWidget({ className }: { className?: string }) {
         const heroArticle =
           withThumbnail[Math.floor(Math.random() * withThumbnail.length)]
         setHero(heroArticle)
-        setMore(all.filter(a => a.url !== heroArticle.url).slice(0, 2))
+        setMore(
+          withThumbnail.filter(a => a.url !== heroArticle.url).slice(0, 2)
+        )
       })
       .catch(() => {})
       .finally(() => setLoading(false))
@@ -62,47 +67,52 @@ export function NewsArticleWidget({ className }: { className?: string }) {
 
   if (!hero) return null
 
+  const articles = [hero, ...more]
+
   return (
     <div
       className={cn(
-        'rounded-2xl border border-border/50 bg-card/80 backdrop-blur-sm w-full h-64 flex flex-col overflow-hidden select-none',
+        'rounded-2xl border border-border/50 bg-card/80 backdrop-blur-sm w-full h-64 flex flex-col overflow-hidden select-none divide-y divide-border/50',
         className
       )}
     >
-      <a
-        href={summaryHref(hero.url)}
-        className="group flex flex-row items-stretch overflow-hidden hover:bg-muted/40 transition-colors duration-200 h-36 shrink-0"
-      >
-        <div className="w-32 min-w-32 shrink-0 overflow-hidden">
-          <img
-            src={thumbUrl(hero.thumbnail)}
-            alt={hero.title}
-            className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
-          />
+      {articles.map(article => (
+        <div
+          key={article.url}
+          className="group relative flex-1 min-h-0 flex flex-row items-center gap-3 px-3 hover:bg-muted/40 transition-colors duration-200"
+        >
+          <a
+            href={article.url}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="flex flex-1 min-w-0 flex-row items-center gap-3"
+          >
+            <div className="size-14 min-w-14 shrink-0 overflow-hidden rounded-lg">
+              <img
+                src={thumbUrl(article.thumbnail)}
+                alt={article.title}
+                className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
+              />
+            </div>
+            <div className="flex-1 min-w-0 pr-7">
+              <p className="text-sm font-semibold leading-snug line-clamp-2 group-hover:text-cyan-600 dark:group-hover:text-cyan-400 transition-colors duration-200">
+                {article.title}
+              </p>
+              <p className="text-xs text-muted-foreground leading-snug line-clamp-1 mt-0.5">
+                {article.content}
+              </p>
+            </div>
+          </a>
+          <a
+            href={summaryHref(article.url)}
+            title={SUMMARIZE_LABEL}
+            aria-label={SUMMARIZE_LABEL}
+            className="absolute right-3 top-1/2 -translate-y-1/2 flex size-6 shrink-0 items-center justify-center rounded-full bg-cyan-500/15 text-cyan-700 dark:text-cyan-300 hover:bg-cyan-500/25 border border-cyan-500/30"
+          >
+            <IconSparkles className="size-3.5" />
+          </a>
         </div>
-        <div className="flex-1 px-3 py-2.5 flex flex-col justify-center min-w-0">
-          <p className="text-sm font-semibold leading-snug line-clamp-2 group-hover:text-cyan-600 dark:group-hover:text-cyan-400 transition-colors duration-200">
-            {hero.title}
-          </p>
-          <p className="text-xs text-muted-foreground leading-snug line-clamp-2 mt-1">
-            {hero.content}
-          </p>
-        </div>
-      </a>
-
-      {more.length > 0 && (
-        <div className="flex-1 min-h-0 border-t border-border/50 px-3 py-2 flex flex-col justify-center gap-1.5">
-          {more.map(article => (
-            <a
-              key={article.url}
-              href={summaryHref(article.url)}
-              className="text-xs leading-snug line-clamp-1 text-muted-foreground hover:text-cyan-600 dark:hover:text-cyan-400 transition-colors duration-200"
-            >
-              {article.title}
-            </a>
-          ))}
-        </div>
-      )}
+      ))}
     </div>
   )
 }
