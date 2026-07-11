@@ -53,6 +53,7 @@ export default async function SearchPage(props: {
       key={id}
       id={id}
       savedMessages={messages}
+      title={chat.title}
       isGuest={!userId}
       isCloudDeployment={isCloudDeployment}
       libraryAvailable={libraryAvailable}

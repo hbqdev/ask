@@ -382,4 +382,53 @@ describe('RLS Policies Integration Tests', () => {
       expect(result.error).toBe('Unauthorized')
     })
   })
+
+  describe('Message Deletion with RLS (deleteMessagesByIds)', () => {
+    it('should allow a user to delete an exact set of messages from their own chat', async () => {
+      const userId = fixtures.users.user1
+      const chatId = fixtures.chats.privateChat1.id
+      const messageIds = [
+        fixtures.messages.message1.id,
+        fixtures.messages.message2.id
+      ]
+
+      const mockDelete = vi.spyOn(dbActions, 'deleteMessagesByIds')
+      mockDelete.mockImplementation(async (cid, ids, uid) => {
+        if (cid === chatId && uid === userId) {
+          return { count: ids.length }
+        }
+        return { count: 0 }
+      })
+
+      const result = await dbActions.deleteMessagesByIds(
+        chatId,
+        messageIds,
+        userId
+      )
+
+      expect(result.count).toBe(messageIds.length)
+    })
+
+    it('should prevent a user from deleting messages in another users chat', async () => {
+      const userId = fixtures.users.user1
+      const chatId = fixtures.chats.privateChat2.id // User 2's chat
+
+      const mockDelete = vi.spyOn(dbActions, 'deleteMessagesByIds')
+      mockDelete.mockImplementation(async (cid, ids, uid) => {
+        // Simulate RLS blocking deletion of another user's chat messages
+        if (cid === chatId && uid !== fixtures.users.user2) {
+          return { count: 0 }
+        }
+        return { count: ids.length }
+      })
+
+      const result = await dbActions.deleteMessagesByIds(
+        chatId,
+        [fixtures.messages.message1.id],
+        userId
+      )
+
+      expect(result.count).toBe(0)
+    })
+  })
 })

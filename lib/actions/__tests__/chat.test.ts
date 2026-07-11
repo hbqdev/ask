@@ -14,6 +14,7 @@ import {
   createChatAndSaveMessage,
   createChatWithFirstMessage,
   deleteChat,
+  deleteMessages,
   deleteMessagesAfter,
   deleteMessagesFromIndex,
   getChats,
@@ -585,6 +586,67 @@ describe('Chat Actions', () => {
         userId
       )
       expect(revalidateTag).toHaveBeenCalledWith(`chat-${chatId}`, 'max')
+    })
+  })
+
+  describe('deleteMessages', () => {
+    it('should delete an exact set of message IDs (a single conversational turn)', async () => {
+      const chatId = 'chat-123'
+      const messageIds = ['msg-user-1', 'msg-assistant-1']
+      const userId = 'user-123'
+      const mockChat: Chat = {
+        id: chatId,
+        title: 'Test Chat',
+        userId,
+        visibility: 'private',
+        createdAt: new Date()
+      }
+
+      vi.mocked(getCurrentUserId).mockResolvedValue(userId)
+      vi.mocked(dbActions.getChat).mockResolvedValue(mockChat)
+      vi.mocked(dbActions.deleteMessagesByIds).mockResolvedValue({ count: 2 })
+
+      const result = await deleteMessages(chatId, messageIds)
+
+      expect(result).toEqual({ success: true, count: 2 })
+      expect(dbActions.deleteMessagesByIds).toHaveBeenCalledWith(
+        chatId,
+        messageIds,
+        userId
+      )
+      expect(revalidateTag).toHaveBeenCalledWith(`chat-${chatId}`, 'max')
+    })
+
+    it('should return error for unauthenticated user', async () => {
+      vi.mocked(getCurrentUserId).mockResolvedValue(undefined)
+
+      const result = await deleteMessages('chat-123', ['msg-1'])
+
+      expect(result).toEqual({
+        success: false,
+        error: 'User not authenticated'
+      })
+      expect(dbActions.deleteMessagesByIds).not.toHaveBeenCalled()
+    })
+
+    it('should return error for unauthorized access (chat belongs to another user)', async () => {
+      const chatId = 'chat-123'
+      const userId = 'user-123'
+      const mockChat: Chat = {
+        id: chatId,
+        title: 'Test Chat',
+        userId: 'other-user',
+        visibility: 'private',
+        createdAt: new Date()
+      }
+
+      vi.mocked(getCurrentUserId).mockResolvedValue(userId)
+      vi.mocked(dbActions.getChat).mockResolvedValue(mockChat)
+
+      const result = await deleteMessages(chatId, ['msg-1'])
+
+      expect(result).toEqual({ success: false, error: 'Unauthorized' })
+      expect(dbActions.deleteMessagesByIds).not.toHaveBeenCalled()
     })
   })
 

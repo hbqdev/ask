@@ -28,6 +28,7 @@ interface RenderMessageProps {
   addToolResult?: (params: { toolCallId: string; result: any }) => void
   onUpdateMessage?: (messageId: string, newContent: string) => Promise<void>
   reload?: (messageId: string) => Promise<void | string | null | undefined>
+  onDelete?: () => Promise<void> | void
   isLatestMessage?: boolean
   citationMaps?: Record<string, Record<number, SearchResultItem>>
   onQuoteContext?: (text: string) => void
@@ -46,6 +47,7 @@ export function RenderMessage({
   addToolResult,
   onUpdateMessage,
   reload,
+  onDelete,
   isLatestMessage = false,
   citationMaps = {},
   onQuoteContext
@@ -180,6 +182,7 @@ export function RenderMessage({
           messageId={messageId}
           metadata={message.metadata as UIMessageMetadata | undefined}
           reload={reload}
+          onDelete={onDelete}
           status={status}
           citationMaps={citationMaps}
           onQuoteContext={onQuoteContext}

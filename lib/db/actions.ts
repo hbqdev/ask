@@ -294,6 +294,32 @@ export async function deleteMessagesFromIndex(
 }
 
 /**
+ * Delete an exact set of messages by ID, scoped to a single chat — used to
+ * delete a single conversational turn (a user message + its assistant
+ * response(s)) without touching anything before or after it. Unlike
+ * deleteMessagesAfter/deleteMessagesFromIndex, this never implicitly
+ * deletes anything beyond the IDs passed in.
+ */
+export async function deleteMessagesByIds(
+  chatId: string,
+  messageIds: string[],
+  userId?: string
+): Promise<{ count: number }> {
+  if (messageIds.length === 0) {
+    return { count: 0 }
+  }
+
+  return withOptionalRLS(userId || null, async tx => {
+    const result = await tx
+      .delete(messages)
+      .where(and(eq(messages.chatId, chatId), inArray(messages.id, messageIds)))
+      .returning({ id: messages.id })
+
+    return { count: result.length }
+  })
+}
+
+/**
  * Get all chats for a user
  */
 export async function getChats(userId: string): Promise<Chat[]> {
