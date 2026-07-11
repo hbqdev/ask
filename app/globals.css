@@ -434,6 +434,21 @@
   & h6 {
     @apply text-sm font-medium mt-4 mb-2;
   }
+
+  /* Body copy rhythm: paragraphs and list items need breathing room, or a
+     long-form answer reads as one dense wall of text. */
+  & p {
+    @apply leading-relaxed mb-4;
+  }
+
+  & ul,
+  & ol {
+    @apply leading-relaxed mb-4 space-y-1.5;
+  }
+
+  & li {
+    @apply leading-relaxed;
+  }
 }
 
 @utility prose-sm {
@@ -460,32 +475,58 @@
   & h6 {
     @apply text-xs font-medium mt-3 mb-1;
   }
+
+  & p {
+    @apply leading-relaxed mb-3;
+  }
+
+  & ul,
+  & ol {
+    @apply leading-relaxed mb-3 space-y-1;
+  }
+
+  & li {
+    @apply leading-relaxed;
+  }
 }
 
 @utility prose-neutral {
-  /* Neutral theme styling for all headings */
+  /* Headings stay at full brightness — hierarchy comes from size/weight
+     (already set above) and the divider on h1/h2, not from fading them
+     out. Fading headings while body text stayed 100% opaque made regular
+     paragraphs compete with (or outshine) the headings meant to organize
+     them. */
   & h1 {
     @apply text-foreground border-b-2 border-border/50 pb-3;
   }
 
   & h2 {
-    @apply text-foreground/90 border-b border-border/40 pb-2;
+    @apply text-foreground border-b border-border/40 pb-2;
   }
 
-  & h3 {
-    @apply text-foreground/85;
+  & h3,
+  & h4,
+  & h5,
+  & h6 {
+    @apply text-foreground;
   }
 
-  & h4 {
+  /* Body copy recedes slightly so headings and emphasis read as the
+     "loud" elements and long paragraphs don't turn into a flat wall of
+     same-weight white text. */
+  & p,
+  & li,
+  & td {
     @apply text-foreground/80;
   }
 
-  & h5 {
-    @apply text-foreground/75;
+  & th {
+    @apply text-foreground font-semibold;
   }
 
-  & h6 {
-    @apply text-foreground/70;
+  & strong,
+  & b {
+    @apply text-foreground font-semibold;
   }
 }
 
