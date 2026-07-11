@@ -321,12 +321,22 @@ describe('SearXNGSearchProvider', () => {
       searxng?: 'ok' | 'fail'
       degoog?: 'ok' | 'fail'
       searxngResults?: any[]
-      degoogResults?: any[]
+      degoogWebResults?: any[]
+      degoogImageResults?: any[]
+      degoogVideoResults?: any[]
+      degoogNewsResults?: any[]
     }) {
       return vi.fn(async (url: string) => {
         if (url.includes('/api/search')) {
           if (opts.degoog === 'fail') throw new Error('degoog down')
-          return mockDegoogResponse(opts.degoogResults ?? [])
+          const type = new URL(url).searchParams.get('type')
+          const resultsByType: Record<string, any[]> = {
+            web: opts.degoogWebResults ?? [],
+            images: opts.degoogImageResults ?? [],
+            videos: opts.degoogVideoResults ?? [],
+            news: opts.degoogNewsResults ?? []
+          }
+          return mockDegoogResponse(resultsByType[type ?? 'web'] ?? [])
         }
         if (opts.searxng === 'fail') throw new Error('searxng down')
         return mockSearxngResponse(opts.searxngResults ?? [])
@@ -363,7 +373,7 @@ describe('SearXNGSearchProvider', () => {
             content: 'From SearXNG'
           }
         ],
-        degoogResults: [
+        degoogWebResults: [
           {
             title: 'Degoog result',
             url: 'https://degoog-only.example.com',
@@ -384,7 +394,10 @@ describe('SearXNGSearchProvider', () => {
         {}
       )
 
-      expect(fetchMock).toHaveBeenCalledTimes(2)
+      // 1 SearXNG call + degoog web + degoog images (always queried,
+      // mirroring SearXNG's own always-on images category) — no video/news
+      // calls since content_types didn't request them.
+      expect(fetchMock).toHaveBeenCalledTimes(3)
       const urls = result.results.map(r => r.url)
       expect(urls).toContain('https://searxng-only.example.com')
       expect(urls).toContain('https://degoog-only.example.com')
@@ -422,7 +435,7 @@ describe('SearXNGSearchProvider', () => {
       const fetchMock = dispatchingFetchMock({
         searxng: 'fail',
         degoog: 'ok',
-        degoogResults: [
+        degoogWebResults: [
           {
             title: 'Degoog result',
             url: 'https://degoog-only.example.com',
@@ -451,6 +464,210 @@ describe('SearXNGSearchProvider', () => {
       ])
       expect(result.images).toEqual([])
       expect(result.videos).toEqual([])
+    })
+
+    it('always queries degoog images, even when content_types requests neither video nor news', async () => {
+      const fetchMock = dispatchingFetchMock({
+        searxng: 'ok',
+        degoog: 'ok'
+      })
+      vi.stubGlobal('fetch', fetchMock)
+      const freshInstance = await freshProvider()
+
+      await freshInstance.search('query', 10, 'basic', [], [], {})
+
+      const calledTypes = fetchMock.mock.calls
+        .map(call => new URL(call[0]).searchParams.get('type'))
+        .filter(Boolean)
+      expect(calledTypes).toContain('images')
+      expect(calledTypes).not.toContain('videos')
+      expect(calledTypes).not.toContain('news')
+    })
+
+    it('merges degoog image results into result.images, resolving relative degoog paths to absolute URLs', async () => {
+      const fetchMock = dispatchingFetchMock({
+        searxng: 'ok',
+        degoog: 'ok',
+        degoogImageResults: [
+          {
+            title: 'A cat',
+            url: 'https://example.com/cat-article',
+            snippet: 'A very good cat',
+            imageUrl: '/api/proxy/image?url=cat.jpg'
+          }
+        ]
+      })
+      vi.stubGlobal('fetch', fetchMock)
+      const freshInstance = await freshProvider()
+
+      const result = await freshInstance.search(
+        'query',
+        10,
+        'basic',
+        [],
+        [],
+        {}
+      )
+
+      expect(result.images).toContainEqual({
+        url: 'https://degoog.example.com/api/proxy/image?url=cat.jpg',
+        description: 'A very good cat',
+        title: 'A cat',
+        sourceUrl: 'https://example.com/cat-article'
+      })
+    })
+
+    it('only queries degoog videos when content_types includes "video", and merges them into result.videos', async () => {
+      const fetchMockWithoutVideo = dispatchingFetchMock({
+        searxng: 'ok',
+        degoog: 'ok'
+      })
+      vi.stubGlobal('fetch', fetchMockWithoutVideo)
+      const instanceWithoutVideo = await freshProvider()
+      await instanceWithoutVideo.search('query', 10, 'basic', [], [], {})
+      const typesWithoutVideo = fetchMockWithoutVideo.mock.calls
+        .map(call => new URL(call[0]).searchParams.get('type'))
+        .filter(Boolean)
+      expect(typesWithoutVideo).not.toContain('videos')
+
+      const fetchMockWithVideo = dispatchingFetchMock({
+        searxng: 'ok',
+        degoog: 'ok',
+        degoogVideoResults: [
+          {
+            title: 'A video',
+            url: 'https://youtube.com/watch?v=abc',
+            snippet: '',
+            thumbnail: '/api/proxy/image?url=vid.jpg',
+            duration: '1:23',
+            source: 'Bing Videos'
+          }
+        ]
+      })
+      vi.stubGlobal('fetch', fetchMockWithVideo)
+      const instanceWithVideo = await freshProvider()
+      const result = await instanceWithVideo.search(
+        'query',
+        10,
+        'basic',
+        [],
+        [],
+        {
+          content_types: ['video']
+        }
+      )
+
+      const typesWithVideo = fetchMockWithVideo.mock.calls
+        .map(call => new URL(call[0]).searchParams.get('type'))
+        .filter(Boolean)
+      expect(typesWithVideo).toContain('videos')
+      expect(result.videos).toContainEqual({
+        title: 'A video',
+        link: 'https://youtube.com/watch?v=abc',
+        snippet: '',
+        imageUrl: 'https://degoog.example.com/api/proxy/image?url=vid.jpg',
+        duration: '1:23',
+        source: 'Bing Videos',
+        channel: '',
+        date: '',
+        position: 0
+      })
+    })
+
+    it('only queries degoog news when content_types includes "news", and merges them into result.results', async () => {
+      const fetchMockWithoutNews = dispatchingFetchMock({
+        searxng: 'ok',
+        degoog: 'ok'
+      })
+      vi.stubGlobal('fetch', fetchMockWithoutNews)
+      const instanceWithoutNews = await freshProvider()
+      await instanceWithoutNews.search('query', 10, 'basic', [], [], {})
+      const typesWithoutNews = fetchMockWithoutNews.mock.calls
+        .map(call => new URL(call[0]).searchParams.get('type'))
+        .filter(Boolean)
+      expect(typesWithoutNews).not.toContain('news')
+
+      const fetchMockWithNews = dispatchingFetchMock({
+        searxng: 'ok',
+        degoog: 'ok',
+        degoogNewsResults: [
+          {
+            title: 'Breaking AI news from degoog',
+            url: 'https://degoog-news.example.com/article',
+            snippet: 'From degoog news'
+          }
+        ]
+      })
+      vi.stubGlobal('fetch', fetchMockWithNews)
+      const instanceWithNews = await freshProvider()
+      const result = await instanceWithNews.search(
+        'query',
+        10,
+        'basic',
+        [],
+        [],
+        {
+          content_types: ['news']
+        }
+      )
+
+      const typesWithNews = fetchMockWithNews.mock.calls
+        .map(call => new URL(call[0]).searchParams.get('type'))
+        .filter(Boolean)
+      expect(typesWithNews).toContain('news')
+      expect(result.results.map(r => r.url)).toContain(
+        'https://degoog-news.example.com/article'
+      )
+    })
+
+    it('includes degoog images/videos in the SearXNG-down fallback branch too', async () => {
+      const fetchMock = dispatchingFetchMock({
+        searxng: 'fail',
+        degoog: 'ok',
+        degoogImageResults: [
+          {
+            title: 'Fallback image',
+            url: 'https://example.com/fallback-img-article',
+            snippet: 'An image',
+            imageUrl: '/api/proxy/image?url=fallback.jpg'
+          }
+        ],
+        degoogVideoResults: [
+          {
+            title: 'Fallback video',
+            url: 'https://youtube.com/watch?v=fallback',
+            snippet: '',
+            thumbnail: '/api/proxy/image?url=fallback-vid.jpg',
+            duration: '2:00',
+            source: 'Bing Videos'
+          }
+        ]
+      })
+      vi.stubGlobal('fetch', fetchMock)
+      const freshInstance = await freshProvider()
+
+      const result = await freshInstance.search('query', 10, 'basic', [], [], {
+        content_types: ['video']
+      })
+
+      expect(result.images).toContainEqual({
+        url: 'https://degoog.example.com/api/proxy/image?url=fallback.jpg',
+        description: 'An image',
+        title: 'Fallback image',
+        sourceUrl: 'https://example.com/fallback-img-article'
+      })
+      expect(result.videos).toContainEqual({
+        title: 'Fallback video',
+        link: 'https://youtube.com/watch?v=fallback',
+        snippet: '',
+        imageUrl:
+          'https://degoog.example.com/api/proxy/image?url=fallback-vid.jpg',
+        duration: '2:00',
+        source: 'Bing Videos',
+        channel: '',
+        date: '',
+        position: 0
+      })
     })
 
     it('throws when both SearXNG and degoog fail', async () => {
