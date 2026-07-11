@@ -441,9 +441,14 @@
     @apply leading-relaxed mb-4;
   }
 
+  /* Streamdown renders lists with `list-inside`, so the marker sits flush
+     at the same left edge as the paragraph text above it with no visual
+     separation. A left indent gives lists their own column, distinct from
+     surrounding prose — nested lists indent further still automatically,
+     relative to their parent item. */
   & ul,
   & ol {
-    @apply leading-relaxed mb-4 space-y-1.5;
+    @apply leading-relaxed mb-4 space-y-1.5 pl-5;
   }
 
   & li {
@@ -482,7 +487,7 @@
 
   & ul,
   & ol {
-    @apply leading-relaxed mb-3 space-y-1;
+    @apply leading-relaxed mb-3 space-y-1 pl-5;
   }
 
   & li {
