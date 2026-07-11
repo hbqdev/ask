@@ -136,4 +136,76 @@ describe('RenderMessage', () => {
     expect(screen.queryByText('Let me start researching.')).toBeNull()
     expect(screen.queryByText('I have a good initial overview.')).toBeNull()
   })
+
+  test('mutes interim narration during active streaming even though nothing has followed it yet', () => {
+    // While still streaming, "is this the last text part" can't tell real
+    // final content apart from narration a tool call is about to follow —
+    // nothing has followed it *yet* because streaming hasn't caught up.
+    // This narration chunk is currently the last part in the array, but it
+    // doesn't start with a heading, so it must stay muted rather than
+    // flash on screen before the next tool round arrives.
+    const message: UIMessage = {
+      id: 'assistant-msg',
+      role: 'assistant',
+      parts: [
+        { type: 'reasoning', text: 'Reasoning' } as any,
+        {
+          type: 'tool-search',
+          toolCallId: 'tool-1',
+          state: 'output-available',
+          input: {},
+          output: {}
+        } as any,
+        { type: 'text', text: 'Let me try a different search approach.' } as any
+      ]
+    } as UIMessage
+
+    render(
+      <RenderMessage
+        message={message}
+        messageId={message.id}
+        getIsOpen={() => true}
+        onOpenChange={() => {}}
+        status="streaming"
+      />
+    )
+
+    expect(screen.queryByTestId('answer-section')).not.toBeInTheDocument()
+    expect(
+      screen.queryByText('Let me try a different search approach.')
+    ).toBeNull()
+    expect(screen.getByTestId('research-process')).toHaveTextContent(
+      'reasoning,tool-search'
+    )
+  })
+
+  test('renders the real final answer live once it starts with a heading, even mid-stream', () => {
+    const message: UIMessage = {
+      id: 'assistant-msg',
+      role: 'assistant',
+      parts: [
+        { type: 'reasoning', text: 'Reasoning' } as any,
+        {
+          type: 'tool-search',
+          toolCallId: 'tool-1',
+          state: 'output-available',
+          input: {},
+          output: {}
+        } as any,
+        { type: 'text', text: '## Report\n\nGrowing live content...' } as any
+      ]
+    } as UIMessage
+
+    render(
+      <RenderMessage
+        message={message}
+        messageId={message.id}
+        getIsOpen={() => true}
+        onOpenChange={() => {}}
+        status="streaming"
+      />
+    )
+
+    expect(screen.getByTestId('answer-section')).toHaveTextContent('## Report')
+  })
 })

@@ -1,8 +1,8 @@
 import React from 'react'
 
 import type { ReasoningPart } from '@ai-sdk/provider-utils'
-import { fireEvent, render, screen, within } from '@testing-library/react'
-import { beforeEach, describe, expect, Mock, test, vi } from 'vitest'
+import { act, fireEvent, render, screen, within } from '@testing-library/react'
+import { afterEach, beforeEach, describe, expect, Mock, test, vi } from 'vitest'
 
 import type { ToolPart, UIMessage } from '@/lib/types/ai'
 
@@ -39,6 +39,10 @@ describe('ResearchProcessSection', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     mockGetIsOpen.mockReturnValue(false)
+  })
+
+  afterEach(() => {
+    vi.useRealTimers()
   })
 
   describe('Type Guards', () => {
@@ -283,6 +287,48 @@ describe('ResearchProcessSection', () => {
       )
 
       expect(screen.getByText('Completed 1 step')).toBeInTheDocument()
+    })
+
+    test('peeks open for 2 seconds while in progress, then auto-collapses', () => {
+      vi.useFakeTimers()
+
+      const singlePart = [
+        { type: 'reasoning', text: 'Still thinking' } as ReasoningPart
+      ]
+
+      const message = {
+        id: 'test-message',
+        role: 'assistant' as const,
+        parts: singlePart
+      }
+
+      render(
+        <ResearchProcessSection
+          message={message}
+          messageId="test-7e"
+          getIsOpen={mockGetIsOpen}
+          onOpenChange={mockOnOpenChange}
+          status="streaming"
+          hasSubsequentText={false}
+        />
+      )
+
+      // Open initially — the inner reasoning-section is visible.
+      expect(screen.getByTestId('reasoning-section')).toBeInTheDocument()
+
+      act(() => {
+        vi.advanceTimersByTime(2000)
+      })
+
+      // Auto-collapsed after the peek window — inner content unmounts
+      // (Radix Collapsible unmounts its content by default when closed),
+      // while the summary trigger itself remains.
+      expect(screen.queryByTestId('reasoning-section')).not.toBeInTheDocument()
+      expect(
+        screen.getByText('Working on it — 1 step so far')
+      ).toBeInTheDocument()
+
+      vi.useRealTimers()
     })
 
     test('pluralizes the step count correctly', () => {
