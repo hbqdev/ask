@@ -5,6 +5,7 @@ import { useEffect, useState } from 'react'
 import { IconWorld } from '@tabler/icons-react'
 import { toast } from 'sonner'
 
+import { SUMMARIZE_LABEL } from '@/lib/constants'
 import { cn } from '@/lib/utils'
 
 export interface Discover {
@@ -60,10 +61,10 @@ function SmallNewsCard({ item }: { item: Discover }) {
       <div className="px-4 pb-3 flex justify-end">
         <a
           href={`/?q=${encodeURIComponent(`Summary: ${item.url}`)}`}
-          title="Summarize with Ask"
-          className="opacity-0 group-hover:opacity-100 transition-opacity duration-200 text-[10px] font-semibold px-2.5 py-1 rounded-full bg-cyan-500/15 text-cyan-700 dark:text-cyan-300 hover:bg-cyan-500/25 border border-cyan-500/30"
+          title={SUMMARIZE_LABEL}
+          className="text-[10px] font-semibold px-2.5 py-1 rounded-full bg-cyan-500/15 text-cyan-700 dark:text-cyan-300 hover:bg-cyan-500/25 border border-cyan-500/30"
         >
-          Ask
+          {SUMMARIZE_LABEL}
         </a>
       </div>
     </div>
@@ -95,9 +96,9 @@ function MajorNewsCard({ item, isLeft = true }: { item: Discover; isLeft?: boole
       <a
         href={`/?q=${encodeURIComponent(`Summary: ${item.url}`)}`}
         onClick={e => e.stopPropagation()}
-        className="mt-3 self-start opacity-0 group-hover:opacity-100 transition-opacity duration-200 text-xs font-semibold px-3 py-1.5 rounded-full bg-cyan-500/15 text-cyan-700 dark:text-cyan-300 hover:bg-cyan-500/25 border border-cyan-500/30"
+        className="mt-3 self-start text-xs font-semibold px-3 py-1.5 rounded-full bg-cyan-500/15 text-cyan-700 dark:text-cyan-300 hover:bg-cyan-500/25 border border-cyan-500/30"
       >
-        Summarize with Ask
+        {SUMMARIZE_LABEL}
       </a>
     </div>
   )
