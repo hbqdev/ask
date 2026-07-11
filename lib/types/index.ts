@@ -101,6 +101,25 @@ export type SearXNGSearchResults = {
   query: string
 }
 
+// degoog is a complementary metasearch aggregator merged into the SearXNG
+// provider's results (see lib/tools/search/providers/searxng.ts) — it
+// already merges/dedupes across its own configured engines and annotates
+// each result with which of them agreed on it.
+export interface DegoogResult {
+  title: string
+  url: string
+  snippet: string
+  source?: string
+  score?: number
+  sources?: string[]
+  thumbnail?: string
+}
+
+export interface DegoogResponse {
+  query: string
+  results: DegoogResult[]
+}
+
 export type UploadedFile = {
   file?: File
   status: 'uploading' | 'uploaded' | 'error'
