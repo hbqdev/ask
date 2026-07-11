@@ -1,5 +1,6 @@
 import {
   DegoogResponse,
+  SearchResultImage,
   SearchResultItem,
   SearchResults,
   SearXNGResponse,
@@ -10,7 +11,14 @@ import { fetchDegoogJson } from '@/lib/utils/degoog-client'
 import { fetchSearxngJson } from '@/lib/utils/searxng-client'
 
 import { BaseSearchProvider, SearchContentType, SearchModeOption } from './base'
-import { mergeWithDegoogResults, toSearchResultItem } from './merge-degoog'
+import {
+  mergeImagesWithDegoog,
+  mergeVideosWithDegoog,
+  mergeWithDegoogResults,
+  toSearchResultImage,
+  toSearchResultItem,
+  toSerperVideoItem
+} from './merge-degoog'
 
 // degoog returns at most 20 results per call; request enough headroom over
 // what we'll actually keep so the post-merge dedup/slice has real results
@@ -58,6 +66,7 @@ export class SearXNGSearchProvider extends BaseSearchProvider {
     const isAcademic = options?.searchMode === 'academic'
     const isSocial = options?.searchMode === 'social'
     const wantsVideo = options?.content_types?.includes('video') ?? false
+    const wantsNews = options?.content_types?.includes('news') ?? false
     const extraCategories = (options?.content_types ?? [])
       .map(ct => CONTENT_TYPE_TO_CATEGORY[ct])
       .filter((cat): cat is string => Boolean(cat))
@@ -124,16 +133,26 @@ export class SearXNGSearchProvider extends BaseSearchProvider {
         return url.toString()
       }
 
-      const buildDegoogUrl = (baseUrl: string) => {
+      const buildDegoogTypeUrl = (type: string) => (baseUrl: string) => {
         const url = new URL(`${baseUrl}/api/search`)
         url.searchParams.append('q', effectiveQuery)
-        url.searchParams.append('type', 'web')
+        url.searchParams.append('type', type)
         url.searchParams.append(
           'max_results',
           String(Math.min(DEGOOG_MAX_RESULTS, maxResults * 2))
         )
         return url.toString()
       }
+
+      const buildDegoogUrl = buildDegoogTypeUrl('web')
+      // Images are always requested from degoog, mirroring SearXNG's own
+      // always-on 'images' category above. Videos/news are only requested
+      // when actually asked for, matching SearXNG's conditional categories
+      // — no point paying for a degoog fan-out to video/news engines for a
+      // response the caller will discard.
+      const buildDegoogImageUrl = buildDegoogTypeUrl('images')
+      const buildDegoogVideoUrl = buildDegoogTypeUrl('videos')
+      const buildDegoogNewsUrl = buildDegoogTypeUrl('news')
 
       // Query SearXNG and degoog concurrently so latency stays close to
       // whichever is slower, not the sum of both. degoog is a complement,
@@ -143,36 +162,74 @@ export class SearXNGSearchProvider extends BaseSearchProvider {
       // today's behavior. The reverse also degrades gracefully: if
       // SearXNG's primary AND fallback are both down but degoog succeeds,
       // we still return degoog's results instead of throwing.
-      const [searxngSettled, degoogSettled] = await Promise.allSettled([
+      const [
+        searxngSettled,
+        degoogWebSettled,
+        degoogImageSettled,
+        degoogVideoSettled,
+        degoogNewsSettled
+      ] = await Promise.allSettled([
         fetchSearxngJson(buildUrl),
-        fetchDegoogJson(buildDegoogUrl)
+        fetchDegoogJson(buildDegoogUrl),
+        fetchDegoogJson(buildDegoogImageUrl),
+        wantsVideo
+          ? fetchDegoogJson(buildDegoogVideoUrl)
+          : Promise.resolve(null),
+        wantsNews ? fetchDegoogJson(buildDegoogNewsUrl) : Promise.resolve(null)
       ])
 
-      if (degoogSettled.status === 'rejected') {
-        console.warn(
-          '[degoog] search failed, continuing without it:',
-          degoogSettled.reason
-        )
+      const extractDegoogResults = (
+        settled: PromiseSettledResult<{ data: unknown } | null>,
+        label: string
+      ) => {
+        if (settled.status === 'rejected') {
+          console.warn(
+            `[degoog] ${label} search failed, continuing without it:`,
+            settled.reason
+          )
+          return []
+        }
+        if (!settled.value) return []
+        return (settled.value.data as DegoogResponse).results ?? []
       }
-      const degoogData =
-        degoogSettled.status === 'fulfilled' && degoogSettled.value
-          ? (degoogSettled.value.data as DegoogResponse)
-          : null
-      const degoogResults = degoogData?.results ?? []
+
+      const degoogResults = extractDegoogResults(degoogWebSettled, 'web')
+      const degoogImageResults = extractDegoogResults(
+        degoogImageSettled,
+        'image'
+      )
+      const degoogVideoResults = wantsVideo
+        ? extractDegoogResults(degoogVideoSettled, 'video')
+        : []
+      const degoogNewsResults = wantsNews
+        ? extractDegoogResults(degoogNewsSettled, 'news')
+        : []
 
       if (searxngSettled.status === 'rejected') {
-        if (degoogResults.length === 0) {
+        if (
+          degoogResults.length === 0 &&
+          degoogImageResults.length === 0 &&
+          degoogVideoResults.length === 0 &&
+          degoogNewsResults.length === 0
+        ) {
           // Both failed (or degoog isn't configured/returned nothing) —
           // nothing to degrade to.
           throw searxngSettled.reason
         }
         // SearXNG is down but degoog isn't — return degoog-only results
         // rather than fail the whole search.
+        const degoogBaseUrl = process.env.DEGOOG_API_URL ?? ''
         return {
-          results: degoogResults.slice(0, maxResults).map(toSearchResultItem),
+          results: [...degoogResults, ...degoogNewsResults]
+            .slice(0, maxResults)
+            .map(toSearchResultItem),
           query,
-          images: [],
-          videos: [],
+          images: degoogImageResults
+            .slice(0, maxResults)
+            .map(result => toSearchResultImage(result, degoogBaseUrl)),
+          videos: degoogVideoResults
+            .slice(0, maxResults)
+            .map(result => toSerperVideoItem(result, degoogBaseUrl)),
           number_of_results: degoogResults.length
         }
       }
@@ -215,34 +272,58 @@ export class SearXNGSearchProvider extends BaseSearchProvider {
         })
       )
 
+      const baseImages: SearchResultImage[] = imageResults
+        .map(result => {
+          const imgSrc = result.img_src || ''
+          return imgSrc.startsWith('http') ? imgSrc : `${baseUrlUsed}${imgSrc}`
+        })
+        .filter(Boolean)
+
+      const baseVideos = videoResults.map(
+        (result: SearXNGResult): SerperSearchResultItem => ({
+          title: result.title,
+          link: result.url,
+          snippet: result.content,
+          imageUrl: result.thumbnail || '',
+          duration: result.length || '',
+          source: result.source || result.engine || '',
+          channel: result.author || '',
+          date: result.publishedDate || '',
+          position: 0
+        })
+      )
+
+      const degoogBaseUrl = process.env.DEGOOG_API_URL ?? ''
+      // Web and news degoog results both feed the same plain `results` list
+      // (news is just a more specific link result, see LINK_RESULT_CATEGORIES
+      // above), so merge them together in one pass.
+      const degoogTextResults = [...degoogResults, ...degoogNewsResults]
+
       // Format the results to match the expected SearchResults structure
       return {
         results:
-          degoogResults.length > 0
-            ? mergeWithDegoogResults(baseResults, degoogResults, maxResults)
+          degoogTextResults.length > 0
+            ? mergeWithDegoogResults(baseResults, degoogTextResults, maxResults)
             : baseResults,
         query: data.query,
-        images: imageResults
-          .map(result => {
-            const imgSrc = result.img_src || ''
-            return imgSrc.startsWith('http')
-              ? imgSrc
-              : `${baseUrlUsed}${imgSrc}`
-          })
-          .filter(Boolean),
-        videos: videoResults.map(
-          (result: SearXNGResult): SerperSearchResultItem => ({
-            title: result.title,
-            link: result.url,
-            snippet: result.content,
-            imageUrl: result.thumbnail || '',
-            duration: result.length || '',
-            source: result.source || result.engine || '',
-            channel: result.author || '',
-            date: result.publishedDate || '',
-            position: 0
-          })
-        ),
+        images:
+          degoogImageResults.length > 0
+            ? mergeImagesWithDegoog(
+                baseImages,
+                degoogImageResults,
+                maxResults,
+                degoogBaseUrl
+              )
+            : baseImages,
+        videos:
+          degoogVideoResults.length > 0
+            ? mergeVideosWithDegoog(
+                baseVideos,
+                degoogVideoResults,
+                maxResults,
+                degoogBaseUrl
+              )
+            : baseVideos,
         number_of_results: data.number_of_results
       }
     } catch (error) {

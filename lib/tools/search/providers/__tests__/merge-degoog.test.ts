@@ -1,8 +1,23 @@
 import { describe, expect, it } from 'vitest'
 
-import type { DegoogResult, SearchResultItem } from '@/lib/types'
+import type {
+  DegoogResult,
+  SearchResultImage,
+  SearchResultItem,
+  SerperSearchResultItem
+} from '@/lib/types'
 
-import { mergeWithDegoogResults, toSearchResultItem } from '../merge-degoog'
+import {
+  mergeImagesWithDegoog,
+  mergeVideosWithDegoog,
+  mergeWithDegoogResults,
+  resolveDegoogUrl,
+  toSearchResultImage,
+  toSearchResultItem,
+  toSerperVideoItem
+} from '../merge-degoog'
+
+const DEGOOG_BASE_URL = 'https://nogoog.example.com'
 
 function searxngItem(url: string, title = url): SearchResultItem {
   return { title, url, content: `content for ${title}` }
@@ -183,5 +198,206 @@ describe('toSearchResultItem', () => {
       url: 'https://example.com',
       content: 'An example snippet'
     })
+  })
+})
+
+describe('resolveDegoogUrl', () => {
+  it('leaves an already-absolute URL untouched', () => {
+    expect(
+      resolveDegoogUrl('https://cdn.example.com/img.jpg', DEGOOG_BASE_URL)
+    ).toBe('https://cdn.example.com/img.jpg')
+  })
+
+  it('resolves a degoog-relative proxy path against the base URL', () => {
+    expect(
+      resolveDegoogUrl(
+        '/api/proxy/image?url=https%3A%2F%2Fexample.com%2Fimg.jpg',
+        DEGOOG_BASE_URL
+      )
+    ).toBe(
+      `${DEGOOG_BASE_URL}/api/proxy/image?url=https%3A%2F%2Fexample.com%2Fimg.jpg`
+    )
+  })
+
+  it('returns an empty path unchanged', () => {
+    expect(resolveDegoogUrl('', DEGOOG_BASE_URL)).toBe('')
+  })
+})
+
+describe('toSearchResultImage', () => {
+  it('maps a degoog image result, resolving imageUrl against the base URL', () => {
+    const image = toSearchResultImage(
+      degoogResult('https://example.com/article', {
+        title: 'A cat',
+        snippet: 'A very good cat',
+        imageUrl: '/api/proxy/image?url=cat.jpg',
+        thumbnail: '/api/proxy/image?url=cat-thumb.jpg'
+      }),
+      DEGOOG_BASE_URL
+    )
+
+    expect(image).toEqual({
+      url: `${DEGOOG_BASE_URL}/api/proxy/image?url=cat.jpg`,
+      description: 'A very good cat',
+      title: 'A cat',
+      sourceUrl: 'https://example.com/article'
+    })
+  })
+
+  it('falls back to thumbnail when imageUrl is absent', () => {
+    const image = toSearchResultImage(
+      degoogResult('https://example.com/article', {
+        thumbnail: '/api/proxy/image?url=thumb-only.jpg'
+      }),
+      DEGOOG_BASE_URL
+    )
+
+    expect(image).toMatchObject({
+      url: `${DEGOOG_BASE_URL}/api/proxy/image?url=thumb-only.jpg`
+    })
+  })
+})
+
+describe('toSerperVideoItem', () => {
+  it('maps a degoog video result into the Serper video shape', () => {
+    const video = toSerperVideoItem(
+      degoogResult('https://youtube.com/watch?v=abc', {
+        title: 'A video',
+        snippet: 'Description',
+        thumbnail: '/api/proxy/image?url=vid-thumb.jpg',
+        duration: '1:23',
+        source: 'Bing Videos'
+      }),
+      DEGOOG_BASE_URL
+    )
+
+    expect(video).toEqual({
+      title: 'A video',
+      link: 'https://youtube.com/watch?v=abc',
+      snippet: 'Description',
+      imageUrl: `${DEGOOG_BASE_URL}/api/proxy/image?url=vid-thumb.jpg`,
+      duration: '1:23',
+      source: 'Bing Videos',
+      channel: '',
+      date: '',
+      position: 0
+    })
+  })
+})
+
+function searxngImage(url: string): SearchResultImage {
+  return url
+}
+
+describe('mergeImagesWithDegoog', () => {
+  it('dedupes an exact-duplicate resolved image URL appearing in both lists', () => {
+    const merged = mergeImagesWithDegoog(
+      [searxngImage('https://cdn.example.com/a.jpg')],
+      [
+        degoogResult('https://example.com/page-a', {
+          imageUrl: 'https://cdn.example.com/a.jpg'
+        }),
+        degoogResult('https://example.com/page-b', {
+          imageUrl: '/api/proxy/image?url=b.jpg'
+        })
+      ],
+      10,
+      DEGOOG_BASE_URL
+    )
+
+    const urls = merged.map(img => (typeof img === 'string' ? img : img.url))
+    expect(
+      urls.filter(u => u === 'https://cdn.example.com/a.jpg')
+    ).toHaveLength(1)
+    expect(urls).toContain(`${DEGOOG_BASE_URL}/api/proxy/image?url=b.jpg`)
+  })
+
+  it('promotes niche-source (e.g. Wikimedia Commons) images ahead of mainstream duplicates', () => {
+    const searxngImages = [
+      searxngImage('https://m1.com/1.jpg'),
+      searxngImage('https://m2.com/2.jpg'),
+      searxngImage('https://m3.com/3.jpg')
+    ]
+    const degoogResults = [
+      degoogResult('https://commons.wikimedia.org/wiki/File:x', {
+        source: 'Wikimedia Commons',
+        imageUrl: '/api/proxy/image?url=commons.jpg'
+      })
+    ]
+
+    const merged = mergeImagesWithDegoog(
+      searxngImages,
+      degoogResults,
+      2,
+      DEGOOG_BASE_URL
+    )
+
+    const urls = merged.map(img => (typeof img === 'string' ? img : img.url))
+    expect(urls).toContain(`${DEGOOG_BASE_URL}/api/proxy/image?url=commons.jpg`)
+  })
+
+  it('slices to maxResults after merging', () => {
+    const merged = mergeImagesWithDegoog(
+      [searxngImage('https://s1.com/1.jpg')],
+      [
+        degoogResult('https://d1.com', { imageUrl: 'https://d1.com/1.jpg' }),
+        degoogResult('https://d2.com', { imageUrl: 'https://d2.com/2.jpg' })
+      ],
+      2,
+      DEGOOG_BASE_URL
+    )
+
+    expect(merged).toHaveLength(2)
+  })
+})
+
+function serperVideo(link: string): SerperSearchResultItem {
+  return {
+    title: link,
+    link,
+    snippet: '',
+    imageUrl: '',
+    duration: '',
+    source: '',
+    channel: '',
+    date: '',
+    position: 0
+  }
+}
+
+describe('mergeVideosWithDegoog', () => {
+  it('dedupes an exact-duplicate video URL appearing in both lists', () => {
+    const merged = mergeVideosWithDegoog(
+      [serperVideo('https://youtube.com/watch?v=abc')],
+      [
+        degoogResult('https://youtube.com/watch?v=abc', {
+          source: 'Bing Videos'
+        })
+      ],
+      10,
+      DEGOOG_BASE_URL
+    )
+
+    expect(merged).toHaveLength(1)
+  })
+
+  it('adds a distinct degoog video not present in the SearXNG list', () => {
+    const merged = mergeVideosWithDegoog(
+      [serperVideo('https://youtube.com/watch?v=abc')],
+      [
+        degoogResult('https://youtube.com/watch?v=xyz', {
+          source: 'Google Videos'
+        })
+      ],
+      10,
+      DEGOOG_BASE_URL
+    )
+
+    expect(merged.map(v => v.link)).toEqual(
+      expect.arrayContaining([
+        'https://youtube.com/watch?v=abc',
+        'https://youtube.com/watch?v=xyz'
+      ])
+    )
   })
 })
