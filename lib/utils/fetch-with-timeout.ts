@@ -20,7 +20,7 @@ export function createTimeoutFetch(
   timeoutMs: number,
   externalSignal?: AbortSignal
 ): typeof fetch {
-  return (input, init) => {
+  return async (input, init) => {
     const controller = new AbortController()
     const timer = setTimeout(() => {
       controller.abort(
@@ -52,8 +52,31 @@ export function createTimeoutFetch(
       }
     }
 
-    return fetch(input, { ...init, signal: controller.signal }).finally(() =>
+    const response = await fetch(input, { ...init, signal: controller.signal })
+
+    // fetch()'s own promise resolves once response headers arrive — for a
+    // streaming chat completion, that's only the very start. A naive
+    // `.finally(() => clearTimeout(timer))` chained on the fetch() promise
+    // clears the deadline the instant headers land, leaving the entire body
+    // stream (where a model actually generates tokens, and where the real
+    // production hang occurred) with no timeout at all. Verified live: a
+    // request whose body streamed for 7+ minutes was never cut off, because
+    // the timer had already been cleared within the first second. Keep the
+    // timer alive until the body itself finishes — the abort still covers
+    // the whole request via `controller.signal` regardless of when it fires.
+    if (!response.body) {
       clearTimeout(timer)
+      return response
+    }
+
+    const timedBody = response.body.pipeThrough(
+      new TransformStream({
+        flush() {
+          clearTimeout(timer)
+        }
+      })
     )
+
+    return new Response(timedBody, response)
   }
 }
