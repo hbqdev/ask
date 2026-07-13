@@ -206,7 +206,8 @@ export function createResearcher({
   parentTraceId,
   searchMode = 'balanced',
   sources = ['web'],
-  systemInstructions
+  systemInstructions,
+  abortSignal
 }: {
   model: string
   modelConfig?: Model
@@ -214,6 +215,7 @@ export function createResearcher({
   searchMode?: SearchMode
   sources?: SearchSources
   systemInstructions?: string
+  abortSignal?: AbortSignal
 }) {
   try {
     const currentDate = new Date().toLocaleString()
@@ -312,7 +314,7 @@ export function createResearcher({
 
     // Create ToolLoopAgent with all configuration
     const agent = new ToolLoopAgent({
-      model: getModel(model),
+      model: getModel(model, abortSignal),
       instructions: `${systemPrompt}\nCurrent date and time: ${currentDate}`,
       tools,
       activeTools: activeToolsList,

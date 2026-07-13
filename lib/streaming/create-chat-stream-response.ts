@@ -131,7 +131,8 @@ export async function createChatStreamResponse(
       parentTraceId,
       searchMode,
       sources,
-      systemInstructions
+      systemInstructions,
+      abortSignal
     })
 
     // For OpenAI models, strip reasoning parts from UIMessages before conversion

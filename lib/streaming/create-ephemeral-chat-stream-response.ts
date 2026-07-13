@@ -95,7 +95,8 @@ export async function createEphemeralChatStreamResponse(
       modelConfig: model,
       parentTraceId,
       searchMode,
-      sources
+      sources,
+      abortSignal
     })
 
     const modelId = `${model.providerId}:${model.id}`
