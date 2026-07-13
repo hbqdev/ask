@@ -57,9 +57,12 @@ export function looksLikeNarrationStart(text: string): boolean {
 
 /**
  * Find the first level-2 markdown heading (`## `) at the start of a line,
- * or immediately after a Vercel AI SDK channel marker like `<channel|>`
- * (these get concatenated into the text part when the model emits
- * channel-switch tokens in the same text-delta stream as the answer).
+ * immediately after a Vercel AI SDK channel marker like `<channel|>`, or
+ * immediately after a model-specific closing think-tag like `</think>` or
+ * `</mm:think>` (some models, e.g. minimax-m3, emit their reasoning inline
+ * in the text stream instead of as a separate reasoning part, closed with
+ * a custom tag right before the real answer with no newline in between —
+ * seen in production as `...bullets.</mm:think>## Why Super Flower's...`).
  * Returns null if no heading is present yet.
  *
  * NOTE: we use `<[a-z]+\|>` rather than `<\|[^|]*\|>` because the latter
@@ -69,7 +72,7 @@ export function looksLikeNarrationStart(text: string): boolean {
 export function findHeadingMatch(
   text: string
 ): { index: number; markerLength: number } | null {
-  const match = /(^|\n|<[a-z]+\|>)(##\s)/.exec(text)
+  const match = /(^|\n|<[a-z]+\|>|<\/[a-z:]+>)(##\s)/.exec(text)
   if (!match) return null
   return { index: match.index, markerLength: match[1].length }
 }
