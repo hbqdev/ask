@@ -114,6 +114,24 @@ describe('stripNarrationPreamble', () => {
     expect(out).toBe('## Answer\nHere is the answer.')
   })
 
+  it('strips narration when ## is preceded by a closing think-tag with no newline', () => {
+    // Real bug observed with minimax-m3:cloud in production: the model's
+    // reasoning arrives inline in the text part (not as a separate
+    // reasoning part) and is closed with a custom tag directly butted up
+    // against the heading — "...bullets.</mm:think>## Why Super Flower's
+    // Warranty Process Sucks" — with no newline in between. The regex
+    // must recognize this boundary the same way it does <channel|>.
+    const text =
+      "Let me synthesize what I've found. No need for heavy subheadings.</mm:think>## Why Super Flower's Warranty Process Sucks\n" +
+      "Yeah, you're not alone in that frustration."
+    const out = stripNarrationPreamble(text)
+    expect(out.startsWith("## Why Super Flower's Warranty Process Sucks")).toBe(
+      true
+    )
+    expect(out).not.toMatch(/Let me synthesize/)
+    expect(out).not.toMatch(/mm:think/)
+  })
+
   it('strips narration even when preceded by an unrelated garbled first sentence', () => {
     // Real bug observed with gemma4:31b:cloud: the model prepends an
     // unrelated or garbled sentence before its actual self-talk kicks in,
