@@ -1,5 +1,4 @@
 import type { Metadata, Viewport } from 'next'
-import { Inter as FontSans } from 'next/font/google'
 
 import { Analytics } from '@vercel/analytics/next'
 
@@ -8,7 +7,6 @@ import { ChatHeaderProvider } from '@/lib/contexts/chat-header-context'
 import { UserProvider } from '@/lib/contexts/user-context'
 import { hasSupabasePublicConfig } from '@/lib/supabase/keys'
 import { createClient } from '@/lib/supabase/server'
-import { cn } from '@/lib/utils'
 
 import { SidebarProvider } from '@/components/ui/sidebar'
 import { Toaster } from '@/components/ui/sonner'
@@ -22,11 +20,6 @@ import { PostHogProvider } from '@/components/posthog-provider'
 import { ThemeProvider } from '@/components/theme-provider'
 
 import './globals.css'
-
-const fontSans = FontSans({
-  subsets: ['latin'],
-  variable: '--font-sans'
-})
 
 const title = 'Ask'
 const description =
@@ -73,12 +66,7 @@ export default async function RootLayout({
 
   return (
     <html lang="en" suppressHydrationWarning>
-      <body
-        className={cn(
-          'fixed inset-0 flex flex-col font-sans antialiased overflow-hidden',
-          fontSans.variable
-        )}
-      >
+      <body className="fixed inset-0 flex flex-col font-sans antialiased overflow-hidden">
         <ThemeProvider
           attribute="class"
           defaultTheme="system"
