@@ -374,15 +374,15 @@ export function WeatherWidget({ className }: { className?: string }) {
             return (
               <div
                 key={day.date}
-                className="flex flex-col items-center gap-0.5 text-center"
+                className="flex flex-col items-center gap-1 text-center"
               >
                 <span className="text-[10px] text-muted-foreground">
                   {getWeekdayLabel(day.date)}
                 </span>
-                <span className="text-base leading-none">
+                <span className="flex items-center justify-center size-9 rounded-full bg-gradient-to-b from-muted/70 to-muted/30 text-2xl leading-none drop-shadow-sm">
                   {dayCondition.icon}
                 </span>
-                <span className="text-[11px] font-medium leading-none whitespace-nowrap">
+                <span className="text-[11px] font-medium leading-none whitespace-nowrap mt-0.5">
                   {high.primary}/{low.primary}°{high.primaryUnit}
                 </span>
                 <span className="text-[11px] font-medium leading-none mt-1 whitespace-nowrap">
