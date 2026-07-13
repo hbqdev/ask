@@ -25,11 +25,27 @@ import { perfLog, perfTime } from '@/lib/utils/perf-logging'
 import { resetAllCounters } from '@/lib/utils/perf-tracking'
 import { isProviderEnabled } from '@/lib/utils/registry'
 
+// Only takes effect on Vercel's serverless runtime; this deployment runs as
+// a long-lived Node/Docker server, where Next.js ignores it entirely. Kept
+// in sync with GENERATION_TIMEOUT_MS below, which is the real enforcement
+// mechanism here — without it, a hung model or tool call had no ceiling at
+// all and would leave a request stuck (and un-logged) indefinitely, with
+// only the client's own eventual timeout ever surfacing an error.
 export const maxDuration = 300
+const GENERATION_TIMEOUT_MS = 300_000
 
 export async function POST(req: Request) {
   const startTime = performance.now()
-  const abortSignal = req.signal
+  // Aborts if the client disconnects (req.signal) OR generation runs past
+  // GENERATION_TIMEOUT_MS, whichever comes first. This signal alone isn't
+  // sufficient to stop an already-in-flight request to the model provider
+  // (verified live — see createTimeoutFetch in lib/utils/registry.ts for
+  // the mechanism that actually guarantees that), but it does still let the
+  // agent loop stop cleanly between steps once it fires.
+  const abortSignal = AbortSignal.any([
+    req.signal,
+    AbortSignal.timeout(GENERATION_TIMEOUT_MS)
+  ])
 
   // Reset counters for new request (development only)
   if (process.env.ENABLE_PERF_LOGGING === 'true') {
@@ -38,7 +54,15 @@ export async function POST(req: Request) {
 
   try {
     const body = await req.json()
-    const { message, messages, chatId, trigger, messageId, isNewChat, systemInstructions } = body
+    const {
+      message,
+      messages,
+      chatId,
+      trigger,
+      messageId,
+      isNewChat,
+      systemInstructions
+    } = body
     const analyticsId: unknown = body.analyticsId
 
     // Normalize the message id up front so persistence and analytics agree on it.
@@ -208,7 +232,10 @@ export async function POST(req: Request) {
           isNewChat,
           searchMode,
           sources,
-          systemInstructions: typeof systemInstructions === 'string' ? systemInstructions : undefined
+          systemInstructions:
+            typeof systemInstructions === 'string'
+              ? systemInstructions
+              : undefined
         })
 
     perfTime('createChatStreamResponse resolved', streamStart)

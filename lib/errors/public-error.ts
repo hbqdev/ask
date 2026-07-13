@@ -12,6 +12,7 @@ export type PublicErrorCode =
   | 'provider_rate_limit'
   | 'provider_unavailable'
   | 'rate_limit'
+  | 'timeout'
   | 'unsupported_input'
   | 'unknown'
 
@@ -55,6 +56,7 @@ const PUBLIC_ERROR_CODES: ReadonlySet<string> = new Set([
   'provider_rate_limit',
   'provider_unavailable',
   'rate_limit',
+  'timeout',
   'unsupported_input',
   'unknown'
 ])
@@ -110,6 +112,17 @@ const CONTEXT_LENGTH_PATTERNS = [
   /maximum context/i,
   /token limit/i,
   /too many tokens/i
+]
+
+// Matches the DOMException AbortSignal.timeout() produces (name
+// "TimeoutError", message "The operation was aborted due to timeout") when
+// our own generation-timeout fires — see app/api/chat/route.ts. Distinct
+// from a plain client-disconnect abort, which has no matching reason here
+// and falls through to the generic unknown-error message instead.
+const TIMEOUT_PATTERNS = [
+  /timeouterror/i,
+  /aborted due to timeout/i,
+  /timed out/i
 ]
 
 const MODEL_UNAVAILABLE_PATTERNS = [
@@ -346,6 +359,15 @@ function classifyError(snapshot: ErrorSnapshot, fallbackMessage?: string) {
       error:
         'This conversation is too long for the selected model. Start a new chat or shorten your message.',
       retryable: false
+    }
+  }
+
+  if (matchesAny(combined, TIMEOUT_PATTERNS)) {
+    return {
+      code: 'timeout' as const,
+      type: 'general' as const,
+      error: 'The response took too long and was stopped. Please try again.',
+      retryable: true
     }
   }
 
