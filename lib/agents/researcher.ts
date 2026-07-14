@@ -52,14 +52,13 @@ function wrapSearchToolWithDedup<T extends ReturnType<typeof createSearchTool>>(
   originalTool: T,
   seenUrls: Set<string>
 ): T {
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   return tool({
     description: originalTool.description,
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+
     inputSchema: originalTool.inputSchema as any,
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+
     toModelOutput: originalTool.toModelOutput as any,
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+
     async *execute(params: any, context: any) {
       const executeFunc = originalTool.execute
       if (!executeFunc) throw new Error('Search tool execute is not defined')
@@ -161,14 +160,13 @@ export function wrapSearchToolForSources<
 
   if (!academicOnly && !socialOnly) return originalTool
 
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   return tool({
     description: originalTool.description,
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+
     inputSchema: originalTool.inputSchema as any,
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+
     toModelOutput: originalTool.toModelOutput as any,
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+
     async *execute(params: any, context: any) {
       const modifiedParams = {
         ...params,
@@ -235,7 +233,9 @@ export function createResearcher({
   systemInstructions,
   abortSignal,
   skipSearch = false,
-  standaloneQuery
+  standaloneQuery,
+  needsRecent = false,
+  expandedQueriesPromise
 }: {
   model: string
   modelConfig?: Model
@@ -255,12 +255,23 @@ export function createResearcher({
   // research agent as a scoping hint alongside the raw conversation —
   // Perplexica's pattern — not as a rigid replacement query.
   standaloneQuery?: string
+  // Set by the query classifier when this turn's answer depends on
+  // current/recent information — every search this turn makes narrows
+  // SearXNG's time_range to prefer fresh pages.
+  needsRecent?: boolean
+  // In-flight query reformulations (lib/agents/query-expander.ts) — the
+  // first search of the turn also searches these variants and merges
+  // unique results. Passed as a promise so expansion overlaps with prep.
+  expandedQueriesPromise?: Promise<string[]>
 }) {
   try {
     const currentDate = new Date().toLocaleString()
 
     // Create model-specific tools with proper typing
-    const originalSearchTool = createSearchTool(model)
+    const originalSearchTool = createSearchTool(model, {
+      timeRange: needsRecent ? 'month' : undefined,
+      expandedQueries: expandedQueriesPromise
+    })
     const askQuestionTool = createQuestionTool(model)
     const todoTools = createTodoTools()
 

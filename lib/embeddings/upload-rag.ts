@@ -10,9 +10,9 @@ import { promisify } from 'node:util'
 import { splitText } from './split-text'
 import {
   cosineSimilarity,
+  type EmbeddingModelId,
   embedTexts,
   getConfiguredModel,
-  type EmbeddingModelId,
 } from './transformers-embedding'
 
 const execFileAsync = promisify(execFile)

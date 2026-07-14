@@ -56,6 +56,10 @@ export class SearXNGSearchProvider extends BaseSearchProvider {
     options?: {
       searchMode?: SearchModeOption
       content_types?: SearchContentType[]
+      // Set when the classifier flagged this turn as recency-sensitive
+      // (lib/agents/query-classifier.ts needsRecent) — narrows SearXNG's
+      // time_range so fresh pages outrank stale ones.
+      time_range?: 'day' | 'week' | 'month' | 'year'
     }
   ): Promise<SearchResults> {
     this.validateApiUrl(
@@ -115,16 +119,17 @@ export class SearXNGSearchProvider extends BaseSearchProvider {
           const categories = ['general', 'images', ...extraCategories].join(',')
           url.searchParams.append('categories', categories)
 
-          // Apply search depth settings
+          // Apply search depth settings. An explicit time_range from the
+          // recency classifier overrides the depth default in both modes.
           if (searchDepth === 'advanced') {
-            url.searchParams.append('time_range', '')
+            url.searchParams.append('time_range', options?.time_range ?? '')
             url.searchParams.append('safesearch', '0')
             url.searchParams.append(
               'engines',
               'google,bing,duckduckgo,wikipedia'
             )
           } else {
-            url.searchParams.append('time_range', 'year')
+            url.searchParams.append('time_range', options?.time_range ?? 'year')
             url.searchParams.append('safesearch', '1')
             url.searchParams.append('engines', 'google,bing')
           }

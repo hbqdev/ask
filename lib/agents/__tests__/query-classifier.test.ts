@@ -54,7 +54,11 @@ describe('classifyQuery', () => {
 
   it('returns the model classification on success', async () => {
     mockGenerateText.mockResolvedValue({
-      output: { skipSearch: true, standaloneQuery: 'confirm the plan' }
+      output: {
+        skipSearch: true,
+        standaloneQuery: 'confirm the plan',
+        needsRecent: false
+      }
     } as any)
 
     const result = await classifyQuery({
@@ -67,7 +71,8 @@ describe('classifyQuery', () => {
 
     expect(result).toEqual({
       skipSearch: true,
-      standaloneQuery: 'confirm the plan'
+      standaloneQuery: 'confirm the plan',
+      needsRecent: false
     })
   })
 
@@ -80,13 +85,14 @@ describe('classifyQuery', () => {
 
     expect(result).toEqual({
       skipSearch: false,
-      standaloneQuery: 'what is the tallest mountain in South Korea'
+      standaloneQuery: 'what is the tallest mountain in South Korea',
+      needsRecent: false
     })
   })
 
   it('falls back when the model returns an empty standaloneQuery', async () => {
     mockGenerateText.mockResolvedValue({
-      output: { skipSearch: true, standaloneQuery: '   ' }
+      output: { skipSearch: true, standaloneQuery: '   ', needsRecent: false }
     } as any)
 
     const result = await classifyQuery({
@@ -95,7 +101,8 @@ describe('classifyQuery', () => {
 
     expect(result).toEqual({
       skipSearch: false,
-      standaloneQuery: 'hello there'
+      standaloneQuery: 'hello there',
+      needsRecent: false
     })
   })
 
@@ -109,14 +116,19 @@ describe('classifyQuery', () => {
     expect(mockGenerateText).not.toHaveBeenCalled()
     expect(result).toEqual({
       skipSearch: false,
-      standaloneQuery: 'what time is it'
+      standaloneQuery: 'what time is it',
+      needsRecent: false
     })
   })
 
   it('prefers CLASSIFIER_OLLAMA_BASE_URL over OLLAMA_BASE_URL when both are set', async () => {
     process.env.CLASSIFIER_OLLAMA_BASE_URL = 'http://serenity:11434'
     mockGenerateText.mockResolvedValue({
-      output: { skipSearch: false, standaloneQuery: 'what time is it' }
+      output: {
+        skipSearch: false,
+        standaloneQuery: 'what time is it',
+        needsRecent: true
+      }
     } as any)
 
     await classifyQuery({ messages: [userMsg('what time is it')] })

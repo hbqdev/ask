@@ -17,6 +17,7 @@ import { isTracingEnabled } from '@/lib/utils/telemetry'
 
 import { loadChat } from '../actions/chat'
 import { classifyQuery } from '../agents/query-classifier'
+import { expandQuery } from '../agents/query-expander'
 import { generateChatTitle } from '../agents/title-generator'
 import {
   getMaxAllowedTokens,
@@ -153,7 +154,8 @@ export async function createChatStreamResponse(
     const classificationPromise = bypassClassifier
       ? Promise.resolve({
           skipSearch: false,
-          standaloneQuery: latestMessageText
+          standaloneQuery: latestMessageText,
+          needsRecent: false
         })
       : classifyQuery({ messages: messagesToModel, abortSignal })
 
@@ -275,6 +277,19 @@ export async function createChatStreamResponse(
 
         const classification = await classificationPromise
 
+        // Query expansion (lib/agents/query-expander.ts) starts as soon as
+        // the resolved standalone query exists and overlaps with agent
+        // construction — the first search of the turn awaits it (bounded)
+        // and fans out to the variants. Speed mode and skipped turns stay
+        // single-query.
+        const expandedQueriesPromise =
+          !classification.skipSearch && searchMode !== 'speed'
+            ? expandQuery({
+                standaloneQuery: classification.standaloneQuery,
+                abortSignal
+              })
+            : Promise.resolve([])
+
         if (!bypassClassifier) {
           // Same part id — replaces the 'running' entry in place.
           writer.write({
@@ -300,7 +315,9 @@ export async function createChatStreamResponse(
           systemInstructions,
           abortSignal,
           skipSearch: classification.skipSearch,
-          standaloneQuery: classification.standaloneQuery
+          standaloneQuery: classification.standaloneQuery,
+          needsRecent: classification.needsRecent,
+          expandedQueriesPromise
         })
 
         llmStart = performance.now()

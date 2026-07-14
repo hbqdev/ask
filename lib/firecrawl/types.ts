@@ -49,6 +49,18 @@ export type FirecrawlSearchResponse = {
   data: FirecrawlSearchResponseData
 }
 
+export type FirecrawlScrapeResponse = {
+  success: boolean
+  data: {
+    markdown?: string
+    metadata?: {
+      title?: string
+      sourceURL?: string
+      statusCode?: number
+    }
+  }
+}
+
 type FirecrawlImageSearchResponseData = {
   images?: FirecrawlImageResult[]
 }
