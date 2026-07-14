@@ -13,6 +13,7 @@ import {
 import { FirecrawlClient } from '@/lib/firecrawl'
 import { fetchSchema } from '@/lib/schema/fetch'
 import { SearchResults as SearchResultsType } from '@/lib/types'
+import { crawl4aiScrapeOne, isCrawl4aiConfigured } from '@/lib/utils/crawl4ai'
 import {
   extractReadableContent,
   MIN_CONTENT_LENGTH
@@ -370,12 +371,49 @@ async function fetchTavilyExtractData(url: string): Promise<SearchResultsType> {
   }
 }
 
+// Free tier 2 of the rescue chain: the self-hosted Crawl4AI server — a
+// real headless browser returning clean markdown. Unmetered, so it sits
+// above both FlareSolverr and Firecrawl: it rescues the common failure
+// (JS-rendered page that a plain fetch sees as an empty shell) without
+// spending anything.
+async function fetchCrawl4aiData(url: string): Promise<SearchResultsType> {
+  const { markdown, title } = await crawl4aiScrapeOne(url)
+
+  if (markdown.length < MIN_CONTENT_LENGTH) {
+    throw new Error(
+      `Crawl4AI extracted too little content (${markdown.length} chars)`
+    )
+  }
+
+  const content =
+    markdown.length > CONTENT_CHARACTER_LIMIT
+      ? markdown.substring(0, CONTENT_CHARACTER_LIMIT) + '...[truncated]'
+      : markdown
+
+  return {
+    results: [
+      {
+        title: (title || new URL(url).hostname).substring(
+          0,
+          TITLE_CHARACTER_LIMIT
+        ),
+        content,
+        url
+      }
+    ],
+    query: '',
+    images: []
+  }
+}
+
 // Runs the rescue chain for a non-YouTube, non-PDF URL. Tiers are ordered
-// by cost: plain fetch (free) → FlareSolverr (free, self-hosted) →
-// Jina/Tavily extract (only when their API key is configured — inert in
-// deployments without them) → Firecrawl scrape (1 credit, last resort).
-// Each tier only runs when every cheaper tier has failed; if everything
-// fails the last error propagates to the graceful placeholder below.
+// by cost: plain fetch (free) → Crawl4AI (free, self-hosted browser +
+// markdown) → FlareSolverr (free, self-hosted, specifically for
+// Cloudflare-style bot walls Crawl4AI can't clear) → Jina/Tavily extract
+// (only when their API key is configured — inert in deployments without
+// them) → Firecrawl scrape (1 credit, last resort). Each tier only runs
+// when every cheaper tier has failed; if everything fails the last error
+// propagates to the graceful placeholder below.
 async function fetchWithRescueChain(url: string): Promise<SearchResultsType> {
   let lastError: unknown
 
@@ -386,6 +424,15 @@ async function fetchWithRescueChain(url: string): Promise<SearchResultsType> {
     // A URL without a .pdf extension can still serve a PDF — reroute.
     if (error instanceof Error && error.message.includes('PDF content type')) {
       return fetchPdfWithRescue(url)
+    }
+  }
+
+  if (isCrawl4aiConfigured()) {
+    try {
+      return await fetchCrawl4aiData(url)
+    } catch (error) {
+      lastError = error
+      console.error(`[fetch-chain] Crawl4AI failed for ${url}:`, error)
     }
   }
 

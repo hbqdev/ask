@@ -14,6 +14,7 @@ import {
   SearXNGResult,
   SearXNGSearchResults
 } from '@/lib/types'
+import { crawl4aiScrapeMany, isCrawl4aiConfigured } from '@/lib/utils/crawl4ai'
 import {
   extractReadableContent,
   MIN_CONTENT_LENGTH
@@ -270,11 +271,61 @@ async function advancedSearchXNGSearch(
     }
 
     if (searchDepth === 'advanced') {
-      const crawledResults = await Promise.all(
-        generalResults
-          .slice(0, maxResults * SEARXNG_CRAWL_MULTIPLIER)
-          .map(result => crawlPage(result, query))
+      const candidates = generalResults.slice(
+        0,
+        maxResults * SEARXNG_CRAWL_MULTIPLIER
       )
+
+      // Full-content enrichment: the self-hosted Crawl4AI server renders
+      // every candidate in a real browser and returns clean markdown, in
+      // one batched call. This is the whole point of self-hosting a
+      // scraper — the legacy crawlPage path below is a raw HTTP GET plus
+      // DOM scraping, which silently yields nothing on JS-rendered pages,
+      // so the model ends up reasoning over snippets. Unmetered, so it
+      // runs on every advanced turn. Falls back to crawlPage per-result
+      // if Crawl4AI is unconfigured or unreachable.
+      // Bound the browser budget: SearXNG's results are already ranked, so
+      // spend it on the most promising ones. Anything past the cap — and
+      // anything Crawl4AI can't render — still gets crawled by the cheap
+      // legacy path, so no candidate is silently dropped.
+      const MAX_ENRICH_URLS = 16
+      const toEnrich = candidates.slice(0, MAX_ENRICH_URLS)
+      const beyondCap = candidates.length - toEnrich.length
+
+      // Chunked + never-throws, so a slow chunk degrades to "those URLs
+      // weren't enriched" instead of aborting the whole enrichment (an
+      // earlier all-or-nothing version turned one timeout into a 140s
+      // turn by re-crawling every candidate through the legacy path).
+      const scraped = await crawl4aiScrapeMany(
+        toEnrich.map(r => r.url),
+        // domcontentloaded, not networkidle: benchmarked 4.7s vs 26.4s on
+        // a 16-URL batch, with MORE usable results. See Crawl4aiWaitUntil.
+        { waitUntil: 'domcontentloaded', chunkSize: 8, chunkTimeoutMs: 60_000 }
+      )
+      const byUrl = new Map(scraped.map(s => [s.url, s]))
+
+      const crawledResults = await Promise.all(
+        candidates.map(async result => {
+          const hit = byUrl.get(result.url)
+          if (!hit) return crawlPage(result, query)
+          return {
+            ...result,
+            content: highlightQueryTerms(
+              `${result.title}\n\n${hit.markdown}`.substring(0, 10000),
+              query
+            )
+          }
+        })
+      )
+
+      if (isCrawl4aiConfigured()) {
+        console.log(
+          `[advanced-search] crawl4ai enriched ${scraped.length}/${toEnrich.length}` +
+            (beyondCap > 0 ? `, ${beyondCap} beyond cap` : '') +
+            `; ${candidates.length - scraped.length} via legacy crawler`
+        )
+      }
+
       generalResults = crawledResults
         .filter(result => result !== null && isQualityContent(result.content))
         .map(result => result as SearXNGResult)

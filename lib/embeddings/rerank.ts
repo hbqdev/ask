@@ -1,5 +1,22 @@
 import { splitText } from './split-text'
-import { cosineSimilarity, embedTexts } from './transformers-embedding'
+import {
+  cosineSimilarity,
+  type EmbeddingModelId,
+  embedTexts
+} from './transformers-embedding'
+
+// Reranking runs on the critical path of EVERY advanced search turn, over
+// hundreds of passages. That makes it latency-bound, not quality-bound, so
+// it deliberately ignores EMBEDDING_MODEL (which upload-RAG uses, and which
+// is set to mxbai-embed-large here for indexing quality).
+//
+// Benchmarked in-container on 100 passages, CPU:
+//   all-MiniLM-L6-v2      199ms
+//   mxbai-embed-large-v1 4428ms   (22x slower)
+// At ~480 passages/turn that is ~1s vs ~21s — for a job whose only output
+// is a relative ordering, where the big model's extra fidelity is not
+// worth 20 seconds of the user's time.
+const RERANK_MODEL: EmbeddingModelId = 'Xenova/all-MiniLM-L6-v2'
 
 // Passage granularity: small enough that a passage is topically coherent,
 // large enough to carry answerable context. Modest overlap keeps sentence
@@ -50,7 +67,7 @@ export async function rerankByEmbedding<T extends RerankableDoc>(
   // One batch: [query, ...all passages]
   const flatPassages = passagesPerDoc.flat()
   if (flatPassages.length === 0) return []
-  const vectors = await embedTexts([query, ...flatPassages])
+  const vectors = await embedTexts([query, ...flatPassages], RERANK_MODEL)
   const queryVec = vectors[0]
   const passageVecs = vectors.slice(1)
 
