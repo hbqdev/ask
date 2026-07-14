@@ -4,20 +4,21 @@ import { z } from 'zod'
 
 import { createTimeoutFetch } from '../utils/fetch-with-timeout'
 
-// Same dedicated host as the query classifier (serenity GPU) but the
-// SMALLER granite variant: benchmarked 2026-07-14 on the extended suite,
-// 3b passes the expansion task 3/3 at ~3.4s while 8b takes ~10s — and
-// expansion must resolve inside the first search's bounded wait to be
-// useful. (3b is NOT good enough for the classifier itself: 18/24 there,
-// including wrong-skips, so the classifier stays on 8b.) Both models stay
-// VRAM-resident (~9GB of 16GB) and serenity runs OLLAMA_NUM_PARALLEL=2 so
-// this call doesn't queue behind the classifier.
-const EXPANDER_MODEL_ID = 'granite4.1:3b'
+// Same model as the classifier (serenity GPU): one model, not two. The
+// expander previously ran on the smaller 3b for latency (~3.4s vs 8b's
+// ~10s), but keeping a second model resident is not worth the VRAM or the
+// operational split — serenity now serves granite4.1:8b only. 8b is
+// slower here, so the search-side merge window (lib/tools/search.ts) is
+// widened to let expansion still land; if it doesn't, expansion is simply
+// skipped and the turn does a single-query search — exactly today's
+// fallback, never an error.
+const EXPANDER_MODEL_ID = 'granite4.1:8b'
 
-// Slightly tighter than the classifier's timeout: expansion is a
-// nice-to-have — a missed expansion just means single-query search,
-// exactly today's behavior.
-const EXPANDER_TIMEOUT_MS = 8_000
+// Generous, matching 8b's real expansion latency (~10-14s warm). Expansion
+// is a nice-to-have kicked off in parallel with turn prep, so a longer
+// ceiling here doesn't delay anything on its own — the search tool bounds
+// how long it will actually wait before proceeding without variants.
+const EXPANDER_TIMEOUT_MS = 15_000
 
 const expanderSchema = z.object({
   queries: z.array(z.string()).max(3)
