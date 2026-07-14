@@ -20,11 +20,12 @@ services:
       - uploads:/app/uploads
       - model-cache:/app/model-cache
     networks:
-      # degoog_default is joined so the fetch rescue chain can reach the
-      # flaresolverr container (loopback-bound on the host, so only
-      # reachable container-to-container). See lib/utils/flaresolverr.ts.
+      # shared-infra is joined so the fetch rescue chain can reach the
+      # flaresolverr and crawl4ai containers (both loopback-bound on the
+      # host, so only reachable container-to-container). See
+      # lib/utils/flaresolverr.ts.
       - default
-      - degoog
+      - shared-infra
     depends_on:
       postgres:
         condition: service_healthy
@@ -75,8 +76,8 @@ services:
     restart: unless-stopped
 
 networks:
-  degoog:
-    name: degoog_default
+  shared-infra:
+    name: shared-infra
     external: true
 
 volumes:
