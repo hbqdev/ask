@@ -19,6 +19,12 @@ services:
     volumes:
       - uploads:/app/uploads
       - model-cache:/app/model-cache
+    networks:
+      # degoog_default is joined so the fetch rescue chain can reach the
+      # flaresolverr container (loopback-bound on the host, so only
+      # reachable container-to-container). See lib/utils/flaresolverr.ts.
+      - default
+      - degoog
     depends_on:
       postgres:
         condition: service_healthy
@@ -67,6 +73,11 @@ services:
       - ./searxng-settings.yml:/etc/searxng/settings.yml
       - searxng_data:/data
     restart: unless-stopped
+
+networks:
+  degoog:
+    name: degoog_default
+    external: true
 
 volumes:
   postgres_data:

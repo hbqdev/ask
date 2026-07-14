@@ -1,14 +1,30 @@
 import { tool, UIToolInvocation } from 'ai'
+import { execFile } from 'node:child_process'
+import { promises as fs } from 'node:fs'
+import os from 'node:os'
+import path from 'node:path'
+import { promisify } from 'node:util'
 import {
   fetchTranscript,
   toPlainText,
   YoutubeTranscriptNotAvailableLanguageError
 } from 'youtube-transcript-plus'
 
+import { FirecrawlClient } from '@/lib/firecrawl'
 import { fetchSchema } from '@/lib/schema/fetch'
 import { SearchResults as SearchResultsType } from '@/lib/types'
+import {
+  extractReadableContent,
+  MIN_CONTENT_LENGTH
+} from '@/lib/utils/extract-content'
+import {
+  flaresolverrGet,
+  isFlaresolverrConfigured
+} from '@/lib/utils/flaresolverr'
 import { retryWithBackoff } from '@/lib/utils/retry'
 import { logToolPayload } from '@/lib/utils/usage-logging'
+
+const execFileAsync = promisify(execFile)
 
 const CONTENT_CHARACTER_LIMIT = 50000
 const TITLE_CHARACTER_LIMIT = 100
@@ -104,6 +120,63 @@ async function fetchWithRetry(url: string): Promise<Response> {
   )
 }
 
+// Shared HTML → SearchResults conversion for every tier of the fetch
+// chain that produces raw HTML (plain fetch, FlareSolverr). Readability
+// first; falls back to the legacy regex stripping when no article node is
+// found. Throws when the best extraction is still under
+// MIN_CONTENT_LENGTH — a 200-with-nothing JS shell or bot interstitial
+// must fail so the chain can escalate to the next tier.
+function htmlToResults(html: string, url: string): SearchResultsType {
+  const readable = extractReadableContent(html, url)
+
+  let title: string
+  let textContent: string
+
+  if (readable && readable.text.length >= MIN_CONTENT_LENGTH) {
+    title = readable.title || new URL(url).hostname
+    textContent = readable.text
+  } else {
+    // Legacy regex extraction fallback
+    const titleMatch = html.match(/<title[^>]*>([^<]*)<\/title>/i)
+    title = titleMatch ? titleMatch[1].trim() : new URL(url).hostname
+
+    let processedHtml = html
+      .replace(/<script[^>]*>[\s\S]*?<\/script>/gi, '')
+      .replace(/<style[^>]*>[\s\S]*?<\/style>/gi, '')
+
+    processedHtml = processedHtml
+      .replace(/<img[^>]+alt\s*=\s*["']([^"']+)["'][^>]*>/gi, ' [IMAGE: $1] ')
+      .replace(/<img[^>]+src\s*=\s*["']([^"']+)["'][^>]*>/gi, ' [IMAGE] ')
+      .replace(/<img[^>]*>/gi, ' [IMAGE] ')
+
+    textContent = processedHtml
+      .replace(/<[^>]*>/g, ' ')
+      .replace(/\s+/g, ' ')
+      .trim()
+  }
+
+  if (textContent.length < MIN_CONTENT_LENGTH) {
+    throw new Error(
+      `Extracted content too short (${textContent.length} chars) — likely a JS-rendered page or bot wall`
+    )
+  }
+
+  const truncatedTitle =
+    title.length > TITLE_CHARACTER_LIMIT
+      ? title.substring(0, TITLE_CHARACTER_LIMIT) + '...'
+      : title
+  const truncatedContent =
+    textContent.length > CONTENT_CHARACTER_LIMIT
+      ? textContent.substring(0, CONTENT_CHARACTER_LIMIT) + '...[truncated]'
+      : textContent
+
+  return {
+    results: [{ title: truncatedTitle, content: truncatedContent, url }],
+    query: '',
+    images: []
+  }
+}
+
 export async function fetchRegularData(
   url: string
 ): Promise<SearchResultsType> {
@@ -111,6 +184,10 @@ export async function fetchRegularData(
     const response = await fetchWithRetry(url)
 
     const contentType = response.headers.get('content-type') || ''
+    if (contentType.includes('application/pdf')) {
+      // Signal the chain to reroute to the PDF path (see execute below).
+      throw new Error(`PDF content type: ${contentType}`)
+    }
     if (
       !contentType.includes('text/html') &&
       !contentType.includes('text/plain')
@@ -119,55 +196,107 @@ export async function fetchRegularData(
     }
 
     const html = await response.text()
-
-    // Extract title
-    const titleMatch = html.match(/<title[^>]*>([^<]*)<\/title>/i)
-    const rawTitle = titleMatch ? titleMatch[1].trim() : new URL(url).hostname
-    const title =
-      rawTitle.length > TITLE_CHARACTER_LIMIT
-        ? rawTitle.substring(0, TITLE_CHARACTER_LIMIT) + '...'
-        : rawTitle
-
-    // Process HTML content
-    let processedHtml = html
-      .replace(/<script[^>]*>[\s\S]*?<\/script>/gi, '') // Remove scripts
-      .replace(/<style[^>]*>[\s\S]*?<\/style>/gi, '') // Remove styles
-
-    // Replace img tags with alt text or [IMAGE] markers
-    processedHtml = processedHtml
-      .replace(/<img[^>]+alt\s*=\s*["']([^"']+)["'][^>]*>/gi, ' [IMAGE: $1] ')
-      .replace(/<img[^>]+src\s*=\s*["']([^"']+)["'][^>]*>/gi, ' [IMAGE] ')
-      .replace(/<img[^>]*>/gi, ' [IMAGE] ')
-
-    // Extract text content
-    const textContent = processedHtml
-      .replace(/<[^>]*>/g, ' ') // Remove remaining HTML tags
-      .replace(/\s+/g, ' ') // Normalize whitespace
-      .trim()
-
-    // Limit content length
-    const truncatedContent =
-      textContent.length > CONTENT_CHARACTER_LIMIT
-        ? textContent.substring(0, CONTENT_CHARACTER_LIMIT) + '...[truncated]'
-        : textContent
-
-    return {
-      results: [
-        {
-          title,
-          content: truncatedContent,
-          url
-        }
-      ],
-      query: '',
-      images: []
-    }
+    return htmlToResults(html, url)
   } catch (error) {
     if (error instanceof Error && error.name === 'AbortError') {
       throw new Error('Request timeout after 10 seconds')
     }
     console.error('Fetch error:', error)
     throw error instanceof Error ? error : new Error('Unknown fetch error')
+  }
+}
+
+// Free tier 2 of the rescue chain: FlareSolverr solves Cloudflare-style
+// bot walls with a real headless browser, which also renders JS — so it
+// rescues both blocked pages and empty JS shells at zero cost.
+async function fetchFlaresolverrData(url: string): Promise<SearchResultsType> {
+  const html = await flaresolverrGet(url)
+  return htmlToResults(html, url)
+}
+
+// Paid tier 3 (last resort): Firecrawl /scrape. 1 credit per call on a
+// finite free allowance — every call is logged so burn rate is auditable.
+async function fetchFirecrawlData(url: string): Promise<SearchResultsType> {
+  const apiKey = process.env.FIRECRAWL_API_KEY
+  if (!apiKey) {
+    throw new Error('FIRECRAWL_API_KEY is not configured')
+  }
+
+  console.log(`[firecrawl] scrape rescue for ${url} (1 credit)`)
+  const { markdown, title } = await new FirecrawlClient(apiKey).scrape(url)
+
+  const content =
+    markdown.length > CONTENT_CHARACTER_LIMIT
+      ? markdown.substring(0, CONTENT_CHARACTER_LIMIT) + '...[truncated]'
+      : markdown
+
+  return {
+    results: [
+      {
+        title: (title || new URL(url).hostname).substring(
+          0,
+          TITLE_CHARACTER_LIMIT
+        ),
+        content,
+        url
+      }
+    ],
+    query: '',
+    images: []
+  }
+}
+
+const PDF_MAX_BYTES = 25 * 1024 * 1024
+
+export function isPdfUrl(url: string): boolean {
+  try {
+    return new URL(url).pathname.toLowerCase().endsWith('.pdf')
+  } catch {
+    return false
+  }
+}
+
+// Free PDF path: download and extract locally with pdftotext (already in
+// the app image for upload handling). Firecrawl is only consulted when
+// this fails (e.g. a JS-gated download or an image-only scan).
+async function fetchPdfData(url: string): Promise<SearchResultsType> {
+  const response = await fetchWithRetry(url)
+  const buf = Buffer.from(await response.arrayBuffer())
+  if (buf.byteLength > PDF_MAX_BYTES) {
+    throw new Error(`PDF too large (${buf.byteLength} bytes)`)
+  }
+
+  const tmpPath = path.join(
+    os.tmpdir(),
+    `ask-fetch-${Date.now()}-${Math.random().toString(36).slice(2)}.pdf`
+  )
+  try {
+    await fs.writeFile(tmpPath, buf)
+    const { stdout } = await execFileAsync(
+      'pdftotext',
+      ['-layout', '-enc', 'UTF-8', tmpPath, '-'],
+      { maxBuffer: 10 * 1024 * 1024 }
+    )
+    const text = stdout.trim()
+    if (text.length < MIN_CONTENT_LENGTH) {
+      throw new Error('pdftotext extracted no meaningful text')
+    }
+
+    const content =
+      text.length > CONTENT_CHARACTER_LIMIT
+        ? text.substring(0, CONTENT_CHARACTER_LIMIT) + '...[truncated]'
+        : text
+    const filename = path.basename(new URL(url).pathname) || url
+
+    return {
+      results: [
+        { title: filename.substring(0, TITLE_CHARACTER_LIMIT), content, url }
+      ],
+      query: '',
+      images: []
+    }
+  } finally {
+    await fs.unlink(tmpPath).catch(() => {})
   }
 }
 
@@ -241,11 +370,83 @@ async function fetchTavilyExtractData(url: string): Promise<SearchResultsType> {
   }
 }
 
+// Runs the rescue chain for a non-YouTube, non-PDF URL. Tiers are ordered
+// by cost: plain fetch (free) → FlareSolverr (free, self-hosted) →
+// Jina/Tavily extract (only when their API key is configured — inert in
+// deployments without them) → Firecrawl scrape (1 credit, last resort).
+// Each tier only runs when every cheaper tier has failed; if everything
+// fails the last error propagates to the graceful placeholder below.
+async function fetchWithRescueChain(url: string): Promise<SearchResultsType> {
+  let lastError: unknown
+
+  try {
+    return await fetchRegularData(url)
+  } catch (error) {
+    lastError = error
+    // A URL without a .pdf extension can still serve a PDF — reroute.
+    if (error instanceof Error && error.message.includes('PDF content type')) {
+      return fetchPdfWithRescue(url)
+    }
+  }
+
+  if (isFlaresolverrConfigured()) {
+    try {
+      return await fetchFlaresolverrData(url)
+    } catch (error) {
+      lastError = error
+      console.error(`[fetch-chain] FlareSolverr failed for ${url}:`, error)
+    }
+  }
+
+  if (process.env.JINA_API_KEY) {
+    try {
+      return await fetchJinaReaderData(url)
+    } catch (error) {
+      lastError = error
+    }
+  } else if (process.env.TAVILY_API_KEY) {
+    try {
+      return await fetchTavilyExtractData(url)
+    } catch (error) {
+      lastError = error
+    }
+  }
+
+  if (process.env.FIRECRAWL_API_KEY) {
+    try {
+      return await fetchFirecrawlData(url)
+    } catch (error) {
+      lastError = error
+      console.error(`[fetch-chain] Firecrawl failed for ${url}:`, error)
+    }
+  }
+
+  throw lastError instanceof Error
+    ? lastError
+    : new Error('All fetch tiers failed')
+}
+
+// PDF chain: free local extraction first, Firecrawl only as last resort.
+async function fetchPdfWithRescue(url: string): Promise<SearchResultsType> {
+  try {
+    return await fetchPdfData(url)
+  } catch (error) {
+    console.error(
+      `[fetch-chain] local PDF extraction failed for ${url}:`,
+      error
+    )
+    if (process.env.FIRECRAWL_API_KEY) {
+      return fetchFirecrawlData(url)
+    }
+    throw error
+  }
+}
+
 export const fetchTool = tool({
   description:
-    'Fetch content from any URL. By default uses "regular" type which performs fast, direct HTML fetching without external APIs - ideal for most websites. IMPORTANT: "regular" type does NOT support PDFs and will fail on PDF URLs. Use "api" type when you need: 1) PDF content extraction (required for .pdf URLs), 2) Complex JavaScript-rendered pages, 3) Better markdown formatting, 4) Table extraction. The "api" type requires Jina or Tavily API keys and uses Jina Reader if available, otherwise falls back to Tavily Extract. For YouTube URLs (youtube.com/watch, youtube.com/shorts, youtu.be), this tool automatically fetches the video\'s transcript/captions instead of the HTML page, so the video\'s actual spoken content becomes available to cite - the "type" param is ignored for these URLs.',
+    'Fetch content from any URL — HTML pages, JavaScript-rendered pages, bot-protected pages, and PDFs are all handled automatically via an internal fallback chain, so there is no need to choose a fetch strategy. The "type" param is accepted for backward compatibility but both values behave identically. For YouTube URLs (youtube.com/watch, youtube.com/shorts, youtu.be), the tool fetches the video\'s transcript/captions instead of the HTML page, so the video\'s actual spoken content becomes available to cite.',
   inputSchema: fetchSchema,
-  async *execute({ url, type = 'regular' }) {
+  async *execute({ url, type: _type = 'regular' }) {
     // Yield initial fetching state
     yield {
       state: 'fetching' as const,
@@ -260,23 +461,18 @@ export const fetchTool = tool({
           results = await fetchYoutubeTranscriptData(url)
         } catch (transcriptError) {
           // No captions, transcripts disabled, video unavailable, etc. —
-          // fall back to a regular HTML fetch so the model still gets the
+          // fall back to the rescue chain so the model still gets the
           // video page's title/description instead of a failed step.
           console.error(
-            'YouTube transcript fetch failed, falling back to regular fetch:',
+            'YouTube transcript fetch failed, falling back to page fetch:',
             transcriptError
           )
-          results = await fetchRegularData(url)
+          results = await fetchWithRescueChain(url)
         }
-      } else if (type === 'regular') {
-        results = await fetchRegularData(url)
+      } else if (isPdfUrl(url)) {
+        results = await fetchPdfWithRescue(url)
       } else {
-        const useJina = process.env.JINA_API_KEY
-        if (useJina) {
-          results = await fetchJinaReaderData(url)
-        } else {
-          results = await fetchTavilyExtractData(url)
-        }
+        results = await fetchWithRescueChain(url)
       }
 
       logToolPayload('fetch', url, { results: results.results })

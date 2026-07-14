@@ -18,6 +18,7 @@ import {
 import { isTracingEnabled } from '@/lib/utils/telemetry'
 
 import { classifyQuery } from '../agents/query-classifier'
+import { expandQuery } from '../agents/query-expander'
 import {
   getMaxAllowedTokens,
   shouldTruncateMessages,
@@ -84,7 +85,8 @@ export async function createEphemeralChatStreamResponse(
     const classificationPromise = containsUrl
       ? Promise.resolve({
           skipSearch: false,
-          standaloneQuery: latestMessageText
+          standaloneQuery: latestMessageText,
+          needsRecent: false
         })
       : classifyQuery({ messages, abortSignal })
 
@@ -133,6 +135,19 @@ export async function createEphemeralChatStreamResponse(
 
         const classification = await classificationPromise
 
+        // Query expansion (lib/agents/query-expander.ts) starts as soon as
+        // the resolved standalone query exists and overlaps with agent
+        // construction — the first search of the turn awaits it (bounded)
+        // and fans out to the variants. Speed mode and skipped turns stay
+        // single-query.
+        const expandedQueriesPromise =
+          !classification.skipSearch && searchMode !== 'speed'
+            ? expandQuery({
+                standaloneQuery: classification.standaloneQuery,
+                abortSignal
+              })
+            : Promise.resolve([])
+
         if (!containsUrl) {
           // Same part id — replaces the 'running' entry in place.
           writer.write({
@@ -155,7 +170,9 @@ export async function createEphemeralChatStreamResponse(
           sources,
           abortSignal,
           skipSearch: classification.skipSearch,
-          standaloneQuery: classification.standaloneQuery
+          standaloneQuery: classification.standaloneQuery,
+          needsRecent: classification.needsRecent,
+          expandedQueriesPromise
         })
 
         const result = await researchAgent.stream({

@@ -19,10 +19,52 @@ import type {
   SearchModeOption
 } from './search/providers/base'
 
+export type SearchToolOptions = {
+  // Per-turn recency preference from the query classifier (needsRecent).
+  // Applied to every search this turn makes, in both basic and advanced
+  // SearXNG paths.
+  timeRange?: 'day' | 'week' | 'month' | 'year'
+  // Diverse reformulations of the turn's resolved query, produced by
+  // lib/agents/query-expander.ts (kicked off in parallel with message
+  // prep). The FIRST search of the turn also searches these variants
+  // concurrently (basic depth) and merges unique-URL results, widening
+  // discovery beyond a single phrasing. A rejected/empty promise means
+  // single-query search, exactly the pre-expansion behavior.
+  expandedQueries?: Promise<string[]>
+}
+
+// Widen the first search of a turn with expansion-variant results:
+// variants run at basic depth (snippets — discovery, not deep-crawl) and
+// only URLs not already present are appended. Never throws.
+async function searchExpansionVariants(
+  variants: string[],
+  timeRange: SearchToolOptions['timeRange']
+): Promise<SearchResults['results']> {
+  const searchAPI =
+    (process.env.SEARCH_API as SearchProviderType) || DEFAULT_PROVIDER
+  const settled = await Promise.allSettled(
+    variants.map(v =>
+      createSearchProvider(searchAPI).search(v, 10, 'basic', [], [], {
+        time_range: timeRange
+      })
+    )
+  )
+  return settled.flatMap(s =>
+    s.status === 'fulfilled' ? (s.value.results ?? []) : []
+  )
+}
+
 /**
  * Creates a search tool with the appropriate schema for the given model.
  */
-export function createSearchTool(fullModel: string) {
+export function createSearchTool(
+  fullModel: string,
+  toolOptions?: SearchToolOptions
+) {
+  // Expansion applies only to the first search of the turn: the model's
+  // own follow-up searches are already reformulations by construction.
+  let expansionUsed = false
+
   return tool({
     description: getSearchToolDescription(),
     inputSchema: getSearchSchemaForModel(fullModel),
@@ -55,6 +97,24 @@ export function createSearchTool(fullModel: string) {
       // Use the original query as is - any provider-specific handling will be done in the provider
       const filledQuery = query
       let searchResult: SearchResults
+
+      // Kick the expansion-variant searches off in parallel with the main
+      // search below. Bounded: if the expander hasn't resolved shortly
+      // after the main search completes, proceed without variants.
+      let variantResultsPromise: Promise<SearchResults['results']> | null = null
+      if (!expansionUsed && toolOptions?.expandedQueries) {
+        expansionUsed = true
+        variantResultsPromise = Promise.race([
+          toolOptions.expandedQueries,
+          new Promise<string[]>(resolve => setTimeout(() => resolve([]), 5000))
+        ])
+          .then(variants =>
+            variants.length > 0
+              ? searchExpansionVariants(variants, toolOptions.timeRange)
+              : []
+          )
+          .catch(() => [])
+      }
 
       // Determine which provider to use based on type
       let searchAPI: SearchProviderType
@@ -103,7 +163,8 @@ export function createSearchTool(fullModel: string) {
               maxResults: effectiveMaxResults,
               searchDepth: effectiveSearchDepthForAPI,
               includeDomains: include_domains,
-              excludeDomains: exclude_domains
+              excludeDomains: exclude_domains,
+              timeRange: toolOptions?.timeRange
             })
           })
           if (!response.ok) {
@@ -137,7 +198,8 @@ export function createSearchTool(fullModel: string) {
               exclude_domains,
               {
                 searchMode: search_mode as SearchModeOption,
-                content_types: content_types as SearchContentType[]
+                content_types: content_types as SearchContentType[],
+                time_range: toolOptions?.timeRange
               }
             )
           } else {
@@ -154,6 +216,27 @@ export function createSearchTool(fullModel: string) {
         console.error('Search API error:', error)
         // Re-throw the error to let AI SDK handle it properly
         throw error instanceof Error ? error : new Error('Unknown search error')
+      }
+
+      // Merge expansion-variant results (first search of the turn only):
+      // unique URLs appended after the main results so the primary
+      // phrasing's ranking stays on top.
+      if (variantResultsPromise) {
+        const variantResults = await variantResultsPromise
+        if (variantResults.length > 0) {
+          const seenUrls = new Set((searchResult.results ?? []).map(r => r.url))
+          const merged = [...(searchResult.results ?? [])]
+          for (const r of variantResults) {
+            if (r.url && !seenUrls.has(r.url)) {
+              seenUrls.add(r.url)
+              merged.push(r)
+            }
+          }
+          console.log(
+            `[search-expansion] merged ${merged.length - (searchResult.results?.length ?? 0)} variant results into "${filledQuery}"`
+          )
+          searchResult = { ...searchResult, results: merged }
+        }
       }
 
       // No citationMap is attached: it fully duplicated `results`

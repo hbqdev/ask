@@ -41,12 +41,17 @@ const HISTORY_WINDOW = 6
 
 const classifierSchema = z.object({
   skipSearch: z.boolean(),
-  standaloneQuery: z.string()
+  standaloneQuery: z.string(),
+  needsRecent: z.boolean()
 })
 
 export interface QueryClassification {
   skipSearch: boolean
   standaloneQuery: string
+  // True when the answer depends on current/recent information (news,
+  // prices, versions, releases, schedules, "latest X"). Plumbs through to
+  // SearXNG's time_range so this turn's searches prefer fresh pages.
+  needsRecent: boolean
 }
 
 // Matches Anthropic's/OpenAI's own tool-calling guidance (let one model
@@ -64,11 +69,17 @@ Rule: skipSearch=true ONLY when the latest message is casual small talk (greetin
 
 If uncertain which rule applies, default to skipSearch=false.
 
+You also set needsRecent: true when a correct answer depends on current or recent information — news, current events, prices, exchange rates, product/software versions or releases, schedules, weather, "latest/newest/current X", anything that changes month to month. false for stable facts (history, geography, definitions, science, how-things-work) and for skipSearch=true turns.
+
+If uncertain about needsRecent, default to needsRecent=false.
+
 Examples:
-1) Assistant said "Mount Fuji is the tallest mountain in Japan." User: "what about South Korea" -> South Korea is a NEW entity never mentioned -> skipSearch=false, standaloneQuery="What is the tallest mountain in South Korea?"
-2) Assistant said "Option 1: X. Option 2: Y. Best practice: do both." User: "so you are saying to do both, right?" -> no new entity, already answered -> skipSearch=true, standaloneQuery="Confirm: should I do both X and Y?"
-3) User: "hey how is it going" -> casual -> skipSearch=true, standaloneQuery="greeting, no search needed"
-4) Assistant said "The capital of France is Paris." User: "and Germany?" -> Germany is a NEW entity -> skipSearch=false, standaloneQuery="What is the capital of Germany?"
+1) Assistant said "Mount Fuji is the tallest mountain in Japan." User: "what about South Korea" -> South Korea is a NEW entity never mentioned -> skipSearch=false, needsRecent=false (geography is stable), standaloneQuery="What is the tallest mountain in South Korea?"
+2) Assistant said "Option 1: X. Option 2: Y. Best practice: do both." User: "so you are saying to do both, right?" -> no new entity, already answered -> skipSearch=true, needsRecent=false, standaloneQuery="Confirm: should I do both X and Y?"
+3) User: "hey how is it going" -> casual -> skipSearch=true, needsRecent=false, standaloneQuery="greeting, no search needed"
+4) Assistant said "The capital of France is Paris." User: "and Germany?" -> Germany is a NEW entity -> skipSearch=false, needsRecent=false, standaloneQuery="What is the capital of Germany?"
+5) User: "what's the latest stable version of Node.js" -> version info changes constantly -> skipSearch=false, needsRecent=true, standaloneQuery="What is the latest stable version of Node.js?"
+6) User: "did anything major happen in AI this week" -> current events -> skipSearch=false, needsRecent=true, standaloneQuery="Major AI news this week"
 
 standaloneQuery is always a short plain string, never empty, never a meta-question back to the user.`
 
@@ -106,7 +117,8 @@ export async function classifyQuery({
   // make search-scoping worse than it already was before this feature.
   const fallback: QueryClassification = {
     skipSearch: false,
-    standaloneQuery: latestMessage
+    standaloneQuery: latestMessage,
+    needsRecent: false
   }
 
   // Runs on a dedicated Ollama host (serenity, GPU-backed) instead of

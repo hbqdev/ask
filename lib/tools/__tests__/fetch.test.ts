@@ -207,7 +207,7 @@ describe('fetchRegularData retry behavior', () => {
       ok: true,
       status: 200,
       headers: new Headers({ 'content-type': 'text/html' }),
-      text: async () => '<title>A Page</title><body>Hello</body>'
+      text: async () => '<title>A Page</title><body><p>' + 'Real article content sentence. '.repeat(20) + '</p></body>'
     })
     vi.stubGlobal('fetch', fetchMock)
 
@@ -229,7 +229,7 @@ describe('fetchRegularData retry behavior', () => {
         ok: true,
         status: 200,
         headers: new Headers({ 'content-type': 'text/html' }),
-        text: async () => '<title>Now It Works</title><body>Content</body>'
+        text: async () => '<title>Now It Works</title><body><p>' + 'Recovered article content sentence. '.repeat(20) + '</p></body>'
       })
     vi.stubGlobal('fetch', fetchMock)
 

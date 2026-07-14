@@ -7,12 +7,17 @@ import https from 'https'
 import { JSDOM, VirtualConsole } from 'jsdom'
 import { createClient } from 'redis'
 
+import { rerankByEmbedding } from '@/lib/embeddings/rerank'
 import {
   SearchResultItem,
   SearXNGResponse,
   SearXNGResult,
   SearXNGSearchResults
 } from '@/lib/types'
+import {
+  extractReadableContent,
+  MIN_CONTENT_LENGTH
+} from '@/lib/utils/extract-content'
 import { fetchSearxngJson } from '@/lib/utils/searxng-client'
 
 /**
@@ -136,15 +141,27 @@ async function cleanupExpiredCache() {
 setInterval(cleanupExpiredCache, CACHE_EXPIRATION_CHECK_INTERVAL)
 
 export async function POST(request: Request) {
-  const { query, maxResults, searchDepth, includeDomains, excludeDomains } =
-    await request.json()
+  const {
+    query,
+    maxResults,
+    searchDepth,
+    includeDomains,
+    excludeDomains,
+    timeRange
+  } = await request.json()
 
   const SEARXNG_DEFAULT_DEPTH = process.env.SEARXNG_DEFAULT_DEPTH || 'basic'
+  const VALID_TIME_RANGES = ['day', 'week', 'month', 'year']
+  const effectiveTimeRange = VALID_TIME_RANGES.includes(timeRange)
+    ? (timeRange as string)
+    : undefined
 
   try {
     const cacheKey = `search:${query}:${maxResults}:${searchDepth}:${
       Array.isArray(includeDomains) ? includeDomains.join(',') : ''
-    }:${Array.isArray(excludeDomains) ? excludeDomains.join(',') : ''}`
+    }:${Array.isArray(excludeDomains) ? excludeDomains.join(',') : ''}:${
+      effectiveTimeRange ?? ''
+    }`
 
     // Try to get cached results
     const cachedResults = await getCachedResults(cacheKey)
@@ -158,7 +175,8 @@ export async function POST(request: Request) {
       Math.min(maxResults, SEARXNG_MAX_RESULTS),
       searchDepth || SEARXNG_DEFAULT_DEPTH,
       Array.isArray(includeDomains) ? includeDomains : [],
-      Array.isArray(excludeDomains) ? excludeDomains : []
+      Array.isArray(excludeDomains) ? excludeDomains : [],
+      effectiveTimeRange
     )
 
     // Cache the results
@@ -186,7 +204,8 @@ async function advancedSearchXNGSearch(
   maxResults: number = 10,
   searchDepth: 'basic' | 'advanced' = 'advanced',
   includeDomains: string[] = [],
-  excludeDomains: string[] = []
+  excludeDomains: string[] = [],
+  timeRange?: string
 ): Promise<SearXNGSearchResults> {
   if (!process.env.SEARXNG_API_URL && !process.env.SEARXNG_FALLBACK_API_URL) {
     throw new Error('SEARXNG_API_URL is not set in the environment variables')
@@ -213,7 +232,11 @@ async function advancedSearchXNGSearch(
         url.searchParams.append('q', query)
         url.searchParams.append('format', 'json')
         url.searchParams.append('categories', 'general,images')
-        if (SEARXNG_TIME_RANGE !== 'None') {
+        // Per-turn recency preference (query classifier) beats the static
+        // env default.
+        if (timeRange) {
+          url.searchParams.append('time_range', timeRange)
+        } else if (SEARXNG_TIME_RANGE !== 'None') {
           url.searchParams.append('time_range', SEARXNG_TIME_RANGE)
         }
         url.searchParams.append('safesearch', SEARXNG_SAFESEARCH)
@@ -256,15 +279,45 @@ async function advancedSearchXNGSearch(
         .filter(result => result !== null && isQualityContent(result.content))
         .map(result => result as SearXNGResult)
 
-      const MIN_RELEVANCE_SCORE = 10
-      generalResults = generalResults
-        .map(result => ({
-          ...result,
-          score: calculateRelevanceScore(result, query)
-        }))
-        .filter(result => result.score >= MIN_RELEVANCE_SCORE)
-        .sort((a, b) => b.score - a.score)
-        .slice(0, maxResults)
+      // Semantic reranking: score each crawled page by its best passage's
+      // embedding similarity to the query (local pipeline, no API). Falls
+      // back to the legacy keyword scorer if the embedding pipeline fails,
+      // so a model problem degrades to the old behavior rather than an
+      // empty result set.
+      try {
+        const reranked = await rerankByEmbedding(
+          generalResults.map(result => ({
+            // Strip the <mark> highlight tags before embedding — markup
+            // isn't content. The original result (with highlights intact
+            // for the UI) rides along and is what gets returned.
+            content: result.content.replace(/<\/?mark>/g, ''),
+            original: result
+          })),
+          query,
+          maxResults
+        )
+        // Cosine floor: below this the page is talking about something
+        // else entirely. Deliberately loose — the answering model does
+        // the fine-grained judging; this only drops clear off-topic junk.
+        const MIN_SIMILARITY = 0.2
+        generalResults = reranked
+          .filter(r => r.score >= MIN_SIMILARITY)
+          .map(r => r.doc.original)
+      } catch (error) {
+        console.error(
+          '[advanced-search] embedding rerank failed, using keyword scorer:',
+          error
+        )
+        const MIN_RELEVANCE_SCORE = 10
+        generalResults = generalResults
+          .map(result => ({
+            ...result,
+            score: calculateRelevanceScore(result, query)
+          }))
+          .filter(result => result.score >= MIN_RELEVANCE_SCORE)
+          .sort((a, b) => b.score - a.score)
+          .slice(0, maxResults)
+      }
     }
 
     generalResults = generalResults.slice(0, maxResults)
@@ -307,6 +360,25 @@ async function crawlPage(
 ): Promise<SearXNGResult> {
   try {
     const html = await fetchHtmlWithTimeout(result.url, 20000)
+
+    // Readability first — cleaner article extraction than the manual DOM
+    // walk below (which stays as the fallback for pages where Readability
+    // finds no article node).
+    const readable = extractReadableContent(html, result.url)
+    if (readable && readable.text.length >= MIN_CONTENT_LENGTH) {
+      const combined = [result.title, readable.title, readable.text]
+        .filter(Boolean)
+        .join('\n\n')
+        .substring(0, 10000)
+      result.content = highlightQueryTerms(combined, query)
+      if (readable.publishedDate) {
+        const date = new Date(readable.publishedDate)
+        if (!isNaN(date.getTime())) {
+          result.publishedDate = date.toISOString()
+        }
+      }
+      return result
+    }
 
     // virtual console to suppress JSDOM warnings
     const virtualConsole = new VirtualConsole()

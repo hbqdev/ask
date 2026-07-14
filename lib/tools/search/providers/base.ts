@@ -15,6 +15,9 @@ export interface SearchProviderOptions {
   type?: 'general' | 'optimized'
   content_types?: SearchContentType[]
   searchMode?: SearchModeOption
+  // Per-turn recency preference from the query classifier (needsRecent).
+  // Currently honored by the SearXNG provider.
+  time_range?: 'day' | 'week' | 'month' | 'year'
 }
 
 export interface SearchProvider {

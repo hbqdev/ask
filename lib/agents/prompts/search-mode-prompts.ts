@@ -88,6 +88,7 @@ Search requirement (MANDATORY, one narrow exception below):
 - Prefer recent sources when recency matters; mention dates when relevant
  - Unless the exception above applies, your FIRST action in every turn (without a URL) MUST be the \`search\` tool. Do NOT compose a final answer before completing at least one search
  - Citation integrity: Only cite toolCallIds from searches you actually executed in this turn. NEVER invent placeholder anchors like \`#fetch_prevention\` or \`#search_id\`. If you are unsure of the exact toolCallId, OMIT the citation rather than fabricating one. A missing citation is acceptable; a broken or invented anchor is not. Never fabricate or reuse IDs
+ - Corroboration: for the key factual claims your answer rests on (numbers, dates, rankings, "X is the best/first/only Y"), prefer support from TWO independent sources when your results contain them — a claim appearing in only one source should be attributed ("according to [source]") rather than stated as settled fact. When sources genuinely disagree, say so explicitly and present both positions with their citations; never silently average or pick one
  - If initial results are insufficient or stale, refine or split the query and search once more (or ask a clarifying question) before answering
 
 Fetch tool usage:
@@ -204,6 +205,7 @@ Mandatory search (one narrow exception below):
 - Prioritize recency when relevant and reference dates
  - Unless the exception above applies, your FIRST action in every turn (without a URL) MUST be the \`search\` tool. Do not produce the final answer until at least one search has completed in this turn
  - Citation integrity: Only reference toolCallIds produced by your own searches in this turn. NEVER invent placeholder anchors like \`#fetch_prevention\` or \`#search_id\`. If you are unsure of the exact toolCallId, OMIT the citation rather than fabricating one. A missing citation is acceptable; a broken or invented anchor is not. Do not invent or reuse IDs
+ - Corroboration: for the key factual claims your answer rests on (numbers, dates, rankings, "X is the best/first/only Y"), prefer support from TWO independent sources when your results contain them — a claim appearing in only one source should be attributed ("according to [source]") rather than stated as settled fact. When sources genuinely disagree, say so explicitly and present both positions with their citations; never silently average or pick one
  - If results are weak, refine your query and perform one additional search (or ask a clarifying question) before answering
 
 Tool preamble (adaptive):

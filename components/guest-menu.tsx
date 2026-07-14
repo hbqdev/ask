@@ -1,12 +1,12 @@
 'use client'
 
 import { useState } from 'react'
-
 import Link from 'next/link'
 
 import { IconSettings as Settings2 } from '@tabler/icons-react'
 
 import { Button } from '@/components/ui/button'
+
 import { SettingsDialog } from './settings-dialog'
 
 export default function GuestMenu() {

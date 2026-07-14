@@ -1,7 +1,6 @@
+import type { UIMessage } from 'ai'
 import { promises as fs } from 'node:fs'
 import path from 'node:path'
-
-import type { UIMessage } from 'ai'
 
 import { queryFileChunks } from '@/lib/embeddings/upload-rag'
 
