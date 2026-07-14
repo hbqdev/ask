@@ -10,6 +10,7 @@ import {
 import { isTracingEnabled } from '@/lib/utils/telemetry'
 
 import { loadChat } from '../actions/chat'
+import { classifyQuery } from '../agents/query-classifier'
 import { generateChatTitle } from '../agents/title-generator'
 import {
   getMaxAllowedTokens,
@@ -124,16 +125,23 @@ export async function createChatStreamResponse(
     const messagesToModel = await prepareMessages(context, message)
     perfTime('prepareMessages completed (stream)', prepareStart)
 
-    // Get the researcher agent with parent trace ID, search mode, and sources.
-    const researchAgent = researcher({
-      model: context.modelId,
-      modelConfig: model,
-      parentTraceId,
-      searchMode,
-      sources,
-      systemInstructions,
-      abortSignal
-    })
+    // Decide whether this turn needs new research or is answerable directly
+    // from the existing conversation (see query-classifier.ts). Kicked off
+    // here, in parallel with the message-prep pipeline below, and awaited
+    // just before constructing the researcher agent — the classifier call
+    // (local, ~1-8s) overlaps with that work instead of adding pure latency.
+    // Skipped when the message contains a URL: the existing search-mode
+    // prompts already say to fetch it directly in that case, an unambiguous
+    // "don't skip" signal not worth spending a classifier call on.
+    const latestMessageForModel = messagesToModel[messagesToModel.length - 1]
+    const latestMessageText = getTextFromParts(latestMessageForModel?.parts)
+    const containsUrl = /https?:\/\/\S+/i.test(latestMessageText)
+    const classificationPromise = containsUrl
+      ? Promise.resolve({
+          skipSearch: false,
+          standaloneQuery: latestMessageText
+        })
+      : classifyQuery({ messages: messagesToModel, abortSignal })
 
     // For OpenAI models, strip reasoning parts from UIMessages before conversion
     // OpenAI's Responses API requires reasoning items and their following items to be kept together
@@ -188,9 +196,25 @@ export async function createChatStreamResponse(
       })
     }
 
+    const classification = await classificationPromise
+
+    // Get the researcher agent with parent trace ID, search mode, sources,
+    // and the classifier's decision for this turn.
+    const researchAgent = researcher({
+      model: context.modelId,
+      modelConfig: model,
+      parentTraceId,
+      searchMode,
+      sources,
+      systemInstructions,
+      abortSignal,
+      skipSearch: classification.skipSearch,
+      standaloneQuery: classification.standaloneQuery
+    })
+
     const llmStart = performance.now()
     perfLog(
-      `researchAgent.stream - Start: model=${context.modelId}, searchMode=${searchMode}`
+      `researchAgent.stream - Start: model=${context.modelId}, searchMode=${searchMode}, skipSearch=${classification.skipSearch}`
     )
     const result = await researchAgent.stream({
       messages: modelMessages,

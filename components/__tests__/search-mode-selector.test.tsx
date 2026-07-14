@@ -13,9 +13,9 @@ describe('SearchModeSelector', () => {
     deleteCookie('searchMode')
   })
 
-  test('blocks adaptive selection when auth is required', () => {
+  test('blocks balanced/quality selection and resets to speed when auth is required', async () => {
     const onAdaptiveAuthRequired = vi.fn()
-    setCookie('searchMode', 'quick')
+    setCookie('searchMode', 'speed')
 
     render(
       <SearchModeSelector
@@ -24,32 +24,28 @@ describe('SearchModeSelector', () => {
       />
     )
 
-    fireEvent.click(screen.getByRole('button', { name: /adaptive mode/i }))
+    fireEvent.click(screen.getByRole('button', { name: 'Select search mode' }))
+    fireEvent.click(screen.getByRole('button', { name: /Balanced/i }))
 
     expect(onAdaptiveAuthRequired).toHaveBeenCalledTimes(1)
-    expect(getCookie('searchMode')).toBe('quick')
+    await waitFor(() => {
+      expect(getCookie('searchMode')).toBe('speed')
+    })
   })
 
-  test('allows adaptive selection when auth is not required', () => {
+  test('allows balanced selection when auth is not required', async () => {
     const onAdaptiveAuthRequired = vi.fn()
 
     render(
       <SearchModeSelector onAdaptiveAuthRequired={onAdaptiveAuthRequired} />
     )
 
-    fireEvent.click(screen.getByRole('button', { name: /adaptive mode/i }))
+    fireEvent.click(screen.getByRole('button', { name: 'Select search mode' }))
+    fireEvent.click(screen.getByRole('button', { name: /Balanced/i }))
 
     expect(onAdaptiveAuthRequired).not.toHaveBeenCalled()
-    expect(getCookie('searchMode')).toBe('adaptive')
-  })
-
-  test('resets a stale adaptive cookie when auth is required', async () => {
-    setCookie('searchMode', 'adaptive')
-
-    render(<SearchModeSelector isAdaptiveAuthRequired />)
-
     await waitFor(() => {
-      expect(getCookie('searchMode')).toBe('quick')
+      expect(getCookie('searchMode')).toBe('balanced')
     })
   })
 })

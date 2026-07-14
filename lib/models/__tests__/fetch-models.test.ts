@@ -191,7 +191,11 @@ describe('fetch-models', () => {
     expect(models.map(model => model.id)).toEqual(['gemini-2.5-pro'])
   })
 
-  it('adds think provider options for ollama thinking models', async () => {
+  it('lists locally-installed ollama models from /api/tags without embedding models', async () => {
+    // "think" is no longer modeled as per-model metadata here — since the
+    // native Ollama API migration (0fac0c2), registry.ts's getModel()
+    // applies it directly at model-construction time instead, for every
+    // ollama model uniformly.
     mockIsProviderEnabled.mockImplementation(
       providerId => providerId === 'ollama'
     )
@@ -202,7 +206,11 @@ describe('fetch-models', () => {
       status: 200,
       statusText: 'OK',
       json: async () => ({
-        models: [{ name: 'deepseek-r1:8b' }, { name: 'llama3.2:3b' }]
+        models: [
+          { name: 'deepseek-r1:8b' },
+          { name: 'llama3.2:3b' },
+          { name: 'nomic-embed-text' }
+        ]
       })
     })
     vi.stubGlobal('fetch', fetchMock)
@@ -213,23 +221,13 @@ describe('fetch-models', () => {
         id: 'deepseek-r1:8b',
         name: 'deepseek-r1:8b',
         provider: 'Ollama',
-        providerId: 'ollama',
-        providerOptions: {
-          ollama: {
-            think: true
-          }
-        }
+        providerId: 'ollama'
       },
       {
         id: 'llama3.2:3b',
         name: 'llama3.2:3b',
         provider: 'Ollama',
-        providerId: 'ollama',
-        providerOptions: {
-          ollama: {
-            think: true
-          }
-        }
+        providerId: 'ollama'
       }
     ])
   })

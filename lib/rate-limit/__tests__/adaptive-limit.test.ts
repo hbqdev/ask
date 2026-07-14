@@ -49,7 +49,7 @@ describe('checkAndEnforceAdaptiveLimit', () => {
 
     const body = await response!.json()
     expect(body.limit).toBe(30)
-    expect(body.mode).toBe('adaptive')
+    expect(body.mode).toBe('balanced')
     expect(body.remaining).toBe(0)
     expect(typeof body.error).toBe('string')
   })

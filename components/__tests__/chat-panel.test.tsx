@@ -78,7 +78,7 @@ describe('ChatPanel', () => {
     )
 
     await waitFor(() => {
-      expect(getCookie('searchMode')).toBe('quick')
+      expect(getCookie('searchMode')).toBe('speed')
     })
     await waitFor(() => {
       expect(append).toHaveBeenCalledWith({
