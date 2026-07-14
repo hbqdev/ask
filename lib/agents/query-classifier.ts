@@ -33,28 +33,35 @@ const CLASSIFIER_MODEL_ID = 'granite4.1:8b'
 const CLASSIFIER_TIMEOUT_MS = 10_000
 
 // How many trailing messages (both user and assistant) to show the
-// classifier. Bounded and small on purpose: this call's whole job is
-// deciding what's needed for the CURRENT turn, not summarizing the whole
-// conversation — matches the "last N raw messages" approach both
-// open-webui and Perplexica use for the same step.
-const HISTORY_WINDOW = 6
+// classifier. Wide enough that a follow-up referring to an EARLIER turn
+// ("actually, back to my first question…") can still be recognized as
+// answerable-from-context (skipSearch=true) rather than triggering a
+// needless search — 12 messages ≈ six prior Q&A pairs. This is only
+// affordable because each prior message is clipped to
+// MAX_HISTORY_CHARS_PER_MESSAGE below: 12 × 400 chars + the system prompt
+// stays well inside the model's 4096-token context. (The answering model
+// always gets the FULL, unclipped history regardless — the classifier's
+// narrow view only gates search-vs-skip, it is not what answers.)
+const HISTORY_WINDOW = 12
 
 // Per-message cap on the history text shown to the classifier.
 //
-// Bounding the message COUNT is not enough: an assistant turn here is a
-// full research report (5,000-7,000 chars each in production), so six of
-// them is ~18,000 chars / 4,500+ tokens — well past this model's 4,096
-// context. The prompt then overflows and the classifier silently returns
-// garbage: it resolved the PREVIOUS turn's topic as the standalone query
-// and set skipSearch=true on a genuinely new question, so the researcher
-// went on to answer both topics at once (reproduced against the live
-// model on the real conversation that surfaced this).
+// This exists because bounding the message COUNT alone is not enough: an
+// assistant turn here is a full research report (5,000-7,000 chars each),
+// so a handful of them uncapped overflows the model's context and makes it
+// silently return garbage — it resolved the PREVIOUS turn's topic and set
+// skipSearch=true on a genuinely new question, so the researcher answered
+// both topics at once (reproduced against the live model on the real
+// conversation that surfaced this).
 //
-// The classifier only needs enough of each prior turn to resolve
-// references ("it", "that one", "and Germany?") in the latest message —
-// not the full text. Capping to 400 chars fixed the misclassification and
-// cut latency from 17.1s to 7.5s (back under CLASSIFIER_TIMEOUT_MS).
-const MAX_HISTORY_CHARS_PER_MESSAGE = 400
+// serenity runs the classifier model at OLLAMA_CONTEXT_LENGTH=16384, so the
+// budget is generous: 12 messages × 2,000 chars + the system prompt is
+// ~6,500 tokens, comfortably inside 16k. 2,000 chars keeps most of a real
+// Q&A turn intact — enough for the classifier to see what a prior answer
+// actually said (so "remind me about my first question" is recognized as
+// answerable-from-context), not just a truncated stub. Prior messages are
+// clipped; the latest message (the thing being classified) never is.
+const MAX_HISTORY_CHARS_PER_MESSAGE = 2000
 
 const classifierSchema = z.object({
   skipSearch: z.boolean(),
