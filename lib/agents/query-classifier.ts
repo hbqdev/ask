@@ -39,6 +39,23 @@ const CLASSIFIER_TIMEOUT_MS = 10_000
 // open-webui and Perplexica use for the same step.
 const HISTORY_WINDOW = 6
 
+// Per-message cap on the history text shown to the classifier.
+//
+// Bounding the message COUNT is not enough: an assistant turn here is a
+// full research report (5,000-7,000 chars each in production), so six of
+// them is ~18,000 chars / 4,500+ tokens — well past this model's 4,096
+// context. The prompt then overflows and the classifier silently returns
+// garbage: it resolved the PREVIOUS turn's topic as the standalone query
+// and set skipSearch=true on a genuinely new question, so the researcher
+// went on to answer both topics at once (reproduced against the live
+// model on the real conversation that surfaced this).
+//
+// The classifier only needs enough of each prior turn to resolve
+// references ("it", "that one", "and Germany?") in the latest message —
+// not the full text. Capping to 400 chars fixed the misclassification and
+// cut latency from 17.1s to 7.5s (back under CLASSIFIER_TIMEOUT_MS).
+const MAX_HISTORY_CHARS_PER_MESSAGE = 400
+
 const classifierSchema = z.object({
   skipSearch: z.boolean(),
   standaloneQuery: z.string(),
@@ -83,6 +100,14 @@ Examples:
 
 standaloneQuery is always a short plain string, never empty, never a meta-question back to the user.`
 
+// Prior-turn text is clipped, never the latest message: the latest message
+// is the thing being classified and must survive intact.
+function clipHistoryText(text: string): string {
+  return text.length > MAX_HISTORY_CHARS_PER_MESSAGE
+    ? text.slice(0, MAX_HISTORY_CHARS_PER_MESSAGE) + '…[truncated]'
+    : text
+}
+
 function buildConversationTranscript(messages: UIMessage[]): {
   history: string
   latestMessage: string
@@ -95,7 +120,7 @@ function buildConversationTranscript(messages: UIMessage[]): {
     ? priorTurns
         .map(
           m =>
-            `${m.role === 'user' ? 'User' : 'Assistant'}: ${getTextFromParts(m.parts)}`
+            `${m.role === 'user' ? 'User' : 'Assistant'}: ${clipHistoryText(getTextFromParts(m.parts))}`
         )
         .join('\n')
     : '(no prior messages — this is the first message in the conversation)'
