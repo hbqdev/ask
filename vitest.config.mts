@@ -1,6 +1,6 @@
 import react from '@vitejs/plugin-react'
 import path from 'path'
-import { defineConfig } from 'vitest/config'
+import { defaultExclude, defineConfig } from 'vitest/config'
 
 // Provide dummy env vars at configuration time to avoid import errors during bundling
 process.env.DATABASE_URL =
@@ -17,6 +17,12 @@ export default defineConfig({
   test: {
     globals: true,
     environment: 'jsdom',
-    setupFiles: './vitest.setup.ts'
+    setupFiles: './vitest.setup.ts',
+    // Vitest's own defaults don't know about .claude/worktrees/ — leftover
+    // git worktrees from background-agent isolation runs, each a full repo
+    // checkout with its own copy of every test file. Without this, the same
+    // handful of real failures gets counted once per stray worktree,
+    // inflating the failed-file/test count several times over.
+    exclude: [...defaultExclude, '**/.claude/**']
   }
 })

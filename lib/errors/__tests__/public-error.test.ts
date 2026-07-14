@@ -68,22 +68,22 @@ describe('public error mapping', () => {
     const payload = toPublicErrorPayload(
       JSON.stringify({
         error:
-          'Daily limit for Adaptive mode reached. Please try again tomorrow, or continue in Quick mode.',
+          'Daily limit for Balanced mode reached. Please try again tomorrow, or continue in Speed mode.',
         remaining: 0,
         resetAt: 1767139200000,
         limit: 30,
-        mode: 'adaptive'
+        mode: 'balanced'
       })
     )
 
     expect(payload.type).toBe('rate-limit')
     expect(payload.code).toBe('rate_limit')
     expect(payload.error).toBe(
-      'Daily limit for Adaptive mode reached. Please try again tomorrow, or continue in Quick mode.'
+      'Daily limit for Balanced mode reached. Please try again tomorrow, or continue in Speed mode.'
     )
-    expect(payload.mode).toBe('adaptive')
+    expect(payload.mode).toBe('balanced')
     expect(getPublicRateLimitDetails(payload)).toBe(
-      'The limit resets at midnight UTC. You can continue using Quick mode without restrictions.'
+      'The limit resets at midnight UTC. You can continue using Speed mode without restrictions.'
     )
   })
 

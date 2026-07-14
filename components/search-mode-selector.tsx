@@ -47,8 +47,13 @@ export function SearchModeSelector({
   const [open, setOpen] = useState(false)
 
   const handleModeSelect = (mode: SearchMode) => {
-    if (mode === 'quality' && isAdaptiveAuthRequired) {
-      setCookie('searchMode', 'balanced')
+    // isAdaptiveModeAuthBlocked blocks BOTH 'balanced' and 'quality' when
+    // auth is required — this guard must cover both, not just 'quality',
+    // or a guest could select Balanced mode with no auth prompt at all.
+    // Reset to 'speed' (the one mode that doesn't require auth), not back
+    // to the same blocked mode.
+    if ((mode === 'quality' || mode === 'balanced') && isAdaptiveAuthRequired) {
+      setCookie('searchMode', 'speed')
       setOpen(false)
       onAdaptiveAuthRequired?.()
       return
@@ -92,11 +97,7 @@ export function SearchModeSelector({
           />
         </button>
       </PopoverTrigger>
-      <PopoverContent
-        className="w-80 p-1"
-        align="start"
-        sideOffset={6}
-      >
+      <PopoverContent className="w-80 p-1" align="start" sideOffset={6}>
         {SEARCH_MODE_CONFIGS.map(config => {
           const ModeIcon = config.icon
           const isSelected = value === config.value

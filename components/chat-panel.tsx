@@ -80,7 +80,8 @@ function getSearchModeSnapshot(): SearchMode {
   const val = getCookie('searchMode')
   if (val === 'quick') return 'speed'
   if (val === 'adaptive') return 'balanced'
-  if (val === 'speed' || val === 'balanced' || val === 'quality') return val as SearchMode
+  if (val === 'speed' || val === 'balanced' || val === 'quality')
+    return val as SearchMode
   return 'balanced'
 }
 
@@ -250,7 +251,15 @@ export function ChatPanel({
     if (!isFirstRender.current || !query || !query.trim()) return
     if (_pendingQuerySubmits.has(query)) return
     if (adaptiveModeSubmitBlocked) {
-      setCookie('searchMode', 'balanced')
+      // Reset to speed mode — the one mode that doesn't require auth (see
+      // isAdaptiveModeAuthBlocked) — not back to the same blocked mode.
+      // Resetting to 'balanced' here would leave adaptiveModeSubmitBlocked
+      // true forever: the effect re-runs, resets to 'balanced' again, and
+      // the query is silently dropped on every render with no submission
+      // and no auth prompt (this only runs for an auto-submitted initial
+      // query, so there's no user click to show onAdaptiveModeAuthRequired
+      // from).
+      setCookie('searchMode', 'speed')
       return
     }
     isFirstRender.current = false
@@ -316,7 +325,9 @@ export function ChatPanel({
             )
           } catch (e) {
             const detail = e instanceof Error ? e.message : 'Unknown error'
-            toast.error(`Failed to upload ${uf.file?.name ?? 'file'} — ${detail}`)
+            toast.error(
+              `Failed to upload ${uf.file?.name ?? 'file'} — ${detail}`
+            )
             setUploadedFiles(prev =>
               prev.map(f =>
                 f.file === uf.file ? { ...f, status: 'error' } : f
@@ -734,9 +745,7 @@ export function ChatPanel({
           {/* Bottom menu area */}
           <div className="flex items-center justify-between p-2 md:p-3">
             <div className="flex items-center gap-2">
-              {!isGuest && (
-                <FileUploadButton onFileSelect={handleFiles} />
-              )}
+              {!isGuest && <FileUploadButton onFileSelect={handleFiles} />}
               <SearchModeSelector
                 isAdaptiveAuthRequired={isAdaptiveAuthRequired}
                 onAdaptiveAuthRequired={onAdaptiveModeAuthRequired}

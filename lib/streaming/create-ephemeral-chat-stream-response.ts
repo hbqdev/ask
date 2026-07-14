@@ -15,11 +15,13 @@ import {
 } from '@/lib/errors/public-error'
 import { isTracingEnabled } from '@/lib/utils/telemetry'
 
+import { classifyQuery } from '../agents/query-classifier'
 import {
   getMaxAllowedTokens,
   shouldTruncateMessages,
   truncateMessages
 } from '../utils/context-window'
+import { getTextFromParts } from '../utils/message-utils'
 import { isUsageLogging, logUsage } from '../utils/usage-logging'
 
 import { convertDataPart } from './helpers/convert-data-part'
@@ -68,6 +70,19 @@ export async function createEphemeralChatStreamResponse(
   }
 
   try {
+    // See create-chat-stream-response.ts for the reasoning behind this —
+    // kicked off in parallel with message-prep below, awaited just before
+    // constructing the researcher agent.
+    const latestMessage = messages[messages.length - 1]
+    const latestMessageText = getTextFromParts(latestMessage?.parts)
+    const containsUrl = /https?:\/\/\S+/i.test(latestMessageText)
+    const classificationPromise = containsUrl
+      ? Promise.resolve({
+          skipSearch: false,
+          standaloneQuery: latestMessageText
+        })
+      : classifyQuery({ messages, abortSignal })
+
     const isOpenAI = `${model.providerId}:${model.id}`.startsWith('openai:')
     const messagesWithoutSpec = stripSpecFromMessages(messages)
     const messagesToConvert = isOpenAI
@@ -90,13 +105,17 @@ export async function createEphemeralChatStreamResponse(
       modelMessages = truncateMessages(modelMessages, maxTokens, model.id)
     }
 
+    const classification = await classificationPromise
+
     const researchAgent = researcher({
       model: `${model.providerId}:${model.id}`,
       modelConfig: model,
       parentTraceId,
       searchMode,
       sources,
-      abortSignal
+      abortSignal,
+      skipSearch: classification.skipSearch,
+      standaloneQuery: classification.standaloneQuery
     })
 
     const modelId = `${model.providerId}:${model.id}`

@@ -3,6 +3,7 @@ import { stepCountIs, tool, ToolLoopAgent } from 'ai'
 import type { ResearcherTools } from '@/lib/types/agent'
 import { type Model } from '@/lib/types/models'
 
+import { getRelatedQuestionsSpecPrompt } from '../render/prompt'
 import { calculateTool } from '../tools/calculate'
 import { fetchTool } from '../tools/fetch'
 import { createQuestionTool } from '../tools/question'
@@ -18,6 +19,24 @@ import {
   getQualityModePrompt,
   SPEED_MODE_PROMPT
 } from './prompts/search-mode-prompts'
+
+// Used when the query classifier (lib/agents/query-classifier.ts) decides
+// this turn needs no new research — a pure clarification/confirmation about
+// something already established in this conversation. No tools are active
+// in this mode (see activeToolsList below), so there's nothing to cite and
+// no search-related instructions apply; this replaces the search-mode
+// prompt entirely rather than layering on top of it.
+const DIRECT_ANSWER_PROMPT = `Instructions:
+
+You are continuing an ongoing conversation. The user's latest message can be answered directly from what has already been established in this conversation — no new research is needed for this turn.
+
+- Answer directly and concisely using the existing conversation context. Do not call any tools; none are needed.
+- Do not add citations for this turn — there are no new sources, you're referencing what was already discussed.
+- Format as Markdown. A heading is optional: use one only if it genuinely helps organize a longer answer; for a short confirmation or clarification, plain prose is fine.
+- ALWAYS respond in the user's language.
+
+${getRelatedQuestionsSpecPrompt()}
+`
 
 // Wraps the search tool to deduplicate results across calls within one request.
 // When the same URL appears in a later search, it's filtered out so the model
@@ -207,7 +226,9 @@ export function createResearcher({
   searchMode = 'balanced',
   sources = ['web'],
   systemInstructions,
-  abortSignal
+  abortSignal,
+  skipSearch = false,
+  standaloneQuery
 }: {
   model: string
   modelConfig?: Model
@@ -216,6 +237,16 @@ export function createResearcher({
   sources?: SearchSources
   systemInstructions?: string
   abortSignal?: AbortSignal
+  // Set by the query classifier (lib/agents/query-classifier.ts) when this
+  // turn is a pure clarification about the conversation's own prior answer
+  // and needs no new research. Bypasses search-mode tool/prompt selection
+  // entirely in favor of DIRECT_ANSWER_PROMPT with zero active tools.
+  skipSearch?: boolean
+  // The classifier's resolved, standalone version of the user's message
+  // (references/pronouns resolved against the conversation). Passed to the
+  // research agent as a scoping hint alongside the raw conversation —
+  // Perplexica's pattern — not as a rigid replacement query.
+  standaloneQuery?: string
 }) {
   try {
     const currentDate = new Date().toLocaleString()
@@ -234,66 +265,82 @@ export function createResearcher({
     let maxSteps: number
     let searchTool = originalSearchTool
 
-    // Configure based on search mode
-    switch (searchMode) {
-      case 'speed':
-        console.log(
-          `[Researcher] Speed mode: maxSteps=20, tools=[search, fetch, calculate, get_weather], sources=${JSON.stringify(sources)}`
-        )
-        systemPrompt = SPEED_MODE_PROMPT
-        activeToolsList = ['search', 'fetch', 'calculate', 'get_weather']
-        maxSteps = 20
-        searchTool = wrapSearchToolForSources(
-          wrapSearchToolWithDedup(
-            wrapSearchToolForQuickMode(originalSearchTool),
-            seenUrls
-          ),
-          sources
-        )
-        break
+    if (skipSearch) {
+      systemPrompt = DIRECT_ANSWER_PROMPT
+      activeToolsList = []
+      maxSteps = 3
+    } else {
+      // Configure based on search mode
+      switch (searchMode) {
+        case 'speed':
+          console.log(
+            `[Researcher] Speed mode: maxSteps=20, tools=[search, fetch, calculate, get_weather], sources=${JSON.stringify(sources)}`
+          )
+          systemPrompt = SPEED_MODE_PROMPT
+          activeToolsList = ['search', 'fetch', 'calculate', 'get_weather']
+          maxSteps = 20
+          searchTool = wrapSearchToolForSources(
+            wrapSearchToolWithDedup(
+              wrapSearchToolForQuickMode(originalSearchTool),
+              seenUrls
+            ),
+            sources
+          )
+          break
 
-      case 'quality':
-        systemPrompt = getQualityModePrompt()
-        activeToolsList = [
-          'search',
-          'fetch',
-          'todoWrite',
-          'calculate',
-          'get_weather'
-        ]
-        console.log(
-          `[Researcher] Quality mode: maxSteps=100, tools=[${activeToolsList.join(', ')}], sources=${JSON.stringify(sources)}`
-        )
-        maxSteps = 100
-        searchTool = wrapSearchToolForSources(
-          wrapSearchToolWithDedup(originalSearchTool, seenUrls),
-          sources
-        )
-        break
+        case 'quality':
+          systemPrompt = getQualityModePrompt()
+          activeToolsList = [
+            'search',
+            'fetch',
+            'todoWrite',
+            'calculate',
+            'get_weather'
+          ]
+          console.log(
+            `[Researcher] Quality mode: maxSteps=100, tools=[${activeToolsList.join(', ')}], sources=${JSON.stringify(sources)}`
+          )
+          maxSteps = 100
+          searchTool = wrapSearchToolForSources(
+            wrapSearchToolWithDedup(originalSearchTool, seenUrls),
+            sources
+          )
+          break
 
-      case 'balanced':
-      default:
-        systemPrompt = getAdaptiveModePrompt()
-        activeToolsList = [
-          'search',
-          'fetch',
-          'todoWrite',
-          'calculate',
-          'get_weather'
-        ]
-        console.log(
-          `[Researcher] Balanced mode: maxSteps=50, tools=[${activeToolsList.join(', ')}], sources=${JSON.stringify(sources)}`
-        )
-        maxSteps = 50
-        searchTool = wrapSearchToolForSources(
-          wrapSearchToolWithDedup(originalSearchTool, seenUrls),
-          sources
-        )
-        break
+        case 'balanced':
+        default:
+          systemPrompt = getAdaptiveModePrompt()
+          activeToolsList = [
+            'search',
+            'fetch',
+            'todoWrite',
+            'calculate',
+            'get_weather'
+          ]
+          console.log(
+            `[Researcher] Balanced mode: maxSteps=50, tools=[${activeToolsList.join(', ')}], sources=${JSON.stringify(sources)}`
+          )
+          maxSteps = 50
+          searchTool = wrapSearchToolForSources(
+            wrapSearchToolWithDedup(originalSearchTool, seenUrls),
+            sources
+          )
+          break
+      }
+
+      // Append source instructions to system prompt
+      systemPrompt = systemPrompt + getSourcesPromptAddendum(sources)
+
+      // Give the research agent the classifier's resolved standalone query
+      // as a scoping hint alongside the raw conversation — Perplexica's
+      // pattern. It's a hint, not a rigid replacement: the agent can still
+      // exercise judgment (e.g. broaden the search) on top of it.
+      if (standaloneQuery) {
+        systemPrompt =
+          systemPrompt +
+          `\n\nResolved query for this turn: "${standaloneQuery}" — the conversation history may include other topics already covered in earlier turns; scope your searches to what's actually needed for this resolved query, not everything discussed previously.`
+      }
     }
-
-    // Append source instructions to system prompt
-    systemPrompt = systemPrompt + getSourcesPromptAddendum(sources)
 
     // Append user's custom instructions at lower priority (per Vane pattern)
     if (systemInstructions?.trim()) {
@@ -335,6 +382,7 @@ export function createResearcher({
           modelId: model,
           agentType: 'researcher',
           searchMode,
+          skipSearch,
           ...(parentTraceId && {
             langfuseTraceId: parentTraceId,
             langfuseUpdateParent: false
