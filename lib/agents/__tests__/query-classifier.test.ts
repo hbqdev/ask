@@ -138,4 +138,36 @@ describe('classifyQuery', () => {
       expect.objectContaining({ baseURL: 'http://serenity:11434' })
     )
   })
+
+  it('clips long prior-turn text but never the latest message', async () => {
+    // Prior assistant turns here are full research reports; six of them
+    // uncapped overflow the classifier model's context and make it resolve
+    // the wrong (previous) turn. The prompt must clip history yet keep the
+    // latest message — the thing being classified — intact.
+    mockGenerateText.mockResolvedValue({
+      output: {
+        skipSearch: false,
+        standaloneQuery: 'x',
+        needsRecent: false
+      }
+    } as any)
+
+    const longReport = 'A'.repeat(6000)
+    const latest = 'is claude max 20 actually 20x more? '.repeat(20).trim() // long, must survive
+
+    await classifyQuery({
+      messages: [
+        userMsg('first question'),
+        assistantMsg(longReport),
+        userMsg(latest)
+      ]
+    })
+
+    const call = mockGenerateText.mock.calls[0][0] as { prompt: string }
+    // Full 6000-char report must NOT appear verbatim in the prompt.
+    expect(call.prompt).not.toContain(longReport)
+    expect(call.prompt).toContain('…[truncated]')
+    // The latest message must be present in full, untruncated.
+    expect(call.prompt).toContain(latest)
+  })
 })
