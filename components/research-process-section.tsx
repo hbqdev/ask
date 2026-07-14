@@ -15,6 +15,8 @@ import {
   CollapsibleContent,
   CollapsibleTrigger
 } from './ui/collapsible'
+import { type AttachmentsPart, AttachmentsSection } from './attachments-section'
+import { type ClassifierPart, ClassifierSection } from './classifier-section'
 import { ReasoningSection } from './reasoning-section'
 import { ToolSection } from './tool-section'
 
@@ -24,11 +26,25 @@ type TextPart = {
   text: string
 }
 
-type MessagePart = ReasoningPart | ToolPart | TextPart | DynamicToolPart
+type MessagePart =
+  | ReasoningPart
+  | ToolPart
+  | TextPart
+  | DynamicToolPart
+  | ClassifierPart
+  | AttachmentsPart
 
 // Type guards
 function isReasoningPart(part: MessagePart): part is ReasoningPart {
   return part.type === 'reasoning'
+}
+
+function isClassifierPart(part: MessagePart): part is ClassifierPart {
+  return part.type === 'data-classifier'
+}
+
+function isAttachmentsPart(part: MessagePart): part is AttachmentsPart {
+  return part.type === 'data-attachments'
 }
 
 function isToolPart(part: MessagePart): part is ToolPart {
@@ -197,6 +213,14 @@ function RenderPart({
   addToolResult?: (params: { toolCallId: string; result: any }) => void
 }) {
   const hasSubsequent = hasNext || hasSubsequentContent
+
+  if (isClassifierPart(part)) {
+    return <ClassifierSection part={part} />
+  }
+
+  if (isAttachmentsPart(part)) {
+    return <AttachmentsSection part={part} />
+  }
 
   if (isReasoningPart(part)) {
     const isOpen = isSingle

@@ -1,4 +1,10 @@
-import { consumeStream, convertToModelMessages, pruneMessages } from 'ai'
+import {
+  consumeStream,
+  convertToModelMessages,
+  createUIMessageStream,
+  createUIMessageStreamResponse,
+  pruneMessages
+} from 'ai'
 import { randomUUID } from 'crypto'
 import { Langfuse } from 'langfuse'
 
@@ -130,137 +136,205 @@ export async function createChatStreamResponse(
     // here, in parallel with the message-prep pipeline below, and awaited
     // just before constructing the researcher agent — the classifier call
     // (local, ~1-8s) overlaps with that work instead of adding pure latency.
-    // Skipped when the message contains a URL: the existing search-mode
-    // prompts already say to fetch it directly in that case, an unambiguous
-    // "don't skip" signal not worth spending a classifier call on.
+    // Bypassed (always search) in two unambiguous cases not worth a
+    // classifier call:
+    // - the message contains a URL: the search-mode prompts already say to
+    //   fetch it directly;
+    // - the user hit Retry (regenerate): the classifier is deterministic
+    //   (temperature 0), so re-classifying would reproduce a wrong skip
+    //   verbatim — treating Retry as "do it properly, with research" gives
+    //   the user a built-in override for misclassified turns.
     const latestMessageForModel = messagesToModel[messagesToModel.length - 1]
     const latestMessageText = getTextFromParts(latestMessageForModel?.parts)
     const containsUrl = /https?:\/\/\S+/i.test(latestMessageText)
-    const classificationPromise = containsUrl
+    const isRegenerate = trigger?.startsWith('regenerate') ?? false
+    const bypassClassifier = containsUrl || isRegenerate
+    const classifyStart = performance.now()
+    const classificationPromise = bypassClassifier
       ? Promise.resolve({
           skipSearch: false,
           standaloneQuery: latestMessageText
         })
       : classifyQuery({ messages: messagesToModel, abortSignal })
 
-    // For OpenAI models, strip reasoning parts from UIMessages before conversion
-    // OpenAI's Responses API requires reasoning items and their following items to be kept together
-    // See: https://github.com/vercel/ai/issues/11036
-    const isOpenAI = context.modelId.startsWith('openai:')
-    const messagesWithoutSpec = stripSpecFromMessages(messagesToModel)
-    const messagesToConvert = isOpenAI
-      ? stripReasoningParts(messagesWithoutSpec)
-      : messagesWithoutSpec
+    // Everything from here runs inside the UI message stream so the client
+    // gets a live response immediately — most importantly, the classifier
+    // wait is surfaced as a visible step (data-classifier part) instead of
+    // dead air before the first byte.
+    let llmStart = performance.now()
 
-    // Transform file parts before the model sees them:
-    // PDFs → pdftotext extracted text (or rendered page images for scanned PDFs)
-    // Image URLs → base64 data URIs (avoids the model fetching from our upload URL)
-    const messagesForModel = await transformFileParts(messagesToConvert)
-
-    // Convert to model messages and apply context window management
-    let modelMessages = await convertToModelMessages(messagesForModel, {
-      convertDataPart
-    })
-
-    // Prune messages to reduce token usage while keeping recent context
-    modelMessages = pruneMessages({
-      messages: modelMessages,
-      reasoning: 'before-last-message',
-      toolCalls: 'before-last-2-messages',
-      emptyMessages: 'remove'
-    })
-
-    if (shouldTruncateMessages(modelMessages, model)) {
-      const maxTokens = getMaxAllowedTokens(model)
-      const originalCount = modelMessages.length
-      modelMessages = truncateMessages(modelMessages, maxTokens, model.id)
-
-      if (process.env.NODE_ENV === 'development') {
-        console.log(
-          `Context window limit reached. Truncating from ${originalCount} to ${modelMessages.length} messages`
-        )
-      }
-    }
-
-    // Start title generation in parallel if it's a new chat
-    if (!initialChat && message) {
-      const userContent = getTextFromParts(message.parts)
-      titlePromise = generateChatTitle({
-        userMessageContent: userContent,
-        modelId: context.modelId,
-        abortSignal,
-        parentTraceId
-      }).catch(error => {
-        console.error('Error generating title:', error)
-        return DEFAULT_CHAT_TITLE
-      })
-    }
-
-    const classification = await classificationPromise
-
-    // Get the researcher agent with parent trace ID, search mode, sources,
-    // and the classifier's decision for this turn.
-    const researchAgent = researcher({
-      model: context.modelId,
-      modelConfig: model,
-      parentTraceId,
-      searchMode,
-      sources,
-      systemInstructions,
-      abortSignal,
-      skipSearch: classification.skipSearch,
-      standaloneQuery: classification.standaloneQuery
-    })
-
-    const llmStart = performance.now()
-    perfLog(
-      `researchAgent.stream - Start: model=${context.modelId}, searchMode=${searchMode}, skipSearch=${classification.skipSearch}`
-    )
-    const result = await researchAgent.stream({
-      messages: modelMessages,
-      abortSignal,
-      experimental_transform: smoothAndStripNarration(),
-      ...(isUsageLogging() && {
-        onStepFinish: step => {
-          logUsage(
-            { scope: 'step', modelId: context.modelId },
-            step.usage,
-            step.providerMetadata
-          )
-        }
-      })
-    })
-    result.consumeStream()
-
-    // Log the session-total usage once the stream settles (does not block the
-    // response; consumeStream above already drives it to completion).
-    if (isUsageLogging()) {
-      Promise.resolve(result.totalUsage)
-        .then(usage =>
-          logUsage({ scope: 'total', modelId: context.modelId }, usage)
-        )
-        .catch(() => {})
-    }
-
-    return result.toUIMessageStreamResponse({
-      // Tell intermediary proxies/CDNs (e.g. Cloudflare) not to rewrite this
-      // body (Auto Minify, Rocket Loader, etc.) — those transformations
-      // require buffering the full response, which defeats streaming and
-      // makes the progress indicator only appear once generation finishes.
-      // `no-cache` is restated alongside it since the AI SDK's own default
-      // header would otherwise be dropped (the merge only fills in a default
-      // for a header key that isn't already present).
-      headers: {
-        'Cache-Control': 'no-cache, no-transform'
-      },
-      messageMetadata: ({ part }) => {
-        if (part.type === 'start') {
-          return {
+    const stream = createUIMessageStream({
+      execute: async ({ writer }) => {
+        // Emit the message start ourselves (with the metadata the old
+        // messageMetadata callback attached on 'start') so the classifier
+        // step can stream before the researcher run begins. The merged
+        // agent stream below uses sendStart: false to avoid a duplicate.
+        writer.write({
+          type: 'start',
+          messageMetadata: {
             traceId: parentTraceId,
             searchMode,
             modelId: context.modelId
           }
+        })
+
+        // For OpenAI models, strip reasoning parts from UIMessages before conversion
+        // OpenAI's Responses API requires reasoning items and their following items to be kept together
+        // See: https://github.com/vercel/ai/issues/11036
+        const isOpenAI = context.modelId.startsWith('openai:')
+        const messagesWithoutSpec = stripSpecFromMessages(messagesToModel)
+        const messagesToConvert = isOpenAI
+          ? stripReasoningParts(messagesWithoutSpec)
+          : messagesWithoutSpec
+
+        // Transform file parts before the model sees them:
+        // PDFs → RAG excerpts or pdftotext extracted text
+        // Image URLs → base64 data URIs (avoids the model fetching from our upload URL)
+        // This re-runs for every user message with attachments on every
+        // turn (RAG queries, subprocess extraction, file reads), so surface
+        // it as its own step — otherwise an attachment-heavy chat gets
+        // seconds of unexplained silence before anything appears.
+        const attachmentCount = messagesToConvert
+          .filter(m => m.role === 'user')
+          .flatMap(m => m.parts ?? [])
+          .filter(p => p.type === 'file').length
+        const attachmentsStart = performance.now()
+        if (attachmentCount > 0) {
+          writer.write({
+            type: 'data-attachments',
+            id: 'attachments',
+            data: { state: 'running', count: attachmentCount }
+          })
         }
+
+        const messagesForModel = await transformFileParts(messagesToConvert)
+
+        if (attachmentCount > 0) {
+          // Same part id — replaces the 'running' entry in place.
+          writer.write({
+            type: 'data-attachments',
+            id: 'attachments',
+            data: {
+              state: 'done',
+              count: attachmentCount,
+              durationMs: Math.round(performance.now() - attachmentsStart)
+            }
+          })
+        }
+
+        // The classifier promise has been running since before the stream
+        // started; its step is shown after attachment prep so the visible
+        // step order matches what the user is actually waiting on (the
+        // reported duration still measures from the true kickoff).
+        if (!bypassClassifier) {
+          writer.write({
+            type: 'data-classifier',
+            id: 'classifier',
+            data: { state: 'running' }
+          })
+        }
+
+        // Convert to model messages and apply context window management
+        let modelMessages = await convertToModelMessages(messagesForModel, {
+          convertDataPart
+        })
+
+        // Prune messages to reduce token usage while keeping recent context
+        modelMessages = pruneMessages({
+          messages: modelMessages,
+          reasoning: 'before-last-message',
+          toolCalls: 'before-last-2-messages',
+          emptyMessages: 'remove'
+        })
+
+        if (shouldTruncateMessages(modelMessages, model)) {
+          const maxTokens = getMaxAllowedTokens(model)
+          const originalCount = modelMessages.length
+          modelMessages = truncateMessages(modelMessages, maxTokens, model.id)
+
+          if (process.env.NODE_ENV === 'development') {
+            console.log(
+              `Context window limit reached. Truncating from ${originalCount} to ${modelMessages.length} messages`
+            )
+          }
+        }
+
+        // Start title generation in parallel if it's a new chat
+        if (!initialChat && message) {
+          const userContent = getTextFromParts(message.parts)
+          titlePromise = generateChatTitle({
+            userMessageContent: userContent,
+            modelId: context.modelId,
+            abortSignal,
+            parentTraceId
+          }).catch(error => {
+            console.error('Error generating title:', error)
+            return DEFAULT_CHAT_TITLE
+          })
+        }
+
+        const classification = await classificationPromise
+
+        if (!bypassClassifier) {
+          // Same part id — replaces the 'running' entry in place.
+          writer.write({
+            type: 'data-classifier',
+            id: 'classifier',
+            data: {
+              state: 'done',
+              skipSearch: classification.skipSearch,
+              standaloneQuery: classification.standaloneQuery,
+              durationMs: Math.round(performance.now() - classifyStart)
+            }
+          })
+        }
+
+        // Get the researcher agent with parent trace ID, search mode,
+        // sources, and the classifier's decision for this turn.
+        const researchAgent = researcher({
+          model: context.modelId,
+          modelConfig: model,
+          parentTraceId,
+          searchMode,
+          sources,
+          systemInstructions,
+          abortSignal,
+          skipSearch: classification.skipSearch,
+          standaloneQuery: classification.standaloneQuery
+        })
+
+        llmStart = performance.now()
+        perfLog(
+          `researchAgent.stream - Start: model=${context.modelId}, searchMode=${searchMode}, skipSearch=${classification.skipSearch}`
+        )
+        const result = await researchAgent.stream({
+          messages: modelMessages,
+          abortSignal,
+          experimental_transform: smoothAndStripNarration(),
+          ...(isUsageLogging() && {
+            onStepFinish: step => {
+              logUsage(
+                { scope: 'step', modelId: context.modelId },
+                step.usage,
+                step.providerMetadata
+              )
+            }
+          })
+        })
+        result.consumeStream()
+
+        // Log the session-total usage once the stream settles (does not
+        // block the response; consumeStream above already drives it to
+        // completion).
+        if (isUsageLogging()) {
+          Promise.resolve(result.totalUsage)
+            .then(usage =>
+              logUsage({ scope: 'total', modelId: context.modelId }, usage)
+            )
+            .catch(() => {})
+        }
+
+        writer.merge(result.toUIMessageStream({ sendStart: false }))
       },
       onFinish: async ({ responseMessage, isAborted }) => {
         try {
@@ -296,6 +370,20 @@ export async function createChatStreamResponse(
       onError: (error: unknown) => {
         console.error('Stream response error:', error)
         return serializePublicError(error)
+      }
+    })
+
+    return createUIMessageStreamResponse({
+      stream,
+      // Tell intermediary proxies/CDNs (e.g. Cloudflare) not to rewrite this
+      // body (Auto Minify, Rocket Loader, etc.) — those transformations
+      // require buffering the full response, which defeats streaming and
+      // makes the progress indicator only appear once generation finishes.
+      // `no-cache` is restated alongside it since the AI SDK's own default
+      // header would otherwise be dropped (the merge only fills in a default
+      // for a header key that isn't already present).
+      headers: {
+        'Cache-Control': 'no-cache, no-transform'
       },
       consumeSseStream: consumeStream
     })

@@ -22,16 +22,23 @@ import {
 
 // Used when the query classifier (lib/agents/query-classifier.ts) decides
 // this turn needs no new research — a pure clarification/confirmation about
-// something already established in this conversation. No tools are active
-// in this mode (see activeToolsList below), so there's nothing to cite and
-// no search-related instructions apply; this replaces the search-mode
-// prompt entirely rather than layering on top of it.
+// something already established in this conversation. Tools stay available
+// as an escape hatch: the classifier is a small model gating a bigger one,
+// and when it's wrong in the skip direction the researcher must be able to
+// recover on its own (search) and must not lose unrelated capabilities
+// (calculate/fetch/get_weather) just because no NEW research is expected.
+// This replaces the search-mode prompt entirely rather than layering on
+// top of it.
 const DIRECT_ANSWER_PROMPT = `Instructions:
 
-You are continuing an ongoing conversation. The user's latest message can be answered directly from what has already been established in this conversation — no new research is needed for this turn.
+You are continuing an ongoing conversation. The user's latest message looks answerable directly from what has already been established in this conversation — no new research is expected for this turn.
 
-- Answer directly and concisely using the existing conversation context. Do not call any tools; none are needed.
-- Do not add citations for this turn — there are no new sources, you're referencing what was already discussed.
+- Default to answering directly and concisely from the existing conversation context, without calling any tools.
+- Escape hatch — you still have tools, use one ONLY if actually required to answer correctly:
+  - If, while answering, you realize a needed fact is NOT actually established above (or what's above may be stale for a time-sensitive claim), run the \`search\` tool rather than guessing from memory. If you do search, cite what you use (only toolCallIds from searches you actually executed this turn; never invent anchors).
+  - If the reply requires arithmetic on numbers from the conversation (recompute, totals, unit conversions), use \`calculate\` instead of doing mental math.
+  - If the user asks you to re-quote or re-check a page already linked in this conversation, you may \`fetch\` that URL.
+- Do not add citations when you used no tools — you're restating what was already discussed.
 - Format as Markdown. A heading is optional: use one only if it genuinely helps organize a longer answer; for a short confirmation or clarification, plain prose is fine.
 - ALWAYS respond in the user's language.
 
@@ -240,7 +247,8 @@ export function createResearcher({
   // Set by the query classifier (lib/agents/query-classifier.ts) when this
   // turn is a pure clarification about the conversation's own prior answer
   // and needs no new research. Bypasses search-mode tool/prompt selection
-  // entirely in favor of DIRECT_ANSWER_PROMPT with zero active tools.
+  // in favor of DIRECT_ANSWER_PROMPT, which defaults to answering from
+  // context but keeps tools as an escape hatch for misclassified turns.
   skipSearch?: boolean
   // The classifier's resolved, standalone version of the user's message
   // (references/pronouns resolved against the conversation). Passed to the
@@ -267,8 +275,16 @@ export function createResearcher({
 
     if (skipSearch) {
       systemPrompt = DIRECT_ANSWER_PROMPT
-      activeToolsList = []
-      maxSteps = 3
+      // Escape-hatch tools (see DIRECT_ANSWER_PROMPT): available but the
+      // prompt says to use them only when genuinely required. No todoWrite —
+      // if a skipped turn somehow needs multi-step planning, the
+      // classification was wrong enough that a plain search recovers it.
+      activeToolsList = ['search', 'fetch', 'calculate', 'get_weather']
+      maxSteps = 10
+      searchTool = wrapSearchToolForSources(
+        wrapSearchToolWithDedup(originalSearchTool, seenUrls),
+        sources
+      )
     } else {
       // Configure based on search mode
       switch (searchMode) {
@@ -330,16 +346,18 @@ export function createResearcher({
 
       // Append source instructions to system prompt
       systemPrompt = systemPrompt + getSourcesPromptAddendum(sources)
+    }
 
-      // Give the research agent the classifier's resolved standalone query
-      // as a scoping hint alongside the raw conversation — Perplexica's
-      // pattern. It's a hint, not a rigid replacement: the agent can still
-      // exercise judgment (e.g. broaden the search) on top of it.
-      if (standaloneQuery) {
-        systemPrompt =
-          systemPrompt +
-          `\n\nResolved query for this turn: "${standaloneQuery}" — the conversation history may include other topics already covered in earlier turns; scope your searches to what's actually needed for this resolved query, not everything discussed previously.`
-      }
+    // Give the agent the classifier's resolved standalone query as a
+    // scoping hint alongside the raw conversation — Perplexica's pattern.
+    // It's a hint, not a rigid replacement: the agent can still exercise
+    // judgment (e.g. broaden the search) on top of it. Applied in skip
+    // mode too, where it doubles as the resolved reading of the user's
+    // latest message (useful if the escape-hatch search fires).
+    if (standaloneQuery) {
+      systemPrompt =
+        systemPrompt +
+        `\n\nResolved form of the user's latest message: "${standaloneQuery}" — the conversation history may include other topics already covered in earlier turns; if you search, scope it to what's actually needed for this resolved query, not everything discussed previously.`
     }
 
     // Append user's custom instructions at lower priority (per Vane pattern)
