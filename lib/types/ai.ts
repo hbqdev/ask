@@ -31,6 +31,24 @@ export type UIDataTypes = {
   pastedContent?: { text: string }
   quotedContext?: { text: string }
   sourceUrl?: { url: string }
+  // Streamed by create-chat-stream-response.ts while the query classifier
+  // decides whether this turn needs a fresh search — rendered as a step in
+  // the research-process list (components/classifier-section.tsx). The
+  // `running` part is overwritten in place (same part id) by the `done` one.
+  classifier?:
+    | { state: 'running' }
+    | {
+        state: 'done'
+        skipSearch: boolean
+        standaloneQuery?: string
+        durationMs?: number
+      }
+  // Streamed while uploaded files are prepared for the model (PDF RAG /
+  // text extraction, image base64 encoding) — see transformFileParts.
+  // Rendered by components/attachments-section.tsx.
+  attachments?:
+    | { state: 'running'; count: number }
+    | { state: 'done'; count: number; durationMs?: number }
 }
 
 // Create todo tools instance for type inference

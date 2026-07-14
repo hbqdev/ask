@@ -2,6 +2,8 @@ import type { UIMessage } from 'ai'
 import {
   consumeStream,
   convertToModelMessages,
+  createUIMessageStream,
+  createUIMessageStreamResponse,
   pruneMessages,
   smoothStream
 } from 'ai'
@@ -72,10 +74,13 @@ export async function createEphemeralChatStreamResponse(
   try {
     // See create-chat-stream-response.ts for the reasoning behind this —
     // kicked off in parallel with message-prep below, awaited just before
-    // constructing the researcher agent.
+    // constructing the researcher agent, with the wait surfaced to the
+    // client as a data-classifier step. (No regenerate bypass here:
+    // ephemeral chats have no Retry trigger.)
     const latestMessage = messages[messages.length - 1]
     const latestMessageText = getTextFromParts(latestMessage?.parts)
     const containsUrl = /https?:\/\/\S+/i.test(latestMessageText)
+    const classifyStart = performance.now()
     const classificationPromise = containsUrl
       ? Promise.resolve({
           skipSearch: false,
@@ -83,73 +88,99 @@ export async function createEphemeralChatStreamResponse(
         })
       : classifyQuery({ messages, abortSignal })
 
-    const isOpenAI = `${model.providerId}:${model.id}`.startsWith('openai:')
-    const messagesWithoutSpec = stripSpecFromMessages(messages)
-    const messagesToConvert = isOpenAI
-      ? stripReasoningParts(messagesWithoutSpec)
-      : messagesWithoutSpec
-
-    let modelMessages = await convertToModelMessages(messagesToConvert, {
-      convertDataPart
-    })
-
-    modelMessages = pruneMessages({
-      messages: modelMessages,
-      reasoning: 'before-last-message',
-      toolCalls: 'before-last-2-messages',
-      emptyMessages: 'remove'
-    })
-
-    if (shouldTruncateMessages(modelMessages, model)) {
-      const maxTokens = getMaxAllowedTokens(model)
-      modelMessages = truncateMessages(modelMessages, maxTokens, model.id)
-    }
-
-    const classification = await classificationPromise
-
-    const researchAgent = researcher({
-      model: `${model.providerId}:${model.id}`,
-      modelConfig: model,
-      parentTraceId,
-      searchMode,
-      sources,
-      abortSignal,
-      skipSearch: classification.skipSearch,
-      standaloneQuery: classification.standaloneQuery
-    })
-
     const modelId = `${model.providerId}:${model.id}`
-    const result = await researchAgent.stream({
-      messages: modelMessages,
-      abortSignal,
-      experimental_transform: smoothStream({ chunking: 'word' }),
-      ...(isUsageLogging() && {
-        onStepFinish: step => {
-          logUsage(
-            { scope: 'step', modelId },
-            step.usage,
-            step.providerMetadata
-          )
-        }
-      })
-    })
-    result.consumeStream()
 
-    if (isUsageLogging()) {
-      Promise.resolve(result.totalUsage)
-        .then(usage => logUsage({ scope: 'total', modelId }, usage))
-        .catch(() => {})
-    }
-
-    return result.toUIMessageStreamResponse({
-      messageMetadata: ({ part }) => {
-        if (part.type === 'start') {
-          return {
+    const stream = createUIMessageStream({
+      execute: async ({ writer }) => {
+        writer.write({
+          type: 'start',
+          messageMetadata: {
             traceId: parentTraceId,
             searchMode,
-            modelId: `${model.providerId}:${model.id}`
+            modelId
           }
+        })
+
+        if (!containsUrl) {
+          writer.write({
+            type: 'data-classifier',
+            id: 'classifier',
+            data: { state: 'running' }
+          })
         }
+
+        const isOpenAI = modelId.startsWith('openai:')
+        const messagesWithoutSpec = stripSpecFromMessages(messages)
+        const messagesToConvert = isOpenAI
+          ? stripReasoningParts(messagesWithoutSpec)
+          : messagesWithoutSpec
+
+        let modelMessages = await convertToModelMessages(messagesToConvert, {
+          convertDataPart
+        })
+
+        modelMessages = pruneMessages({
+          messages: modelMessages,
+          reasoning: 'before-last-message',
+          toolCalls: 'before-last-2-messages',
+          emptyMessages: 'remove'
+        })
+
+        if (shouldTruncateMessages(modelMessages, model)) {
+          const maxTokens = getMaxAllowedTokens(model)
+          modelMessages = truncateMessages(modelMessages, maxTokens, model.id)
+        }
+
+        const classification = await classificationPromise
+
+        if (!containsUrl) {
+          // Same part id — replaces the 'running' entry in place.
+          writer.write({
+            type: 'data-classifier',
+            id: 'classifier',
+            data: {
+              state: 'done',
+              skipSearch: classification.skipSearch,
+              standaloneQuery: classification.standaloneQuery,
+              durationMs: Math.round(performance.now() - classifyStart)
+            }
+          })
+        }
+
+        const researchAgent = researcher({
+          model: modelId,
+          modelConfig: model,
+          parentTraceId,
+          searchMode,
+          sources,
+          abortSignal,
+          skipSearch: classification.skipSearch,
+          standaloneQuery: classification.standaloneQuery
+        })
+
+        const result = await researchAgent.stream({
+          messages: modelMessages,
+          abortSignal,
+          experimental_transform: smoothStream({ chunking: 'word' }),
+          ...(isUsageLogging() && {
+            onStepFinish: step => {
+              logUsage(
+                { scope: 'step', modelId },
+                step.usage,
+                step.providerMetadata
+              )
+            }
+          })
+        })
+        result.consumeStream()
+
+        if (isUsageLogging()) {
+          Promise.resolve(result.totalUsage)
+            .then(usage => logUsage({ scope: 'total', modelId }, usage))
+            .catch(() => {})
+        }
+
+        writer.merge(result.toUIMessageStream({ sendStart: false }))
       },
       onFinish: async () => {
         if (langfuse) {
@@ -159,7 +190,11 @@ export async function createEphemeralChatStreamResponse(
       onError: (error: unknown) => {
         console.error('Ephemeral stream response error:', error)
         return serializePublicError(error)
-      },
+      }
+    })
+
+    return createUIMessageStreamResponse({
+      stream,
       consumeSseStream: consumeStream
     })
   } catch (error) {

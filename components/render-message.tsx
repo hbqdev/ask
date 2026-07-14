@@ -188,7 +188,12 @@ export function RenderMessage({
           onQuoteContext={onQuoteContext}
         />
       )
-    } else if (part.type === 'reasoning' || part.type?.startsWith?.('tool-')) {
+    } else if (
+      part.type === 'reasoning' ||
+      part.type === 'data-classifier' ||
+      part.type === 'data-attachments' ||
+      part.type?.startsWith?.('tool-')
+    ) {
       buffer.push(part)
     } else if (part.type === 'dynamic-tool') {
       flushBuffer(`seg-${index}`)
