@@ -101,12 +101,23 @@ export function createSearchTool(
       // Kick the expansion-variant searches off in parallel with the main
       // search below. Bounded: if the expander hasn't resolved shortly
       // after the main search completes, proceed without variants.
+      //
+      // The cap accommodates the expander running on granite4.1:8b
+      // (~10-14s warm). It's a ceiling, not a fixed wait: the expander was
+      // kicked off back at classification time, so by the time this first
+      // search returns it has usually had a big head start and the race
+      // resolves well before the ceiling. Worst case (expander still not
+      // done) the turn proceeds single-query — never blocked, never an
+      // error.
+      const EXPANSION_MERGE_WAIT_MS = 12_000
       let variantResultsPromise: Promise<SearchResults['results']> | null = null
       if (!expansionUsed && toolOptions?.expandedQueries) {
         expansionUsed = true
         variantResultsPromise = Promise.race([
           toolOptions.expandedQueries,
-          new Promise<string[]>(resolve => setTimeout(() => resolve([]), 5000))
+          new Promise<string[]>(resolve =>
+            setTimeout(() => resolve([]), EXPANSION_MERGE_WAIT_MS)
+          )
         ])
           .then(variants =>
             variants.length > 0
