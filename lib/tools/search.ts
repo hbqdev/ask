@@ -1,5 +1,10 @@
 import { type JSONValue, tool, UIToolInvocation } from 'ai'
 
+import {
+  cosineSimilarity,
+  embedTexts,
+  getConfiguredModel
+} from '@/lib/embeddings/transformers-embedding'
 import { getSearchSchemaForModel } from '@/lib/schema/search'
 import { SearchResults } from '@/lib/types'
 import {
@@ -40,6 +45,20 @@ export type SearchToolOptions = {
   // searches down to 'basic' — the model deep-reads specific URLs via the
   // fetch tool instead of re-running advanced crawls.
   firstSearchDepth?: 'basic' | 'advanced'
+}
+
+// Returns the index of the first prior query embedding whose cosine
+// similarity to `embedding` meets/exceeds `threshold`, or -1 if none. Used to
+// skip near-duplicate query reformulations within a single research turn.
+export function findDuplicateQueryIndex(
+  embedding: number[],
+  priorEmbeddings: number[][],
+  threshold: number
+): number {
+  for (let i = 0; i < priorEmbeddings.length; i++) {
+    if (cosineSimilarity(embedding, priorEmbeddings[i]) >= threshold) return i
+  }
+  return -1
 }
 
 // Depth-tiering decision. When enabled (SEARCH_DEPTH_TIERING !== 'off'), the
@@ -110,6 +129,10 @@ export function createSearchTool(
   // Depth tiering applies only to the first search of the turn: later
   // searches tier down to basic (see resolveEffectiveDepth).
   let firstSearchDone = false
+  // Per-turn search-intent dedup state, keyed within a search_mode so a web
+  // search and an academic search of the same words aren't treated as dupes.
+  const executedQueries: { mode: string; query: string; embedding: number[] }[] =
+    []
 
   return tool({
     description: getSearchToolDescription(),
@@ -132,6 +155,74 @@ export function createSearchTool(
         state: 'searching' as const,
         query
       }
+
+      // Search-intent dedup: skip a near-duplicate reformulation of a query
+      // already run this turn. Its results are already in the model's
+      // context, so return a short note instead of paying for another
+      // search+crawl+rerank. First search never dedups (nothing prior).
+      const dedupEnabled = process.env.SEARCH_DEDUP_ENABLED !== 'off'
+      if (dedupEnabled && executedQueries.length > 0) {
+        try {
+          const threshold = Number(
+            process.env.SEARCH_DEDUP_THRESHOLD ?? '0.92'
+          )
+          const [queryEmbedding] = await embedTexts(
+            [query],
+            getConfiguredModel()
+          )
+          const priorSameMode = executedQueries.filter(
+            e => e.mode === search_mode
+          )
+          const dupIdx = findDuplicateQueryIndex(
+            queryEmbedding,
+            priorSameMode.map(e => e.embedding),
+            Number.isFinite(threshold) ? threshold : 0.92
+          )
+          if (dupIdx !== -1) {
+            const priorQuery = priorSameMode[dupIdx].query
+            console.log(
+              `[search-dedup] skipping "${query}" — near-duplicate of "${priorQuery}"`
+            )
+            yield {
+              state: 'complete' as const,
+              results: [],
+              images: [],
+              query,
+              number_of_results: 0,
+              note: `Skipped: this search is a near-duplicate of an earlier search this turn ("${priorQuery}"). Those results are already above — reuse them, or search a materially different angle instead of rephrasing.`
+            }
+            return
+          }
+          // Not a duplicate — record it so later searches compare against it.
+          executedQueries.push({
+            mode: search_mode,
+            query,
+            embedding: queryEmbedding
+          })
+        } catch (error) {
+          // Embedding failure ⇒ treat as not-duplicate (search proceeds),
+          // never worse than today. Still record the query text so obviously
+          // identical strings can be caught cheaply next time.
+          console.error('[search-dedup] embedding failed, not deduping:', error)
+        }
+      } else if (dedupEnabled) {
+        // First search of the turn: record it (embed lazily so the first
+        // search pays nothing when it's the only one).
+        try {
+          const [queryEmbedding] = await embedTexts(
+            [query],
+            getConfiguredModel()
+          )
+          executedQueries.push({
+            mode: search_mode,
+            query,
+            embedding: queryEmbedding
+          })
+        } catch (error) {
+          console.error('[search-dedup] initial embed failed:', error)
+        }
+      }
+
       // Ensure max_results is at least 10
       const minResults = 10
       const effectiveMaxResults = Math.max(
