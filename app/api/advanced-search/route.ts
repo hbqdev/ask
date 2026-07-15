@@ -11,7 +11,6 @@ import {
   rerankByCrossEncoder,
   rerankByEmbedding
 } from '@/lib/embeddings/rerank'
-import { isCrossEncoderConfigured } from '@/lib/utils/cross-encoder'
 import {
   SearchResultItem,
   SearXNGResponse,
@@ -19,6 +18,7 @@ import {
   SearXNGSearchResults
 } from '@/lib/types'
 import { crawl4aiScrapeMany, isCrawl4aiConfigured } from '@/lib/utils/crawl4ai'
+import { isCrossEncoderConfigured } from '@/lib/utils/cross-encoder'
 import {
   extractReadableContent,
   MIN_CONTENT_LENGTH
@@ -367,10 +367,19 @@ async function advancedSearchXNGSearch(
           // Cross-encoder [0,1]; 0.3 is a loose on-topic floor (the answering
           // model does the fine-grained judging, this only drops clear junk).
           applyReranked(out, 0.3)
-          reranked = true
-          console.log(
-            `[advanced-search] cross-encoder reranked ${out.length}/${docsForRerank.length}`
-          )
+          // Guard: if the floor filtered EVERYTHING out, don't return an
+          // empty result set — fall through to the bi-encoder tier (which
+          // uses a looser 0.2 floor) rather than answering with no sources.
+          if (generalResults.length > 0) {
+            reranked = true
+            console.log(
+              `[advanced-search] cross-encoder reranked ${out.length}/${docsForRerank.length}`
+            )
+          } else {
+            console.log(
+              '[advanced-search] cross-encoder filtered all results below floor, falling back to bi-encoder'
+            )
+          }
         } catch (error) {
           console.error(
             '[advanced-search] cross-encoder failed, falling back to bi-encoder:',
