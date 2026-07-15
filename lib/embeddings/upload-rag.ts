@@ -7,6 +7,11 @@ import { promises as fs } from 'node:fs'
 import path from 'node:path'
 import { promisify } from 'node:util'
 
+import {
+  crossEncoderScore,
+  isCrossEncoderConfigured
+} from '../utils/cross-encoder'
+
 import { splitText } from './split-text'
 import {
   cosineSimilarity,
@@ -14,10 +19,6 @@ import {
   embedTexts,
   getConfiguredModel
 } from './transformers-embedding'
-import {
-  crossEncoderScore,
-  isCrossEncoderConfigured
-} from '../utils/cross-encoder'
 
 const execFileAsync = promisify(execFile)
 

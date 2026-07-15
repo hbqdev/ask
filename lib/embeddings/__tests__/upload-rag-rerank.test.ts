@@ -1,5 +1,4 @@
 import { promises as fs } from 'node:fs'
-
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
 vi.mock('../../utils/cross-encoder', () => ({
