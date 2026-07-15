@@ -432,8 +432,9 @@ git commit -m "Add cross-encoder reranker client"
 - Test: `lib/embeddings/__tests__/rerank-cross-encoder.test.ts`
 
 **Interfaces:**
-- Consumes: `crossEncoderScore(query, passages)` from Task 2; existing `splitText`, `PASSAGE_MAX_TOKENS`, `PASSAGE_OVERLAP_TOKENS`, `MAX_PASSAGES_PER_DOC`, `RerankableDoc`, `RerankedDoc<T>` from this file.
+- Consumes: `crossEncoderScore(query, passages)` from Task 2; existing `splitText`, `PASSAGE_MAX_TOKENS`, `PASSAGE_OVERLAP_TOKENS`, `MAX_PASSAGES_PER_DOC`, `RerankableDoc`, `RerankedDoc<T>`, `embedTexts`, `cosineSimilarity`, `RERANK_MODEL` from this file.
 - Produces: `rerankByCrossEncoder<T extends RerankableDoc>(docs: T[], query: string, topK: number): Promise<RerankedDoc<T>[]>` — same shape as `rerankByEmbedding`; `score` is the doc's best-passage cross-encoder score in `[0,1]`; throws if the service call throws (caller falls back).
+- Refactors: extracts a private `rerankByPassageScorer<T>(docs, query, topK, scoreFn)` that holds the passage-split / best-passage / sort-and-slice logic once; `scoreFn: (query: string, passages: string[]) => Promise<number[]>` returns one score per passage in input order. Both `rerankByEmbedding` (existing behavior preserved — its tests in `lib/embeddings/__tests__/rerank.test.ts` must still pass) and `rerankByCrossEncoder` become thin wrappers over it. This removes the duplication the two functions would otherwise share.
 
 - [ ] **Step 1: Write the failing test**
 
@@ -477,7 +478,7 @@ describe('rerankByCrossEncoder', () => {
 Run: `bun run test lib/embeddings/__tests__/rerank-cross-encoder.test.ts`
 Expected: FAIL — `rerankByCrossEncoder` is not exported.
 
-- [ ] **Step 3: Add the function**
+- [ ] **Step 3: Extract the shared helper, refactor `rerankByEmbedding`, add `rerankByCrossEncoder`**
 
 In `lib/embeddings/rerank.ts`, add the import at the top (after the existing imports):
 
@@ -485,24 +486,21 @@ In `lib/embeddings/rerank.ts`, add the import at the top (after the existing imp
 import { crossEncoderScore } from '../utils/cross-encoder'
 ```
 
-Then append this function at the end of the file:
+**3a.** Add this private helper (place it directly above the existing `rerankByEmbedding`). It holds the passage-split / best-passage / sort-and-slice logic once; the only thing that varies between rerankers is `scoreFn`:
 
 ```typescript
 /**
- * Cross-encoder reranking of documents against the query, via the
- * self-hosted reranker service (lib/utils/cross-encoder.ts). Same passage
- * strategy and return shape as rerankByEmbedding — each doc scored by its
- * best passage — but the score comes from a cross-encoder scoring
- * (query, passage) pairs jointly, which orders relevance better than
- * comparing separately-embedded vectors. Scores are in [0,1].
- *
- * Throws if the service call fails, so advanced-search falls back to
- * rerankByEmbedding (which itself falls back to the keyword scorer).
+ * Shared reranking core: split each doc into passages, score every passage
+ * against the query via `scoreFn` (one score per passage, input order),
+ * take each doc's best passage as its score, and return the top-K docs.
+ * The passage strategy and RerankedDoc shape are identical across rerankers;
+ * only how a (query, passage) pair is scored differs.
  */
-export async function rerankByCrossEncoder<T extends RerankableDoc>(
+async function rerankByPassageScorer<T extends RerankableDoc>(
   docs: T[],
   query: string,
-  topK: number
+  topK: number,
+  scoreFn: (query: string, passages: string[]) => Promise<number[]>
 ): Promise<RerankedDoc<T>[]> {
   if (docs.length === 0) return []
 
@@ -515,7 +513,7 @@ export async function rerankByCrossEncoder<T extends RerankableDoc>(
 
   const flatPassages = passagesPerDoc.flat()
   if (flatPassages.length === 0) return []
-  const scores = await crossEncoderScore(query, flatPassages)
+  const scores = await scoreFn(query, flatPassages)
 
   let cursor = 0
   const scored: RerankedDoc<T>[] = docs.map((doc, i) => {
@@ -538,10 +536,47 @@ export async function rerankByCrossEncoder<T extends RerankableDoc>(
 }
 ```
 
-- [ ] **Step 4: Run test to verify it passes**
+**3b.** Replace the body of the existing `rerankByEmbedding` so it delegates to the helper, passing a bi-encoder `scoreFn` (embed query + all passages once, then cosine each passage against the query). Keep its exported signature and JSDoc intact — behavior is unchanged, so its tests in `lib/embeddings/__tests__/rerank.test.ts` still pass. The new body:
 
-Run: `bun run test lib/embeddings/__tests__/rerank-cross-encoder.test.ts`
-Expected: PASS (2 tests).
+```typescript
+export async function rerankByEmbedding<T extends RerankableDoc>(
+  docs: T[],
+  query: string,
+  topK: number
+): Promise<RerankedDoc<T>[]> {
+  return rerankByPassageScorer(docs, query, topK, async (q, passages) => {
+    const vectors = await embedTexts([q, ...passages], RERANK_MODEL)
+    const queryVec = vectors[0]
+    return vectors.slice(1).map(v => cosineSimilarity(queryVec, v))
+  })
+}
+```
+
+**3c.** Add `rerankByCrossEncoder` (append at the end of the file). `crossEncoderScore` already has the `(query, passages) => Promise<number[]>` shape the helper wants, so it drops straight in:
+
+```typescript
+/**
+ * Cross-encoder reranking via the self-hosted reranker service
+ * (lib/utils/cross-encoder.ts). Same passage strategy and return shape as
+ * rerankByEmbedding, but each (query, passage) pair is scored jointly by a
+ * cross-encoder — a stronger relevance signal than comparing
+ * separately-embedded vectors. Scores are in [0,1]. Throws if the service
+ * call fails, so advanced-search falls back to rerankByEmbedding (which
+ * itself falls back to the keyword scorer).
+ */
+export async function rerankByCrossEncoder<T extends RerankableDoc>(
+  docs: T[],
+  query: string,
+  topK: number
+): Promise<RerankedDoc<T>[]> {
+  return rerankByPassageScorer(docs, query, topK, crossEncoderScore)
+}
+```
+
+- [ ] **Step 4: Run both the new and existing rerank tests**
+
+Run: `bun run test lib/embeddings/__tests__/rerank-cross-encoder.test.ts lib/embeddings/__tests__/rerank.test.ts`
+Expected: PASS — the new `rerankByCrossEncoder` suite (2 tests) AND the existing `rerankByEmbedding` suite (proving the refactor preserved behavior).
 
 - [ ] **Step 5: Commit**
 
