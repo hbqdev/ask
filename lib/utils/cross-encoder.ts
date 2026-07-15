@@ -7,7 +7,7 @@
  * loopback services). Feature is inert unless both env vars are set.
  */
 
-const DEFAULT_TIMEOUT_MS = 15_000
+const DEFAULT_TIMEOUT_MS = 20_000
 
 export function isCrossEncoderConfigured(): boolean {
   return Boolean(process.env.RERANKER_URL && process.env.RERANKER_API_TOKEN)
