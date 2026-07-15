@@ -39,8 +39,8 @@ const CLASSIFIER_TIMEOUT_MS = 10_000
 // needless search — 20 messages ≈ ten prior Q&A pairs.
 //
 // This does NOT cost extra VRAM: serenity loads the model at 16384 context
-// regardless, and 20 × MAX_HISTORY_CHARS_PER_MESSAGE (2000) + the system
-// prompt is ~10.5k tokens — widening the window just fills more of the
+// regardless, and 20 × MAX_HISTORY_CHARS_PER_MESSAGE + the system prompt
+// stays inside that budget — widening the window just fills more of the
 // context already allocated, at a small per-turn prefill cost. Beyond ~10
 // pairs the returns are marginal while that latency is paid on every turn,
 // so this is the ceiling. (The answering model always gets the FULL,
@@ -59,13 +59,14 @@ const HISTORY_WINDOW = 20
 // conversation that surfaced this).
 //
 // serenity runs the classifier model at OLLAMA_CONTEXT_LENGTH=16384, so the
-// budget is generous: 12 messages × 2,000 chars + the system prompt is
-// ~6,500 tokens, comfortably inside 16k. 2,000 chars keeps most of a real
-// Q&A turn intact — enough for the classifier to see what a prior answer
-// actually said (so "remind me about my first question" is recognized as
-// answerable-from-context), not just a truncated stub. Prior messages are
-// clipped; the latest message (the thing being classified) never is.
-const MAX_HISTORY_CHARS_PER_MESSAGE = 2000
+// budget is generous: the worst case (HISTORY_WINDOW messages all at this
+// cap) + the system prompt is ~13k tokens, staying inside 16k with ~3k to
+// spare. 2,500 chars keeps most of a real Q&A turn intact — enough for the
+// classifier to see what a prior answer actually said (so "remind me about
+// my first question" is recognized as answerable-from-context), not just a
+// truncated stub. Prior messages are clipped; the latest message (the
+// thing being classified) never is.
+const MAX_HISTORY_CHARS_PER_MESSAGE = 2500
 
 const classifierSchema = z.object({
   skipSearch: z.boolean(),
