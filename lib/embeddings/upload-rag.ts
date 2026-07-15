@@ -12,8 +12,12 @@ import {
   cosineSimilarity,
   type EmbeddingModelId,
   embedTexts,
-  getConfiguredModel,
+  getConfiguredModel
 } from './transformers-embedding'
+import {
+  crossEncoderScore,
+  isCrossEncoderConfigured
+} from '../utils/cross-encoder'
 
 const execFileAsync = promisify(execFile)
 
@@ -77,7 +81,7 @@ export async function processFileForRAG(
   const stored: ChunksFile = {
     model,
     filename,
-    chunks: chunks.map((content, i) => ({ content, embedding: embeddings[i] })),
+    chunks: chunks.map((content, i) => ({ content, embedding: embeddings[i] }))
   }
 
   await fs.writeFile(chunksFilePath(filePath), JSON.stringify(stored))
@@ -104,16 +108,39 @@ export async function queryFileChunks(
 
   const [queryEmbedding] = await embedTexts([query], stored.model)
 
-  const ranked = stored.chunks
-    .map((chunk, i) => ({
+  // First stage: bi-encoder cosine to pull a wider candidate pool.
+  const CANDIDATE_POOL = Math.max(topK * 3, 30)
+  const candidates = stored.chunks
+    .map(chunk => ({
       content: chunk.content,
-      score: cosineSimilarity(queryEmbedding, chunk.embedding),
+      score: cosineSimilarity(queryEmbedding, chunk.embedding)
     }))
     .sort((a, b) => b.score - a.score)
-    .slice(0, topK)
+    .slice(0, CANDIDATE_POOL)
+
+  // Second stage: cross-encoder reranks the candidate pool when available.
+  // Any failure falls back to the cosine ordering already computed.
+  if (isCrossEncoderConfigured() && candidates.length > 1) {
+    try {
+      const scores = await crossEncoderScore(
+        query,
+        candidates.map(c => c.content)
+      )
+      const reranked = candidates
+        .map((c, i) => ({ content: c.content, score: scores[i] ?? 0 }))
+        .sort((a, b) => b.score - a.score)
+        .slice(0, topK)
+      return { filename: stored.filename, chunks: reranked.map(r => r.content) }
+    } catch (error) {
+      console.error(
+        '[upload-rag] cross-encoder failed, using cosine order:',
+        error
+      )
+    }
+  }
 
   return {
     filename: stored.filename,
-    chunks: ranked.map(r => r.content),
+    chunks: candidates.slice(0, topK).map(c => c.content)
   }
 }
