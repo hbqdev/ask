@@ -8,6 +8,7 @@ import type {
 } from '@/lib/types'
 
 import {
+  mergeDegoogIntoSearxngResults,
   mergeImagesWithDegoog,
   mergeVideosWithDegoog,
   mergeWithDegoogResults,
@@ -399,5 +400,41 @@ describe('mergeVideosWithDegoog', () => {
         'https://youtube.com/watch?v=xyz'
       ])
     )
+  })
+})
+
+describe('mergeDegoogIntoSearxngResults', () => {
+  const sx = (url: string, title = 't', content = 'c') => ({ url, title, content })
+  const dg = (url: string, title = 'dt', snippet = 'ds') => ({ url, title, snippet })
+
+  it('appends unique degoog web results as SearXNGResult candidates', () => {
+    const merged = mergeDegoogIntoSearxngResults(
+      [sx('https://a.com/1')],
+      [dg('https://b.com/2')],
+      10
+    )
+    const urls = merged.map(r => r.url).sort()
+    expect(urls).toEqual(['https://a.com/1', 'https://b.com/2'])
+    // degoog snippet becomes SearXNGResult.content
+    const b = merged.find(r => r.url === 'https://b.com/2')!
+    expect(b.content).toBe('ds')
+  })
+
+  it('dedupes a degoog result that duplicates a searxng URL', () => {
+    const merged = mergeDegoogIntoSearxngResults(
+      [sx('https://a.com/1')],
+      [dg('https://a.com/1')],
+      10
+    )
+    expect(merged).toHaveLength(1)
+  })
+
+  it('caps the merged candidate pool at maxResults', () => {
+    const merged = mergeDegoogIntoSearxngResults(
+      [sx('https://a.com/1'), sx('https://a.com/2')],
+      [dg('https://b.com/1'), dg('https://b.com/2')],
+      3
+    )
+    expect(merged).toHaveLength(3)
   })
 })

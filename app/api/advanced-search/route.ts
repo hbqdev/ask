@@ -11,7 +11,13 @@ import {
   rerankByCrossEncoder,
   rerankByEmbedding
 } from '@/lib/embeddings/rerank'
+import { intentToCategory, type SearchIntent } from '@/lib/tools/search/intent'
 import {
+  mergeDegoogIntoSearxngResults,
+  resolveDegoogUrl
+} from '@/lib/tools/search/providers/merge-degoog'
+import {
+  DegoogResponse,
   SearchResultItem,
   SearXNGResponse,
   SearXNGResult,
@@ -19,6 +25,7 @@ import {
 } from '@/lib/types'
 import { crawl4aiScrapeMany, isCrawl4aiConfigured } from '@/lib/utils/crawl4ai'
 import { isCrossEncoderConfigured } from '@/lib/utils/cross-encoder'
+import { fetchDegoogJson } from '@/lib/utils/degoog-client'
 import {
   extractReadableContent,
   MIN_CONTENT_LENGTH
@@ -152,7 +159,8 @@ export async function POST(request: Request) {
     searchDepth,
     includeDomains,
     excludeDomains,
-    timeRange
+    timeRange,
+    intent
   } = await request.json()
 
   const SEARXNG_DEFAULT_DEPTH = process.env.SEARXNG_DEFAULT_DEPTH || 'basic'
@@ -166,7 +174,7 @@ export async function POST(request: Request) {
       Array.isArray(includeDomains) ? includeDomains.join(',') : ''
     }:${Array.isArray(excludeDomains) ? excludeDomains.join(',') : ''}:${
       effectiveTimeRange ?? ''
-    }`
+    }:${typeof intent === 'string' ? intent : ''}`
 
     // Try to get cached results
     const cachedResults = await getCachedResults(cacheKey)
@@ -181,7 +189,8 @@ export async function POST(request: Request) {
       searchDepth || SEARXNG_DEFAULT_DEPTH,
       Array.isArray(includeDomains) ? includeDomains : [],
       Array.isArray(excludeDomains) ? excludeDomains : [],
-      effectiveTimeRange
+      effectiveTimeRange,
+      typeof intent === 'string' ? (intent as SearchIntent) : 'general'
     )
 
     // Cache the results
@@ -210,7 +219,8 @@ async function advancedSearchXNGSearch(
   searchDepth: 'basic' | 'advanced' = 'advanced',
   includeDomains: string[] = [],
   excludeDomains: string[] = [],
-  timeRange?: string
+  timeRange?: string,
+  intent: SearchIntent = 'general'
 ): Promise<SearXNGSearchResults> {
   if (!process.env.SEARXNG_API_URL && !process.env.SEARXNG_FALLBACK_API_URL) {
     throw new Error('SEARXNG_API_URL is not set in the environment variables')
@@ -231,25 +241,62 @@ async function advancedSearchXNGSearch(
 
     // Fetches from SearXNG, automatically failing over to
     // SEARXNG_FALLBACK_API_URL if the primary instance is unreachable.
-    const { data: rawData, baseUrlUsed: apiUrl } = await fetchSearxngJson(
-      baseUrl => {
-        const url = new URL(`${baseUrl}/search`)
-        url.searchParams.append('q', query)
-        url.searchParams.append('format', 'json')
-        url.searchParams.append('categories', 'general,images')
-        // Per-turn recency preference (query classifier) beats the static
-        // env default.
-        if (timeRange) {
-          url.searchParams.append('time_range', timeRange)
-        } else if (SEARXNG_TIME_RANGE !== 'None') {
-          url.searchParams.append('time_range', SEARXNG_TIME_RANGE)
-        }
-        url.searchParams.append('safesearch', SEARXNG_SAFESEARCH)
-        url.searchParams.append('engines', SEARXNG_ENGINES)
-        url.searchParams.append('pageno', String(pageno))
-        return url.toString()
+    const buildUrl = (baseUrl: string) => {
+      const url = new URL(`${baseUrl}/search`)
+      url.searchParams.append('q', query)
+      url.searchParams.append('format', 'json')
+      const intentCategory = intentToCategory(intent)
+      url.searchParams.append(
+        'categories',
+        intentCategory ? `general,images,${intentCategory}` : 'general,images'
+      )
+      // Per-turn recency preference (query classifier) beats the static
+      // env default.
+      if (timeRange) {
+        url.searchParams.append('time_range', timeRange)
+      } else if (SEARXNG_TIME_RANGE !== 'None') {
+        url.searchParams.append('time_range', SEARXNG_TIME_RANGE)
       }
-    )
+      url.searchParams.append('safesearch', SEARXNG_SAFESEARCH)
+      url.searchParams.append('engines', SEARXNG_ENGINES)
+      url.searchParams.append('pageno', String(pageno))
+      return url.toString()
+    }
+
+    // degoog is a complement, never a dependency: query it alongside SearXNG
+    // via Promise.allSettled so a degoog failure (or it being unconfigured)
+    // never fails the search — only a rejected SearXNG fetch does that.
+    const DEGOOG_MAX = Math.min(20, maxResults * 2)
+    const degoogUrl = (type: string) => (baseUrl: string) => {
+      const u = new URL(`${baseUrl}/api/search`)
+      u.searchParams.append('q', query)
+      u.searchParams.append('type', type)
+      u.searchParams.append('max_results', String(DEGOOG_MAX))
+      return u.toString()
+    }
+
+    const [searxngSettled, degoogWebSettled, degoogNewsSettled, degoogImgSettled] =
+      await Promise.allSettled([
+        fetchSearxngJson(buildUrl),
+        fetchDegoogJson(degoogUrl('web')),
+        intent === 'news'
+          ? fetchDegoogJson(degoogUrl('news'))
+          : Promise.resolve(null),
+        fetchDegoogJson(degoogUrl('images'))
+      ])
+
+    if (searxngSettled.status === 'rejected') throw searxngSettled.reason
+    const { data: rawData, baseUrlUsed: apiUrl } = searxngSettled.value
+
+    const degoogOf = (
+      s: PromiseSettledResult<{ data: unknown } | null>
+    ): DegoogResponse['results'] => {
+      if (s.status !== 'fulfilled' || !s.value) return []
+      return (s.value.data as DegoogResponse).results ?? []
+    }
+    const degoogWeb = [...degoogOf(degoogWebSettled), ...degoogOf(degoogNewsSettled)]
+    const degoogImages = degoogOf(degoogImgSettled)
+
     const data = rawData as SearXNGResponse
 
     if (!data || !Array.isArray(data.results)) {
@@ -272,6 +319,18 @@ async function advancedSearchXNGSearch(
             !excludeDomains.some(d => domain.includes(d)))
         )
       })
+    }
+
+    // degoog parity: fold degoog web results into the candidate pool BEFORE
+    // crawl+rerank so the advanced (deepest) search has the same source union
+    // as the basic path. Cap at the crawl candidate size so niche degoog
+    // results reach the crawler.
+    if (degoogWeb.length > 0) {
+      generalResults = mergeDegoogIntoSearxngResults(
+        generalResults,
+        degoogWeb,
+        maxResults * SEARXNG_CRAWL_MULTIPLIER
+      )
     }
 
     if (searchDepth === 'advanced') {
@@ -431,12 +490,26 @@ async function advancedSearchXNGSearch(
         })
       ),
       query: data.query || query,
-      images: imageResults
-        .map((result: SearXNGResult) => {
-          const imgSrc = result.img_src || ''
-          return imgSrc.startsWith('http') ? imgSrc : `${apiUrl}${imgSrc}`
-        })
-        .filter(Boolean),
+      images: Array.from(
+        new Set(
+          [
+            ...imageResults
+              .map((result: SearXNGResult) => {
+                const imgSrc = result.img_src || ''
+                return imgSrc.startsWith('http') ? imgSrc : `${apiUrl}${imgSrc}`
+              })
+              .filter(Boolean),
+            ...degoogImages
+              .map(r =>
+                resolveDegoogUrl(
+                  r.imageUrl || r.thumbnail || '',
+                  process.env.DEGOOG_API_URL ?? ''
+                )
+              )
+              .filter(Boolean)
+          ]
+        )
+      ).slice(0, maxResults),
       number_of_results: data.number_of_results || generalResults.length
     }
   } catch (error) {

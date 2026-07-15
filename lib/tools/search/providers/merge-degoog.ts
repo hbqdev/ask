@@ -2,6 +2,7 @@ import type {
   DegoogResult,
   SearchResultImage,
   SearchResultItem,
+  SearXNGResult,
   SerperSearchResultItem
 } from '@/lib/types'
 
@@ -194,6 +195,32 @@ export function mergeImagesWithDegoog(
     maxResults,
     result => toSearchResultImage(result, baseUrl),
     image => (typeof image === 'string' ? image : image.url)
+  )
+}
+
+/**
+ * Merge degoog WEB results into a SearXNG result list as additional
+ * crawl+rerank candidates for the advanced search path. degoog results are
+ * converted to the SearXNGResult shape (snippet -> content) and interleaved/
+ * deduped by normalized URL, with niche sources promoted so they survive the
+ * candidate-pool truncation. Gives the advanced (first, deepest) search the
+ * same SearXNG+degoog source union the basic path already has.
+ */
+export function mergeDegoogIntoSearxngResults(
+  searxngResults: SearXNGResult[],
+  degoogResults: DegoogResult[],
+  maxResults: number
+): SearXNGResult[] {
+  return interleaveAndDedupe(
+    searxngResults,
+    degoogResults,
+    maxResults,
+    (result): SearXNGResult => ({
+      title: result.title,
+      url: result.url,
+      content: result.snippet
+    }),
+    item => normalizeUrl(item.url)
   )
 }
 
