@@ -14,8 +14,12 @@ _state = {"reranker": None}
 async def lifespan(app: FastAPI):
     from FlagEmbedding import FlagReranker
 
-    # use_fp16 halves VRAM and speeds inference; harmless on CPU fallback.
-    _state["reranker"] = FlagReranker(MODEL, use_fp16=True)
+    # use_fp16=False (fp32) is deliberate: this runs on a Quadro P4000
+    # (Pascal GP104), whose fp16 throughput is ~1/64 of fp32, so half
+    # precision is the SLOW path here. Benchmarked on 384 real passages:
+    # fp32 8.25s vs fp16 13.7s (~1.7x faster) — and fp32 is more accurate.
+    # fp32 uses ~4.3GB VRAM, comfortably within the 8GB card.
+    _state["reranker"] = FlagReranker(MODEL, use_fp16=False)
     # Warm up CUDA kernels at startup so the first real request isn't a
     # ~25s cold start (warm inference is ~2-3s).
     _state["reranker"].compute_score([["warm", "up"]], normalize=True)
