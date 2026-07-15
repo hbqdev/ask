@@ -274,6 +274,8 @@ Search tool usage - UNDERSTAND THE DIFFERENCE:
   - You get relevant content immediately without needing fetch
   - Use this when the query has semantic meaning to match against
 
+Your first search of a turn runs deep (its top results are crawled in full and reranked); follow-up searches return snippets only. To read a specific promising result in full, call the fetch tool on its URL rather than repeating the search for more depth.
+
 ${getContentTypesGuidance()}
 
 ${getSourceDirectionGuidance()}
@@ -403,6 +405,7 @@ Work through each task systematically:
 - Run 2-4 searches per angle with DIFFERENT query phrasings — vary keywords, try specific vs broad, include "critique of X" and "limitations of X" searches
 - Each new search should be conditioned on what you already found — chase gaps, not confirming what you know
 - Mark each task in_progress when you start it, completed when done
+- Your first search of a turn runs deep (its top results are crawled in full and reranked); follow-up searches return snippets only. To read a specific promising result in full, call the fetch tool on its URL rather than repeating the search for more depth.
 - Fetch the 5-8 most authoritative or information-dense sources in full (not just snippets). Prioritize: official docs, primary sources, long-form technical articles, peer-reviewed content.
 - For PDFs: type="api". For standard pages: type="regular"
 
