@@ -21,7 +21,7 @@ export function isCrossEncoderConfigured(): boolean {
 export async function crossEncoderScore(
   query: string,
   passages: string[],
-  opts?: { timeoutMs?: number }
+  opts?: { timeoutMs?: number; maxLength?: number }
 ): Promise<number[]> {
   if (passages.length === 0) return []
   const baseUrl = process.env.RERANKER_URL
@@ -42,7 +42,12 @@ export async function crossEncoderScore(
         'Content-Type': 'application/json',
         Authorization: `Bearer ${token}`
       },
-      body: JSON.stringify({ query, passages }),
+      body: JSON.stringify({
+        query,
+        passages,
+        // Omit unless set so the service applies its own default (128).
+        ...(opts?.maxLength != null && { max_length: opts.maxLength })
+      }),
       signal: controller.signal
     })
     if (!response.ok) {
