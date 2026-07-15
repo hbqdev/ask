@@ -7,7 +7,11 @@ import https from 'https'
 import { JSDOM, VirtualConsole } from 'jsdom'
 import { createClient } from 'redis'
 
-import { rerankByEmbedding } from '@/lib/embeddings/rerank'
+import {
+  rerankByCrossEncoder,
+  rerankByEmbedding
+} from '@/lib/embeddings/rerank'
+import { isCrossEncoderConfigured } from '@/lib/utils/cross-encoder'
 import {
   SearchResultItem,
   SearXNGResponse,
@@ -330,44 +334,71 @@ async function advancedSearchXNGSearch(
         .filter(result => result !== null && isQualityContent(result.content))
         .map(result => result as SearXNGResult)
 
-      // Semantic reranking: score each crawled page by its best passage's
-      // embedding similarity to the query (local pipeline, no API). Falls
-      // back to the legacy keyword scorer if the embedding pipeline fails,
-      // so a model problem degrades to the old behavior rather than an
-      // empty result set.
-      try {
-        const reranked = await rerankByEmbedding(
-          generalResults.map(result => ({
-            // Strip the <mark> highlight tags before embedding — markup
-            // isn't content. The original result (with highlights intact
-            // for the UI) rides along and is what gets returned.
-            content: result.content.replace(/<\/?mark>/g, ''),
-            original: result
-          })),
-          query,
-          maxResults
-        )
-        // Cosine floor: below this the page is talking about something
-        // else entirely. Deliberately loose — the answering model does
-        // the fine-grained judging; this only drops clear off-topic junk.
-        const MIN_SIMILARITY = 0.2
+      // Relevance reranking, best-available first:
+      //   cross-encoder service (jointly scores query+passage) →
+      //   bi-encoder cosine (local MiniLM) → keyword scorer.
+      // Each tier degrades to the next on failure, so a reranker outage is
+      // invisible. All three produce scores in [0,1] except the keyword
+      // scorer, which sorts on its own scale.
+      const docsForRerank = generalResults.map(result => ({
+        // Strip <mark> highlight tags before scoring — markup isn't content.
+        // The original (highlights intact for the UI) rides along.
+        content: result.content.replace(/<\/?mark>/g, ''),
+        original: result
+      }))
+
+      const applyReranked = (
+        reranked: { doc: { original: SearXNGResult }; score: number }[],
+        minScore: number
+      ) => {
         generalResults = reranked
-          .filter(r => r.score >= MIN_SIMILARITY)
+          .filter(r => r.score >= minScore)
           .map(r => r.doc.original)
-      } catch (error) {
-        console.error(
-          '[advanced-search] embedding rerank failed, using keyword scorer:',
-          error
-        )
-        const MIN_RELEVANCE_SCORE = 10
-        generalResults = generalResults
-          .map(result => ({
-            ...result,
-            score: calculateRelevanceScore(result, query)
-          }))
-          .filter(result => result.score >= MIN_RELEVANCE_SCORE)
-          .sort((a, b) => b.score - a.score)
-          .slice(0, maxResults)
+      }
+
+      let reranked = false
+      if (isCrossEncoderConfigured()) {
+        try {
+          const out = await rerankByCrossEncoder(
+            docsForRerank,
+            query,
+            maxResults
+          )
+          // Cross-encoder [0,1]; 0.3 is a loose on-topic floor (the answering
+          // model does the fine-grained judging, this only drops clear junk).
+          applyReranked(out, 0.3)
+          reranked = true
+          console.log(
+            `[advanced-search] cross-encoder reranked ${out.length}/${docsForRerank.length}`
+          )
+        } catch (error) {
+          console.error(
+            '[advanced-search] cross-encoder failed, falling back to bi-encoder:',
+            error
+          )
+        }
+      }
+
+      if (!reranked) {
+        try {
+          const out = await rerankByEmbedding(docsForRerank, query, maxResults)
+          applyReranked(out, 0.2)
+          reranked = true
+        } catch (error) {
+          console.error(
+            '[advanced-search] embedding rerank failed, using keyword scorer:',
+            error
+          )
+          const MIN_RELEVANCE_SCORE = 10
+          generalResults = generalResults
+            .map(result => ({
+              ...result,
+              score: calculateRelevanceScore(result, query)
+            }))
+            .filter(result => result.score >= MIN_RELEVANCE_SCORE)
+            .sort((a, b) => b.score - a.score)
+            .slice(0, maxResults)
+        }
       }
     }
 
