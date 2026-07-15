@@ -35,7 +35,12 @@ def health():
 
 @app.post("/rerank")
 def rerank(req: RerankRequest, authorization: str = Header(default="")):
-    if TOKEN and authorization != f"Bearer {TOKEN}":
+    import hmac
+
+    if not TOKEN:
+        # Fail closed: a LAN-published reranker must never serve unauthenticated.
+        raise HTTPException(status_code=503, detail="server auth not configured")
+    if not hmac.compare_digest(authorization, f"Bearer {TOKEN}"):
         raise HTTPException(status_code=401, detail="unauthorized")
     reranker = _state["reranker"]
     if reranker is None:
