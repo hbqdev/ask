@@ -1,3 +1,4 @@
+import { crossEncoderScore } from '../utils/cross-encoder'
 import { splitText } from './split-text'
 import {
   cosineSimilarity,
@@ -38,6 +39,52 @@ export type RerankedDoc<T> = {
 }
 
 /**
+ * Shared reranking core: split each doc into passages, score every passage
+ * against the query via `scoreFn` (one score per passage, input order),
+ * take each doc's best passage as its score, and return the top-K docs.
+ * The passage strategy and RerankedDoc shape are identical across rerankers;
+ * only how a (query, passage) pair is scored differs.
+ */
+async function rerankByPassageScorer<T extends RerankableDoc>(
+  docs: T[],
+  query: string,
+  topK: number,
+  scoreFn: (query: string, passages: string[]) => Promise<number[]>
+): Promise<RerankedDoc<T>[]> {
+  if (docs.length === 0) return []
+
+  const passagesPerDoc = docs.map(doc =>
+    splitText(doc.content, PASSAGE_MAX_TOKENS, PASSAGE_OVERLAP_TOKENS).slice(
+      0,
+      MAX_PASSAGES_PER_DOC
+    )
+  )
+
+  const flatPassages = passagesPerDoc.flat()
+  if (flatPassages.length === 0) return []
+  const scores = await scoreFn(query, flatPassages)
+
+  let cursor = 0
+  const scored: RerankedDoc<T>[] = docs.map((doc, i) => {
+    const passages = passagesPerDoc[i]
+    const passageScores = passages.map((passage, j) => ({
+      passage,
+      score: scores[cursor + j] ?? 0
+    }))
+    cursor += passages.length
+
+    passageScores.sort((a, b) => b.score - a.score)
+    return {
+      doc,
+      score: passageScores[0]?.score ?? 0,
+      topPassages: passageScores.slice(0, 3).map(p => p.passage)
+    }
+  })
+
+  return scored.sort((a, b) => b.score - a.score).slice(0, topK)
+}
+
+/**
  * Semantic reranking of crawled documents against the query, using the
  * local transformers embedding pipeline (same one that powers upload
  * RAG — lazily loaded, disk-cached, warm after first use).
@@ -55,38 +102,26 @@ export async function rerankByEmbedding<T extends RerankableDoc>(
   query: string,
   topK: number
 ): Promise<RerankedDoc<T>[]> {
-  if (docs.length === 0) return []
-
-  const passagesPerDoc = docs.map(doc =>
-    splitText(doc.content, PASSAGE_MAX_TOKENS, PASSAGE_OVERLAP_TOKENS).slice(
-      0,
-      MAX_PASSAGES_PER_DOC
-    )
-  )
-
-  // One batch: [query, ...all passages]
-  const flatPassages = passagesPerDoc.flat()
-  if (flatPassages.length === 0) return []
-  const vectors = await embedTexts([query, ...flatPassages], RERANK_MODEL)
-  const queryVec = vectors[0]
-  const passageVecs = vectors.slice(1)
-
-  let cursor = 0
-  const scored: RerankedDoc<T>[] = docs.map((doc, i) => {
-    const passages = passagesPerDoc[i]
-    const passageScores = passages.map((passage, j) => ({
-      passage,
-      score: cosineSimilarity(queryVec, passageVecs[cursor + j])
-    }))
-    cursor += passages.length
-
-    passageScores.sort((a, b) => b.score - a.score)
-    return {
-      doc,
-      score: passageScores[0]?.score ?? 0,
-      topPassages: passageScores.slice(0, 3).map(p => p.passage)
-    }
+  return rerankByPassageScorer(docs, query, topK, async (q, passages) => {
+    const vectors = await embedTexts([q, ...passages], RERANK_MODEL)
+    const queryVec = vectors[0]
+    return vectors.slice(1).map(v => cosineSimilarity(queryVec, v))
   })
+}
 
-  return scored.sort((a, b) => b.score - a.score).slice(0, topK)
+/**
+ * Cross-encoder reranking via the self-hosted reranker service
+ * (lib/utils/cross-encoder.ts). Same passage strategy and return shape as
+ * rerankByEmbedding, but each (query, passage) pair is scored jointly by a
+ * cross-encoder — a stronger relevance signal than comparing
+ * separately-embedded vectors. Scores are in [0,1]. Throws if the service
+ * call fails, so advanced-search falls back to rerankByEmbedding (which
+ * itself falls back to the keyword scorer).
+ */
+export async function rerankByCrossEncoder<T extends RerankableDoc>(
+  docs: T[],
+  query: string,
+  topK: number
+): Promise<RerankedDoc<T>[]> {
+  return rerankByPassageScorer(docs, query, topK, crossEncoderScore)
 }
