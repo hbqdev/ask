@@ -262,6 +262,43 @@ describe('SearXNGSearchProvider', () => {
     expect(result.videos).toEqual([])
   })
 
+  it('appends the intent category (code -> it) on top of general,images', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(mockSearxngResponse([]))
+    vi.stubGlobal('fetch', fetchMock)
+
+    await provider.search('python asyncio gather', 10, 'basic', [], [], {
+      intent: 'code'
+    })
+
+    const calledUrl = new URL(fetchMock.mock.calls[0][0])
+    expect(calledUrl.searchParams.get('categories')).toBe('general,images,it')
+  })
+
+  it('adds nothing for intent=general', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(mockSearxngResponse([]))
+    vi.stubGlobal('fetch', fetchMock)
+
+    await provider.search('hello world', 10, 'basic', [], [], {
+      intent: 'general'
+    })
+
+    const calledUrl = new URL(fetchMock.mock.calls[0][0])
+    expect(calledUrl.searchParams.get('categories')).toBe('general,images')
+  })
+
+  it('does not apply intent routing in the exclusive academic branch', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(mockSearxngResponse([]))
+    vi.stubGlobal('fetch', fetchMock)
+
+    await provider.search('quantum error correction', 10, 'basic', [], [], {
+      searchMode: 'academic',
+      intent: 'code'
+    })
+
+    const calledUrl = new URL(fetchMock.mock.calls[0][0])
+    expect(calledUrl.searchParams.get('categories')).toBe('science')
+  })
+
   it('embeds a single include_domains entry as a site: query operator', async () => {
     const fetchMock = vi.fn().mockResolvedValue(mockSearxngResponse([]))
     vi.stubGlobal('fetch', fetchMock)

@@ -235,7 +235,11 @@ export function createResearcher({
   skipSearch = false,
   standaloneQuery,
   needsRecent = false,
-  expandedQueriesPromise
+  expandedQueriesPromise,
+  // Auto-detected intent from the query classifier for this turn. Forwarded
+  // to the search tool so both search paths additively route to
+  // intent-specific engines on top of the general baseline.
+  intent = 'general'
 }: {
   model: string
   modelConfig?: Model
@@ -263,6 +267,7 @@ export function createResearcher({
   // first search of the turn also searches these variants and merges
   // unique results. Passed as a promise so expansion overlaps with prep.
   expandedQueriesPromise?: Promise<string[]>
+  intent?: import('../tools/search/intent').SearchIntent
 }) {
   try {
     const currentDate = new Date().toLocaleString()
@@ -270,7 +275,8 @@ export function createResearcher({
     // Create model-specific tools with proper typing
     const originalSearchTool = createSearchTool(model, {
       timeRange: needsRecent ? 'month' : undefined,
-      expandedQueries: expandedQueriesPromise
+      expandedQueries: expandedQueriesPromise,
+      intent
     })
     const askQuestionTool = createQuestionTool(model)
     const todoTools = createTodoTools()

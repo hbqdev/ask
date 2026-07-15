@@ -155,7 +155,8 @@ export async function createChatStreamResponse(
       ? Promise.resolve({
           skipSearch: false,
           standaloneQuery: latestMessageText,
-          needsRecent: false
+          needsRecent: false,
+          intent: 'general' as const
         })
       : classifyQuery({ messages: messagesToModel, abortSignal })
 
@@ -317,6 +318,7 @@ export async function createChatStreamResponse(
           skipSearch: classification.skipSearch,
           standaloneQuery: classification.standaloneQuery,
           needsRecent: classification.needsRecent,
+          intent: classification.intent,
           expandedQueriesPromise
         })
 

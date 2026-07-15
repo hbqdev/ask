@@ -31,6 +31,9 @@ export type SearchToolOptions = {
   // discovery beyond a single phrasing. A rejected/empty promise means
   // single-query search, exactly the pre-expansion behavior.
   expandedQueries?: Promise<string[]>
+  // Auto-detected intent for this turn (query classifier). Passed to both
+  // search paths; additively routes to intent-specific engines.
+  intent?: import('./search/intent').SearchIntent
 }
 
 // Widen the first search of a turn with expansion-variant results:
@@ -175,7 +178,8 @@ export function createSearchTool(
               searchDepth: effectiveSearchDepthForAPI,
               includeDomains: include_domains,
               excludeDomains: exclude_domains,
-              timeRange: toolOptions?.timeRange
+              timeRange: toolOptions?.timeRange,
+              intent: toolOptions?.intent
             })
           })
           if (!response.ok) {
@@ -210,7 +214,8 @@ export function createSearchTool(
               {
                 searchMode: search_mode as SearchModeOption,
                 content_types: content_types as SearchContentType[],
-                time_range: toolOptions?.timeRange
+                time_range: toolOptions?.timeRange,
+                intent: toolOptions?.intent
               }
             )
           } else {

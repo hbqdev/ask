@@ -1,5 +1,7 @@
 import { SearchResults } from '@/lib/types'
 
+import type { SearchIntent } from '../intent'
+
 export type SearchContentType =
   | 'web'
   | 'video'
@@ -18,6 +20,9 @@ export interface SearchProviderOptions {
   // Per-turn recency preference from the query classifier (needsRecent).
   // Currently honored by the SearXNG provider.
   time_range?: 'day' | 'week' | 'month' | 'year'
+  // Auto-detected intent (query classifier). Currently honored by the
+  // SearXNG provider (basic path); additive on top of the general baseline.
+  intent?: SearchIntent
 }
 
 export interface SearchProvider {
