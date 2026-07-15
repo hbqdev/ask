@@ -55,8 +55,12 @@ def rerank(req: RerankRequest, authorization: str = Header(default="")):
     if not req.passages:
         return {"scores": []}
     pairs = [[req.query, p] for p in req.passages]
-    # normalize=True -> sigmoid -> scores in [0,1].
-    scores = reranker.compute_score(pairs, normalize=True)
+    # normalize=True -> sigmoid -> scores in [0,1]. max_length=128 caps
+    # per-pair cost: cross-encoder attention is superlinear in sequence
+    # length, and real web passages are long, so on this P4000 an
+    # uncapped batch of ~150 passages took ~25-29s vs ~7s at 128 tokens
+    # (relevance signal lives in a passage's first ~90 words anyway).
+    scores = reranker.compute_score(pairs, normalize=True, max_length=128)
     if not isinstance(scores, list):
         scores = [scores]
     return {"scores": [float(s) for s in scores]}
