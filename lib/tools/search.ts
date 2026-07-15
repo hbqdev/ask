@@ -34,6 +34,46 @@ export type SearchToolOptions = {
   // Auto-detected intent for this turn (query classifier). Passed to both
   // search paths; additively routes to intent-specific engines.
   intent?: import('./search/intent').SearchIntent
+  // Depth for the FIRST search of the turn (set by researcher per mode):
+  // 'advanced' for balanced/quality, 'basic' for speed/skip. Depth tiering
+  // forces only the first search to this depth, then tiers subsequent
+  // searches down to 'basic' — the model deep-reads specific URLs via the
+  // fetch tool instead of re-running advanced crawls.
+  firstSearchDepth?: 'basic' | 'advanced'
+}
+
+// Depth-tiering decision. When enabled (SEARCH_DEPTH_TIERING !== 'off'), the
+// FIRST searxng search of a turn uses firstSearchDepth (advanced in deep
+// modes) and every later search is forced to basic — capping the expensive
+// crawl+rerank to once per turn. When disabled, or for non-searxng
+// providers, it reproduces today's behavior exactly (env default beats the
+// model-requested depth for searxng; otherwise the model's choice stands).
+export function resolveEffectiveDepth(opts: {
+  searchAPI: SearchProviderType
+  modelRequestedDepth: 'basic' | 'advanced'
+  envDefaultAdvanced: boolean
+  firstSearchDepth: 'basic' | 'advanced'
+  firstSearchDone: boolean
+  tieringEnabled: boolean
+}): 'basic' | 'advanced' {
+  const {
+    searchAPI,
+    modelRequestedDepth,
+    envDefaultAdvanced,
+    firstSearchDepth,
+    firstSearchDone,
+    tieringEnabled
+  } = opts
+
+  if (tieringEnabled && searchAPI === 'searxng') {
+    return firstSearchDone ? 'basic' : firstSearchDepth
+  }
+
+  // Baseline (unchanged): env default forces advanced for searxng; otherwise
+  // honor the model-requested depth.
+  return searchAPI === 'searxng' && envDefaultAdvanced
+    ? 'advanced'
+    : modelRequestedDepth
 }
 
 // Widen the first search of a turn with expansion-variant results:
@@ -67,6 +107,9 @@ export function createSearchTool(
   // Expansion applies only to the first search of the turn: the model's
   // own follow-up searches are already reformulations by construction.
   let expansionUsed = false
+  // Depth tiering applies only to the first search of the turn: later
+  // searches tier down to basic (see resolveEffectiveDepth).
+  let firstSearchDone = false
 
   return tool({
     description: getSearchToolDescription(),
@@ -151,11 +194,21 @@ export function createSearchTool(
           (process.env.SEARCH_API as SearchProviderType) || DEFAULT_PROVIDER
       }
 
-      const effectiveSearchDepthForAPI =
-        searchAPI === 'searxng' &&
-        process.env.SEARXNG_DEFAULT_DEPTH === 'advanced'
-          ? 'advanced'
-          : effectiveSearchDepth || 'basic'
+      const tieringEnabled = process.env.SEARCH_DEPTH_TIERING !== 'off'
+      const effectiveSearchDepthForAPI = resolveEffectiveDepth({
+        searchAPI,
+        modelRequestedDepth: (effectiveSearchDepth || 'basic') as
+          | 'basic'
+          | 'advanced',
+        envDefaultAdvanced: process.env.SEARXNG_DEFAULT_DEPTH === 'advanced',
+        firstSearchDepth: toolOptions?.firstSearchDepth ?? 'basic',
+        firstSearchDone,
+        tieringEnabled
+      })
+      // Mark the turn's first search consumed AFTER resolving its depth, so
+      // search #1 gets firstSearchDepth and #2+ tier down. (Dedup-skipped
+      // searches return before reaching this point and don't consume it.)
+      firstSearchDone = true
 
       console.log(
         `Using search API: ${searchAPI}, Type: ${type}, Search Depth: ${effectiveSearchDepthForAPI}`
