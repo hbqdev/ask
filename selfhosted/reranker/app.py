@@ -16,6 +16,9 @@ async def lifespan(app: FastAPI):
 
     # use_fp16 halves VRAM and speeds inference; harmless on CPU fallback.
     _state["reranker"] = FlagReranker(MODEL, use_fp16=True)
+    # Warm up CUDA kernels at startup so the first real request isn't a
+    # ~25s cold start (warm inference is ~2-3s).
+    _state["reranker"].compute_score([["warm", "up"]], normalize=True)
     yield
     _state["reranker"] = None
 
