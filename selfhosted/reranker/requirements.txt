@@ -1,0 +1,10 @@
+fastapi==0.115.6
+uvicorn[standard]==0.34.0
+FlagEmbedding==1.3.4
+# Pin transformers: FlagEmbedding 1.3.4 only declares transformers>=4.44.2 (no
+# upper bound), so an unpinned install resolves the latest transformers,
+# whose newer major versions removed transformers.utils.import_utils.is_torch_fx_available
+# that FlagEmbedding's decoder-only reranker submodule imports at package
+# import time (even though bge-reranker-v2-m3 doesn't use that submodule).
+# Pin to a release from FlagEmbedding 1.3.4's era to keep that import working.
+transformers==4.46.3
