@@ -86,7 +86,8 @@ export async function createEphemeralChatStreamResponse(
       ? Promise.resolve({
           skipSearch: false,
           standaloneQuery: latestMessageText,
-          needsRecent: false
+          needsRecent: false,
+          intent: 'general' as const
         })
       : classifyQuery({ messages, abortSignal })
 
@@ -172,6 +173,7 @@ export async function createEphemeralChatStreamResponse(
           skipSearch: classification.skipSearch,
           standaloneQuery: classification.standaloneQuery,
           needsRecent: classification.needsRecent,
+          intent: classification.intent,
           expandedQueriesPromise
         })
 

@@ -10,6 +10,8 @@ import {
 import { fetchDegoogJson } from '@/lib/utils/degoog-client'
 import { fetchSearxngJson } from '@/lib/utils/searxng-client'
 
+import { intentToCategory, type SearchIntent } from '../intent'
+
 import { BaseSearchProvider, SearchContentType, SearchModeOption } from './base'
 import {
   mergeImagesWithDegoog,
@@ -60,6 +62,10 @@ export class SearXNGSearchProvider extends BaseSearchProvider {
       // (lib/agents/query-classifier.ts needsRecent) — narrows SearXNG's
       // time_range so fresh pages outrank stale ones.
       time_range?: 'day' | 'week' | 'month' | 'year'
+      // Auto-detected intent (query classifier). Additive: appends ONE
+      // category on top of general,images in the general branch below.
+      // Ignored in the exclusive academic/social branches by design.
+      intent?: SearchIntent
     }
   ): Promise<SearchResults> {
     this.validateApiUrl(
@@ -116,7 +122,18 @@ export class SearXNGSearchProvider extends BaseSearchProvider {
           // and tags each result with its own `category` field, so
           // requesting videos/news/it/map/music alongside general/images
           // costs nothing extra — no second round-trip needed.
-          const categories = ['general', 'images', ...extraCategories].join(',')
+          //
+          // Auto-detected intent adds ONE more category on top (additive:
+          // general baseline always fires). Deduped so an intent category
+          // already present via content_types isn't repeated.
+          const intentCategory = options?.intent
+            ? intentToCategory(options.intent)
+            : null
+          const categoryList = ['general', 'images', ...extraCategories]
+          if (intentCategory && !categoryList.includes(intentCategory)) {
+            categoryList.push(intentCategory)
+          }
+          const categories = categoryList.join(',')
           url.searchParams.append('categories', categories)
 
           // Apply search depth settings. An explicit time_range from the
