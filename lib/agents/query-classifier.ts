@@ -2,6 +2,7 @@ import { generateText, Output, UIMessage } from 'ai'
 import { createOllama } from 'ai-sdk-ollama'
 import { z } from 'zod'
 
+import { SEARCH_INTENTS } from '../tools/search/intent'
 import { createTimeoutFetch } from '../utils/fetch-with-timeout'
 import { getTextFromParts } from '../utils/message-utils'
 
@@ -71,7 +72,8 @@ const MAX_HISTORY_CHARS_PER_MESSAGE = 2500
 const classifierSchema = z.object({
   skipSearch: z.boolean(),
   standaloneQuery: z.string(),
-  needsRecent: z.boolean()
+  needsRecent: z.boolean(),
+  intent: z.enum(SEARCH_INTENTS)
 })
 
 export interface QueryClassification {
@@ -81,6 +83,11 @@ export interface QueryClassification {
   // prices, versions, releases, schedules, "latest X"). Plumbs through to
   // SearXNG's time_range so this turn's searches prefer fresh pages.
   needsRecent: boolean
+  // The kind of sources most useful for this turn. Maps to ONE additive
+  // SearXNG category (intentToCategory) on top of the always-on general
+  // baseline — never replaces it. 'general' adds nothing. A wrong guess is
+  // harmless because the baseline always fires.
+  intent: import('../tools/search/intent').SearchIntent
 }
 
 // Matches Anthropic's/OpenAI's own tool-calling guidance (let one model
@@ -100,15 +107,26 @@ If uncertain which rule applies, default to skipSearch=false.
 
 You also set needsRecent: true when a correct answer depends on current or recent information — news, current events, prices, exchange rates, product/software versions or releases, schedules, weather, "latest/newest/current X", anything that changes month to month. false for stable facts (history, geography, definitions, science, how-things-work) and for skipSearch=true turns.
 
+You also set intent — the kind of sources most useful for answering:
+- "code": programming, libraries, APIs, error messages, package/tooling questions, software how-to, technical documentation.
+- "discussion": opinions, recommendations, personal experiences, "what do people think about X", community consensus.
+- "news": current events, breaking news, recent happenings, "what happened with X".
+- "academic": research papers, scientific or medical evidence, scholarly citations, studies.
+- "general": everything else, or whenever you are not clearly in one of the above.
+
+Only leave "general" when the intent is clearly one of the others. If uncertain, use "general".
+
 If uncertain about needsRecent, default to needsRecent=false.
 
 Examples:
-1) Assistant said "Mount Fuji is the tallest mountain in Japan." User: "what about South Korea" -> South Korea is a NEW entity never mentioned -> skipSearch=false, needsRecent=false (geography is stable), standaloneQuery="What is the tallest mountain in South Korea?"
-2) Assistant said "Option 1: X. Option 2: Y. Best practice: do both." User: "so you are saying to do both, right?" -> no new entity, already answered -> skipSearch=true, needsRecent=false, standaloneQuery="Confirm: should I do both X and Y?"
-3) User: "hey how is it going" -> casual -> skipSearch=true, needsRecent=false, standaloneQuery="greeting, no search needed"
-4) Assistant said "The capital of France is Paris." User: "and Germany?" -> Germany is a NEW entity -> skipSearch=false, needsRecent=false, standaloneQuery="What is the capital of Germany?"
-5) User: "what's the latest stable version of Node.js" -> version info changes constantly -> skipSearch=false, needsRecent=true, standaloneQuery="What is the latest stable version of Node.js?"
-6) User: "did anything major happen in AI this week" -> current events -> skipSearch=false, needsRecent=true, standaloneQuery="Major AI news this week"
+1) Assistant said "Mount Fuji is the tallest mountain in Japan." User: "what about South Korea" -> South Korea is a NEW entity never mentioned -> skipSearch=false, needsRecent=false (geography is stable), intent="general", standaloneQuery="What is the tallest mountain in South Korea?"
+2) Assistant said "Option 1: X. Option 2: Y. Best practice: do both." User: "so you are saying to do both, right?" -> no new entity, already answered -> skipSearch=true, needsRecent=false, intent="general", standaloneQuery="Confirm: should I do both X and Y?"
+3) User: "hey how is it going" -> casual -> skipSearch=true, needsRecent=false, intent="general", standaloneQuery="greeting, no search needed"
+4) Assistant said "The capital of France is Paris." User: "and Germany?" -> Germany is a NEW entity -> skipSearch=false, needsRecent=false, intent="general", standaloneQuery="What is the capital of Germany?"
+5) User: "what's the latest stable version of Node.js" -> version info changes constantly and this is a software question -> skipSearch=false, needsRecent=true, intent="code", standaloneQuery="What is the latest stable version of Node.js?"
+6) User: "did anything major happen in AI this week" -> current events -> skipSearch=false, needsRecent=true, intent="news", standaloneQuery="Major AI news this week"
+7) User: "what mechanical keyboard do people actually recommend" -> opinions/community consensus -> skipSearch=false, needsRecent=false, intent="discussion", standaloneQuery="Recommended mechanical keyboards according to users"
+8) User: "does creatine actually improve muscle recovery, any studies" -> scientific evidence -> skipSearch=false, needsRecent=false, intent="academic", standaloneQuery="Does creatine improve muscle recovery (research evidence)?"
 
 standaloneQuery is always a short plain string, never empty, never a meta-question back to the user.`
 
@@ -155,7 +173,8 @@ export async function classifyQuery({
   const fallback: QueryClassification = {
     skipSearch: false,
     standaloneQuery: latestMessage,
-    needsRecent: false
+    needsRecent: false,
+    intent: 'general'
   }
 
   // Runs on a dedicated Ollama host (serenity, GPU-backed) instead of

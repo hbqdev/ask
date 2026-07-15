@@ -86,7 +86,8 @@ describe('classifyQuery', () => {
     expect(result).toEqual({
       skipSearch: false,
       standaloneQuery: 'what is the tallest mountain in South Korea',
-      needsRecent: false
+      needsRecent: false,
+      intent: 'general'
     })
   })
 
@@ -102,7 +103,8 @@ describe('classifyQuery', () => {
     expect(result).toEqual({
       skipSearch: false,
       standaloneQuery: 'hello there',
-      needsRecent: false
+      needsRecent: false,
+      intent: 'general'
     })
   })
 
@@ -117,7 +119,8 @@ describe('classifyQuery', () => {
     expect(result).toEqual({
       skipSearch: false,
       standaloneQuery: 'what time is it',
-      needsRecent: false
+      needsRecent: false,
+      intent: 'general'
     })
   })
 
@@ -169,5 +172,33 @@ describe('classifyQuery', () => {
     expect(call.prompt).toContain('…[truncated]')
     // The latest message must be present in full, untruncated.
     expect(call.prompt).toContain(latest)
+  })
+
+  it('returns the model-provided intent on success', async () => {
+    mockGenerateText.mockResolvedValue({
+      output: {
+        skipSearch: false,
+        standaloneQuery: 'latest node.js LTS version',
+        needsRecent: true,
+        intent: 'code'
+      }
+    } as any)
+
+    const result = await classifyQuery({
+      messages: [userMsg('whats the newest node lts')]
+    })
+
+    expect(result.intent).toBe('code')
+  })
+
+  it('falls back to intent="general" when the classifier errors', async () => {
+    mockGenerateText.mockRejectedValue(new Error('boom'))
+
+    const result = await classifyQuery({
+      messages: [userMsg('anything')]
+    })
+
+    expect(result.intent).toBe('general')
+    expect(result.skipSearch).toBe(false)
   })
 })
