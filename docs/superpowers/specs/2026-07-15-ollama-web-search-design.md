@@ -81,23 +81,18 @@ Next to `merge-degoog.ts`, reusing its normalize/dedup approach:
   `maxContentChars` (default `OLLAMA_BASIC_SNIPPET_CHARS`, ~400) so basic-path
   results stay snippet-uniform. Used by the **basic** path.
 
-### 3. Per-turn budget (B+A) — `lib/tools/search.ts`
+### 3. Per-search inclusion — `lib/tools/search.ts`
 
-- Closure adds `let ollamaCallsUsed = 0` (sibling of `firstSearchDone`).
-- After the dedup gate and once this search is committed to executing, compute:
+- **No per-turn cap.** When enabled, Ollama runs on **every** search of the turn
+  (the paid Ollama sub has ample headroom, and every search benefits from the
+  hosted source). After the dedup gate, once this search is committed to
+  executing, compute:
   ```ts
-  const ollamaEnabled =
-    isOllamaSearchConfigured() && process.env.OLLAMA_SEARCH_ENABLED !== 'off'
-  const isFirstSearchOfTurn = !firstSearchDone // captured before firstSearchDone flips
-  const maxPerTurn = Number(process.env.OLLAMA_SEARCH_MAX_PER_TURN ?? '5')
   const useOllama =
-    ollamaEnabled &&
-    (isFirstSearchOfTurn || ollamaCallsUsed < (Number.isFinite(maxPerTurn) ? maxPerTurn : 5))
-  if (useOllama) ollamaCallsUsed++
+    isOllamaSearchConfigured() && process.env.OLLAMA_SEARCH_ENABLED !== 'off'
   ```
-  So the **first** search of the turn always includes Ollama (guaranteed B),
-  and **follow-ups** include it until `OLLAMA_SEARCH_MAX_PER_TURN` (capped A).
-  A dedup-skipped search returns before this point and never consumes budget.
+  A dedup-skipped search returns before this point and never calls Ollama, so
+  Ollama is only invoked for searches that actually execute.
 - `search.ts` passes `useOllama` (and `ollamaMaxResults`) down to whichever path
   runs:
   - **advanced**: added to the `/api/advanced-search` POST body.
@@ -138,17 +133,14 @@ Next to `merge-degoog.ts`, reusing its normalize/dedup approach:
 ## Data flow (one balanced turn)
 
 ```
-Search #1 (advanced, useOllama=true):
+Search #1 (advanced, every search when enabled):
   searxng + degoog + OLLAMA  ─merge→  candidate pool
      ├─ searxng/degoog URLs → Crawl4AI enrich
      └─ OLLAMA URLs → skip crawl, keep their full content
   → cross-encoder rerank over ALL (crawled + Ollama)  → return
 
-Search #2..N (basic, useOllama=true until cap):
+Search #2..N (basic, every search when enabled):
   searxng + degoog + OLLAMA(content truncated to ~400 chars)  ─merge→  snippets → return
-
-Beyond OLLAMA_SEARCH_MAX_PER_TURN:
-  searxng + degoog only (Ollama omitted)
 ```
 
 ## Error handling
@@ -168,7 +160,6 @@ Ollama is a pure complement, identical to degoog:
 |---|---|---|
 | `OLLAMA_SEARCH_API_KEY` | *(unset)* | Ollama cloud key. **Enables** the feature; reuse the existing key. |
 | `OLLAMA_SEARCH_ENABLED` | on | Only `'off'` disables (kill switch). |
-| `OLLAMA_SEARCH_MAX_PER_TURN` | `5` | Per-turn cap on Ollama calls (first search always + follow-ups until cap). |
 | `OLLAMA_SEARCH_MAX_RESULTS` | `5` | `max_results` per Ollama call. |
 | `OLLAMA_SEARCH_TIMEOUT_MS` | `10000` | Per-request timeout. |
 
@@ -184,9 +175,9 @@ Unit (Vitest, `bun run test`):
 - `merge-ollama`: Ollama → `SearXNGResult`/`SearchResultItem` shape; dedup by
   normalized URL; content truncation on the basic helper; full content on the
   advanced helper.
-- Per-turn budget: first search always `useOllama=true`; follow-ups until the
-  cap then `false`; dedup-skipped searches don't consume budget;
-  `OLLAMA_SEARCH_ENABLED=off` and unset key both disable.
+- Per-search inclusion: every executing search sets `useOllama=true` when
+  enabled; a dedup-skipped search never calls Ollama; `OLLAMA_SEARCH_ENABLED=off`
+  and an unset key both disable.
 
 Live (staging ask-admin-feature :3739, then production per the standard
 merge→push→rebuild flow):
