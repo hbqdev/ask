@@ -275,8 +275,23 @@ export function createResearcher({
     // Depth tiering: the first search of a balanced/quality turn goes deep
     // (advanced crawl+rerank); speed and skip turns stay basic. Subsequent
     // searches tier down to basic inside the search tool.
+    //
+    // Exclusive Academic-only or Social-only turns must also stay basic:
+    // 'advanced' routes the first search through /api/advanced-search, which
+    // has no way to apply the exclusive academic/social filter (it doesn't
+    // honor search_mode at all). Only the basic SearXNG provider's
+    // isAcademic/isSocial branches respect search_mode, so exclusive turns
+    // need the whole turn — including the first search — on that path.
+    const hasWeb = sources.includes('web')
+    const hasAcademic = sources.includes('academic')
+    const hasSocial = sources.includes('social')
+    const exclusiveSourceMode =
+      (!hasWeb && hasAcademic && !hasSocial) ||
+      (!hasWeb && !hasAcademic && hasSocial)
     const firstSearchDepth: 'basic' | 'advanced' =
-      skipSearch || searchMode === 'speed' ? 'basic' : 'advanced'
+      skipSearch || searchMode === 'speed' || exclusiveSourceMode
+        ? 'basic'
+        : 'advanced'
 
     // Create model-specific tools with proper typing
     const originalSearchTool = createSearchTool(model, {

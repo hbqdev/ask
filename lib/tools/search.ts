@@ -163,7 +163,16 @@ export function createSearchTool(
       // already run this turn. Its results are already in the model's
       // context, so return a short note instead of paying for another
       // search+crawl+rerank. First search never dedups (nothing prior).
+      //
+      // Recording into executedQueries is deferred until AFTER the search
+      // below actually succeeds (see the `currentQueryEmbedding` push near
+      // the end of this function) — computing the embedding here only
+      // decides duplicate-or-not. If we recorded eagerly and the search
+      // then threw, a later identical retry would be wrongly skipped with a
+      // "results are already above" note for results that were never
+      // produced.
       const dedupEnabled = process.env.SEARCH_DEDUP_ENABLED !== 'off'
+      let currentQueryEmbedding: number[] | null = null
       if (dedupEnabled && executedQueries.length > 0) {
         try {
           const threshold = Number(process.env.SEARCH_DEDUP_THRESHOLD ?? '0.92')
@@ -194,12 +203,9 @@ export function createSearchTool(
             }
             return
           }
-          // Not a duplicate — record it so later searches compare against it.
-          executedQueries.push({
-            mode: search_mode,
-            query,
-            embedding: queryEmbedding
-          })
+          // Not a duplicate — stash the embedding; recorded once the search
+          // below actually succeeds.
+          currentQueryEmbedding = queryEmbedding
         } catch (error) {
           // Embedding failure ⇒ treat as not-duplicate (search proceeds),
           // never worse than today. Nothing is recorded for this query, so a
@@ -207,18 +213,16 @@ export function createSearchTool(
           console.error('[search-dedup] embedding failed, not deduping:', error)
         }
       } else if (dedupEnabled) {
-        // First search of the turn: record it (embed lazily so the first
-        // search pays nothing when it's the only one).
+        // First search of the turn: always compute one local embedding (no
+        // prior entries to compare against yet) so later searches this turn
+        // have something to compare against. Stashed here, not recorded
+        // yet — recorded once the search below actually succeeds.
         try {
           const [queryEmbedding] = await embedTexts(
             [query],
             getConfiguredModel()
           )
-          executedQueries.push({
-            mode: search_mode,
-            query,
-            embedding: queryEmbedding
-          })
+          currentQueryEmbedding = queryEmbedding
         } catch (error) {
           console.error('[search-dedup] initial embed failed:', error)
         }
@@ -416,6 +420,20 @@ export function createSearchTool(
         results: searchResult.results,
         images: searchResult.images
       })
+
+      // Search succeeded — now safe to record this query for future dedup
+      // comparisons. Deferred to this point (rather than at the top, before
+      // the search ran) so a thrown search never poisons executedQueries: a
+      // later identical retry must be allowed to actually run, not get
+      // skipped with a "results are already above" note for results that
+      // were never produced.
+      if (currentQueryEmbedding) {
+        executedQueries.push({
+          mode: search_mode,
+          query,
+          embedding: currentQueryEmbedding
+        })
+      }
 
       // Yield final results with complete state
       yield {
