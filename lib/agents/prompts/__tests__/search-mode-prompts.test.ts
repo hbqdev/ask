@@ -68,7 +68,7 @@ describe('depth-tiering and fetch-for-depth guidance', () => {
   it('balanced + quality prompts explain depth tiering and fetch-for-depth', () => {
     for (const prompt of [getAdaptiveModePrompt(), getQualityModePrompt()]) {
       expect(prompt.toLowerCase()).toContain('first search')
-      expect(prompt.toLowerCase()).toContain('fetch')
+      expect(prompt.toLowerCase()).toContain('snippets only')
     }
   })
 })
