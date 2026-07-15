@@ -33,3 +33,11 @@ server:
 search:
   formats:
     - json
+
+# Enable discussion-intent engines (disabled in upstream defaults) so the
+# local fallback matches the primary instance for Ask's engine routing.
+engines:
+  - name: hackernews
+    disabled: false
+  - name: lobste.rs
+    disabled: false

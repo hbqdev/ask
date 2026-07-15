@@ -275,15 +275,19 @@ async function advancedSearchXNGSearch(
       return u.toString()
     }
 
-    const [searxngSettled, degoogWebSettled, degoogNewsSettled, degoogImgSettled] =
-      await Promise.allSettled([
-        fetchSearxngJson(buildUrl),
-        fetchDegoogJson(degoogUrl('web')),
-        intent === 'news'
-          ? fetchDegoogJson(degoogUrl('news'))
-          : Promise.resolve(null),
-        fetchDegoogJson(degoogUrl('images'))
-      ])
+    const [
+      searxngSettled,
+      degoogWebSettled,
+      degoogNewsSettled,
+      degoogImgSettled
+    ] = await Promise.allSettled([
+      fetchSearxngJson(buildUrl),
+      fetchDegoogJson(degoogUrl('web')),
+      intent === 'news'
+        ? fetchDegoogJson(degoogUrl('news'))
+        : Promise.resolve(null),
+      fetchDegoogJson(degoogUrl('images'))
+    ])
 
     if (searxngSettled.status === 'rejected') throw searxngSettled.reason
     const { data: rawData, baseUrlUsed: apiUrl } = searxngSettled.value
@@ -294,7 +298,10 @@ async function advancedSearchXNGSearch(
       if (s.status !== 'fulfilled' || !s.value) return []
       return (s.value.data as DegoogResponse).results ?? []
     }
-    const degoogWeb = [...degoogOf(degoogWebSettled), ...degoogOf(degoogNewsSettled)]
+    const degoogWeb = [
+      ...degoogOf(degoogWebSettled),
+      ...degoogOf(degoogNewsSettled)
+    ]
     const degoogImages = degoogOf(degoogImgSettled)
 
     const data = rawData as SearXNGResponse
@@ -491,24 +498,22 @@ async function advancedSearchXNGSearch(
       ),
       query: data.query || query,
       images: Array.from(
-        new Set(
-          [
-            ...imageResults
-              .map((result: SearXNGResult) => {
-                const imgSrc = result.img_src || ''
-                return imgSrc.startsWith('http') ? imgSrc : `${apiUrl}${imgSrc}`
-              })
-              .filter(Boolean),
-            ...degoogImages
-              .map(r =>
-                resolveDegoogUrl(
-                  r.imageUrl || r.thumbnail || '',
-                  process.env.DEGOOG_API_URL ?? ''
-                )
+        new Set([
+          ...imageResults
+            .map((result: SearXNGResult) => {
+              const imgSrc = result.img_src || ''
+              return imgSrc.startsWith('http') ? imgSrc : `${apiUrl}${imgSrc}`
+            })
+            .filter(Boolean),
+          ...degoogImages
+            .map(r =>
+              resolveDegoogUrl(
+                r.imageUrl || r.thumbnail || '',
+                process.env.DEGOOG_API_URL ?? ''
               )
-              .filter(Boolean)
-          ]
-        )
+            )
+            .filter(Boolean)
+        ])
       ).slice(0, maxResults),
       number_of_results: data.number_of_results || generalResults.length
     }
