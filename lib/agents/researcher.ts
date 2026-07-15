@@ -272,11 +272,18 @@ export function createResearcher({
   try {
     const currentDate = new Date().toLocaleString()
 
+    // Depth tiering: the first search of a balanced/quality turn goes deep
+    // (advanced crawl+rerank); speed and skip turns stay basic. Subsequent
+    // searches tier down to basic inside the search tool.
+    const firstSearchDepth: 'basic' | 'advanced' =
+      skipSearch || searchMode === 'speed' ? 'basic' : 'advanced'
+
     // Create model-specific tools with proper typing
     const originalSearchTool = createSearchTool(model, {
       timeRange: needsRecent ? 'month' : undefined,
       expandedQueries: expandedQueriesPromise,
-      intent
+      intent,
+      firstSearchDepth
     })
     const askQuestionTool = createQuestionTool(model)
     const todoTools = createTodoTools()
