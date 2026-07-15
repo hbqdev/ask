@@ -404,8 +404,16 @@ describe('mergeVideosWithDegoog', () => {
 })
 
 describe('mergeDegoogIntoSearxngResults', () => {
-  const sx = (url: string, title = 't', content = 'c') => ({ url, title, content })
-  const dg = (url: string, title = 'dt', snippet = 'ds') => ({ url, title, snippet })
+  const sx = (url: string, title = 't', content = 'c') => ({
+    url,
+    title,
+    content
+  })
+  const dg = (url: string, title = 'dt', snippet = 'ds') => ({
+    url,
+    title,
+    snippet
+  })
 
   it('appends unique degoog web results as SearXNGResult candidates', () => {
     const merged = mergeDegoogIntoSearxngResults(

@@ -131,8 +131,11 @@ export function createSearchTool(
   let firstSearchDone = false
   // Per-turn search-intent dedup state, keyed within a search_mode so a web
   // search and an academic search of the same words aren't treated as dupes.
-  const executedQueries: { mode: string; query: string; embedding: number[] }[] =
-    []
+  const executedQueries: {
+    mode: string
+    query: string
+    embedding: number[]
+  }[] = []
 
   return tool({
     description: getSearchToolDescription(),
@@ -163,9 +166,7 @@ export function createSearchTool(
       const dedupEnabled = process.env.SEARCH_DEDUP_ENABLED !== 'off'
       if (dedupEnabled && executedQueries.length > 0) {
         try {
-          const threshold = Number(
-            process.env.SEARCH_DEDUP_THRESHOLD ?? '0.92'
-          )
+          const threshold = Number(process.env.SEARCH_DEDUP_THRESHOLD ?? '0.92')
           const [queryEmbedding] = await embedTexts(
             [query],
             getConfiguredModel()
@@ -201,8 +202,8 @@ export function createSearchTool(
           })
         } catch (error) {
           // Embedding failure ⇒ treat as not-duplicate (search proceeds),
-          // never worse than today. Still record the query text so obviously
-          // identical strings can be caught cheaply next time.
+          // never worse than today. Nothing is recorded for this query, so a
+          // later identical one simply gets its own embed attempt.
           console.error('[search-dedup] embedding failed, not deduping:', error)
         }
       } else if (dedupEnabled) {
