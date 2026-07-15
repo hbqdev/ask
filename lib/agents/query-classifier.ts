@@ -36,13 +36,17 @@ const CLASSIFIER_TIMEOUT_MS = 10_000
 // classifier. Wide enough that a follow-up referring to an EARLIER turn
 // ("actually, back to my first question…") can still be recognized as
 // answerable-from-context (skipSearch=true) rather than triggering a
-// needless search — 12 messages ≈ six prior Q&A pairs. This is only
-// affordable because each prior message is clipped to
-// MAX_HISTORY_CHARS_PER_MESSAGE below: 12 × 400 chars + the system prompt
-// stays well inside the model's 4096-token context. (The answering model
-// always gets the FULL, unclipped history regardless — the classifier's
-// narrow view only gates search-vs-skip, it is not what answers.)
-const HISTORY_WINDOW = 12
+// needless search — 20 messages ≈ ten prior Q&A pairs.
+//
+// This does NOT cost extra VRAM: serenity loads the model at 16384 context
+// regardless, and 20 × MAX_HISTORY_CHARS_PER_MESSAGE (2000) + the system
+// prompt is ~10.5k tokens — widening the window just fills more of the
+// context already allocated, at a small per-turn prefill cost. Beyond ~10
+// pairs the returns are marginal while that latency is paid on every turn,
+// so this is the ceiling. (The answering model always gets the FULL,
+// unclipped history regardless — the classifier's view only gates
+// search-vs-skip, it is not what answers.)
+const HISTORY_WINDOW = 20
 
 // Per-message cap on the history text shown to the classifier.
 //
