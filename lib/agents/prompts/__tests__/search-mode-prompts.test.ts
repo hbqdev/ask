@@ -58,3 +58,17 @@ describe('Quality mode silent-execution guidance', () => {
     expect(prompt).toMatch(/Call tools back-to-back silently/i)
   })
 })
+
+// Regression guard: the model was re-running searches to get more depth on
+// a promising result instead of using fetch, wasting a search call every
+// time. Balanced and Quality mode prompts must both explain that only the
+// first search of a turn crawls in full (depth tiering) and that fetch is
+// the right tool for reading a specific URL in full afterward.
+describe('depth-tiering and fetch-for-depth guidance', () => {
+  it('balanced + quality prompts explain depth tiering and fetch-for-depth', () => {
+    for (const prompt of [getAdaptiveModePrompt(), getQualityModePrompt()]) {
+      expect(prompt.toLowerCase()).toContain('first search')
+      expect(prompt.toLowerCase()).toContain('fetch')
+    }
+  })
+})
