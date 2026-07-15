@@ -33,6 +33,12 @@ app = FastAPI(lifespan=lifespan)
 class RerankRequest(BaseModel):
     query: str
     passages: list[str]
+    # Per-request truncation length. Web search sends short-lived, high-volume
+    # batches and omits this (default 128 = fast). Upload-RAG sends a small
+    # batch of larger document chunks and requests a higher value so the
+    # reranker judges the whole chunk, not just its first ~90 words. Clamped
+    # server-side to bound per-pair cost.
+    max_length: int = 128
 
 
 @app.get("/health")
@@ -61,12 +67,14 @@ def rerank(req: RerankRequest, authorization: str = Header(default="")):
     if not req.passages:
         return {"scores": []}
     pairs = [[req.query, p] for p in req.passages]
-    # normalize=True -> sigmoid -> scores in [0,1]. max_length=128 caps
-    # per-pair cost: cross-encoder attention is superlinear in sequence
-    # length, and real web passages are long, so on this P4000 an
-    # uncapped batch of ~150 passages took ~25-29s vs ~7s at 128 tokens
-    # (relevance signal lives in a passage's first ~90 words anyway).
-    scores = reranker.compute_score(pairs, normalize=True, max_length=128)
+    # normalize=True -> sigmoid -> scores in [0,1]. max_length caps per-pair
+    # cost: cross-encoder attention is superlinear in sequence length, and
+    # real passages are long, so on this P4000 an uncapped batch of ~150
+    # passages took ~25-29s vs ~7s at 128 tokens. Clamped to [16, 512] so a
+    # client can't drive an unbounded batch (512 is the model's practical
+    # ceiling for this use and keeps small upload batches fast).
+    max_length = max(16, min(req.max_length, 512))
+    scores = reranker.compute_score(pairs, normalize=True, max_length=max_length)
     if not isinstance(scores, list):
         scores = [scores]
     return {"scores": [float(s) for s in scores]}

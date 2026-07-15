@@ -125,7 +125,14 @@ export async function queryFileChunks(
     try {
       const scores = await crossEncoderScore(
         query,
-        candidates.map(c => c.content)
+        candidates.map(c => c.content),
+        // Document chunks are 512 tokens; judge the whole chunk, not just
+        // its first ~90 words like web passages (maxLength 512 vs the
+        // service default 128). The batch is small (<=30 chunks), so the
+        // higher cost is fine, and 10s is plenty for it on an interactive
+        // document query — shorter than web search's 20s default so a hung
+        // reranker degrades to cosine faster on this user-facing path.
+        { maxLength: 512, timeoutMs: 10_000 }
       )
       const reranked = candidates
         .map((c, i) => ({ content: c.content, score: scores[i] ?? 0 }))
