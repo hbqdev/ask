@@ -364,9 +364,14 @@ async function advancedSearchXNGSearch(
             query,
             maxResults
           )
-          // Cross-encoder [0,1]; 0.3 is a loose on-topic floor (the answering
-          // model does the fine-grained judging, this only drops clear junk).
-          applyReranked(out, 0.3)
+          // Cross-encoder [0,1]; the floor only drops CLEAR junk (near-zero
+          // scores) — the answering model does the fine-grained judging.
+          // 0.1, not 0.3: with max_length=128 truncation, genuinely-relevant
+          // passages can score in the 0.1-0.4 range, and 0.3 over-filtered
+          // ~15-20% of real queries into the bi-encoder fallback (they lost
+          // the cross-encoder benefit). 0.1 keeps them while still dropping
+          // obvious off-topic pages.
+          applyReranked(out, 0.1)
           // Guard: if the floor filtered EVERYTHING out, don't return an
           // empty result set — fall through to the bi-encoder tier (which
           // uses a looser 0.2 floor) rather than answering with no sources.

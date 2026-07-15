@@ -47,7 +47,13 @@ def rerank(req: RerankRequest, authorization: str = Header(default="")):
     if not TOKEN:
         # Fail closed: a LAN-published reranker must never serve unauthenticated.
         raise HTTPException(status_code=503, detail="server auth not configured")
-    if not hmac.compare_digest(authorization, f"Bearer {TOKEN}"):
+    # hmac.compare_digest raises TypeError on non-ASCII input; a malformed
+    # Authorization header must return a clean 401, not a 500.
+    try:
+        authorized = hmac.compare_digest(authorization, f"Bearer {TOKEN}")
+    except TypeError:
+        authorized = False
+    if not authorized:
         raise HTTPException(status_code=401, detail="unauthorized")
     reranker = _state["reranker"]
     if reranker is None:
