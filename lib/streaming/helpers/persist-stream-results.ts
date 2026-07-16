@@ -7,6 +7,7 @@ import { perfTime } from '@/lib/utils/perf-logging'
 import { retryDatabaseOperation } from '@/lib/utils/retry'
 
 import { stripNarrationFromMessage } from './strip-narration-from-message'
+import { stripRecallFromMessage } from './strip-recall-from-message'
 
 const DEFAULT_CHAT_TITLE = 'Untitled'
 
@@ -23,12 +24,20 @@ export async function persistStreamResults(
   >,
   initialUserMessage?: UIMessage
 ) {
-  // Strip any "thinking out loud" narration preamble from text parts
-  // before persisting. Belt-and-suspenders: callers should already pass
-  // a cleaned message, but this keeps the helper correct-by-construction.
-  // stripNarrationFromMessage is idempotent (a no-op on already-clean
-  // text), so the double-application is safe.
-  const cleanedMessage = stripNarrationFromMessage(responseMessage)
+  // Strip any "thinking out loud" narration preamble from text parts, and
+  // strip any live-turn-only `data-recall` attribution-chip part, before
+  // persisting. Belt-and-suspenders: callers should already pass a cleaned
+  // message, but this keeps the helper correct-by-construction — this is
+  // also the single choke point every response message passes through
+  // before upsertMessage, so a `data-recall` part can never reach the DB
+  // regardless of what a caller did or didn't strip upstream (see
+  // strip-recall-from-message.ts for why that matters: a public chat's RLS
+  // policy would otherwise expose another private chat's title/id via the
+  // chip). Both strips are idempotent (a no-op when already clean), so
+  // double-application is safe.
+  const cleanedMessage = stripRecallFromMessage(
+    stripNarrationFromMessage(responseMessage)
+  )
 
   // Attach metadata to the response message
   cleanedMessage.metadata = {

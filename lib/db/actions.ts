@@ -28,6 +28,7 @@ import { incrementDbOperationCount } from '@/lib/utils/perf-tracking'
 import type { Chat, Message, NewNote, Note } from './schema'
 import {
   chats,
+  conversationChunks,
   feedback,
   generateId,
   libraryFiles,
@@ -133,6 +134,22 @@ export async function upsertMessage(
 
     // 2. Delete existing parts
     await tx.delete(parts).where(eq(parts.messageId, message.id))
+
+    // 2b. Delete stale conversation-recall chunks for this message. The
+    // message's text is about to change (or be reinserted verbatim) — any
+    // existing chunks were derived from the OLD text, so they are stale by
+    // definition. The normal path self-heals (onFinish re-runs indexMessage
+    // for the same id, which itself deletes-then-reinserts), but if recall
+    // was off or embedding failed during the turn that produced this edit,
+    // nothing else would ever clear these out: messagesWithoutChunks's
+    // `NOT EXISTS` check never re-selects a message that already has
+    // chunks, so Rebuild could never repair it. Deleting here means an
+    // edited message always has no chunks immediately after, so it is
+    // correctly re-selected and re-indexed. A direct table delete (not the
+    // memory layer) keeps this file free of that dependency.
+    await tx
+      .delete(conversationChunks)
+      .where(eq(conversationChunks.messageId, message.id))
 
     // 3. Insert new parts
     if (message.parts && message.parts.length > 0) {

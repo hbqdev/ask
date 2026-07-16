@@ -162,7 +162,7 @@ export async function messagesWithoutChunks(
           SELECT 1 FROM conversation_chunks cc WHERE cc.message_id = m.id
         )
       GROUP BY m.id, m.chat_id, m.role
-      HAVING string_agg(p.text_text, ' ' ORDER BY p."order") <> ''
+      HAVING trim(string_agg(p.text_text, ' ' ORDER BY p."order")) <> ''
       ORDER BY m.created_at ASC
       LIMIT ${limit}
     `)

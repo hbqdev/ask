@@ -55,17 +55,33 @@ export async function getRecallStatus(): Promise<{
  * `chunks === 0`: work was attempted but no progress was made, and the same
  * messages would be re-selected forever. This action does not claim `done`
  * in that case — `done: true` only fires once a call finds nothing left to
- * index at all (messages === 0) — so the caller (the client loop) is
- * responsible for treating a `messages > 0 && chunks === 0` round as a hard
- * failure and stopping rather than looping forever.
+ * index at all (messages === 0 AND that emptiness is genuine, see `ok`
+ * below) — so the caller (the client loop) is responsible for treating a
+ * `messages > 0 && chunks === 0` round as a hard failure and stopping
+ * rather than looping forever.
+ *
+ * `backfillUser` returns `ok: false` both when recall is disabled (a
+ * rebuild can never work) and when the batch loop caught a real DB error —
+ * either way, `messages === 0` there means "nothing was indexed AND we
+ * don't actually know the index is up to date", not success. Reporting
+ * `done: true` for that would show a green "Index is already up to date"
+ * toast while nothing was verified, so this action surfaces `success: false`
+ * instead, matching the honesty the rest of this feature depends on: every
+ * control must do what it appears to do.
  */
 export async function rebuildRecallIndexAction() {
   const userId = await getCurrentUserId()
   if (!userId) return { success: false, error: 'User not authenticated' }
-  const { messages, chunks } = await backfillUser(userId, {
+  const { messages, chunks, ok } = await backfillUser(userId, {
     batchSize: 25,
     maxBatches: 4
   })
+  if (!ok) {
+    return {
+      success: false,
+      error: 'Rebuild failed — see server logs'
+    }
+  }
   return { success: true, messages, chunks, done: messages === 0 }
 }
 

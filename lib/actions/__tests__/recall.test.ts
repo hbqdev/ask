@@ -62,7 +62,8 @@ describe('recall actions', () => {
     vi.mocked(getCurrentUserId).mockResolvedValue('u1')
     vi.mocked(backfill.backfillUser).mockResolvedValue({
       messages: 4,
-      chunks: 9
+      chunks: 9,
+      ok: true
     })
     expect(await rebuildRecallIndexAction()).toEqual({
       success: true,
@@ -77,7 +78,8 @@ describe('recall actions', () => {
 
     vi.mocked(backfill.backfillUser).mockResolvedValue({
       messages: 0,
-      chunks: 0
+      chunks: 0,
+      ok: true
     })
     expect(await rebuildRecallIndexAction()).toEqual({
       success: true,
@@ -96,13 +98,45 @@ describe('recall actions', () => {
     vi.mocked(getCurrentUserId).mockResolvedValue('u1')
     vi.mocked(backfill.backfillUser).mockResolvedValue({
       messages: 25,
-      chunks: 0
+      chunks: 0,
+      ok: true
     })
     expect(await rebuildRecallIndexAction()).toEqual({
       success: true,
       messages: 25,
       chunks: 0,
       done: false
+    })
+  })
+
+  it('reports a hard failure (not a green done) when backfillUser could not verify anything', async () => {
+    // ok: false means either recall was disabled (so the round could never
+    // have made progress) or a real DB error was caught — in both cases
+    // messages === 0 must NOT be read as "already up to date".
+    vi.mocked(getCurrentUserId).mockResolvedValue('u1')
+    vi.mocked(backfill.backfillUser).mockResolvedValue({
+      messages: 0,
+      chunks: 0,
+      ok: false
+    })
+    expect(await rebuildRecallIndexAction()).toEqual({
+      success: false,
+      error: 'Rebuild failed — see server logs'
+    })
+  })
+
+  it('reports done: true when backfillUser genuinely found nothing left to index', async () => {
+    vi.mocked(getCurrentUserId).mockResolvedValue('u1')
+    vi.mocked(backfill.backfillUser).mockResolvedValue({
+      messages: 0,
+      chunks: 0,
+      ok: true
+    })
+    expect(await rebuildRecallIndexAction()).toEqual({
+      success: true,
+      messages: 0,
+      chunks: 0,
+      done: true
     })
   })
 })
