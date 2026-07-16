@@ -46,10 +46,18 @@ export async function getRecallStatus(): Promise<{
  * surface "Rebuild failed" while indexing actually kept going server-side.
  * Instead this indexes a small, bounded batch and returns; the client loops,
  * calling this repeatedly and re-reading the real chunk count each round.
- * This is safe because `messagesWithoutChunks` (via `backfillUser`) always
- * skips messages that already have chunks, so repeated calls are idempotent
- * and each one makes real, visible progress. `done: true` once a call finds
- * nothing left to index (messages === 0).
+ * Repeated calls are idempotent because `messagesWithoutChunks` (via
+ * `backfillUser`) always re-selects messages that still lack chunks. That
+ * cuts both ways: `indexMessage` never throws (see recall-index.ts) — on a
+ * failure (e.g. the embedding model hasn't downloaded yet, or an
+ * EMBEDDING_MODEL dimension mismatch) it swallows the error and returns 0
+ * chunks WITHOUT indexing, so a round can report `messages > 0` with
+ * `chunks === 0`: work was attempted but no progress was made, and the same
+ * messages would be re-selected forever. This action does not claim `done`
+ * in that case — `done: true` only fires once a call finds nothing left to
+ * index at all (messages === 0) — so the caller (the client loop) is
+ * responsible for treating a `messages > 0 && chunks === 0` round as a hard
+ * failure and stopping rather than looping forever.
  */
 export async function rebuildRecallIndexAction() {
   const userId = await getCurrentUserId()

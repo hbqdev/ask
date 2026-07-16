@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useState, useTransition } from 'react'
+import { useEffect, useRef, useState, useTransition } from 'react'
 
 import { IconTrash } from '@tabler/icons-react'
 import { toast } from 'sonner'
@@ -36,6 +36,14 @@ import { Spinner } from '@/components/ui/spinner'
 
 import { SettingRow, SettingSwitch } from '@/components/settings-dialog'
 
+// Belt-and-suspenders circuit breaker: 200 rounds x up to 100 messages/round
+// (batchSize 25 x maxBatches 4, see rebuildRecallIndexAction) = 20,000
+// messages, far beyond any real history. The real breaker is the
+// no-progress check below (messages > 0 && chunks === 0); this cap just
+// guarantees the loop is structurally incapable of running forever even if
+// that check were ever wrong.
+const MAX_REBUILD_ROUNDS = 200
+
 export function MemoryTab() {
   const [enabled, setEnabled] = useState(true)
   const [memories, setMemories] = useState<UserMemory[]>([])
@@ -50,6 +58,12 @@ export function MemoryTab() {
   })
   const [rebuilding, setRebuilding] = useState(false)
   const [clearIndexOpen, setClearIndexOpen] = useState(false)
+
+  // Lets the rebuild loop (a callback, not an effect — a ref, not state, is
+  // the right tool) notice the component unmounted (e.g. Settings closed
+  // mid-rebuild) and bail out on the next round instead of looping forever
+  // in the background or updating state after unmount.
+  const rebuildCancelledRef = useRef(false)
 
   useEffect(() => {
     let cancelled = false
@@ -70,6 +84,12 @@ export function MemoryTab() {
     })()
     return () => {
       cancelled = true
+    }
+  }, [])
+
+  useEffect(() => {
+    return () => {
+      rebuildCancelledRef.current = true
     }
   }, [])
 
@@ -233,25 +253,63 @@ export function MemoryTab() {
                 setRebuilding(true)
                 let totalMessages = 0
                 try {
-                  for (;;) {
-                    const res = await rebuildRecallIndexAction()
-                    if (!res.success) {
-                      toast.error(res.error ?? 'Rebuild failed')
+                  for (let round = 0; ; round++) {
+                    if (rebuildCancelledRef.current) return
+                    if (round >= MAX_REBUILD_ROUNDS) {
+                      toast.error(
+                        'Rebuild stopped after too many rounds — see server logs'
+                      )
                       break
                     }
-                    totalMessages += res.messages ?? 0
-                    setStatus(await getRecallStatus())
-                    if (res.done) {
-                      toast.success(
-                        totalMessages > 0
-                          ? `Indexed ${totalMessages} messages`
-                          : 'Index is already up to date'
+
+                    try {
+                      const res = await rebuildRecallIndexAction()
+                      if (rebuildCancelledRef.current) return
+
+                      if (!res.success) {
+                        toast.error(res.error ?? 'Rebuild failed')
+                        break
+                      }
+
+                      totalMessages += res.messages ?? 0
+                      setStatus(await getRecallStatus())
+                      if (rebuildCancelledRef.current) return
+
+                      if (res.done) {
+                        toast.success(
+                          totalMessages > 0
+                            ? `Indexed ${totalMessages} messages`
+                            : 'Index is already up to date'
+                        )
+                        break
+                      }
+
+                      // A round attempted work (messages > 0) but indexed
+                      // nothing (chunks === 0): indexMessage swallows errors
+                      // (e.g. HF embedding model not downloaded yet, or an
+                      // EMBEDDING_MODEL dimension mismatch) and returns 0
+                      // without inserting chunks. messagesWithoutChunks would
+                      // then re-select the same messages forever — this is
+                      // "attempted" without "made progress", so treat it as a
+                      // hard failure rather than looping.
+                      if ((res.messages ?? 0) > 0 && res.chunks === 0) {
+                        toast.error(
+                          "Indexing isn't making progress — check that EMBEDDING_MODEL is set to mixedbread-ai/mxbai-embed-large-v1 and see server logs"
+                        )
+                        break
+                      }
+                    } catch (error) {
+                      if (rebuildCancelledRef.current) return
+                      toast.error(
+                        error instanceof Error
+                          ? error.message
+                          : 'Rebuild failed'
                       )
                       break
                     }
                   }
                 } finally {
-                  setRebuilding(false)
+                  if (!rebuildCancelledRef.current) setRebuilding(false)
                 }
               }}
             >

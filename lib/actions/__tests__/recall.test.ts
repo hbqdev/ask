@@ -49,6 +49,15 @@ describe('recall actions', () => {
     expect(db.clearChunks).not.toHaveBeenCalled()
   })
 
+  it('rebuildRecallIndexAction refuses when unauthenticated without touching backfillUser', async () => {
+    vi.mocked(getCurrentUserId).mockResolvedValue(undefined)
+    expect(await rebuildRecallIndexAction()).toEqual({
+      success: false,
+      error: 'User not authenticated'
+    })
+    expect(backfill.backfillUser).not.toHaveBeenCalled()
+  })
+
   it('rebuild delegates to backfillUser with a bounded slice and reports done when nothing is left', async () => {
     vi.mocked(getCurrentUserId).mockResolvedValue('u1')
     vi.mocked(backfill.backfillUser).mockResolvedValue({
@@ -75,6 +84,25 @@ describe('recall actions', () => {
       messages: 0,
       chunks: 0,
       done: true
+    })
+  })
+
+  it('rebuild honestly reports a no-progress round instead of claiming done', async () => {
+    // indexMessage (recall-index.ts) swallows embedding failures and returns
+    // 0 chunks WITHOUT inserting anything, so backfillUser can report
+    // messages attempted with zero chunks made. The action must not paper
+    // over that as `done` — the client's no-progress circuit breaker relies
+    // on seeing messages > 0 && chunks === 0 with done: false.
+    vi.mocked(getCurrentUserId).mockResolvedValue('u1')
+    vi.mocked(backfill.backfillUser).mockResolvedValue({
+      messages: 25,
+      chunks: 0
+    })
+    expect(await rebuildRecallIndexAction()).toEqual({
+      success: true,
+      messages: 25,
+      chunks: 0,
+      done: false
     })
   })
 })
