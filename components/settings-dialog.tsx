@@ -182,9 +182,14 @@ function PreferencesTab() {
   const [showNews, setShowNews] = useState(true)
 
   useEffect(() => {
+    // Reads localStorage after mount (client-only) — intentional, so the
+    // initial render matches SSR and hydrates without a mismatch. The
+    // set-state-in-effect rule is a false positive for this pattern.
+    /* eslint-disable react-hooks/set-state-in-effect */
     setMeasureUnit(lsGet('measureUnit') ?? 'metric')
     setShowWeather(lsGet('showWeatherWidget') !== 'false')
     setShowNews(lsGet('showNewsWidget') !== 'false')
+    /* eslint-enable react-hooks/set-state-in-effect */
   }, [])
 
   return (
@@ -259,6 +264,10 @@ function PersonalizationTab() {
   const [instructions, setInstructions] = useState('')
 
   useEffect(() => {
+    // Reads localStorage after mount (client-only) — intentional, so the
+    // initial render matches SSR and hydrates without a mismatch. The
+    // set-state-in-effect rule is a false positive for this pattern.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     setInstructions(lsGet('systemInstructions') ?? '')
   }, [])
 
