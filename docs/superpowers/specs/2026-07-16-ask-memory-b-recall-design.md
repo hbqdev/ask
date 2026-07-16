@@ -155,13 +155,27 @@ implementation.
 
 **`score` semantics — read this before tuning thresholds.** `score` means
 *cosine similarity* when `useRerank` is false, and *cross-encoder score* when
-rerank ran; step 5 overwrites it. The two scales are not comparable, so
-`minScore` must only ever be paired with a known `useRerank` setting. This is
-why `RECALL_INJECT_MIN_SCORE` is safe: the auto-inject path (§5) is the only
-caller that sets `minScore`, and it always runs with `useRerank: false`, so the
-threshold is unambiguously a cosine gate. The tool and Library paths rerank and
-do **not** pass `minScore`. Any future caller that wants a threshold on the
-reranked scale needs its own separate constant.
+rerank ran; step 5 overwrites it. `minScore` is a gate on **whatever scale
+`score` currently is**, so it is only meaningful alongside a known `useRerank`
+setting.
+
+> **Amended 2026-07-16 after the live staging E2E.** This section originally
+> paired `minScore` with `useRerank: false` and called it "unambiguously a
+> cosine gate." **Measurement proved cosine is unusable as a relevance gate
+> here** — see §5. Both gating callers now use `useRerank: true`, so in practice
+> `minScore` is always a **cross-encoder-scale** threshold. Recorded rather than
+> quietly rewritten, because the original reasoning looked sound and was wrong.
+
+**Fail closed on a scale mismatch.** If `useRerank: true` is requested *with* a
+`minScore` but rerank cannot actually run (cross-encoder unconfigured, or it
+threw), the hits still carry **cosine** scores — and comparing a rerank-scale
+threshold (~0.05) against cosine values (~0.6) would pass **everything**. That is
+precisely the silent scale mismatch this note exists to prevent, so
+`recallSearch` returns `[]` in that case rather than a flood of unfiltered
+results. Consequences are deliberate and safe: reranker down ⇒ no auto-injection
+(the turn proceeds normally) and the Library's semantic arm drops out (the
+keyword arm still carries the box). A caller that passes **no** `minScore` is
+unaffected and still degrades to cosine ordering.
 
 The union arm is what makes both cases work: exact proper nouns ("Traefik",
 which vector search alone handles poorly) and semantic paraphrase ("backups" →
@@ -174,19 +188,45 @@ it needs two things that only exist there: the classifier's resolved
 `standaloneQuery`, and the `writer` for the attribution part (§8a).
 
 - `getRecallInjection(userId, query, currentChatId)` →
-  `recallSearch(topK = RECALL_INJECT_TOP_K, useRerank: false,
+  `recallSearch(topK = RECALL_INJECT_TOP_K, useRerank: true,
   excludeChatId: currentChatId, minScore: RECALL_INJECT_MIN_SCORE)`.
 - On hits: `execute` writes the `data-recall` part, then passes a `recallBlock`
   string into `researcher({ …, recallBlock })`, which appends it to the system
   prompt alongside feature A's memory block. Block shape:
   `## Relevant past conversations` followed by, per hit,
   `- From "<chat title>" (<date>): <content>`.
-- **Rerank is deliberately skipped on this path.** Per-turn cost stays a local
-  embed (~50ms) plus an HNSW query (~ms) with no network hop, so turns that need
-  no history pay almost nothing. `minScore` is the noise gate; the recall tool
-  (§6) is the safety net for when that gate is too strict.
 - The current chat is excluded — its context is already in the prompt.
-- Fail-safe: `''` on any error, and the turn proceeds normally.
+- Fail-safe: `''` on any error, and the turn proceeds normally. Reranker
+  unavailable ⇒ the gate fails closed (§4) ⇒ no injection, turn unaffected.
+
+> **Amended 2026-07-16 after the live staging E2E — the original design here did
+> not work at all.** It specified `useRerank: false` with a **cosine** gate of
+> `RECALL_INJECT_MIN_SCORE = 0.90` (later 0.75), justified as: "per-turn cost
+> stays a local embed (~50ms) plus an HNSW query with no network hop, so turns
+> that need no history pay almost nothing." The E2E measured reality and both
+> halves of that reasoning collapsed:
+>
+> - **The gate was unreachable.** For a genuinely relevant query ("How should I
+>   protect my data against ransomware?" against a chat that discussed
+>   ransomware, immutability and the 3-2-1 rule) the best real cosine was
+>   **0.626** — so a 0.75 gate meant auto-injection could *never* fire. The
+>   feature was silently inert while looking fully implemented.
+> - **Cosine cannot discriminate here at all.** Irrelevant chunks scored
+>   **0.570** against that same query, and the top-scoring chunk (0.626) was a
+>   stray reasoning fragment, not the backup content. A ~0.06-wide band between
+>   relevant and irrelevant makes *any* cosine threshold arbitrary: lower it to
+>   0.60 and you inject "I'm a software engineer" (0.622) for a ransomware
+>   question.
+> - **The cross-encoder discriminates cleanly on the same input:** relevant
+>   **0.169** vs irrelevant **0.0000164** — a ~10,000× separation.
+> - **The latency the original design optimised for was a rounding error.** The
+>   reranker is on the LAN; ~150ms against 30–90s turns is ~0.3%.
+>
+> Lesson worth keeping: a bi-encoder cosine score is a *ranking* signal, not a
+> calibrated *relevance* signal. It orders candidates fine; it cannot answer "is
+> anything here actually relevant?" Only the cross-encoder can, so only it can
+> gate. Thresholds must be measured against real data before being written into
+> a spec — 0.90/0.75 were plausible-looking numbers invented at design time.
 
 ### 6. Recall tool — `lib/tools/recall.ts`
 
@@ -228,10 +268,10 @@ means genuinely inert rather than "inert except the tool".
 
 1. **Keyword arm** — the existing `ILIKE` implementation (`chats.title` OR
    `parts.text_text`), unchanged, still ordered most-recently-viewed first.
-2. **Semantic arm** — `recallSearch(topK = 20, useRerank: true)`, mapped onto
-   the existing `ChatSearchResult` shape
-   (`{ chatId, chatTitle, snippet, role, lastViewedAt }`), so the Library UI
-   needs no change.
+2. **Semantic arm** — `recallSearch(topK = 20, useRerank: true,
+   minScore: RECALL_SEARCH_MIN_SCORE)`, mapped onto the existing
+   `ChatSearchResult` shape (`{ chatId, chatTitle, snippet, role, lastViewedAt }`),
+   so the Library UI needs no change.
 3. **Merge** — keyword results first in their existing order, then semantic hits
    not already present, deduped by `chatId` (a chat found by both keeps the
    keyword row), then `slice(0, limit)`.
@@ -242,7 +282,21 @@ Two properties this buys, both load-bearing:
   purely additive, so nothing a user can find today stops being findable —
   including title-only matches.
 - **"No results" is honest again.** The function returns `[]` only when *both*
-  arms are empty.
+  arms are empty — which requires the semantic arm to be **gated**
+  (`RECALL_SEARCH_MIN_SCORE`, on the cross-encoder scale, default `0.01`).
+  Without that gate the vector arm returns its nearest 30 chunks for *any*
+  input, so the union would always be non-empty.
+
+> **Second amendment, 2026-07-16 — the union alone did not deliver this.** The
+> first amendment (above) fixed the unreachable keyword floor but still claimed
+> "returns `[]` only when both arms are empty." The live E2E disproved it:
+> searching `zzzzqqqxyz` returned **5 unrelated chats**, because the semantic arm
+> had no relevance gate and pgvector happily returns the nearest rows regardless
+> of distance. "No results" was still impossible. The gate above is what actually
+> makes the claim true — and its threshold sits on the reranker's scale
+> (gibberish scores ~0.00002; real matches ~0.17), deliberately more permissive
+> than injection's `0.05` because a user who typed a query wants candidates,
+> whereas injecting noise pollutes the prompt.
 
 The semantic arm is fail-safe: the dynamic import and the `recallSearch` call
 are wrapped so any failure (or a disabled/empty index) degrades it to `[]`,
@@ -320,9 +374,28 @@ The tab is split into two labelled groups so the toggles are unambiguous:
   `AlertDialog`, deletes the user's chunks).
 
 A full rebuild can take minutes — too long to block a server action. So
-**Rebuild** kicks the backfill off and the panel **polls the real chunk count**,
-showing progress from actual rows ("Indexing… 340/760"). Not a spinner that
-resolves on a timer.
+**Rebuild** runs one bounded slice per call and the client loops until the
+backfill reports it has drained, refreshing the **real chunk count** from actual
+rows each round. The button reads "Indexing…" for exactly as long as real
+indexing is happening — never a spinner on a timer, and no percentage or ETA
+(the remaining total isn't known without another query, and faking it would
+violate the rule above).
+
+The loop must be structurally incapable of running forever, because "never
+throws" and "report status honestly" pull against each other here. Three real
+defects were found and fixed in review/E2E, all worth keeping in mind for any
+similar control:
+
+- A round that *attempts* work but indexes nothing (embedding model missing,
+  dimension mismatch) means the same rows are re-selected forever — so
+  "made progress" must be distinguished from "attempted", and a no-progress
+  round must surface an error and stop, plus a hard round cap as a backstop.
+- Rebuild is **disabled when the recall toggle is off**; otherwise it can never
+  succeed and reports a diagnosis ("check EMBEDDING_MODEL") that blames the
+  wrong thing entirely — the actual cause being the toggle directly above it.
+- A swallowed backfill error must not become a green "Index is already up to
+  date". The backfill reports an explicit `ok` flag; success requires
+  `ok && messages === 0`.
 
 ### d) Library search
 
@@ -355,10 +428,20 @@ turn starts
 |---|---|---|
 | `RECALL_ENABLED` | on | global kill switch (only `'off'` disables) |
 | `RECALL_INJECT_TOP_K` | `2` | auto-injected snippets per turn |
-| `RECALL_INJECT_MIN_SCORE` | `0.75` | cosine gate for auto-injection |
+| `RECALL_INJECT_MIN_SCORE` | `0.05` | **cross-encoder** gate for auto-injection |
+| `RECALL_SEARCH_MIN_SCORE` | `0.01` | **cross-encoder** gate for the Library search's semantic arm |
 | `RECALL_TOOL_TOP_K` | `5` | results returned by the recall tool |
 | `RECALL_CHUNK_TOKENS` | `512` | `splitText` maxTokens (matches the embedder window) |
 | `RECALL_CHUNK_OVERLAP` | `128` | `splitText` overlap |
+
+**Both `*_MIN_SCORE` values are on the cross-encoder's scale, not cosine**
+(amended 2026-07-16 — see §4/§5). Measured on real data: a relevant match scores
+**~0.17**, an irrelevant one **~0.00002**, so anything in `0.001`–`0.1`
+separates them; injection uses the stricter `0.05` (noise pollutes the prompt)
+and Library search the more permissive `0.01` (a user who typed a query wants
+candidates). Do **not** reuse a cosine-era value here — `0.75` on this scale
+rejects everything, which is precisely the bug that shipped. If the reranker is
+unavailable these gates fail closed (no injection; Library degrades to keyword).
 
 Per-user `user_settings.recall_enabled` (new column, default true) gates each
 user independently; `RECALL_ENABLED` is the global switch. Reuses
