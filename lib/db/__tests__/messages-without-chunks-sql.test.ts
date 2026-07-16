@@ -8,7 +8,22 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 // whose only text part is e.g. a single space passes the HAVING check, gets
 // no chunk (recall-index.ts's `if (!text.trim()) return 0`), and is
 // re-selected on every future call — a rebuild that can never report
-// success. `trim()`-ing the aggregate before comparing closes that gap.
+// success.
+//
+// M-3 was first "fixed" by wrapping the aggregate in `trim(...)  <> ''`.
+// That was ALSO wrong: Postgres's trim()/btrim() strips SPACES ONLY, not
+// tabs or newlines (verified live against pg17: `trim(E'\t') <> ''` and
+// `trim(E'\n') <> ''` are both true). Meanwhile recall-index.ts's JS guard
+// is `if (!text.trim()) return 0`, and JS's String.prototype.trim() strips
+// ALL whitespace (tabs, newlines, etc). That mismatch meant a message whose
+// text collapsed to just "\t" or "\n" still passed the SQL HAVING, got
+// selected, got rejected by the JS guard with 0 chunks, and was reselected
+// forever — the exact bug M-3 was filed to close, just with a narrower
+// trigger. The real fix is a "contains a non-whitespace character" test
+// (`~ '[^[:space:]]'`), which agrees with the JS guard's semantics instead
+// of Postgres's space-only trim(). Pin the regex predicate, and pin the
+// ABSENCE of trim(string_agg(, so a regression back to either the original
+// bug or the first wrong fix fails this test.
 vi.mock('@/lib/db', () => ({
   db: {
     transaction: vi.fn()
@@ -24,7 +39,7 @@ describe('messagesWithoutChunks SQL generation', () => {
 
   beforeEach(() => vi.clearAllMocks())
 
-  it('wraps the HAVING aggregate in trim() so whitespace-only text is excluded too', async () => {
+  it('HAVING uses a non-whitespace regex test, not trim(), so tabs/newlines are excluded too', async () => {
     const executedSql: unknown[] = []
     const mockTx = {
       execute: vi.fn(async (sqlArg: unknown) => {
@@ -43,8 +58,12 @@ describe('messagesWithoutChunks SQL generation', () => {
     expect(selectCall).toBeDefined()
 
     const { sql } = dialect.sqlToQuery((selectCall as any).getSQL())
-    expect(sql.toLowerCase()).toMatch(/having\s+trim\(string_agg\(/)
-    // Guard against a regression back to the un-trimmed exact-empty check.
-    expect(sql.toLowerCase()).not.toMatch(/having\s+string_agg\(/)
+    // Pins the fixed predicate: "contains a non-whitespace character",
+    // matching the JS guard's `!text.trim()` semantics.
+    expect(sql).toContain("~ '[^[:space:]]'")
+    // Guard against a regression to EITHER the original un-trimmed
+    // exact-empty check OR the space-only trim() "fix" — both let
+    // tab/newline-only text through.
+    expect(sql.toLowerCase()).not.toContain('trim(string_agg(')
   })
 })

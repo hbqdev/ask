@@ -149,6 +149,16 @@ export async function messagesWithoutChunks(
   }[]
 > {
   return withOptionalRLS(userId, async tx => {
+    // Postgres's trim()/btrim() strips SPACES ONLY — not tabs or newlines
+    // (verified live against pg17: trim(E'\t') <> '' and trim(E'\n') <> ''
+    // are both true). recall-index.ts's indexMessage() guards with the JS
+    // `!text.trim()`, and JS's String.prototype.trim() strips ALL
+    // whitespace. A message whose text collapses to just a tab or newline
+    // would pass a trim()-based HAVING here, get selected, then get
+    // rejected by the JS guard with 0 chunks — reselected on every future
+    // call, forever. The HAVING predicate below instead tests "contains a
+    // non-whitespace character" via regex, which agrees with the JS guard's
+    // semantics rather than Postgres's space-only trim().
     const res = await tx.execute(sql`
       SELECT m.id AS "messageId",
              m.chat_id AS "chatId",
@@ -162,7 +172,7 @@ export async function messagesWithoutChunks(
           SELECT 1 FROM conversation_chunks cc WHERE cc.message_id = m.id
         )
       GROUP BY m.id, m.chat_id, m.role
-      HAVING trim(string_agg(p.text_text, ' ' ORDER BY p."order")) <> ''
+      HAVING string_agg(p.text_text, ' ' ORDER BY p."order") ~ '[^[:space:]]'
       ORDER BY m.created_at ASC
       LIMIT ${limit}
     `)

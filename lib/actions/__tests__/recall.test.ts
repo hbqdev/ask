@@ -109,21 +109,29 @@ describe('recall actions', () => {
     })
   })
 
-  it('reports a hard failure (not a green done) when backfillUser could not verify anything', async () => {
-    // ok: false means either recall was disabled (so the round could never
-    // have made progress) or a real DB error was caught — in both cases
-    // messages === 0 must NOT be read as "already up to date".
-    vi.mocked(getCurrentUserId).mockResolvedValue('u1')
-    vi.mocked(backfill.backfillUser).mockResolvedValue({
-      messages: 0,
-      chunks: 0,
-      ok: false
-    })
-    expect(await rebuildRecallIndexAction()).toEqual({
-      success: false,
-      error: 'Rebuild failed — see server logs'
-    })
-  })
+  it.each([['disabled' as const], ['error' as const]])(
+    'reports a hard failure (not a green done) when backfillUser could not verify anything (reason: %s)',
+    async reason => {
+      // ok: false means either recall was disabled (so the round could
+      // never have made progress) or a real DB error was caught — in both
+      // cases messages === 0 must NOT be read as "already up to date". The
+      // single-user rebuild path intentionally does not differentiate on
+      // `reason` (that distinction exists for backfillAllUsers' aggregate,
+      // see recall-backfill.test.ts) — both reasons must still surface the
+      // same honest success:false here.
+      vi.mocked(getCurrentUserId).mockResolvedValue('u1')
+      vi.mocked(backfill.backfillUser).mockResolvedValue({
+        messages: 0,
+        chunks: 0,
+        ok: false,
+        reason
+      })
+      expect(await rebuildRecallIndexAction()).toEqual({
+        success: false,
+        error: 'Rebuild failed — see server logs'
+      })
+    }
+  )
 
   it('reports done: true when backfillUser genuinely found nothing left to index', async () => {
     vi.mocked(getCurrentUserId).mockResolvedValue('u1')
