@@ -275,6 +275,33 @@ This is feasible here precisely where feature A's indicator was not: recall runs
 at turn start inside `execute` (writer available), whereas feature A's
 extraction runs post-finish in `onFinish`, which the AI SDK gives no writer.
 
+**The chips are live-turn-only — they are stripped before persistence and do not
+survive a reload.** (Amended 2026-07-16 after the whole-branch review, which
+caught this as a Critical privacy leak. Recorded rather than quietly rewritten,
+because the failure is instructive.)
+
+The original design persisted the chips like any other part. But
+`lib/utils/message-mapping.ts` persists **any** `data-*` part generically, and
+`lib/db/schema.ts`'s `public_chat_parts_readable` RLS policy exposes **every**
+part of a public chat `TO public`. Since a chip names the user's *other* chats by
+**title and id**, sharing a chat would have disclosed the titles of unrelated
+**private** conversations to anonymous visitors — e.g. a chat titled
+"Negotiating my severance package" surfacing on a shared, unrelated chat. RLS
+still blocked *opening* those chats, but the title is usually the most sensitive
+string. Feature A has no equivalent exposure: it injects a prompt block and never
+writes a data part.
+
+The fix is to strip `data-recall` parts before `persistStreamResults` (see
+`lib/streaming/helpers/strip-recall-from-message.ts`), so the chips exist only in
+the live stream. This is also the more honest design: the chip is a claim about
+*this* generation, not a durable property of the message. The wiring is pinned by
+a regression test — the strip is one line standing between a private chat title
+and an anonymous visitor, so it must not be removable without a test failing.
+
+**Note for any future `data-*` part:** anything written into a message is
+world-readable the moment that chat is shared. Data parts must contain nothing
+derived from the user's *other* chats unless it is stripped before persistence.
+
 ### b) Recall tool-step rendering
 
 A `RecallToolSection` renderer for `tool-recall` invocations — "Searched your
