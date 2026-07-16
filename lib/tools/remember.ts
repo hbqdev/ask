@@ -1,6 +1,7 @@
 import { tool } from 'ai'
 import { z } from 'zod'
 
+import { isMemoryEnabled } from '@/lib/db/memory-actions'
 import { saveCandidates } from '@/lib/memory/write'
 
 /**
@@ -22,7 +23,7 @@ export function createRememberTool(userId: string | undefined) {
       category: z.enum(['preference', 'fact', 'interest'])
     }),
     execute: async ({ content, category }) => {
-      if (!userId) return { saved: false }
+      if (!userId || !(await isMemoryEnabled(userId))) return { saved: false }
       const n = await saveCandidates(userId, [
         { content, category, confirmed: true }
       ])

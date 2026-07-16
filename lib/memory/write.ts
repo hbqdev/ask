@@ -17,6 +17,10 @@ import type {
   WriteDecision
 } from './types'
 
+// Must match user_memories.embedding vector(1024) — pinned to mxbai
+// (EMBEDDING_MODEL=mixedbread-ai/mxbai-embed-large-v1).
+const MEMORY_EMBEDDING_DIM = 1024
+
 /**
  * Pure decision for the write path given a candidate and its nearest existing
  * memory (or null). Contradiction/supersede is decided one layer up (it needs a
@@ -71,6 +75,13 @@ export async function saveCandidates(
       candidates.map(c => c.content),
       getConfiguredModel()
     )
+    if (embeddings[0] && embeddings[0].length !== MEMORY_EMBEDDING_DIM) {
+      console.error(
+        `[memory] embedding dimension mismatch: got ${embeddings[0].length}, expected ${MEMORY_EMBEDDING_DIM}. ` +
+          `Set EMBEDDING_MODEL=mixedbread-ai/mxbai-embed-large-v1. Skipping memory writes.`
+      )
+      return saved
+    }
     for (let i = 0; i < candidates.length; i++) {
       const candidate = candidates[i]
       const embedding = embeddings[i]
