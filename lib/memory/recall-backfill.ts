@@ -2,6 +2,7 @@ import { db } from '@/lib/db'
 import { isRecallEnabled, messagesWithoutChunks } from '@/lib/db/recall-actions'
 import { chats } from '@/lib/db/schema'
 
+import { extractIndexableText } from './extract-indexable-text'
 import { indexMessage } from './recall-index'
 
 export interface BackfillUserResult {
@@ -48,19 +49,37 @@ export async function backfillUser(
   const maxBatches = opts.maxBatches ?? 400
   let messages = 0
   let chunks = 0
+  // Message ids attempted within THIS run, regardless of whether they
+  // produced a chunk. extractIndexableText can legitimately reduce a
+  // message to '' (e.g. an assistant message whose only text is narration
+  // before the last tool call) — indexMessage then returns 0 and writes no
+  // chunk, so messagesWithoutChunks' `NOT EXISTS (... conversation_chunks
+  // ...)` would keep re-selecting that same message on every subsequent
+  // internal batch, blocking the drain loop from ever reaching the messages
+  // behind it. Excluding already-attempted ids keeps each batch call moving
+  // forward through the backlog instead of getting stuck re-fetching a
+  // message that can never gain a chunk.
+  const attemptedIds: string[] = []
   try {
     for (let i = 0; i < maxBatches; i++) {
-      const batch = await messagesWithoutChunks(userId, batchSize)
+      // Pass a copy — messagesWithoutChunks only reads it, but handing over
+      // the live array would let a caller's later mutation of it appear to
+      // change an already-recorded call's arguments.
+      const batch = await messagesWithoutChunks(userId, batchSize, [
+        ...attemptedIds
+      ])
       if (batch.length === 0) break
       for (const m of batch) {
+        const text = extractIndexableText(m.role, m.parts)
         chunks += await indexMessage(
           userId,
           m.chatId,
           m.messageId,
           m.role,
-          m.text
+          text
         )
         messages++
+        attemptedIds.push(m.messageId)
       }
     }
   } catch (error) {

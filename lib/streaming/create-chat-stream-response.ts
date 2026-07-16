@@ -21,6 +21,7 @@ import { classifyQuery } from '../agents/query-classifier'
 import { expandQuery } from '../agents/query-expander'
 import { generateChatTitle } from '../agents/title-generator'
 import { isMemoryEnabled } from '../db/memory-actions'
+import { extractIndexableText } from '../memory/extract-indexable-text'
 import { indexMessage } from '../memory/recall-index'
 import { getRecallInjection } from '../memory/recall-inject'
 import { saveCandidates } from '../memory/write'
@@ -445,11 +446,23 @@ export async function createChatStreamResponse(
           }
 
           // Conversation recall: index this turn's question + answer (async,
-          // non-blocking — mirrors the memory extraction above).
+          // non-blocking — mirrors the memory extraction above). Uses
+          // extractIndexableText rather than getTextFromParts so the
+          // assistant side indexes only the final answer — not the
+          // inter-step narration the researcher (a multi-step ToolLoopAgent)
+          // emits as text parts between tool calls, and not citation
+          // markers like `[1](#anchor)` — all of which dilute the
+          // embedding (see lib/memory/extract-indexable-text.ts).
           if (userId && process.env.RECALL_ENABLED !== 'off') {
             void (async () => {
               try {
-                const userText = getTextFromParts(message?.parts)
+                const userText = extractIndexableText(
+                  'user',
+                  (message?.parts ?? []).map(p => ({
+                    type: p.type,
+                    text: (p as any).text ?? null
+                  }))
+                )
                 if (userText?.trim() && message?.id) {
                   await indexMessage(
                     userId,
@@ -459,7 +472,13 @@ export async function createChatStreamResponse(
                     userText
                   )
                 }
-                const answerText = getTextFromParts(cleanedMessage?.parts)
+                const answerText = extractIndexableText(
+                  'assistant',
+                  (cleanedMessage?.parts ?? []).map(p => ({
+                    type: p.type,
+                    text: (p as any).text ?? null
+                  }))
+                )
                 if (answerText?.trim() && cleanedMessage?.id) {
                   await indexMessage(
                     userId,
