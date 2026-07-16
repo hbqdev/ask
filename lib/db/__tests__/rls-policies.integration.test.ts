@@ -20,21 +20,24 @@ const fixtures = {
       title: 'User 1 Private Chat',
       userId: 'user-123',
       visibility: 'private' as const,
-      createdAt: new Date()
+      createdAt: new Date(),
+      lastViewedAt: null
     },
     privateChat2: {
       id: 'private-chat-2',
       title: 'User 2 Private Chat',
       userId: 'user-456',
       visibility: 'private' as const,
-      createdAt: new Date()
+      createdAt: new Date(),
+      lastViewedAt: null
     },
     publicChat: {
       id: 'public-chat-1',
       title: 'Public Chat',
       userId: 'user-123',
       visibility: 'public' as const,
-      createdAt: new Date()
+      createdAt: new Date(),
+      lastViewedAt: null
     }
   },
   messages: {
@@ -250,7 +253,7 @@ describe('RLS Policies Integration Tests', () => {
       mockCreateChat.mockImplementation(async params => {
         // Simulate RLS ensuring userId matches
         if (params.userId === userId) {
-          return { ...newChat, createdAt: new Date() }
+          return { ...newChat, createdAt: new Date(), lastViewedAt: null }
         }
         throw new Error('RLS violation')
       })
@@ -271,7 +274,7 @@ describe('RLS Policies Integration Tests', () => {
         if (params.userId !== userId) {
           throw new Error('new row violates row-level security policy')
         }
-        return { ...params, createdAt: new Date() } as Chat
+        return { ...params, createdAt: new Date(), lastViewedAt: null } as Chat
       })
 
       // Attempt to create chat with wrong userId should fail
