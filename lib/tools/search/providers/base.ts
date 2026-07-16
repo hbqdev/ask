@@ -23,6 +23,12 @@ export interface SearchProviderOptions {
   // Auto-detected intent (query classifier). Currently honored by the
   // SearXNG provider (basic path); additive on top of the general baseline.
   intent?: SearchIntent
+  // Per-search Ollama web-search inclusion (set by the search tool). When true,
+  // the provider also queries Ollama's hosted web search and merges its results
+  // (snippet-truncated on the basic path). Additive complement — failure is
+  // swallowed, never fails the search.
+  useOllama?: boolean
+  ollamaMaxResults?: number
 }
 
 export interface SearchProvider {
