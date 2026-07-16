@@ -44,7 +44,8 @@ describe('Chat Actions', () => {
           title: 'Chat 1',
           userId,
           visibility: 'private',
-          createdAt: new Date()
+          createdAt: new Date(),
+          lastViewedAt: null
         }
       ]
 
@@ -77,7 +78,8 @@ describe('Chat Actions', () => {
             title: 'Chat 1',
             userId,
             visibility: 'private' as const,
-            createdAt: new Date()
+            createdAt: new Date(),
+            lastViewedAt: null
           }
         ],
         nextOffset: 20
@@ -142,6 +144,7 @@ describe('Chat Actions', () => {
         userId,
         visibility: 'private' as const,
         createdAt: new Date(),
+        lastViewedAt: null,
         messages: [
           {
             id: 'msg-1',
@@ -171,6 +174,7 @@ describe('Chat Actions', () => {
         userId: 'user-123',
         visibility: 'public' as const,
         createdAt: new Date(),
+        lastViewedAt: null,
         messages: []
       }
 
@@ -196,7 +200,8 @@ describe('Chat Actions', () => {
         title,
         userId,
         visibility: 'private',
-        createdAt: new Date()
+        createdAt: new Date(),
+        lastViewedAt: null
       }
 
       vi.mocked(dbActions.createChat).mockResolvedValue(mockChat)
@@ -222,7 +227,8 @@ describe('Chat Actions', () => {
         title: 'Untitled',
         userId,
         visibility: 'private',
-        createdAt: new Date()
+        createdAt: new Date(),
+        lastViewedAt: null
       }
 
       vi.mocked(dbActions.createChat).mockResolvedValue(mockChat)
@@ -252,7 +258,8 @@ describe('Chat Actions', () => {
         title: 'Hello',
         userId,
         visibility: 'private',
-        createdAt: new Date()
+        createdAt: new Date(),
+        lastViewedAt: null
       }
       const mockMessage: Message = {
         id: 'msg-1',
@@ -305,7 +312,8 @@ describe('Chat Actions', () => {
           title,
           userId,
           visibility: 'private' as const,
-          createdAt: new Date()
+          createdAt: new Date(),
+          lastViewedAt: null
         },
         message: {
           id: 'msg-1',
@@ -448,14 +456,16 @@ describe('Chat Actions', () => {
           title: 'Chat 1',
           userId,
           visibility: 'private',
-          createdAt: new Date()
+          createdAt: new Date(),
+          lastViewedAt: null
         },
         {
           id: 'chat-2',
           title: 'Chat 2',
           userId,
           visibility: 'private',
-          createdAt: new Date()
+          createdAt: new Date(),
+          lastViewedAt: null
         }
       ]
 
@@ -483,7 +493,8 @@ describe('Chat Actions', () => {
         title: 'Test Chat',
         userId,
         visibility: 'private',
-        createdAt: new Date()
+        createdAt: new Date(),
+        lastViewedAt: null
       }
 
       vi.mocked(getCurrentUserId).mockResolvedValue(userId)
@@ -509,7 +520,8 @@ describe('Chat Actions', () => {
         title: 'Test Chat',
         userId: 'other-user',
         visibility: 'private',
-        createdAt: new Date()
+        createdAt: new Date(),
+        lastViewedAt: null
       }
 
       vi.mocked(getCurrentUserId).mockResolvedValue(userId)
@@ -531,7 +543,8 @@ describe('Chat Actions', () => {
         title: 'Test Chat',
         userId,
         visibility: 'public',
-        createdAt: new Date()
+        createdAt: new Date(),
+        lastViewedAt: null
       }
 
       vi.mocked(getCurrentUserId).mockResolvedValue(userId)
@@ -568,7 +581,8 @@ describe('Chat Actions', () => {
         title: 'Test Chat',
         userId,
         visibility: 'private',
-        createdAt: new Date()
+        createdAt: new Date(),
+        lastViewedAt: null
       }
 
       vi.mocked(getCurrentUserId).mockResolvedValue(userId)
@@ -599,7 +613,8 @@ describe('Chat Actions', () => {
         title: 'Test Chat',
         userId,
         visibility: 'private',
-        createdAt: new Date()
+        createdAt: new Date(),
+        lastViewedAt: null
       }
 
       vi.mocked(getCurrentUserId).mockResolvedValue(userId)
@@ -637,7 +652,8 @@ describe('Chat Actions', () => {
         title: 'Test Chat',
         userId: 'other-user',
         visibility: 'private',
-        createdAt: new Date()
+        createdAt: new Date(),
+        lastViewedAt: null
       }
 
       vi.mocked(getCurrentUserId).mockResolvedValue(userId)
@@ -667,7 +683,8 @@ describe('Chat Actions', () => {
         title: generatedTitle,
         userId: 'user-123',
         visibility: 'private',
-        createdAt: new Date()
+        createdAt: new Date(),
+        lastViewedAt: null
       })
 
       await saveChatTitle(null, chatId, message, modelId)
@@ -690,7 +707,8 @@ describe('Chat Actions', () => {
         title: 'Existing Chat',
         userId: 'user-123',
         visibility: 'private',
-        createdAt: new Date()
+        createdAt: new Date(),
+        lastViewedAt: null
       }
       const message: UIMessage = {
         id: 'msg-1',
