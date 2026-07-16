@@ -16,9 +16,12 @@ import {
 import { isTracingEnabled } from '@/lib/utils/telemetry'
 
 import { loadChat } from '../actions/chat'
+import { extractMemories } from '../agents/memory-extractor'
 import { classifyQuery } from '../agents/query-classifier'
 import { expandQuery } from '../agents/query-expander'
 import { generateChatTitle } from '../agents/title-generator'
+import { isMemoryEnabled } from '../db/memory-actions'
+import { saveCandidates } from '../memory/write'
 import {
   getMaxAllowedTokens,
   shouldTruncateMessages,
@@ -160,6 +163,12 @@ export async function createChatStreamResponse(
         })
       : classifyQuery({ messages: messagesToModel, abortSignal })
 
+    // Declared in outer scope (same pattern as titlePromise above) so the
+    // memory-extraction block in onFinish — a sibling property of execute on
+    // the createUIMessageStream object, not nested inside it — can read the
+    // resolved standaloneQuery hint.
+    let classification: Awaited<typeof classificationPromise> | undefined
+
     // Everything from here runs inside the UI message stream so the client
     // gets a live response immediately — most importantly, the classifier
     // wait is surfaced as a visible step (data-classifier part) instead of
@@ -276,7 +285,7 @@ export async function createChatStreamResponse(
           })
         }
 
-        const classification = await classificationPromise
+        classification = await classificationPromise
 
         // Query expansion (lib/agents/query-expander.ts) starts as soon as
         // the resolved standalone query exists and overlaps with agent
@@ -307,7 +316,7 @@ export async function createChatStreamResponse(
 
         // Get the researcher agent with parent trace ID, search mode,
         // sources, and the classifier's decision for this turn.
-        const researchAgent = researcher({
+        const researchAgent = await researcher({
           model: context.modelId,
           modelConfig: model,
           parentTraceId,
@@ -319,7 +328,8 @@ export async function createChatStreamResponse(
           standaloneQuery: classification.standaloneQuery,
           needsRecent: classification.needsRecent,
           intent: classification.intent,
-          expandedQueriesPromise
+          expandedQueriesPromise,
+          userId
         })
 
         llmStart = performance.now()
@@ -380,6 +390,30 @@ export async function createChatStreamResponse(
             context.pendingInitialSave,
             context.pendingInitialUserMessage
           )
+
+          // Long-term memory: extract durable user facts from this turn
+          // (async, non-blocking — mirrors title generation). Fully guarded
+          // + fail-safe.
+          if (userId && process.env.MEMORY_ENABLED !== 'off') {
+            void (async () => {
+              try {
+                if (!(await isMemoryEnabled(userId))) return
+                const userText = getTextFromParts(message?.parts)
+                if (!userText?.trim()) return
+                const candidates = await extractMemories({
+                  userMessage: userText,
+                  standaloneQuery: classification?.standaloneQuery
+                })
+                if (candidates.length > 0) {
+                  await saveCandidates(userId, candidates, {
+                    sourceChatId: chatId
+                  })
+                }
+              } catch (error) {
+                console.error('[memory] extraction failed:', error)
+              }
+            })()
+          }
         } finally {
           if (langfuse) {
             await langfuse.flushAsync()

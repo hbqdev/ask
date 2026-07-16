@@ -163,7 +163,7 @@ export async function createEphemeralChatStreamResponse(
           })
         }
 
-        const researchAgent = researcher({
+        const researchAgent = await researcher({
           model: modelId,
           modelConfig: model,
           parentTraceId,
