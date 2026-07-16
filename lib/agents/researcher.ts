@@ -249,7 +249,11 @@ export async function createResearcher({
   userId,
   // The chat this turn belongs to — excluded from recall results so the tool
   // never returns the conversation the user is already in.
-  currentChatId
+  currentChatId,
+  // Past-conversation excerpts, retrieved in the streaming layer (it owns the
+  // resolved standaloneQuery and the stream writer). Appended to the system
+  // prompt next to the feature-A memory block.
+  recallBlock
 }: {
   model: string
   modelConfig?: Model
@@ -282,6 +286,10 @@ export async function createResearcher({
   // The chat this turn belongs to — excluded from recall results so the tool
   // never returns the conversation the user is already in.
   currentChatId?: string
+  // Past-conversation excerpts, retrieved in the streaming layer (it owns the
+  // resolved standaloneQuery and the stream writer). Appended to the system
+  // prompt next to the feature-A memory block.
+  recallBlock?: string
 }) {
   try {
     const currentDate = new Date().toLocaleString()
@@ -443,6 +451,8 @@ export async function createResearcher({
     // any failure — never blocks or throws).
     const memoryBlock = await getMemoryInjection(userId)
     if (memoryBlock) systemPrompt = systemPrompt + memoryBlock
+
+    if (recallBlock) systemPrompt = systemPrompt + recallBlock
 
     // Build tools object with proper typing
     const tools: ResearcherTools = {

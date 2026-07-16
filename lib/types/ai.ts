@@ -43,6 +43,10 @@ export type UIDataTypes = {
         standaloneQuery?: string
         durationMs?: number
       }
+  // Streamed by create-chat-stream-response.ts when confirmed past-conversation
+  // excerpts were injected into this turn — rendered as attribution chips by
+  // components/recall-section.tsx. Only written when recall actually injected.
+  recall?: { chats: { chatId: string; title: string }[] }
   // Streamed while uploaded files are prepared for the model (PDF RAG /
   // text extraction, image base64 encoding) — see transformFileParts.
   // Rendered by components/attachments-section.tsx.
