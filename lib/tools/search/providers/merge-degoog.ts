@@ -42,7 +42,7 @@ const NICHE_SOURCE_MARKERS = [
   'lemmy'
 ]
 
-function normalizeUrl(rawUrl: string): string {
+export function normalizeUrl(rawUrl: string): string {
   try {
     const url = new URL(rawUrl)
     const host = url.hostname.toLowerCase().replace(/^www\./, '')
