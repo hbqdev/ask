@@ -15,7 +15,7 @@ import {
 } from '@/lib/errors/public-error'
 import { isTracingEnabled } from '@/lib/utils/telemetry'
 
-import { loadChat } from '../actions/chat'
+import { loadChatUncached } from '../actions/chat'
 import { extractMemories } from '../agents/memory-extractor'
 import { classifyQuery } from '../agents/query-classifier'
 import { expandQuery } from '../agents/query-expander'
@@ -75,7 +75,7 @@ export async function createChatStreamResponse(
   if (!isNewChat) {
     const loadChatStart = performance.now()
     // Fetch chat data for authorization check and cache it
-    initialChat = await loadChat(chatId, userId)
+    initialChat = await loadChatUncached(chatId, userId)
     perfTime('loadChat completed', loadChatStart)
 
     // Authorization check: if chat exists, it must belong to the user

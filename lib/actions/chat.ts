@@ -96,6 +96,44 @@ export async function loadChat(
 }
 
 /**
+ * Uncached chat load — always reads the DB.
+ *
+ * The streaming path MUST use this instead of `loadChat`. `loadChat` goes
+ * through `unstable_cache`, which returns STALE data here for two compounding
+ * reasons:
+ *   1. Its `revalidateTag` invalidation is issued from `upsertMessage` inside
+ *      `persistStreamResults`, which runs in the stream's `onFinish` — i.e.
+ *      after the HTTP response is already committed, where revalidation is not
+ *      reliably applied. (The regenerate path in prepare-messages.ts already
+ *      documents this: "may return stale data even after revalidateTag".)
+ *   2. `revalidate: 60` is stale-while-revalidate: the request after expiry is
+ *      still served the stale value and only triggers a background refresh.
+ *
+ * A stale read silently DROPS the most recent assistant answer from the
+ * conversation history. The model then sees two consecutive user messages, has
+ * no way to know the earlier one was already answered, and re-answers it —
+ * producing the long-standing "it answers my previous question again / it says
+ * I'm asking two things" bug. No prompt wording can fix that, because the
+ * transcript the model reads is genuinely missing the answer.
+ *
+ * Correctness of the conversation history outranks one indexed local-Postgres
+ * query per turn (against a 30–90s turn, the cache saved nothing that mattered).
+ * The cache remains in `loadChat` for page rendering, where staleness is benign.
+ */
+export async function loadChatUncached(
+  chatId: string,
+  requestingUserId?: string
+): Promise<(Chat & { messages: UIMessage[] }) | null> {
+  const chat = await dbActions.loadChatWithMessages(chatId, requestingUserId)
+  if (!chat) return null
+
+  return {
+    ...chat,
+    messages: await signFilePartUrlsInMessages(chat.messages)
+  }
+}
+
+/**
  * Create a new chat
  * @param userId - Required. Pass userId to avoid duplicate auth calls
  */
