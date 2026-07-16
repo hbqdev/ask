@@ -181,7 +181,7 @@ export async function POST(request: Request) {
       Array.isArray(includeDomains) ? includeDomains.join(',') : ''
     }:${Array.isArray(excludeDomains) ? excludeDomains.join(',') : ''}:${
       effectiveTimeRange ?? ''
-    }:${typeof intent === 'string' ? intent : ''}:${useOllama ? `oll${ollamaMaxResults ?? 5}` : ''}`
+    }:${typeof intent === 'string' ? intent : ''}:${useOllama ? `oll${typeof ollamaMaxResults === 'number' ? ollamaMaxResults : 5}` : ''}`
 
     // Try to get cached results
     const cachedResults = await getCachedResults(cacheKey)

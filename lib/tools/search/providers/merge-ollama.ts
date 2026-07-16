@@ -14,13 +14,23 @@ export function mergeOllamaIntoSearxngResults(
   ollamaResults: OllamaSearchResult[],
   maxResults: number
 ): SearXNGResult[] {
-  const seen = new Set(searxngResults.map(r => normalizeUrl(r.url)))
-  const merged: SearXNGResult[] = [...searxngResults]
+  const seen = new Set<string>()
+  const merged: SearXNGResult[] = []
+  // Ollama first: it carries full content (the advanced route skips Crawl4AI
+  // for these URLs) and is the hosted resilience source, so it must survive
+  // the candidate-pool cap. Adding it first also means a URL collision keeps
+  // Ollama's full content instead of a SearXNG/degoog snippet.
   for (const r of ollamaResults) {
     const key = normalizeUrl(r.url)
     if (!key || seen.has(key)) continue
     seen.add(key)
     merged.push({ title: r.title, url: r.url, content: r.content })
+  }
+  for (const r of searxngResults) {
+    const key = normalizeUrl(r.url)
+    if (!key || seen.has(key)) continue
+    seen.add(key)
+    merged.push(r)
   }
   return merged.slice(0, maxResults)
 }
