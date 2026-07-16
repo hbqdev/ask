@@ -15,11 +15,11 @@ import * as db from '@/lib/db/recall-actions'
 import { backfillAllUsers, backfillUser } from '../recall-backfill'
 import { indexMessage } from '../recall-index'
 
-const msg = (id: string) => ({
+const msg = (id: string, text = 'hello') => ({
   messageId: id,
   chatId: 'c1',
   role: 'user' as const,
-  text: 'hello'
+  parts: [{ type: 'text', text }]
 })
 
 describe('backfillUser', () => {
@@ -67,6 +67,64 @@ describe('backfillUser', () => {
     expect(db.messagesWithoutChunks).not.toHaveBeenCalled()
     expect(indexMessage).not.toHaveBeenCalled()
   })
+
+  it('extracts text via extractIndexableText before indexing, so only the final answer (not narration) reaches indexMessage', async () => {
+    vi.mocked(db.messagesWithoutChunks)
+      .mockResolvedValueOnce([
+        {
+          messageId: 'm1',
+          chatId: 'c1',
+          role: 'assistant' as const,
+          parts: [
+            { type: 'text', text: 'Let me search for that.' },
+            { type: 'tool-search', text: null },
+            { type: 'text', text: 'The final answer.' }
+          ]
+        }
+      ])
+      .mockResolvedValueOnce([])
+
+    await backfillUser('u1')
+
+    expect(indexMessage).toHaveBeenCalledWith(
+      'u1',
+      'c1',
+      'm1',
+      'assistant',
+      'The final answer.'
+    )
+  })
+
+  // A message can legitimately extract to '' (e.g. an assistant message
+  // whose only text is narration before the last tool call). indexMessage
+  // then writes 0 chunks, so messagesWithoutChunks' `NOT EXISTS` check would
+  // keep re-selecting that same message on every subsequent internal batch
+  // — without the exclude-ids guard, the drain loop would get stuck
+  // re-fetching it (message m1 below) instead of ever reaching m2, chewing
+  // through maxBatches with zero real progress. This pins that the loop
+  // instead advances past a zero-chunk message to the ones behind it.
+  it('excludes already-attempted ids from later batches, so a message that yields 0 chunks cannot block the drain from reaching messages behind it', async () => {
+    vi.mocked(indexMessage).mockImplementation(async (_u, _c, messageId) =>
+      messageId === 'm1' ? 0 : 3
+    )
+    vi.mocked(db.messagesWithoutChunks).mockImplementation(
+      async (_userId: string, _limit?: number, excludeIds: string[] = []) => {
+        if (!excludeIds.includes('m1')) return [msg('m1')]
+        if (!excludeIds.includes('m2')) return [msg('m2')]
+        return []
+      }
+    )
+
+    const res = await backfillUser('u1', { batchSize: 1, maxBatches: 5 })
+
+    expect(res).toEqual({ messages: 2, chunks: 3, ok: true })
+    expect(db.messagesWithoutChunks).toHaveBeenNthCalledWith(1, 'u1', 1, [])
+    expect(db.messagesWithoutChunks).toHaveBeenNthCalledWith(2, 'u1', 1, ['m1'])
+    expect(db.messagesWithoutChunks).toHaveBeenNthCalledWith(3, 'u1', 1, [
+      'm1',
+      'm2'
+    ])
+  })
 })
 
 // backfillAllUsers must tell "this user has recall off" (an expected,
@@ -79,13 +137,6 @@ describe('backfillUser', () => {
 describe('backfillAllUsers', () => {
   beforeEach(() => {
     vi.resetAllMocks()
-  })
-
-  const msg = (id: string) => ({
-    messageId: id,
-    chatId: 'c1',
-    role: 'user' as const,
-    text: 'hello'
   })
 
   it('counts a disabled user as skipped (not failed) and keeps ok true', async () => {

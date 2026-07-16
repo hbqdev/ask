@@ -1,4 +1,6 @@
-import { and, desc, eq, ilike, inArray, ne, sql } from 'drizzle-orm'
+import { and, desc, eq, ilike, ne, sql } from 'drizzle-orm'
+
+import type { IndexablePart } from '../memory/extract-indexable-text'
 
 import { chats, conversationChunks, messages, userSettings } from './schema'
 import { withOptionalRLS } from './with-rls'
@@ -135,20 +137,44 @@ export async function clearChunks(userId: string) {
 
 /**
  * Backfill driver: the user's messages that have no chunks yet, with their
- * text assembled from ordered text parts. Resumable — call until it returns [].
+ * ordered parts (type + text) so the caller can apply the same
+ * final-answer-only extraction rule (extractIndexableText) that the live
+ * path uses — a naive text-parts-only aggregate here would re-pollute every
+ * backfilled assistant message with inter-step narration. Resumable — call
+ * until it returns [].
+ *
+ * `excludeIds` lets a single backfill run skip messages it already
+ * attempted in an earlier batch of the SAME run: extractIndexableText can
+ * legitimately reduce a message to '' (e.g. an assistant message whose only
+ * text is narration before the last tool call), which yields 0 chunks and
+ * would otherwise satisfy `NOT EXISTS (... conversation_chunks ...)`
+ * forever — reselecting the same message on every subsequent call.
  */
 export async function messagesWithoutChunks(
   userId: string,
-  limit = 25
+  limit = 25,
+  excludeIds: string[] = []
 ): Promise<
   {
     messageId: string
     chatId: string
     role: 'user' | 'assistant'
-    text: string
+    parts: IndexablePart[]
   }[]
 > {
   return withOptionalRLS(userId, async tx => {
+    // Parameterized explicitly as `NOT IN ($1, $2, ...)`, never
+    // `sql\`<> ANY(${jsArray})\`` — that form renders a single array
+    // parameter into an invalid row-tuple (see recall-actions-sql.test.ts).
+    // sql.join binds each id as its own placeholder.
+    const excludeClause =
+      excludeIds.length > 0
+        ? sql`AND m.id NOT IN (${sql.join(
+            excludeIds.map(id => sql`${id}`),
+            sql`, `
+          )})`
+        : sql``
+
     // Postgres's trim()/btrim() strips SPACES ONLY — not tabs or newlines
     // (verified live against pg17: trim(E'\t') <> '' and trim(E'\n') <> ''
     // are both true). recall-index.ts's indexMessage() guards with the JS
@@ -156,29 +182,41 @@ export async function messagesWithoutChunks(
     // whitespace. A message whose text collapses to just a tab or newline
     // would pass a trim()-based HAVING here, get selected, then get
     // rejected by the JS guard with 0 chunks — reselected on every future
-    // call, forever. The HAVING predicate below instead tests "contains a
-    // non-whitespace character" via regex, which agrees with the JS guard's
-    // semantics rather than Postgres's space-only trim().
+    // call, forever. The HAVING predicate below instead tests "at least one
+    // text part contains a non-whitespace character" via regex (bool_or
+    // over all joined parts, since the join can no longer be restricted to
+    // type = 'text' — we need every part type to reconstruct the
+    // extraction order), which agrees with the JS guard's semantics rather
+    // than Postgres's space-only trim().
     const res = await tx.execute(sql`
       SELECT m.id AS "messageId",
              m.chat_id AS "chatId",
              m.role AS "role",
-             string_agg(p.text_text, ' ' ORDER BY p."order") AS "text"
+             json_agg(
+               json_build_object('type', p.type, 'text', p.text_text)
+               ORDER BY p."order"
+             ) AS "parts"
       FROM messages m
       JOIN chats c ON c.id = m.chat_id
-      JOIN parts p ON p.message_id = m.id AND p.type = 'text'
+      JOIN parts p ON p.message_id = m.id
       WHERE c.user_id = ${userId}
         AND NOT EXISTS (
           SELECT 1 FROM conversation_chunks cc WHERE cc.message_id = m.id
         )
+        ${excludeClause}
       GROUP BY m.id, m.chat_id, m.role
-      HAVING string_agg(p.text_text, ' ' ORDER BY p."order") ~ '[^[:space:]]'
+      HAVING bool_or(p.type = 'text' AND p.text_text ~ '[^[:space:]]')
       ORDER BY m.created_at ASC
       LIMIT ${limit}
     `)
-    return (
+    const rows =
       (res as unknown as { rows?: any[] }).rows ?? (res as unknown as any[])
-    )
+    return rows.map(r => ({
+      messageId: r.messageId,
+      chatId: r.chatId,
+      role: r.role,
+      parts: (r.parts ?? []) as IndexablePart[]
+    }))
   })
 }
 
