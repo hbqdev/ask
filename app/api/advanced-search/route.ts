@@ -16,6 +16,7 @@ import {
   mergeDegoogIntoSearxngResults,
   resolveDegoogUrl
 } from '@/lib/tools/search/providers/merge-degoog'
+import { mergeOllamaIntoSearxngResults } from '@/lib/tools/search/providers/merge-ollama'
 import {
   DegoogResponse,
   SearchResultItem,
@@ -30,6 +31,10 @@ import {
   extractReadableContent,
   MIN_CONTENT_LENGTH
 } from '@/lib/utils/extract-content'
+import {
+  fetchOllamaSearch,
+  type OllamaSearchResult
+} from '@/lib/utils/ollama-search-client'
 import { fetchSearxngJson } from '@/lib/utils/searxng-client'
 
 /**
@@ -160,7 +165,9 @@ export async function POST(request: Request) {
     includeDomains,
     excludeDomains,
     timeRange,
-    intent
+    intent,
+    useOllama,
+    ollamaMaxResults
   } = await request.json()
 
   const SEARXNG_DEFAULT_DEPTH = process.env.SEARXNG_DEFAULT_DEPTH || 'basic'
@@ -174,7 +181,7 @@ export async function POST(request: Request) {
       Array.isArray(includeDomains) ? includeDomains.join(',') : ''
     }:${Array.isArray(excludeDomains) ? excludeDomains.join(',') : ''}:${
       effectiveTimeRange ?? ''
-    }:${typeof intent === 'string' ? intent : ''}`
+    }:${typeof intent === 'string' ? intent : ''}:${useOllama ? `oll${ollamaMaxResults ?? 5}` : ''}`
 
     // Try to get cached results
     const cachedResults = await getCachedResults(cacheKey)
@@ -190,7 +197,9 @@ export async function POST(request: Request) {
       Array.isArray(includeDomains) ? includeDomains : [],
       Array.isArray(excludeDomains) ? excludeDomains : [],
       effectiveTimeRange,
-      typeof intent === 'string' ? (intent as SearchIntent) : 'general'
+      typeof intent === 'string' ? (intent as SearchIntent) : 'general',
+      Boolean(useOllama),
+      typeof ollamaMaxResults === 'number' ? ollamaMaxResults : 5
     )
 
     // Cache the results
@@ -220,7 +229,9 @@ async function advancedSearchXNGSearch(
   includeDomains: string[] = [],
   excludeDomains: string[] = [],
   timeRange?: string,
-  intent: SearchIntent = 'general'
+  intent: SearchIntent = 'general',
+  useOllama = false,
+  ollamaMaxResults = 5
 ): Promise<SearXNGSearchResults> {
   if (!process.env.SEARXNG_API_URL && !process.env.SEARXNG_FALLBACK_API_URL) {
     throw new Error('SEARXNG_API_URL is not set in the environment variables')
@@ -279,14 +290,18 @@ async function advancedSearchXNGSearch(
       searxngSettled,
       degoogWebSettled,
       degoogNewsSettled,
-      degoogImgSettled
+      degoogImgSettled,
+      ollamaSettled
     ] = await Promise.allSettled([
       fetchSearxngJson(buildUrl),
       fetchDegoogJson(degoogUrl('web')),
       intent === 'news'
         ? fetchDegoogJson(degoogUrl('news'))
         : Promise.resolve(null),
-      fetchDegoogJson(degoogUrl('images'))
+      fetchDegoogJson(degoogUrl('images')),
+      useOllama
+        ? fetchOllamaSearch(query, ollamaMaxResults)
+        : Promise.resolve(null)
     ])
 
     if (searxngSettled.status === 'rejected') throw searxngSettled.reason
@@ -303,6 +318,18 @@ async function advancedSearchXNGSearch(
       ...degoogOf(degoogNewsSettled)
     ]
     const degoogImages = degoogOf(degoogImgSettled)
+
+    const ollamaResults: OllamaSearchResult[] =
+      ollamaSettled.status === 'fulfilled' && ollamaSettled.value
+        ? (ollamaSettled.value as OllamaSearchResult[])
+        : []
+    if (ollamaSettled.status === 'rejected') {
+      console.warn(
+        '[ollama] advanced web search failed, continuing without it:',
+        ollamaSettled.reason
+      )
+    }
+    const prefetchedUrls = new Set(ollamaResults.map(r => r.url))
 
     const data = rawData as SearXNGResponse
 
@@ -340,6 +367,17 @@ async function advancedSearchXNGSearch(
       )
     }
 
+    // Ollama results carry full content already — merge them into the candidate
+    // pool so they're reranked alongside crawled searxng/degoog results. They
+    // are tagged (prefetchedUrls) so the crawl step below skips them.
+    if (ollamaResults.length > 0) {
+      generalResults = mergeOllamaIntoSearxngResults(
+        generalResults,
+        ollamaResults,
+        maxResults * SEARXNG_CRAWL_MULTIPLIER
+      )
+    }
+
     if (searchDepth === 'advanced') {
       const candidates = generalResults.slice(
         0,
@@ -359,7 +397,9 @@ async function advancedSearchXNGSearch(
       // anything Crawl4AI can't render — still gets crawled by the cheap
       // legacy path, so no candidate is silently dropped.
       const MAX_ENRICH_URLS = 16
-      const toEnrich = candidates.slice(0, MAX_ENRICH_URLS)
+      const toEnrich = candidates
+        .filter(r => !prefetchedUrls.has(r.url))
+        .slice(0, MAX_ENRICH_URLS)
       const beyondCap = candidates.length - toEnrich.length
 
       // Chunked + never-throws, so a slow chunk degrades to "those URLs
@@ -376,6 +416,16 @@ async function advancedSearchXNGSearch(
 
       const crawledResults = await Promise.all(
         candidates.map(async result => {
+          if (prefetchedUrls.has(result.url)) {
+            // Ollama already fetched this — keep its content, don't crawl.
+            return {
+              ...result,
+              content: highlightQueryTerms(
+                `${result.title}\n\n${result.content}`.substring(0, 10000),
+                query
+              )
+            }
+          }
           const hit = byUrl.get(result.url)
           if (!hit) return crawlPage(result, query)
           return {
