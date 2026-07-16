@@ -1,6 +1,7 @@
 import { createId } from '@paralleldrive/cuid2'
 import { InferSelectModel, sql } from 'drizzle-orm'
 import {
+  boolean,
   check,
   index,
   integer,
@@ -10,7 +11,8 @@ import {
   pgTable,
   text,
   timestamp,
-  varchar
+  varchar,
+  vector
 } from 'drizzle-orm/pg-core'
 
 // Constants
@@ -398,3 +400,71 @@ export const feedback = pgTable(
 ).enableRLS()
 
 export type Feedback = InferSelectModel<typeof feedback>
+
+// User long-term memory (feature A). Only `confirmed` rows are injected;
+// `candidate` rows accumulate `sightings` until they graduate. RLS-isolated
+// per user exactly like `chats`.
+export const userMemories = pgTable(
+  'user_memories',
+  {
+    id: varchar('id', { length: ID_LENGTH })
+      .primaryKey()
+      .$defaultFn(() => generateId()),
+    userId: varchar('user_id', { length: USER_ID_LENGTH }).notNull(),
+    content: text('content').notNull(),
+    category: varchar('category', {
+      length: VARCHAR_LENGTH,
+      enum: ['preference', 'fact', 'interest']
+    }).notNull(),
+    status: varchar('status', {
+      length: VARCHAR_LENGTH,
+      enum: ['candidate', 'confirmed']
+    })
+      .notNull()
+      .default('candidate'),
+    sightings: integer('sightings').notNull().default(1),
+    embedding: vector('embedding', { dimensions: 1024 }).notNull(),
+    sourceChatId: varchar('source_chat_id', { length: ID_LENGTH }),
+    createdAt: timestamp('created_at').notNull().defaultNow(),
+    updatedAt: timestamp('updated_at').notNull().defaultNow(),
+    lastUsedAt: timestamp('last_used_at')
+  },
+  table => [
+    index('user_memories_user_id_idx').on(table.userId),
+    index('user_memories_user_id_status_idx').on(table.userId, table.status),
+    index('user_memories_embedding_idx').using(
+      'hnsw',
+      table.embedding.op('vector_cosine_ops')
+    ),
+    pgPolicy('users_manage_own_memories', {
+      as: 'permissive',
+      for: 'all',
+      to: 'public',
+      using: sql`user_id = (select current_setting('app.current_user_id', true))`,
+      withCheck: sql`user_id = (select current_setting('app.current_user_id', true))`
+    })
+  ]
+).enableRLS()
+
+export type UserMemory = InferSelectModel<typeof userMemories>
+
+// Per-user settings (currently just the memory on/off toggle).
+export const userSettings = pgTable(
+  'user_settings',
+  {
+    userId: varchar('user_id', { length: USER_ID_LENGTH }).primaryKey(),
+    memoryEnabled: boolean('memory_enabled').notNull().default(true),
+    updatedAt: timestamp('updated_at').notNull().defaultNow()
+  },
+  table => [
+    pgPolicy('users_manage_own_settings', {
+      as: 'permissive',
+      for: 'all',
+      to: 'public',
+      using: sql`user_id = (select current_setting('app.current_user_id', true))`,
+      withCheck: sql`user_id = (select current_setting('app.current_user_id', true))`
+    })
+  ]
+).enableRLS()
+
+export type UserSettings = InferSelectModel<typeof userSettings>
