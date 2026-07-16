@@ -8,6 +8,7 @@ import { getRelatedQuestionsSpecPrompt } from '../render/prompt'
 import { calculateTool } from '../tools/calculate'
 import { fetchTool } from '../tools/fetch'
 import { createQuestionTool } from '../tools/question'
+import { createRecallTool } from '../tools/recall'
 import { createRememberTool } from '../tools/remember'
 import { createSearchTool } from '../tools/search'
 import { createTodoTools } from '../tools/todo'
@@ -245,7 +246,10 @@ export async function createResearcher({
   // The authenticated user, if any — used to inject their confirmed
   // long-term memories into the system prompt and to bind the `remember`
   // tool. Undefined (ephemeral/incognito chats) leaves memory fully off.
-  userId
+  userId,
+  // The chat this turn belongs to — excluded from recall results so the tool
+  // never returns the conversation the user is already in.
+  currentChatId
 }: {
   model: string
   modelConfig?: Model
@@ -275,6 +279,9 @@ export async function createResearcher({
   expandedQueriesPromise?: Promise<string[]>
   intent?: import('../tools/search/intent').SearchIntent
   userId?: string
+  // The chat this turn belongs to — excluded from recall results so the tool
+  // never returns the conversation the user is already in.
+  currentChatId?: string
 }) {
   try {
     const currentDate = new Date().toLocaleString()
@@ -330,7 +337,8 @@ export async function createResearcher({
         'fetch',
         'calculate',
         'get_weather',
-        'remember'
+        'remember',
+        'recall'
       ]
       maxSteps = 10
       searchTool = wrapSearchToolForSources(
@@ -350,7 +358,8 @@ export async function createResearcher({
             'fetch',
             'calculate',
             'get_weather',
-            'remember'
+            'remember',
+            'recall'
           ]
           maxSteps = 20
           searchTool = wrapSearchToolForSources(
@@ -370,7 +379,8 @@ export async function createResearcher({
             'todoWrite',
             'calculate',
             'get_weather',
-            'remember'
+            'remember',
+            'recall'
           ]
           console.log(
             `[Researcher] Quality mode: maxSteps=100, tools=[${activeToolsList.join(', ')}], sources=${JSON.stringify(sources)}`
@@ -391,7 +401,8 @@ export async function createResearcher({
             'todoWrite',
             'calculate',
             'get_weather',
-            'remember'
+            'remember',
+            'recall'
           ]
           console.log(
             `[Researcher] Balanced mode: maxSteps=50, tools=[${activeToolsList.join(', ')}], sources=${JSON.stringify(sources)}`
@@ -441,6 +452,7 @@ export async function createResearcher({
       calculate: calculateTool,
       get_weather: weatherTool,
       remember: createRememberTool(userId),
+      recall: createRecallTool(userId, currentChatId),
       ...todoTools
     } as ResearcherTools
 
