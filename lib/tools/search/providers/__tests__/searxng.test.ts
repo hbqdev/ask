@@ -731,4 +731,59 @@ describe('SearXNGSearchProvider', () => {
       expect(fetchMock).toHaveBeenCalledTimes(1)
     })
   })
+
+  it('merges ollama results (truncated) into results when useOllama is set', async () => {
+    process.env.OLLAMA_SEARCH_API_KEY = 'k'
+    const fetchMock = vi.fn().mockImplementation((url: string) => {
+      if (String(url).includes('ollama.com/api/web_search')) {
+        return Promise.resolve({
+          ok: true,
+          status: 200,
+          json: async () => ({
+            results: [
+              {
+                title: 'Ollama Src',
+                url: 'https://ollama-src.com',
+                content: 'x'.repeat(1000)
+              }
+            ]
+          })
+        })
+      }
+      return Promise.resolve(
+        mockSearxngResponse([
+          { title: 'SX', url: 'https://sx.com', content: 'sx snippet' }
+        ])
+      )
+    })
+    vi.stubGlobal('fetch', fetchMock)
+
+    const result = await provider.search('rust', 10, 'basic', [], [], {
+      useOllama: true,
+      ollamaMaxResults: 3
+    })
+
+    const urls = result.results.map(r => r.url)
+    expect(urls).toContain('https://ollama-src.com')
+    expect(urls).toContain('https://sx.com')
+    // truncated on the basic path
+    const oll = result.results.find(r => r.url === 'https://ollama-src.com')!
+    expect(oll.content.length).toBeLessThan(1000)
+
+    delete process.env.OLLAMA_SEARCH_API_KEY
+  })
+
+  it('does not call ollama when useOllama is unset', async () => {
+    process.env.OLLAMA_SEARCH_API_KEY = 'k'
+    const fetchMock = vi.fn().mockResolvedValue(mockSearxngResponse([]))
+    vi.stubGlobal('fetch', fetchMock)
+
+    await provider.search('rust', 10, 'basic', [], [], {})
+
+    const calledOllama = fetchMock.mock.calls.some(c =>
+      String(c[0]).includes('ollama.com/api/web_search')
+    )
+    expect(calledOllama).toBe(false)
+    delete process.env.OLLAMA_SEARCH_API_KEY
+  })
 })

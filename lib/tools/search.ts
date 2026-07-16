@@ -7,6 +7,7 @@ import {
 } from '@/lib/embeddings/transformers-embedding'
 import { getSearchSchemaForModel } from '@/lib/schema/search'
 import { SearchResults } from '@/lib/types'
+import { isOllamaSearchConfigured } from '@/lib/utils/ollama-search-client'
 import {
   getGeneralSearchProviderType,
   getSearchToolDescription
@@ -306,6 +307,16 @@ export function createSearchTool(
       // searches return before reaching this point and don't consume it.)
       firstSearchDone = true
 
+      // Ollama web search runs on EVERY executing search of the turn when
+      // enabled (no per-turn cap). A dedup-skipped search returns earlier and
+      // never reaches here, so Ollama is only called for real searches.
+      const useOllama =
+        isOllamaSearchConfigured() &&
+        process.env.OLLAMA_SEARCH_ENABLED !== 'off'
+      const ollamaMaxEnv = Number(process.env.OLLAMA_SEARCH_MAX_RESULTS)
+      const ollamaMaxResults =
+        Number.isFinite(ollamaMaxEnv) && ollamaMaxEnv > 0 ? ollamaMaxEnv : 5
+
       console.log(
         `Using search API: ${searchAPI}, Type: ${type}, Search Depth: ${effectiveSearchDepthForAPI}`
       )
@@ -328,7 +339,9 @@ export function createSearchTool(
               includeDomains: include_domains,
               excludeDomains: exclude_domains,
               timeRange: toolOptions?.timeRange,
-              intent: toolOptions?.intent
+              intent: toolOptions?.intent,
+              useOllama,
+              ollamaMaxResults
             })
           })
           if (!response.ok) {
@@ -364,7 +377,9 @@ export function createSearchTool(
                 searchMode: search_mode as SearchModeOption,
                 content_types: content_types as SearchContentType[],
                 time_range: toolOptions?.timeRange,
-                intent: toolOptions?.intent
+                intent: toolOptions?.intent,
+                useOllama,
+                ollamaMaxResults
               }
             )
           } else {

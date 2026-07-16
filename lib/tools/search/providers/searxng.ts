@@ -8,6 +8,10 @@ import {
   SerperSearchResultItem
 } from '@/lib/types'
 import { fetchDegoogJson } from '@/lib/utils/degoog-client'
+import {
+  fetchOllamaSearch,
+  type OllamaSearchResult
+} from '@/lib/utils/ollama-search-client'
 import { fetchSearxngJson } from '@/lib/utils/searxng-client'
 
 import { intentToCategory, type SearchIntent } from '../intent'
@@ -21,11 +25,16 @@ import {
   toSearchResultItem,
   toSerperVideoItem
 } from './merge-degoog'
+import { mergeOllamaIntoResults } from './merge-ollama'
 
 // degoog returns at most 20 results per call; request enough headroom over
 // what we'll actually keep so the post-merge dedup/slice has real results
 // to choose from instead of just SearXNG's list padded with nothing.
 const DEGOOG_MAX_RESULTS = 20
+
+// Truncate Ollama's full page content to snippet size on the basic path so
+// results stay uniform with searxng/degoog snippets.
+const OLLAMA_BASIC_SNIPPET_CHARS = 400
 
 // Maps a content_type to the SearXNG category it requests. 'web' has no
 // dedicated category of its own — it's covered by the always-included
@@ -66,6 +75,10 @@ export class SearXNGSearchProvider extends BaseSearchProvider {
       // category on top of general,images in the general branch below.
       // Ignored in the exclusive academic/social branches by design.
       intent?: SearchIntent
+      // Per-search Ollama web-search inclusion (set by the search tool).
+      // Additive complement — failure is swallowed, never fails the search.
+      useOllama?: boolean
+      ollamaMaxResults?: number
     }
   ): Promise<SearchResults> {
     this.validateApiUrl(
@@ -189,7 +202,8 @@ export class SearXNGSearchProvider extends BaseSearchProvider {
         degoogWebSettled,
         degoogImageSettled,
         degoogVideoSettled,
-        degoogNewsSettled
+        degoogNewsSettled,
+        ollamaSettled
       ] = await Promise.allSettled([
         fetchSearxngJson(buildUrl),
         fetchDegoogJson(buildDegoogUrl),
@@ -197,7 +211,10 @@ export class SearXNGSearchProvider extends BaseSearchProvider {
         wantsVideo
           ? fetchDegoogJson(buildDegoogVideoUrl)
           : Promise.resolve(null),
-        wantsNews ? fetchDegoogJson(buildDegoogNewsUrl) : Promise.resolve(null)
+        wantsNews ? fetchDegoogJson(buildDegoogNewsUrl) : Promise.resolve(null),
+        options?.useOllama
+          ? fetchOllamaSearch(query, options.ollamaMaxResults ?? 5)
+          : Promise.resolve(null)
       ])
 
       const extractDegoogResults = (
@@ -227,6 +244,17 @@ export class SearXNGSearchProvider extends BaseSearchProvider {
         ? extractDegoogResults(degoogNewsSettled, 'news')
         : []
 
+      const ollamaResults: OllamaSearchResult[] =
+        ollamaSettled.status === 'fulfilled' && ollamaSettled.value
+          ? ollamaSettled.value
+          : []
+      if (ollamaSettled.status === 'rejected') {
+        console.warn(
+          '[ollama] basic web search failed, continuing without it:',
+          ollamaSettled.reason
+        )
+      }
+
       if (searxngSettled.status === 'rejected') {
         if (
           degoogResults.length === 0 &&
@@ -241,10 +269,19 @@ export class SearXNGSearchProvider extends BaseSearchProvider {
         // SearXNG is down but degoog isn't — return degoog-only results
         // rather than fail the whole search.
         const degoogBaseUrl = process.env.DEGOOG_API_URL ?? ''
+        const degoogOnlyResults = [...degoogResults, ...degoogNewsResults]
+          .slice(0, maxResults)
+          .map(toSearchResultItem)
         return {
-          results: [...degoogResults, ...degoogNewsResults]
-            .slice(0, maxResults)
-            .map(toSearchResultItem),
+          results:
+            ollamaResults.length > 0
+              ? mergeOllamaIntoResults(
+                  degoogOnlyResults,
+                  ollamaResults,
+                  maxResults,
+                  OLLAMA_BASIC_SNIPPET_CHARS
+                )
+              : degoogOnlyResults,
           query,
           images: degoogImageResults
             .slice(0, maxResults)
@@ -323,10 +360,24 @@ export class SearXNGSearchProvider extends BaseSearchProvider {
 
       // Format the results to match the expected SearchResults structure
       return {
-        results:
-          degoogTextResults.length > 0
-            ? mergeWithDegoogResults(baseResults, degoogTextResults, maxResults)
-            : baseResults,
+        results: (() => {
+          const base =
+            degoogTextResults.length > 0
+              ? mergeWithDegoogResults(
+                  baseResults,
+                  degoogTextResults,
+                  maxResults
+                )
+              : baseResults
+          return ollamaResults.length > 0
+            ? mergeOllamaIntoResults(
+                base,
+                ollamaResults,
+                maxResults,
+                OLLAMA_BASIC_SNIPPET_CHARS
+              )
+            : base
+        })(),
         query: data.query,
         images:
           degoogImageResults.length > 0
