@@ -1,7 +1,9 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 vi.mock('@/lib/embeddings/transformers-embedding', () => ({
-  embedTexts: vi.fn(async (t: string[]) => t.map(() => [0.1, 0.2])),
+  embedTexts: vi.fn(async (t: string[]) =>
+    t.map(() => new Array(1024).fill(0.1))
+  ),
   getConfiguredModel: vi.fn(() => 'm')
 }))
 vi.mock('@/lib/db/memory-actions', () => ({
@@ -13,6 +15,7 @@ vi.mock('@/lib/db/memory-actions', () => ({
 }))
 
 import * as db from '@/lib/db/memory-actions'
+import { embedTexts } from '@/lib/embeddings/transformers-embedding'
 
 import { saveCandidates } from '../write'
 
@@ -49,5 +52,12 @@ describe('saveCandidates', () => {
     await expect(
       saveCandidates('u1', [{ content: 'x', category: 'fact' }])
     ).resolves.toBe(0)
+  })
+
+  it('skips writes and returns 0 when embedding dimension does not match vector(1024)', async () => {
+    vi.mocked(embedTexts).mockResolvedValueOnce([[0.1, 0.2]])
+    const n = await saveCandidates('u1', [{ content: 'x', category: 'fact' }])
+    expect(n).toBe(0)
+    expect(db.insertMemory).not.toHaveBeenCalled()
   })
 })
