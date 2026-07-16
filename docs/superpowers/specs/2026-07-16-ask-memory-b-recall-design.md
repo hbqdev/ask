@@ -204,20 +204,54 @@ Added to `ResearcherTools` and to **every** mode's `activeToolsList`
 any retrieval** — applying feature A's I-1 lesson directly, so a disabled toggle
 means genuinely inert rather than "inert except the tool".
 
-### 7. Library search — hybrid, with a keyword floor
+### 7. Library search — a true union of semantic + keyword
 
-`searchUserChats` delegates to `recallSearch(topK = 20, useRerank: true)` and
-maps the hits onto the existing `ChatSearchResult` shape
-(`{ chatId, chatTitle, snippet, role, lastViewedAt }`), so the Library UI needs
-minimal change.
+> **Amended 2026-07-16 after the whole-branch review.** This section originally
+> specified "delegate to `recallSearch(topK = 20, useRerank: true)`, and fall
+> back to `ILIKE` when recall is disabled or the index is empty." **That was
+> wrong and shipped a real defect** — recorded here rather than quietly
+> rewritten, because the failure is instructive.
+>
+> The vector arm is `ORDER BY embedding <=> q LIMIT 30` with **no distance
+> threshold**, and `recallSearch` only applies `minScore` when it is passed —
+> which this path deliberately did not pass (rerank was on, and `minScore` is a
+> cosine-scale gate). So once the index held ≥1 chunk, **every query returned
+> hits**, which made the `ILIKE` "floor" unreachable in practice. Searching
+> gibberish returned 20 unrelated chats instead of "No results", and because
+> only message *text* is chunked (never `chats.title`), a chat matching only by
+> its **title** — or any not-yet-indexed chat — became invisible. That is a
+> regression: the original keyword search matched `chats.title` OR
+> `parts.text_text`. The unit test masked it by mocking `recallSearch → []`, a
+> state a populated index cannot produce.
 
-**Falls back to today's `ILIKE` path when recall is disabled or the index is
-empty** — the user's own search box must never break because of a memory
-setting.
+`searchUserChats` runs **both arms on every query, concurrently**, and merges:
+
+1. **Keyword arm** — the existing `ILIKE` implementation (`chats.title` OR
+   `parts.text_text`), unchanged, still ordered most-recently-viewed first.
+2. **Semantic arm** — `recallSearch(topK = 20, useRerank: true)`, mapped onto
+   the existing `ChatSearchResult` shape
+   (`{ chatId, chatTitle, snippet, role, lastViewedAt }`), so the Library UI
+   needs no change.
+3. **Merge** — keyword results first in their existing order, then semantic hits
+   not already present, deduped by `chatId` (a chat found by both keeps the
+   keyword row), then `slice(0, limit)`.
+
+Two properties this buys, both load-bearing:
+
+- **Today's results are a strict subset, in today's order.** Semantic hits are
+  purely additive, so nothing a user can find today stops being findable —
+  including title-only matches.
+- **"No results" is honest again.** The function returns `[]` only when *both*
+  arms are empty.
+
+The semantic arm is fail-safe: the dynamic import and the `recallSearch` call
+are wrapped so any failure (or a disabled/empty index) degrades it to `[]`,
+leaving the box behaving exactly as it does today. The user's own search box must
+never break because of a memory setting.
 
 Deliberate scope call: the recall toggle governs **indexing, auto-injection, and
 the tool**. It does *not* remove the user's ability to search their own chats;
-with recall off the box degrades to keyword as the index goes stale.
+with recall off the box is simply the keyword arm.
 
 ## 8. User control (UI)
 
