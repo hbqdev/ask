@@ -650,7 +650,7 @@ export type ChatSearchResult = {
  * Full-text search across chat titles and message text.
  * Returns up to 20 matching chats, most-recently-viewed first.
  */
-export async function searchUserChats(
+export async function searchUserChatsKeyword(
   userId: string,
   query: string,
   limit = 20
@@ -692,6 +692,60 @@ export async function searchUserChats(
       lastViewedAt: row.lastViewedAt
     }))
   })
+}
+
+/**
+ * Hybrid search core: semantic recall first, keyword as the floor. Extracted
+ * with an injectable fallback so it is unit-testable without a DB.
+ */
+export async function searchUserChatsHybrid(
+  userId: string,
+  query: string,
+  limit: number,
+  fallback: (
+    userId: string,
+    query: string,
+    limit: number
+  ) => Promise<ChatSearchResult[]>
+): Promise<ChatSearchResult[]> {
+  try {
+    const { recallSearch } = await import('@/lib/memory/recall-search')
+    const hits = await recallSearch(userId, query, {
+      topK: limit,
+      useRerank: true
+    })
+    if (hits.length > 0) {
+      // One row per chat, best-scoring chunk wins (hits are already sorted).
+      const byChat = new Map<string, ChatSearchResult>()
+      for (const h of hits) {
+        if (byChat.has(h.chatId)) continue
+        byChat.set(h.chatId, {
+          chatId: h.chatId,
+          chatTitle: h.chatTitle,
+          snippet: h.content.slice(0, 150),
+          role: h.role,
+          lastViewedAt: null
+        })
+      }
+      return [...byChat.values()]
+    }
+  } catch {
+    // Index unavailable/disabled — fall through to keyword.
+  }
+  return fallback(userId, query, limit)
+}
+
+/**
+ * Full-text search across chat titles and message text.
+ * Semantic when the recall index has content; keyword otherwise — the user's
+ * own search box must never break because of a memory setting.
+ */
+export async function searchUserChats(
+  userId: string,
+  query: string,
+  limit = 20
+): Promise<ChatSearchResult[]> {
+  return searchUserChatsHybrid(userId, query, limit, searchUserChatsKeyword)
 }
 
 function extractSnippet(text: string, query: string): string {
