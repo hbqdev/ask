@@ -191,6 +191,7 @@ export function RenderMessage({
     } else if (
       part.type === 'reasoning' ||
       part.type === 'data-classifier' ||
+      part.type === 'data-recall' ||
       part.type === 'data-attachments' ||
       part.type?.startsWith?.('tool-')
     ) {
