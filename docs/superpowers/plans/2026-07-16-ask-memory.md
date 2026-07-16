@@ -1218,6 +1218,58 @@ Deployment (not code steps): the Postgres image swap to `pgvector/pgvector:pg17`
 
 ---
 
+## Task 9: End-to-end verification on staging
+
+**Goal:** Prove the whole memory lifecycle works against a live pgvector Postgres and a real research turn — graduation, the `remember` tool, injection, the toggle, and fail-safe — before it can be considered done. This task is executed by the controller (bash + Playwright + DB inspection), not a subagent implementer.
+
+**Preconditions:** Tasks 1–8 complete and committed on `admin-feature`; full suite green.
+
+- [ ] **Step 1: Migrate + rebuild staging on pgvector**
+
+Recreate the staging Postgres on the pgvector image and rebuild the app:
+```bash
+cd /home/nightfury/selfhosted/ask
+docker compose -f docker-compose.yaml -f docker-compose.admin-feature.yaml up -d postgres  # picks up pgvector/pgvector:pg17
+docker compose -f docker-compose.yaml -f docker-compose.admin-feature.yaml run --rm ask bun migrate  # or exec after build
+docker compose -f docker-compose.yaml -f docker-compose.admin-feature.yaml up -d --build ask
+```
+Verify: `docker exec ask-postgres-admin-feature psql -U morphic -d morphic -c "\dx"` shows `vector`; `\d user_memories` shows the `vector(1024)` column. Confirm `ask-admin-feature` is healthy on `:3739`.
+
+- [ ] **Step 2: Enable anon mode (drive turns) + confirm memory is on**
+
+Bring staging up with `ENABLE_AUTH=false` (the anon-override compose used previously) so turns can be driven headlessly under the single anon user id. Confirm `MEMORY_ENABLED` is on and the anon user has no `user_settings` row (defaults enabled).
+
+- [ ] **Step 3: Graduation scenario (the core mechanism)**
+
+Drive two turns (via `/?q=…` or Playwright) where the user states the SAME durable preference, e.g. turn 1 "I only ever want concise answers, no preamble" then a later turn "keep it concise please, I hate long answers". After each turn's async extraction settles (~a few seconds), inspect the DB:
+```bash
+docker exec ask-postgres-admin-feature psql -U morphic -d morphic -c \
+  "SELECT content, status, sightings FROM user_memories ORDER BY updated_at DESC LIMIT 10;"
+```
+Expected: a "concise answers" memory appears as `candidate` (sightings 1) after turn 1, then bumps to `confirmed` (sightings ≥2) after the repeat. Then drive a THIRD unrelated turn and confirm the researcher's answer reflects the remembered preference (concise), and that the injected block was built (check `last_used_at` got set on that row).
+
+- [ ] **Step 4: `remember` tool (immediate save)**
+
+Drive a turn: "remember that I self-host all my infrastructure". Confirm a `confirmed` memory row appears immediately (no repetition needed) with that content, and it's deduped (not duplicated) if stated again.
+
+- [ ] **Step 5: Toggle off ⇒ inert**
+
+Set the anon user's `memoryEnabled=false` (via the settings action or a direct DB row), drive a turn stating a new durable fact, and confirm **no** new memory row is written and **no** memory block is injected (grep the researcher system prompt / confirm no `What you know about this user` in logs).
+
+- [ ] **Step 6: Fail-safe (serenity down)**
+
+Temporarily make the extraction host unreachable (e.g. point `CLASSIFIER_OLLAMA_BASE_URL` at a dead port for the staging container, or stop serenity's ollama). Drive a turn: it must **complete normally with a good answer**, write **no** memory, and log no user-facing error. Restore the host after.
+
+- [ ] **Step 7: UI check + teardown**
+
+Open the Memory settings page (`/settings/memory`) as the anon user: confirm the confirmed memories list, delete one (gone from the DB), and the toggle round-trips. Restore staging auth (`ENABLE_AUTH=true`), flush any anon test data if desired.
+
+- [ ] **Step 8: Record results**
+
+Record pass/fail per scenario in the progress ledger. Any failure is a real defect → fix (dispatch a fix subagent for code bugs) and re-run the affected scenario before sign-off.
+
+---
+
 ## Final verification (whole branch)
 
 - [ ] **Full suite:** `bun run test` — all pass.
