@@ -19,9 +19,18 @@ import type { RecallHit, RecallOptions } from './recall-types'
  * tool, and the Library search box. Never throws — every caller degrades to
  * "no recall" rather than failing the turn.
  *
- * score semantics: cosine when useRerank is false, cross-encoder score when
- * rerank ran (step 5 overwrites). minScore is only ever paired with
- * useRerank: false, so it is unambiguously a cosine gate.
+ * score semantics: cosine when useRerank is false, cross-encoder score once
+ * rerank actually runs (below, overwriting the cosine scores). minScore is
+ * always a gate on whatever scale `score` currently is: a cosine threshold
+ * when useRerank is false, the reranker's threshold when useRerank is true
+ * and rerank ran. A caller that asks for useRerank: true but doesn't get a
+ * rerank (cross-encoder unconfigured, or crossEncoderScore throws) is left
+ * holding a rerank-scale minScore with only cosine scores in hand — cosine
+ * and rerank live on unrelated scales (measured: relevant cosine ~0.626 vs
+ * irrelevant ~0.570, a band too narrow to gate on; relevant rerank ~0.169 vs
+ * irrelevant ~0.0000164), so comparing a rerank-scale threshold against
+ * cosine scores would silently pass almost everything. We fail closed
+ * instead: return [] rather than everything.
  */
 export async function recallSearch(
   userId: string,
@@ -50,6 +59,11 @@ export async function recallSearch(
     }
     let hits = [...byId.values()].sort((a, b) => b.score - a.score)
 
+    // Track whether rerank actually overwrote scores onto the reranker's
+    // scale — "requested" (opts.useRerank) is not the same as "ran": the
+    // cross-encoder may be unconfigured, there may be <2 hits to rank, or
+    // crossEncoderScore may throw.
+    let reranked = false
     if (opts.useRerank && isCrossEncoderConfigured() && hits.length > 1) {
       try {
         const scores = await crossEncoderScore(
@@ -61,12 +75,20 @@ export async function recallSearch(
         hits = hits
           .map((h, i) => ({ ...h, score: scores[i] ?? 0 }))
           .sort((a, b) => b.score - a.score)
+        reranked = true
       } catch {
         // Reranker down — keep the cosine ordering already computed.
       }
     }
 
     if (opts.minScore !== undefined) {
+      // Fail closed: a rerank-scale minScore requested via useRerank: true
+      // cannot be honoured if rerank didn't actually run — the scores left
+      // in `hits` are still cosine, an unrelated scale (see doc comment
+      // above), and comparing the rerank-scale threshold against them would
+      // silently let almost everything through. Return nothing rather than
+      // everything.
+      if (opts.useRerank && !reranked) return []
       hits = hits.filter(h => h.score >= opts.minScore!)
     }
 
