@@ -1,4 +1,4 @@
-import { and, desc, eq, sql } from 'drizzle-orm'
+import { and, desc, eq, inArray, sql } from 'drizzle-orm'
 
 import {
   embedTexts,
@@ -114,12 +114,7 @@ export async function setLastUsed(userId: string, ids: string[]) {
     await tx
       .update(userMemories)
       .set({ lastUsedAt: new Date() })
-      .where(
-        and(
-          eq(userMemories.userId, userId),
-          sql`${userMemories.id} = ANY(${ids})`
-        )
-      )
+      .where(and(eq(userMemories.userId, userId), inArray(userMemories.id, ids)))
   })
 }
 
