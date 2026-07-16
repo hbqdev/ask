@@ -712,6 +712,18 @@ export async function searchUserChatsKeyword(
 }
 
 /**
+ * Rerank-scale gate for the semantic arm below (RECALL_SEARCH_MIN_SCORE).
+ * More permissive than recall-inject's threshold (0.01 vs 0.05): a user who
+ * typed a query wants candidates back, whereas auto-injecting noise
+ * pollutes the prompt — but both sit far above the measured gibberish floor
+ * (~0.0000164), so this is enough to reject unrelated chunks.
+ */
+function searchMinScore(): number {
+  const n = Number(process.env.RECALL_SEARCH_MIN_SCORE)
+  return Number.isFinite(n) ? n : 0.01
+}
+
+/**
  * Hybrid search core: unions the keyword arm (the floor, and the only arm
  * that searches chat titles) with the semantic recall arm (additive —
  * finds chats whose match lives only in un-indexed-by-title message
@@ -724,7 +736,11 @@ export async function searchUserChatsKeyword(
  * sliced to `limit`. The vector arm has no distance threshold (see
  * lib/db/recall-actions.ts), so once the index is non-empty it returns
  * hits for virtually any query — it can no longer be trusted alone to
- * decide "no results". "No results" is only honest when both arms agree.
+ * decide "no results". "No results" is only honest when both arms agree,
+ * which is why the semantic arm is gated by searchMinScore(): gibberish
+ * queries no longer manufacture 5 unrelated hits. Welcome side effect: if
+ * the reranker is down, the semantic arm fails closed to no hits and the
+ * union floors out at keyword-only — exactly the intended degradation.
  */
 export async function searchUserChatsHybrid(
   userId: string,
@@ -739,9 +755,15 @@ export async function searchUserChatsHybrid(
   const semanticSearch = async (): Promise<ChatSearchResult[]> => {
     try {
       const { recallSearch } = await import('@/lib/memory/recall-search')
+      // recallSearch never throws — it returns []. That also covers the
+      // fail-closed path: if the reranker is down, a rerank-scale minScore
+      // can't be honoured against leftover cosine scores, so recallSearch
+      // itself returns [] rather than everything. Either way `hits` is
+      // simply empty, and this arm degrades to no semantic results below.
       const hits = await recallSearch(userId, query, {
         topK: limit,
-        useRerank: true
+        useRerank: true,
+        minScore: searchMinScore()
       })
       // One row per chat, best-scoring chunk wins (hits are already sorted).
       const byChat = new Map<string, ChatSearchResult>()

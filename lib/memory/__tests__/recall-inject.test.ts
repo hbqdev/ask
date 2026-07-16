@@ -41,7 +41,7 @@ describe('getRecallInjection', () => {
     expect(recallSearch).not.toHaveBeenCalled()
   })
 
-  it('excludes the current chat and does not rerank (cosine minScore gate)', async () => {
+  it('excludes the current chat and reranks (rerank-scale minScore gate)', async () => {
     vi.mocked(recallSearch).mockResolvedValue([hit()])
     const res = await getRecallInjection('u1', 'q', 'c9')
     expect(res.hits).toHaveLength(1)
@@ -49,9 +49,9 @@ describe('getRecallInjection', () => {
       'u1',
       'q',
       expect.objectContaining({
-        useRerank: false,
+        useRerank: true,
         excludeChatId: 'c9',
-        minScore: 0.75
+        minScore: 0.05
       })
     )
   })

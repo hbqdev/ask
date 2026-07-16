@@ -38,6 +38,22 @@ describe('searchUserChatsHybrid', () => {
     expect(res[1].chatId).toBe('c1') // semantic appended
   })
 
+  it('calls recallSearch with useRerank: true and a rerank-scale minScore (RECALL_SEARCH_MIN_SCORE default)', async () => {
+    vi.mocked(recallSearch).mockResolvedValue([])
+    const keywordSearch = vi.fn(async () => [])
+
+    await searchUserChatsHybrid('u1', 'backups', 20, keywordSearch)
+
+    expect(recallSearch).toHaveBeenCalledWith(
+      'u1',
+      'backups',
+      expect.objectContaining({
+        useRerank: true,
+        minScore: 0.01
+      })
+    )
+  })
+
   it('dedups by chatId across the union, keeping the keyword row', async () => {
     vi.mocked(recallSearch).mockResolvedValue([hit]) // chatId c1
     const keywordSearch = vi.fn(async () => [keywordRow('c1', 'Keyword Title')])

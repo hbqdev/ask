@@ -81,7 +81,7 @@ describe('recallSearch', () => {
     expect(hits[0].score).toBe(0.99)
   })
 
-  it('falls back to cosine order when the reranker throws', async () => {
+  it('falls back to cosine order when the reranker throws (no minScore)', async () => {
     vi.mocked(db.vectorSearchChunks).mockResolvedValue([
       row({ chunkId: 'a', score: 0.9 }),
       row({ chunkId: 'b', score: 0.8 })
@@ -90,6 +90,55 @@ describe('recallSearch', () => {
     vi.mocked(crossEncoderScore).mockRejectedValue(new Error('reranker down'))
     const hits = await recallSearch('u1', 'q', { topK: 5, useRerank: true })
     expect(hits.map(h => h.chunkId)).toEqual(['a', 'b'])
+  })
+
+  it('filters on the RERANK scale once rerank actually runs', async () => {
+    // Cosine-sorted order going into rerank is [a (0.9), b (0.8)].
+    vi.mocked(db.vectorSearchChunks).mockResolvedValue([
+      row({ chunkId: 'a', score: 0.9 }),
+      row({ chunkId: 'b', score: 0.8 })
+    ])
+    vi.mocked(isCrossEncoderConfigured).mockReturnValue(true)
+    // Rerank inverts the cosine order: 'a' (cosine-favored) scores low on
+    // rerank (0.001, below minScore), 'b' scores high (0.2, above) —
+    // proves the filter reads the post-rerank score, not the pre-rerank
+    // cosine score.
+    vi.mocked(crossEncoderScore).mockResolvedValue([0.001, 0.2])
+    const hits = await recallSearch('u1', 'q', {
+      topK: 5,
+      useRerank: true,
+      minScore: 0.05
+    })
+    expect(hits.map(h => h.chunkId)).toEqual(['b'])
+  })
+
+  it('fails closed to [] when useRerank+minScore is requested but the cross-encoder is unconfigured', async () => {
+    vi.mocked(db.vectorSearchChunks).mockResolvedValue([
+      row({ chunkId: 'a', score: 0.9 }),
+      row({ chunkId: 'b', score: 0.8 })
+    ])
+    vi.mocked(isCrossEncoderConfigured).mockReturnValue(false)
+    const hits = await recallSearch('u1', 'q', {
+      topK: 5,
+      useRerank: true,
+      minScore: 0.05
+    })
+    expect(hits).toEqual([])
+  })
+
+  it('fails closed to [] when useRerank+minScore is requested but crossEncoderScore throws', async () => {
+    vi.mocked(db.vectorSearchChunks).mockResolvedValue([
+      row({ chunkId: 'a', score: 0.9 }),
+      row({ chunkId: 'b', score: 0.8 })
+    ])
+    vi.mocked(isCrossEncoderConfigured).mockReturnValue(true)
+    vi.mocked(crossEncoderScore).mockRejectedValue(new Error('reranker down'))
+    const hits = await recallSearch('u1', 'q', {
+      topK: 5,
+      useRerank: true,
+      minScore: 0.05
+    })
+    expect(hits).toEqual([])
   })
 
   it('passes excludeChatId to both arms', async () => {
