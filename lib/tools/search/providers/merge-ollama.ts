@@ -46,8 +46,11 @@ export function mergeOllamaIntoResults(
   maxResults: number,
   maxContentChars: number
 ): SearchResultItem[] {
-  const seen = new Set(items.map(i => normalizeUrl(i.url)))
-  const merged: SearchResultItem[] = [...items]
+  const seen = new Set<string>()
+  const merged: SearchResultItem[] = []
+  // Ollama first so it survives truncation when `items` already fill
+  // maxResults, and wins over a SearXNG/degoog snippet on a URL collision.
+  // Its content is still truncated to snippet size for basic-path uniformity.
   for (const r of ollamaResults) {
     const key = normalizeUrl(r.url)
     if (!key || seen.has(key)) continue
@@ -57,6 +60,12 @@ export function mergeOllamaIntoResults(
         ? r.content.slice(0, maxContentChars) + '…'
         : r.content
     merged.push({ title: r.title, url: r.url, content })
+  }
+  for (const i of items) {
+    const key = normalizeUrl(i.url)
+    if (!key || seen.has(key)) continue
+    seen.add(key)
+    merged.push(i)
   }
   return merged.slice(0, maxResults)
 }

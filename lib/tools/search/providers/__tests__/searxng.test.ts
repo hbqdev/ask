@@ -773,6 +773,47 @@ describe('SearXNGSearchProvider', () => {
     delete process.env.OLLAMA_SEARCH_API_KEY
   })
 
+  it('keeps ollama results present when searxng already fills maxResults', async () => {
+    process.env.OLLAMA_SEARCH_API_KEY = 'k'
+    const fullPageResults = Array.from({ length: 10 }, (_, i) => ({
+      title: `SX ${i}`,
+      url: `https://sx${i}.com`,
+      content: `sx snippet ${i}`
+    }))
+    const fetchMock = vi.fn().mockImplementation((url: string) => {
+      if (String(url).includes('ollama.com/api/web_search')) {
+        return Promise.resolve({
+          ok: true,
+          status: 200,
+          json: async () => ({
+            results: [
+              {
+                title: 'Ollama Src',
+                url: 'https://ollama-src.com',
+                content: 'ollama content'
+              }
+            ]
+          })
+        })
+      }
+      return Promise.resolve(mockSearxngResponse(fullPageResults))
+    })
+    vi.stubGlobal('fetch', fetchMock)
+
+    const result = await provider.search('rust', 10, 'basic', [], [], {
+      useOllama: true,
+      ollamaMaxResults: 3
+    })
+
+    // With a full page of 10 searxng results and maxResults=10, the ollama
+    // result must still survive the merge instead of being sliced off.
+    expect(result.results).toHaveLength(10)
+    const urls = result.results.map(r => r.url)
+    expect(urls).toContain('https://ollama-src.com')
+
+    delete process.env.OLLAMA_SEARCH_API_KEY
+  })
+
   it('does not call ollama when useOllama is unset', async () => {
     process.env.OLLAMA_SEARCH_API_KEY = 'k'
     const fetchMock = vi.fn().mockResolvedValue(mockSearxngResponse([]))

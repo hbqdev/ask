@@ -79,7 +79,7 @@ describe('mergeOllamaIntoResults', () => {
     expect(merged[0].content).toBe('abcd…')
   })
 
-  it('keeps short content untouched and dedupes by URL', () => {
+  it('keeps short content untouched and dedupes by URL, ollama winning the collision', () => {
     const merged = mergeOllamaIntoResults(
       [{ title: 's', url: 'https://a.com', content: 'snip' }],
       [oll('https://a.com', 'dup'), oll('https://b.com', 'ok')],
@@ -87,6 +87,27 @@ describe('mergeOllamaIntoResults', () => {
       100
     )
     expect(merged.map(r => r.url)).toEqual(['https://a.com', 'https://b.com'])
+    // Ollama is merged first, so on a URL collision its content wins over
+    // the existing item's snippet.
+    expect(merged[0].content).toBe('dup')
     expect(merged[1].content).toBe('ok')
+  })
+
+  it('does not starve ollama results when items already fill maxResults', () => {
+    const merged = mergeOllamaIntoResults(
+      [
+        { title: 's1', url: 'https://a.com', content: 'a' },
+        { title: 's2', url: 'https://b.com', content: 'b' },
+        { title: 's3', url: 'https://c.com', content: 'c' }
+      ],
+      [oll('https://d.com', 'ollama content')],
+      3,
+      100
+    )
+    expect(merged).toHaveLength(3)
+    // Ollama survives truncation to maxResults...
+    expect(merged.map(r => r.url)).toContain('https://d.com')
+    // ...at the expense of the lowest-priority (last) items entry.
+    expect(merged.map(r => r.url)).not.toContain('https://c.com')
   })
 })
