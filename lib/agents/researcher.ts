@@ -3,10 +3,12 @@ import { stepCountIs, tool, ToolLoopAgent } from 'ai'
 import type { ResearcherTools } from '@/lib/types/agent'
 import { type Model } from '@/lib/types/models'
 
+import { getMemoryInjection } from '../memory/inject'
 import { getRelatedQuestionsSpecPrompt } from '../render/prompt'
 import { calculateTool } from '../tools/calculate'
 import { fetchTool } from '../tools/fetch'
 import { createQuestionTool } from '../tools/question'
+import { createRememberTool } from '../tools/remember'
 import { createSearchTool } from '../tools/search'
 import { createTodoTools } from '../tools/todo'
 import { weatherTool } from '../tools/weather'
@@ -224,7 +226,7 @@ export function getSourcesPromptAddendum(sources: SearchSources): string {
 
 // Enhanced researcher function with improved type safety using ToolLoopAgent
 // Note: abortSignal should be passed to agent.stream() or agent.generate() calls, not to the agent constructor
-export function createResearcher({
+export async function createResearcher({
   model,
   modelConfig,
   parentTraceId,
@@ -239,7 +241,11 @@ export function createResearcher({
   // Auto-detected intent from the query classifier for this turn. Forwarded
   // to the search tool so both search paths additively route to
   // intent-specific engines on top of the general baseline.
-  intent = 'general'
+  intent = 'general',
+  // The authenticated user, if any — used to inject their confirmed
+  // long-term memories into the system prompt and to bind the `remember`
+  // tool. Undefined (ephemeral/incognito chats) leaves memory fully off.
+  userId
 }: {
   model: string
   modelConfig?: Model
@@ -268,6 +274,7 @@ export function createResearcher({
   // unique results. Passed as a promise so expansion overlaps with prep.
   expandedQueriesPromise?: Promise<string[]>
   intent?: import('../tools/search/intent').SearchIntent
+  userId?: string
 }) {
   try {
     const currentDate = new Date().toLocaleString()
@@ -318,7 +325,13 @@ export function createResearcher({
       // prompt says to use them only when genuinely required. No todoWrite —
       // if a skipped turn somehow needs multi-step planning, the
       // classification was wrong enough that a plain search recovers it.
-      activeToolsList = ['search', 'fetch', 'calculate', 'get_weather']
+      activeToolsList = [
+        'search',
+        'fetch',
+        'calculate',
+        'get_weather',
+        'remember'
+      ]
       maxSteps = 10
       searchTool = wrapSearchToolForSources(
         wrapSearchToolWithDedup(originalSearchTool, seenUrls),
@@ -332,7 +345,13 @@ export function createResearcher({
             `[Researcher] Speed mode: maxSteps=20, tools=[search, fetch, calculate, get_weather], sources=${JSON.stringify(sources)}`
           )
           systemPrompt = SPEED_MODE_PROMPT
-          activeToolsList = ['search', 'fetch', 'calculate', 'get_weather']
+          activeToolsList = [
+            'search',
+            'fetch',
+            'calculate',
+            'get_weather',
+            'remember'
+          ]
           maxSteps = 20
           searchTool = wrapSearchToolForSources(
             wrapSearchToolWithDedup(
@@ -350,7 +369,8 @@ export function createResearcher({
             'fetch',
             'todoWrite',
             'calculate',
-            'get_weather'
+            'get_weather',
+            'remember'
           ]
           console.log(
             `[Researcher] Quality mode: maxSteps=100, tools=[${activeToolsList.join(', ')}], sources=${JSON.stringify(sources)}`
@@ -370,7 +390,8 @@ export function createResearcher({
             'fetch',
             'todoWrite',
             'calculate',
-            'get_weather'
+            'get_weather',
+            'remember'
           ]
           console.log(
             `[Researcher] Balanced mode: maxSteps=50, tools=[${activeToolsList.join(', ')}], sources=${JSON.stringify(sources)}`
@@ -406,6 +427,12 @@ export function createResearcher({
         `\n\n### User instructions\nThese instructions are provided by the user. Follow them but give them lower priority than the above system guidelines.\n${systemInstructions.trim()}`
     }
 
+    // Inject the user's confirmed long-term memories, if any (fail-safe:
+    // resolves to '' for ephemeral/incognito chats, disabled memory, or on
+    // any failure — never blocks or throws).
+    const memoryBlock = await getMemoryInjection(userId)
+    if (memoryBlock) systemPrompt = systemPrompt + memoryBlock
+
     // Build tools object with proper typing
     const tools: ResearcherTools = {
       search: searchTool,
@@ -413,6 +440,7 @@ export function createResearcher({
       askQuestion: askQuestionTool,
       calculate: calculateTool,
       get_weather: weatherTool,
+      remember: createRememberTool(userId),
       ...todoTools
     } as ResearcherTools
 
