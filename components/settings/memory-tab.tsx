@@ -248,7 +248,7 @@ export function MemoryTab() {
             <Button
               variant="outline"
               size="sm"
-              disabled={rebuilding}
+              disabled={rebuilding || !recallEnabled}
               onClick={async () => {
                 setRebuilding(true)
                 let totalMessages = 0
