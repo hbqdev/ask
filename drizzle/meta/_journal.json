@@ -113,6 +113,13 @@
       "when": 1782432000000,
       "tag": "0015_chat_last_viewed",
       "breakpoints": true
+    },
+    {
+      "idx": 16,
+      "version": "7",
+      "when": 1784183276833,
+      "tag": "0016_pgvector_user_memories",
+      "breakpoints": true
     }
   ]
 }
