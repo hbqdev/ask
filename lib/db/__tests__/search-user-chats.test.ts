@@ -16,40 +16,91 @@ const hit = {
   score: 0.9
 }
 
+const keywordRow = (chatId: string, chatTitle: string) => ({
+  chatId,
+  chatTitle,
+  snippet: 'literal match',
+  role: 'user',
+  lastViewedAt: null
+})
+
 describe('searchUserChatsHybrid', () => {
   beforeEach(() => vi.resetAllMocks())
 
-  it('maps recall hits onto the ChatSearchResult shape, deduped per chat', async () => {
-    vi.mocked(recallSearch).mockResolvedValue([hit, { ...hit, chunkId: 'k2' }])
-    const res = await searchUserChatsHybrid('u1', 'backups', 20, async () => [])
-    expect(res).toHaveLength(1)
-    expect(res[0].chatId).toBe('c1')
-    expect(res[0].chatTitle).toBe('Backups')
-    expect(res[0].snippet).toContain('3-2-1')
+  it('unions both arms — keyword results first, semantic appended', async () => {
+    vi.mocked(recallSearch).mockResolvedValue([hit])
+    const keywordSearch = vi.fn(async () => [keywordRow('c9', 'Old')])
+
+    const res = await searchUserChatsHybrid('u1', 'backups', 20, keywordSearch)
+
+    expect(res).toHaveLength(2)
+    expect(res[0].chatId).toBe('c9') // keyword first, unreordered
+    expect(res[1].chatId).toBe('c1') // semantic appended
   })
 
-  it('falls back to the keyword path when recall returns nothing', async () => {
+  it('dedups by chatId across the union, keeping the keyword row', async () => {
+    vi.mocked(recallSearch).mockResolvedValue([hit]) // chatId c1
+    const keywordSearch = vi.fn(async () => [keywordRow('c1', 'Keyword Title')])
+
+    const res = await searchUserChatsHybrid('u1', 'backups', 20, keywordSearch)
+
+    expect(res).toHaveLength(1)
+    expect(res[0].chatId).toBe('c1')
+    expect(res[0].chatTitle).toBe('Keyword Title') // keyword row wins, not semantic
+  })
+
+  it('returns keyword results when semantic is empty', async () => {
     vi.mocked(recallSearch).mockResolvedValue([])
-    const fallback = vi.fn(async () => [
-      {
-        chatId: 'c9',
-        chatTitle: 'Old',
-        snippet: 'literal match',
-        role: 'user',
-        lastViewedAt: null
-      }
-    ])
-    const res = await searchUserChatsHybrid('u1', 'zzz', 20, fallback as any)
-    expect(fallback).toHaveBeenCalled()
+    const keywordSearch = vi.fn(async () => [keywordRow('c9', 'Old')])
+
+    const res = await searchUserChatsHybrid('u1', 'zzz', 20, keywordSearch)
+
+    expect(res).toHaveLength(1)
     expect(res[0].chatId).toBe('c9')
   })
 
-  it('falls back when recall throws — the search box must never break', async () => {
+  it('returns semantic results when keyword is empty', async () => {
+    vi.mocked(recallSearch).mockResolvedValue([hit])
+    const keywordSearch = vi.fn(async () => [])
+
+    const res = await searchUserChatsHybrid('u1', 'backups', 20, keywordSearch)
+
+    expect(res).toHaveLength(1)
+    expect(res[0].chatId).toBe('c1')
+  })
+
+  it('returns [] when both arms are empty — "No results" must be honest', async () => {
+    vi.mocked(recallSearch).mockResolvedValue([])
+    const keywordSearch = vi.fn(async () => [])
+
+    const res = await searchUserChatsHybrid('u1', 'zzzzz', 20, keywordSearch)
+
+    expect(res).toEqual([])
+  })
+
+  it('keeps keyword results when recallSearch throws — the box never breaks', async () => {
     vi.mocked(recallSearch).mockRejectedValue(new Error('down'))
-    const fallback = vi.fn(async () => [])
-    await expect(
-      searchUserChatsHybrid('u1', 'q', 20, fallback as any)
-    ).resolves.toEqual([])
-    expect(fallback).toHaveBeenCalled()
+    const keywordSearch = vi.fn(async () => [keywordRow('c9', 'Old')])
+
+    const res = await searchUserChatsHybrid('u1', 'q', 20, keywordSearch)
+
+    expect(res).toHaveLength(1)
+    expect(res[0].chatId).toBe('c9')
+  })
+
+  it('respects limit, slicing the merged union', async () => {
+    vi.mocked(recallSearch).mockResolvedValue([
+      { ...hit, chunkId: 'k1', chatId: 's1' },
+      { ...hit, chunkId: 'k2', chatId: 's2' }
+    ])
+    const keywordSearch = vi.fn(async () => [
+      keywordRow('c1', 'One'),
+      keywordRow('c2', 'Two')
+    ])
+
+    const res = await searchUserChatsHybrid('u1', 'backups', 3, keywordSearch)
+
+    expect(res).toHaveLength(3)
+    expect(res.map(r => r.chatId)).toEqual(['c1', 'c2', 's1'])
   })
 })

@@ -712,26 +712,37 @@ export async function searchUserChatsKeyword(
 }
 
 /**
- * Hybrid search core: semantic recall first, keyword as the floor. Extracted
- * with an injectable fallback so it is unit-testable without a DB.
+ * Hybrid search core: unions the keyword arm (the floor, and the only arm
+ * that searches chat titles) with the semantic recall arm (additive —
+ * finds chats whose match lives only in un-indexed-by-title message
+ * content). Extracted with an injectable keyword search so it is
+ * unit-testable without a DB.
+ *
+ * Both arms always run, concurrently. Keyword results come first and keep
+ * their existing order (today's behavior is preserved byte-for-byte);
+ * semantic hits not already present are appended, then the union is
+ * sliced to `limit`. The vector arm has no distance threshold (see
+ * lib/db/recall-actions.ts), so once the index is non-empty it returns
+ * hits for virtually any query — it can no longer be trusted alone to
+ * decide "no results". "No results" is only honest when both arms agree.
  */
 export async function searchUserChatsHybrid(
   userId: string,
   query: string,
   limit: number,
-  fallback: (
+  keywordSearch: (
     userId: string,
     query: string,
     limit: number
   ) => Promise<ChatSearchResult[]>
 ): Promise<ChatSearchResult[]> {
-  try {
-    const { recallSearch } = await import('@/lib/memory/recall-search')
-    const hits = await recallSearch(userId, query, {
-      topK: limit,
-      useRerank: true
-    })
-    if (hits.length > 0) {
+  const semanticSearch = async (): Promise<ChatSearchResult[]> => {
+    try {
+      const { recallSearch } = await import('@/lib/memory/recall-search')
+      const hits = await recallSearch(userId, query, {
+        topK: limit,
+        useRerank: true
+      })
       // One row per chat, best-scoring chunk wins (hits are already sorted).
       const byChat = new Map<string, ChatSearchResult>()
       for (const h of hits) {
@@ -745,17 +756,27 @@ export async function searchUserChatsHybrid(
         })
       }
       return [...byChat.values()]
+    } catch {
+      // Index unavailable/disabled/import failure — degrade to no semantic
+      // hits. The keyword arm alone keeps the box working.
+      return []
     }
-  } catch {
-    // Index unavailable/disabled — fall through to keyword.
   }
-  return fallback(userId, query, limit)
+
+  const [keywordResults, semanticResults] = await Promise.all([
+    keywordSearch(userId, query, limit),
+    semanticSearch()
+  ])
+
+  const seen = new Set(keywordResults.map(r => r.chatId))
+  const additiveSemantic = semanticResults.filter(r => !seen.has(r.chatId))
+
+  return [...keywordResults, ...additiveSemantic].slice(0, limit)
 }
 
 /**
  * Full-text search across chat titles and message text.
- * Semantic when the recall index has content; keyword otherwise — the user's
- * own search box must never break because of a memory setting.
+ * Unions keyword and semantic recall — see searchUserChatsHybrid.
  */
 export async function searchUserChats(
   userId: string,
