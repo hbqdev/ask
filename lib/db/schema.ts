@@ -448,12 +448,60 @@ export const userMemories = pgTable(
 
 export type UserMemory = InferSelectModel<typeof userMemories>
 
+// Conversation recall (feature B). Chunked copies of message text, embedded
+// for semantic retrieval. Unlike `user_memories` (whose source_chat_id has no
+// FK on purpose — facts outlive their chat), these are DERIVED copies, so
+// deleting a chat/message MUST delete its chunks or the model would recall
+// conversations the user deleted.
+export const conversationChunks = pgTable(
+  'conversation_chunks',
+  {
+    id: varchar('id', { length: ID_LENGTH })
+      .primaryKey()
+      .$defaultFn(() => generateId()),
+    userId: varchar('user_id', { length: USER_ID_LENGTH }).notNull(),
+    chatId: varchar('chat_id', { length: ID_LENGTH })
+      .notNull()
+      .references(() => chats.id, { onDelete: 'cascade' }),
+    messageId: varchar('message_id', { length: ID_LENGTH })
+      .notNull()
+      .references(() => messages.id, { onDelete: 'cascade' }),
+    role: varchar('role', {
+      length: VARCHAR_LENGTH,
+      enum: ['user', 'assistant']
+    }).notNull(),
+    content: text('content').notNull(),
+    chunkIndex: integer('chunk_index').notNull(),
+    embedding: vector('embedding', { dimensions: 1024 }).notNull(),
+    createdAt: timestamp('created_at').notNull().defaultNow()
+  },
+  table => [
+    index('conversation_chunks_user_id_idx').on(table.userId),
+    index('conversation_chunks_chat_id_idx').on(table.chatId),
+    index('conversation_chunks_message_id_idx').on(table.messageId),
+    index('conversation_chunks_embedding_idx').using(
+      'hnsw',
+      table.embedding.op('vector_cosine_ops')
+    ),
+    pgPolicy('users_manage_own_conversation_chunks', {
+      as: 'permissive',
+      for: 'all',
+      to: 'public',
+      using: sql`user_id = (select current_setting('app.current_user_id', true))`,
+      withCheck: sql`user_id = (select current_setting('app.current_user_id', true))`
+    })
+  ]
+).enableRLS()
+
+export type ConversationChunk = InferSelectModel<typeof conversationChunks>
+
 // Per-user settings (currently just the memory on/off toggle).
 export const userSettings = pgTable(
   'user_settings',
   {
     userId: varchar('user_id', { length: USER_ID_LENGTH }).primaryKey(),
     memoryEnabled: boolean('memory_enabled').notNull().default(true),
+    recallEnabled: boolean('recall_enabled').notNull().default(true),
     updatedAt: timestamp('updated_at').notNull().defaultNow()
   },
   table => [
