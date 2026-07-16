@@ -40,6 +40,32 @@ describe('mergeOllamaIntoSearxngResults', () => {
     )
     expect(merged).toHaveLength(2)
   })
+
+  it('does not starve ollama results when searxng already fills maxResults', () => {
+    const merged = mergeOllamaIntoSearxngResults(
+      [
+        { title: 's1', url: 'https://a.com', content: 'a' },
+        { title: 's2', url: 'https://b.com', content: 'b' },
+        { title: 's3', url: 'https://c.com', content: 'c' }
+      ],
+      [oll('https://d.com', 'full ollama content')],
+      3
+    )
+    expect(merged).toHaveLength(3)
+    expect(merged.map(r => r.url)).toContain('https://d.com')
+    // One searxng result is dropped to make room, not the ollama one.
+    expect(merged.map(r => r.url)).not.toContain('https://c.com')
+  })
+
+  it('keeps ollama content on a URL collision with searxng', () => {
+    const merged = mergeOllamaIntoSearxngResults(
+      [{ title: 's', url: 'https://a.com', content: 'snip' }],
+      [oll('https://a.com', 'full ollama')],
+      10
+    )
+    expect(merged).toHaveLength(1)
+    expect(merged[0].content).toBe('full ollama')
+  })
 })
 
 describe('mergeOllamaIntoResults', () => {
