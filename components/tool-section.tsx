@@ -99,6 +99,9 @@ export function ToolSection({
         <RecallToolSection
           query={(tool.input as { query?: string } | undefined)?.query}
           output={tool.output as RecallToolResult | undefined}
+          borderless={borderless}
+          isFirst={isFirst}
+          isLast={isLast}
         />
       )
     case 'tool-todoWrite':
