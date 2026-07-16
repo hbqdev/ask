@@ -6,6 +6,7 @@ import {
   IconAdjustments,
   IconBrain,
   IconChevronLeft,
+  IconNotes,
   IconPalette
 } from '@tabler/icons-react'
 
@@ -13,6 +14,7 @@ import { cn } from '@/lib/utils'
 
 import { Dialog, DialogContent, DialogTitle } from '@/components/ui/dialog'
 
+import { MemoryTab } from '@/components/settings/memory-tab'
 import { useTheme } from '@/components/theme-provider'
 
 // ---------------------------------------------------------------------------
@@ -51,6 +53,12 @@ const TABS = [
     label: 'Models',
     description: 'View model and server configuration.',
     icon: IconBrain
+  },
+  {
+    key: 'memory',
+    label: 'Memory',
+    description: 'Manage what Ask remembers about you.',
+    icon: IconNotes
   }
 ] as const
 type TabKey = (typeof TABS)[number]['key']
@@ -58,7 +66,7 @@ type TabKey = (typeof TABS)[number]['key']
 // ---------------------------------------------------------------------------
 // Vane-style card — matches `rounded-xl border border-light-200 bg-light-primary/80 p-4 lg:p-6`
 // ---------------------------------------------------------------------------
-function SettingRow({
+export function SettingRow({
   title,
   description,
   children,
@@ -136,7 +144,7 @@ function SettingSelect({
 // ---------------------------------------------------------------------------
 // Vane-style switch — `h-6 w-12 bg-muted data-checked:bg-sky-500`
 // ---------------------------------------------------------------------------
-function SettingSwitch({
+export function SettingSwitch({
   checked,
   onChange
 }: {
@@ -412,6 +420,7 @@ export function SettingsDialog({ open, onOpenChange }: SettingsDialogProps) {
               {activeTab === 'preferences' && <PreferencesTab />}
               {activeTab === 'personalization' && <PersonalizationTab />}
               {activeTab === 'models' && <ModelsTab />}
+              {activeTab === 'memory' && <MemoryTab />}
             </div>
           </div>
         </div>
