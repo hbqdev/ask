@@ -34,8 +34,14 @@ export function buildRecallBlock(hits: RecallHit[]): string {
  * band, making any fixed cosine threshold either unreachable or useless.
  * With auto-injection gated on cosine, it never fired — silently inert. The
  * cross-encoder separates the same query/passages by ~10,000x (0.169 vs
- * 0.0000164), and the rerank hop (~150ms) against a 30-90s turn is ~0.3%
- * overhead — worth paying to make the gate real. minScore
+ * 0.0000164), so it is worth a network hop to make the gate real.
+ *
+ * Cost, measured on the live reranker (P4000), scales with the candidate
+ * pool: 3 passages 489ms, 15 976ms, 30 3.4s, 60 7.6s. The pool here is
+ * `max(topK*3, 30)` per arm, so a turn reranks up to ~60 and can spend ~7.6s
+ * against the 10s timeout below. (An earlier revision of this comment claimed
+ * "~150ms" — that was measured with 3 passages and does not describe this
+ * path.) minScore
  * (RECALL_INJECT_MIN_SCORE) is now a threshold on the reranker's scale.
  * Fail-closed consequence: if the reranker is unreachable, recallSearch
  * cannot honour a rerank-scale gate and returns [] — no injection for that
@@ -56,7 +62,8 @@ export async function getRecallInjection(
       minScore: injectMinScore()
     })
     return { block: buildRecallBlock(hits), hits }
-  } catch {
+  } catch (error) {
+    console.warn('[recall] injection failed:', error)
     return { block: '', hits: [] }
   }
 }

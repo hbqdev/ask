@@ -76,8 +76,11 @@ export async function recallSearch(
           .map((h, i) => ({ ...h, score: scores[i] ?? 0 }))
           .sort((a, b) => b.score - a.score)
         reranked = true
-      } catch {
-        // Reranker down — keep the cosine ordering already computed.
+      } catch (error) {
+        // Reranker down — keep the cosine ordering already computed. Log it:
+        // with a rerank-scale minScore this fails closed below, silently
+        // disabling recall for the turn. That must not be invisible.
+        console.warn('[recall] rerank failed:', error)
       }
     }
 
@@ -88,15 +91,22 @@ export async function recallSearch(
       // above), and comparing the rerank-scale threshold against them would
       // silently let almost everything through. Return nothing rather than
       // everything.
-      if (opts.useRerank && !reranked) return []
+      if (opts.useRerank && !reranked) {
+        console.warn(
+          `[recall] fail-closed: rerank requested but did not run (configured=${isCrossEncoderConfigured()}, hits=${hits.length}) — no recall this turn`
+        )
+        return []
+      }
       hits = hits.filter(h => h.score >= opts.minScore!)
     }
 
     return hits.slice(0, opts.topK)
   } catch (error) {
-    if (process.env.NODE_ENV === 'development') {
-      console.warn('recallSearch failed:', error)
-    }
+    // Always log. This used to be dev-only, which meant that in production —
+    // the only place it matters — recall could throw on every turn and go
+    // silently inert, indistinguishable from "no relevant history". Feature
+    // A's setLastUsed bug hid behind exactly this shape of swallowed catch.
+    console.warn('[recall] search failed:', error)
     return []
   }
 }
