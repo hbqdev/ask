@@ -35,6 +35,88 @@ vi.mock('../user-text-section', () => ({
 }))
 
 describe('RenderMessage', () => {
+  const recallPart = {
+    type: 'data-recall',
+    id: 'recall',
+    data: { chats: [{ chatId: 'past-1', title: 'Tokio vs async-std' }] }
+  } as any
+
+  test('renders recall chips above the research process, not inside it', () => {
+    // The chips exist to make auto-injected memory inspectable rather than
+    // spooky. Buffering them into the research process buried them in an
+    // accordion that is collapsed by default, so attribution was invisible
+    // unless the user expanded it. They must render as their own element,
+    // ahead of the process section and the answer.
+    const message: UIMessage = {
+      id: 'assistant-msg',
+      role: 'assistant',
+      parts: [
+        { type: 'data-classifier', data: { state: 'done' } } as any,
+        recallPart,
+        { type: 'reasoning', text: 'Thinking' } as any,
+        { type: 'text', text: '## Final answer' } as any
+      ]
+    } as UIMessage
+
+    const { container } = render(
+      <RenderMessage
+        message={message}
+        messageId={message.id}
+        getIsOpen={() => true}
+        onOpenChange={() => {}}
+      />
+    )
+
+    // Not swallowed by the collapsed process section.
+    expect(screen.getByTestId('research-process')).toHaveTextContent(
+      'data-classifier,reasoning'
+    )
+    expect(screen.getByTestId('research-process')).not.toHaveTextContent(
+      'data-recall'
+    )
+
+    // Visible on its own, above everything.
+    expect(screen.getByText('Recalled from:')).toBeInTheDocument()
+    const link = screen.getByRole('link', { name: 'Tokio vs async-std' })
+    expect(link).toHaveAttribute('href', '/search/past-1')
+
+    const order = Array.from(
+      container.querySelectorAll(
+        'a[href^="/search/"], [data-testid="research-process"], [data-testid="answer-section"]'
+      )
+    ).map(
+      node =>
+        node.getAttribute('data-testid') ??
+        `recall-link:${node.getAttribute('href')}`
+    )
+    expect(order).toEqual([
+      'recall-link:/search/past-1',
+      'research-process',
+      'answer-section'
+    ])
+  })
+
+  test('renders no recall chips when recall injected nothing', () => {
+    const message: UIMessage = {
+      id: 'assistant-msg',
+      role: 'assistant',
+      parts: [
+        { type: 'data-recall', id: 'recall', data: { chats: [] } } as any,
+        { type: 'text', text: '## Final answer' } as any
+      ]
+    } as UIMessage
+
+    render(
+      <RenderMessage
+        message={message}
+        messageId={message.id}
+        getIsOpen={() => true}
+        onOpenChange={() => {}}
+      />
+    )
+    expect(screen.queryByText('Recalled from:')).not.toBeInTheDocument()
+  })
+
   test('ignores empty text parts so research process is not split early', () => {
     const message: UIMessage = {
       id: 'assistant-msg',

@@ -28,6 +28,7 @@ import { incrementDbOperationCount } from '@/lib/utils/perf-tracking'
 import type { Chat, Message, NewNote, Note } from './schema'
 import {
   chats,
+  conversationChunks,
   feedback,
   generateId,
   libraryFiles,
@@ -133,6 +134,22 @@ export async function upsertMessage(
 
     // 2. Delete existing parts
     await tx.delete(parts).where(eq(parts.messageId, message.id))
+
+    // 2b. Delete stale conversation-recall chunks for this message. The
+    // message's text is about to change (or be reinserted verbatim) — any
+    // existing chunks were derived from the OLD text, so they are stale by
+    // definition. The normal path self-heals (onFinish re-runs indexMessage
+    // for the same id, which itself deletes-then-reinserts), but if recall
+    // was off or embedding failed during the turn that produced this edit,
+    // nothing else would ever clear these out: messagesWithoutChunks's
+    // `NOT EXISTS` check never re-selects a message that already has
+    // chunks, so Rebuild could never repair it. Deleting here means an
+    // edited message always has no chunks immediately after, so it is
+    // correctly re-selected and re-indexed. A direct table delete (not the
+    // memory layer) keeps this file free of that dependency.
+    await tx
+      .delete(conversationChunks)
+      .where(eq(conversationChunks.messageId, message.id))
 
     // 3. Insert new parts
     if (message.parts && message.parts.length > 0) {
@@ -650,7 +667,7 @@ export type ChatSearchResult = {
  * Full-text search across chat titles and message text.
  * Returns up to 20 matching chats, most-recently-viewed first.
  */
-export async function searchUserChats(
+export async function searchUserChatsKeyword(
   userId: string,
   query: string,
   limit = 20
@@ -692,6 +709,103 @@ export async function searchUserChats(
       lastViewedAt: row.lastViewedAt
     }))
   })
+}
+
+/**
+ * Rerank-scale gate for the semantic arm below (RECALL_SEARCH_MIN_SCORE).
+ * More permissive than recall-inject's threshold (0.01 vs 0.05): a user who
+ * typed a query wants candidates back, whereas auto-injecting noise
+ * pollutes the prompt — but both sit far above the measured gibberish floor
+ * (~0.0000164), so this is enough to reject unrelated chunks.
+ */
+function searchMinScore(): number {
+  const n = Number(process.env.RECALL_SEARCH_MIN_SCORE)
+  return Number.isFinite(n) ? n : 0.01
+}
+
+/**
+ * Hybrid search core: unions the keyword arm (the floor, and the only arm
+ * that searches chat titles) with the semantic recall arm (additive —
+ * finds chats whose match lives only in un-indexed-by-title message
+ * content). Extracted with an injectable keyword search so it is
+ * unit-testable without a DB.
+ *
+ * Both arms always run, concurrently. Keyword results come first and keep
+ * their existing order (today's behavior is preserved byte-for-byte);
+ * semantic hits not already present are appended, then the union is
+ * sliced to `limit`. The vector arm has no distance threshold (see
+ * lib/db/recall-actions.ts), so once the index is non-empty it returns
+ * hits for virtually any query — it can no longer be trusted alone to
+ * decide "no results". "No results" is only honest when both arms agree,
+ * which is why the semantic arm is gated by searchMinScore(): gibberish
+ * queries no longer manufacture 5 unrelated hits. Welcome side effect: if
+ * the reranker is down, the semantic arm fails closed to no hits and the
+ * union floors out at keyword-only — exactly the intended degradation.
+ */
+export async function searchUserChatsHybrid(
+  userId: string,
+  query: string,
+  limit: number,
+  keywordSearch: (
+    userId: string,
+    query: string,
+    limit: number
+  ) => Promise<ChatSearchResult[]>
+): Promise<ChatSearchResult[]> {
+  const semanticSearch = async (): Promise<ChatSearchResult[]> => {
+    try {
+      const { recallSearch } = await import('@/lib/memory/recall-search')
+      // recallSearch never throws — it returns []. That also covers the
+      // fail-closed path: if the reranker is down, a rerank-scale minScore
+      // can't be honoured against leftover cosine scores, so recallSearch
+      // itself returns [] rather than everything. Either way `hits` is
+      // simply empty, and this arm degrades to no semantic results below.
+      const hits = await recallSearch(userId, query, {
+        topK: limit,
+        useRerank: true,
+        minScore: searchMinScore()
+      })
+      // One row per chat, best-scoring chunk wins (hits are already sorted).
+      const byChat = new Map<string, ChatSearchResult>()
+      for (const h of hits) {
+        if (byChat.has(h.chatId)) continue
+        byChat.set(h.chatId, {
+          chatId: h.chatId,
+          chatTitle: h.chatTitle,
+          snippet: h.content.slice(0, 150),
+          role: h.role,
+          lastViewedAt: null
+        })
+      }
+      return [...byChat.values()]
+    } catch {
+      // Index unavailable/disabled/import failure — degrade to no semantic
+      // hits. The keyword arm alone keeps the box working.
+      return []
+    }
+  }
+
+  const [keywordResults, semanticResults] = await Promise.all([
+    keywordSearch(userId, query, limit),
+    semanticSearch()
+  ])
+
+  const seen = new Set(keywordResults.map(r => r.chatId))
+  const additiveSemantic = semanticResults.filter(r => !seen.has(r.chatId))
+
+  return [...keywordResults, ...additiveSemantic].slice(0, limit)
+}
+
+/**
+ * Full-text search across chat titles and message text.
+ * Unions keyword and semantic recall — see searchUserChatsHybrid.
+ */
+export async function searchUserChats(
+  userId: string,
+  query: string,
+  limit = 20
+): Promise<ChatSearchResult[]> {
+  return searchUserChatsHybrid(userId, query, limit, searchUserChatsKeyword)
 }
 
 function extractSnippet(text: string, query: string): string {
