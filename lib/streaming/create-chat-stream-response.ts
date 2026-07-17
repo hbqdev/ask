@@ -286,6 +286,26 @@ export async function createChatStreamResponse(
             console.error('Error generating title:', error)
             return DEFAULT_CHAT_TITLE
           })
+
+          // Push the title to the client the moment it resolves (a few seconds
+          // in), instead of making it wait for the whole turn. It is only
+          // PERSISTED in onFinish via persistStreamResults, so without this the
+          // browser has no way to learn it and the header sits on "Untitled"
+          // until a navigation refetches the chat — which is exactly what users
+          // saw. Fire-and-forget: the writer is still open (the answer streams
+          // for far longer than title generation takes), and a failure here must
+          // never affect the turn.
+          void titlePromise
+            .then(title => {
+              if (title && title !== DEFAULT_CHAT_TITLE) {
+                writer.write({
+                  type: 'data-title',
+                  id: 'title',
+                  data: { title }
+                })
+              }
+            })
+            .catch(() => {})
         }
 
         classification = await classificationPromise

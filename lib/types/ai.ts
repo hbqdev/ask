@@ -47,6 +47,12 @@ export type UIDataTypes = {
   // excerpts were injected into this turn — rendered as attribution chips by
   // components/recall-section.tsx. Only written when recall actually injected.
   recall?: { chats: { chatId: string; title: string }[] }
+  // Streamed by create-chat-stream-response.ts as soon as the generated chat
+  // title resolves — which happens seconds in, in parallel with the answer.
+  // Without this the client never learns the title: it is only persisted in
+  // onFinish (after the whole 30-90s answer), so the header would keep showing
+  // "Untitled" until a navigation refetched the chat. Consumed by chat.tsx.
+  title?: { title: string }
   // Streamed while uploaded files are prepared for the model (PDF RAG /
   // text extraction, image base64 encoding) — see transformFileParts.
   // Rendered by components/attachments-section.tsx.
