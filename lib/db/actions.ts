@@ -27,6 +27,7 @@ import { incrementDbOperationCount } from '@/lib/utils/perf-tracking'
 
 import type { Chat, Message, NewNote, Note } from './schema'
 import {
+  CHAT_TITLE_MAX_LENGTH,
   chats,
   conversationChunks,
   feedback,
@@ -890,8 +891,6 @@ export async function updateChatVisibility(
  * title-generator.ts now rejects such output at the source; this cap makes
  * the invariant hold for every caller of this function, not just that one.
  */
-export const CHAT_TITLE_MAX_LENGTH = 255
-
 export async function updateChatTitle(
   chatId: string,
   title: string,

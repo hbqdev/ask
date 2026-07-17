@@ -7,8 +7,9 @@ vi.mock('@/lib/db', () => ({
 }))
 
 import { db } from '@/lib/db'
+import { CHAT_TITLE_MAX_LENGTH } from '@/lib/db/schema'
 
-import { CHAT_TITLE_MAX_LENGTH, updateChatTitle } from '../actions'
+import { updateChatTitle } from '../actions'
 
 /** Captures the values handed to .set() so we can assert on the stored title. */
 function captureSet() {

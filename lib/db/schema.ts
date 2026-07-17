@@ -25,6 +25,16 @@ const FILENAME_LENGTH = 1024
 export const generateId = () => createId()
 
 // Chats table
+/**
+ * Application-level cap on `chats.title`. The column is unbounded `text`, so
+ * this is enforced in code (createChat, createChatAndSaveMessage and
+ * updateChatTitle all apply it) rather than by the database. Lives here, not
+ * in db/actions.ts, because that file is 'use server' — only async functions
+ * may be exported from it, and exporting a const there fails the Next build
+ * while still passing typecheck and the unit tests.
+ */
+export const CHAT_TITLE_MAX_LENGTH = 255
+
 export const chats = pgTable(
   'chats',
   {
