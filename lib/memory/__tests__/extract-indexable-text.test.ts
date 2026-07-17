@@ -23,6 +23,40 @@ describe('extractIndexableText', () => {
     expect(result).not.toContain('I have strong coverage')
   })
 
+  it('assistant: a tool call TRAILING the answer does not drop the answer', () => {
+    // Verbatim shape from live prod (message aey8…/"Capital of Japan"): the
+    // generative-UI tool-dynamic that renders follow-up questions is emitted
+    // AFTER the answer text. Slicing from the last tool call overall left
+    // nothing after it, so the whole answer was silently dropped from the
+    // index — the message sat unindexed with 2,498 chars of real content.
+    const parts: IndexablePart[] = [
+      { type: 'step-start', text: null },
+      { type: 'reasoning', text: null },
+      tool('tool-search'),
+      { type: 'step-start', text: null },
+      { type: 'reasoning', text: null },
+      text('## Capital of Japan\n\nThe capital of Japan is **Tokyo**.'),
+      tool('tool-dynamic')
+    ]
+    expect(extractIndexableText('assistant', parts)).toBe(
+      '## Capital of Japan\n\nThe capital of Japan is **Tokyo**.'
+    )
+  })
+
+  it('assistant: still drops narration when a tool also trails the answer', () => {
+    // The trailing-tool fix must not resurrect inter-step narration: the
+    // boundary is the last tool BEFORE the final text, not the last overall.
+    const parts: IndexablePart[] = [
+      text('Let me search for that.'),
+      tool('tool-search'),
+      text('## The Answer'),
+      tool('tool-dynamic')
+    ]
+    const result = extractIndexableText('assistant', parts)
+    expect(result).toBe('## The Answer')
+    expect(result).not.toContain('Let me search')
+  })
+
   it('assistant: with no tool parts at all, returns the (only) text', () => {
     const parts: IndexablePart[] = [text('Paris is the capital of France.')]
     expect(extractIndexableText('assistant', parts)).toBe(
