@@ -1,12 +1,12 @@
 import { NextResponse } from 'next/server'
 
+import { requireCronSecret } from '@/lib/auth/cron-auth'
 import { backfillAllUsers } from '@/lib/memory/recall-backfill'
 
 export async function POST(request: Request) {
-  const secret = process.env.MEMORY_CRON_SECRET
-  if (secret && request.headers.get('authorization') !== `Bearer ${secret}`) {
-    return NextResponse.json({ error: 'unauthorized' }, { status: 401 })
-  }
+  const denied = requireCronSecret(request)
+  if (denied) return denied
+
   // `ok` reflects backfillAllUsers' honesty signal (see recall-backfill.ts):
   // false means at least one user's sweep hit a REAL error — it is no
   // longer flipped false just because some users have recall disabled
