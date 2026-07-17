@@ -16,7 +16,9 @@
     "clean:narration": "bun run scripts/clean-narration-preambles.ts",
     "test": "NODE_ENV=test vitest run",
     "test:watch": "vitest --watch",
-    "chat": "bun run scripts/chat-cli.ts"
+    "chat": "bun run scripts/chat-cli.ts",
+    "eval": "bun run scripts/eval/run-eval.ts",
+    "eval:mine": "bun run scripts/eval/mine-questions.ts"
   },
   "dependencies": {
     "@ai-sdk/anthropic": "^3.0.77",
