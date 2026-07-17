@@ -209,6 +209,22 @@ a feature, explicitly out of scope. **Reported, not redesigned.**
 
 ---
 
+## 3a. Post-deploy verification against live production
+
+The cron-auth fix, proven against the running prod instance rather than assumed:
+
+| request                                | before                    | now     |
+| -------------------------------------- | ------------------------- | ------- |
+| `POST /recall-backfill` (no auth)      | **200 + full re-embed**   | **401** |
+| `POST /recall-backfill` wrong bearer   | 200                       | **401** |
+| `POST /recall-backfill` correct bearer | 200                       | 200     |
+| `POST /consolidate` (no auth)          | **200 + rewrites memory** | **401** |
+
+The authenticated call returned `{"users":5,"messages":0,"chunks":0,"ok":true}` —
+nothing left to index, i.e. the backfill is complete.
+
+---
+
 ## 4. Process failures worth recording
 
 - **Hours were burned on a bug that did not exist.** The recall chips rendered
