@@ -18,15 +18,15 @@ current chat's last 20 messages; nothing persists across chats.
 
 ## How the incumbents do it (design basis)
 
-- **ChatGPT**: an auditable *Saved Memories* list (user-directed + model-
-  extracted concise facts) + a background *"Dreaming"* process that
+- **ChatGPT**: an auditable _Saved Memories_ list (user-directed + model-
+  extracted concise facts) + a background _"Dreaming"_ process that
   synthesizes a memory state across many past conversations, injected at chat
   start.
-- **Claude**: automatic *synthesis* of a summary of key facts (role,
+- **Claude**: automatic _synthesis_ of a summary of key facts (role,
   preferences, recurring topics) refreshed ~daily, plus immediate user-directed
   saves via a dedicated tool.
 - **Perplexity**: retrieval-based memories; **repetition is the salience
-  signal** ("ask 3× → filed"); deliberately *fewer, higher-quality* memories
+  signal** ("ask 3× → filed"); deliberately _fewer, higher-quality_ memories
   (their upgrade stored ~half as many while recall rose 77%→95%).
 
 **Four lessons baked into this design:** (1) synthesis/consolidation beats
@@ -42,18 +42,18 @@ Six units, each independently testable:
 
 New Drizzle table, RLS-isolated exactly like `chats`:
 
-| column | type | notes |
-|---|---|---|
-| `id` | varchar (cuid) | PK |
-| `user_id` | varchar(255) | RLS key |
-| `content` | text | the concise fact ("Self-hosts their infrastructure") |
-| `category` | varchar enum | `preference` \| `fact` \| `interest` |
-| `status` | varchar enum | `candidate` \| `confirmed` (only `confirmed` is injected) |
-| `sightings` | integer | repetition/salience count (default 1) |
-| `embedding` | `vector(1024)` | mxbai-embed-large-v1 (the configured `EMBEDDING_MODEL`) |
-| `source_chat_id` | varchar, nullable | provenance |
-| `created_at` / `updated_at` | timestamp | |
-| `last_used_at` | timestamp, nullable | set when injected; drives eviction |
+| column                      | type                | notes                                                     |
+| --------------------------- | ------------------- | --------------------------------------------------------- |
+| `id`                        | varchar (cuid)      | PK                                                        |
+| `user_id`                   | varchar(255)        | RLS key                                                   |
+| `content`                   | text                | the concise fact ("Self-hosts their infrastructure")      |
+| `category`                  | varchar enum        | `preference` \| `fact` \| `interest`                      |
+| `status`                    | varchar enum        | `candidate` \| `confirmed` (only `confirmed` is injected) |
+| `sightings`                 | integer             | repetition/salience count (default 1)                     |
+| `embedding`                 | `vector(1024)`      | mxbai-embed-large-v1 (the configured `EMBEDDING_MODEL`)   |
+| `source_chat_id`            | varchar, nullable   | provenance                                                |
+| `created_at` / `updated_at` | timestamp           |                                                           |
+| `last_used_at`              | timestamp, nullable | set when injected; drives eviction                        |
 
 - RLS policy `users_manage_own_memories` using
   `user_id = (select current_setting('app.current_user_id', true))` — mirrors
@@ -75,14 +75,14 @@ fire-and-forget; never delays the response):
 
 - Input: the user's latest message (+ the classifier's resolved
   `standaloneQuery` for reference resolution). Durable facts come from what the
-  *user* states, not the assistant's answer.
+  _user_ states, not the assistant's answer.
 - Model: **granite4.1:8b on serenity** (the existing structured-output
-  classifier host), a new structured-output prompt: *"Extract 0–N durable facts
+  classifier host), a new structured-output prompt: _"Extract 0–N durable facts
   about THIS USER worth remembering across conversations — stable preferences,
   identity, recurring interests, constraints. Skip transient query content,
   one-off facts, the assistant's answer, and sensitive PII unless the user
   frames it as a lasting preference. Return a JSON array of {content,
-  category}."* Returns `[]` when nothing is worth saving (the common case).
+  category}."_ Returns `[]` when nothing is worth saving (the common case).
 - Fail-safe: any error ⇒ no memory change, zero user impact (like the
   classifier's fallback).
 
@@ -169,13 +169,13 @@ turn starts
 
 ## Config (env)
 
-| var | default | effect |
-|---|---|---|
-| `MEMORY_ENABLED` | on | global kill switch (only `'off'` disables) |
-| `MEMORY_SIM_THRESHOLD` | `0.90` | dedup cosine cutoff |
-| `MEMORY_GRADUATE_SIGHTINGS` | `2` | candidate → confirmed after N sightings |
-| `MEMORY_MAX_PER_USER` | `30` | cap; LRU eviction beyond it |
-| `MEMORY_INJECT_TOP_K` | `30` | injection cap (≥ max = inject all) |
+| var                         | default | effect                                     |
+| --------------------------- | ------- | ------------------------------------------ |
+| `MEMORY_ENABLED`            | on      | global kill switch (only `'off'` disables) |
+| `MEMORY_SIM_THRESHOLD`      | `0.90`  | dedup cosine cutoff                        |
+| `MEMORY_GRADUATE_SIGHTINGS` | `2`     | candidate → confirmed after N sightings    |
+| `MEMORY_MAX_PER_USER`       | `30`    | cap; LRU eviction beyond it                |
+| `MEMORY_INJECT_TOP_K`       | `30`    | injection cap (≥ max = inject all)         |
 
 Per-user `user_settings.memory_enabled` gates each user independently; the env
 var is the global switch. Embeddings use the configured `EMBEDDING_MODEL`
@@ -194,6 +194,7 @@ var is the global switch. Embeddings use the configured `EMBEDDING_MODEL`
 ## Testing
 
 Unit (Vitest):
+
 - Extraction output parsing (valid JSON array; empty when nothing durable).
 - Write path: dedup by similarity; `sightings` increment; graduation at the
   threshold; supersede on contradiction; cap/LRU eviction.
@@ -202,6 +203,7 @@ Unit (Vitest):
 - Toggle off / `MEMORY_ENABLED=off` ⇒ no writes, no injection.
 
 Live (staging → prod, standard flow):
+
 - State a durable preference twice across turns/chats ⇒ it graduates to
   `confirmed` and is injected on the next turn (visible in the answer using it).
 - "Remember that I …" ⇒ saved immediately; visible in the settings list.

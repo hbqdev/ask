@@ -286,7 +286,7 @@ describe('processCitations', () => {
       expect(collapseCitationArtifacts('text  more')).toBe('text more')
     })
 
-    it('collapses ".."' , () => {
+    it('collapses ".."', () => {
       expect(collapseCitationArtifacts('text..')).toBe('text.')
     })
 

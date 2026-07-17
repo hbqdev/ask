@@ -34,7 +34,11 @@ export function splitText(
       const words = currentChunk.split(' ')
       let overlap = ''
       let overlapCount = 0
-      for (let i = words.length - 1; i >= 0 && overlapCount < overlapTokens; i--) {
+      for (
+        let i = words.length - 1;
+        i >= 0 && overlapCount < overlapTokens;
+        i--
+      ) {
         overlap = words[i] + ' ' + overlap
         overlapCount += countTokens(words[i])
       }

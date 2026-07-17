@@ -12,15 +12,19 @@ async function runCleanup() {
     // Delete files older than TTL_DAYS days
     await execFileAsync('find', [
       UPLOADS_DIR,
-      '-type', 'f',
-      '-mtime', `+${TTL_DAYS}`,
+      '-type',
+      'f',
+      '-mtime',
+      `+${TTL_DAYS}`,
       '-delete'
     ])
     // Remove empty directories left behind (but not UPLOADS_DIR itself)
     await execFileAsync('find', [
       UPLOADS_DIR,
-      '-mindepth', '1',
-      '-type', 'd',
+      '-mindepth',
+      '1',
+      '-type',
+      'd',
       '-empty',
       '-delete'
     ])

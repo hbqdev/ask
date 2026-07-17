@@ -1,5 +1,6 @@
-import { createHash, timingSafeEqual } from 'crypto'
 import { NextResponse } from 'next/server'
+
+import { createHash, timingSafeEqual } from 'crypto'
 
 /** Constant-time compare that tolerates unequal lengths (digests are fixed-size). */
 function secretsMatch(provided: string, expected: string): boolean {

@@ -11,11 +11,11 @@ effectively and cheaply, across all three modes (speed / balanced /
 quality), by adding three independent, composable levers:
 
 1. **Query-intent engine routing** — auto-detect the turn's intent and
-   *add* intent-specific SearXNG engines on top of the always-on general
+   _add_ intent-specific SearXNG engines on top of the always-on general
    baseline, instead of every search hitting the same fixed
    `google,bing,duckduckgo,wikipedia` set.
 2. **Depth tiering** — within one turn, only the first search runs
-   *advanced* (crawl + rerank); follow-up searches run *basic* (snippets),
+   _advanced_ (crawl + rerank); follow-up searches run _basic_ (snippets),
    with the existing `fetch` tool as the on-demand deep-read escape hatch.
    Cuts the 5–15× crawl cost of exploratory follow-up searches.
 3. **Search-intent dedup** — skip near-duplicate query reformulations
@@ -65,7 +65,7 @@ Empirically confirmed against the live instance — the basis for the
 - `categories=it` (no engines) → **all** enabled `it` engines fire
   (github, stackoverflow, mdn, docker hub, lobste.rs, hackernews…).
 - `categories=general,it` **+** `engines=google,bing` → **union**: general
-  engines *and* it engines both fire.
+  engines _and_ it engines both fire.
 
 **Conclusion:** appending a category to the `categories` param is purely
 additive and coexists with a pinned `engines` list. Intent routing is
@@ -114,14 +114,15 @@ Five intents. Each maps to at most one added category (verified to union
 with the general baseline):
 
 | Intent       | Added category | Engines it brings                                        |
-|--------------|----------------|----------------------------------------------------------|
-| `general`    | *(none)*       | baseline only                                            |
+| ------------ | -------------- | -------------------------------------------------------- |
+| `general`    | _(none)_       | baseline only                                            |
 | `code`       | `it`           | github, stackoverflow, mdn, pypi, npm, docker hub, …     |
 | `discussion` | `social media` | hackernews, lobste.rs, lemmy, mastodon (+ degoog reddit) |
 | `news`       | `news`         | google news, bing news, … (pairs with `needsRecent`)     |
 | `academic`   | `science`      | arxiv, pubmed, scholar, semantic scholar, crossref, …    |
 
 Notes:
+
 - "docs" from the original brainstorm is folded into `code` — both route to
   the `it` category, so a separate intent would be routing-identical
   (YAGNI). The classifier prompt tells it to use `code` for library/API/docs
@@ -183,6 +184,7 @@ both paths — single source of truth, no drift.
 ### Behavior
 
 Per turn:
+
 - **First search** → advanced (crawl + rerank) in balanced/quality; basic in
   speed (unchanged).
 - **All subsequent searches** → forced basic (snippets), regardless of the
@@ -226,12 +228,13 @@ URL rather than re-searching for depth.
 Both search paths must query **SearXNG + degoog** — that is the intended
 source breadth for the general path (and every intent). The **basic** path
 already does. The **advanced** path (`/api/advanced-search`) is SearXNG-only
-today, and depth tiering routes the turn's *first, deepest* search there —
+today, and depth tiering routes the turn's _first, deepest_ search there —
 so without this fix, the single most important search of the turn loses all
 degoog coverage. That regression is unacceptable, so this fix ships with the
 levers.
 
 Change (`app/api/advanced-search/route.ts`, `advancedSearchXNGSearch`):
+
 - Query degoog concurrently with the SearXNG call (reuse `fetchDegoogJson` +
   the merge helpers already used by the basic provider), degrading
   gracefully exactly as the basic path does (degoog is a complement:
@@ -283,12 +286,12 @@ the model to reuse them or refine to a materially different angle.
      angle. Surface `note` in `toModelOutput` so the model sees it.
   4. Else → record the query + embedding and execute normally.
 - The **first** search of a turn never dedups (nothing prior). Expansion
-  variants (existing feature, run *inside* the first search) are unaffected —
+  variants (existing feature, run _inside_ the first search) are unaffected —
   dedup guards the model's successive top-level `search` calls, not the
   expansion fan-out.
 - Interaction with `wrapSearchToolWithDedup` (URL-level dedup in
-  `researcher.ts`): that wrapper sits *outside* `createSearchTool` and
-  strips already-seen URLs. Query-level dedup sits *inside* and short-circuits
+  `researcher.ts`): that wrapper sits _outside_ `createSearchTool` and
+  strips already-seen URLs. Query-level dedup sits _inside_ and short-circuits
   before the network call. They are complementary (query-level avoids the
   fetch entirely; URL-level trims overlap when two distinct queries return
   overlapping links).
@@ -300,11 +303,11 @@ the model to reuse them or refine to a materially different angle.
 
 ## Cross-cutting: tuning knobs (env)
 
-| Env var                  | Default | Lever | Effect                                             |
-|--------------------------|---------|-------|----------------------------------------------------|
-| `SEARCH_DEPTH_TIERING`   | on      | 2     | Off → today's model/env-driven depth per search.   |
-| `SEARCH_DEDUP_ENABLED`   | on      | 3     | Off → never skip near-duplicate searches.          |
-| `SEARCH_DEDUP_THRESHOLD` | `0.92`  | 3     | Cosine cutoff; higher = stricter (fewer skips).    |
+| Env var                  | Default | Lever | Effect                                           |
+| ------------------------ | ------- | ----- | ------------------------------------------------ |
+| `SEARCH_DEPTH_TIERING`   | on      | 2     | Off → today's model/env-driven depth per search. |
+| `SEARCH_DEDUP_ENABLED`   | on      | 3     | Off → never skip near-duplicate searches.        |
+| `SEARCH_DEDUP_THRESHOLD` | `0.92`  | 3     | Cosine cutoff; higher = stricter (fewer skips).  |
 
 Lever 1 has no toggle — additive routing is strictly safe (baseline always
 fires); `intent='general'` is already the no-op case.
@@ -341,6 +344,7 @@ user msg
 ## Testing / verification
 
 Unit / integration (Vitest, `bun run test`):
+
 - Classifier: intent field parses; fallback sets `intent='general'`; the new
   field doesn't regress existing `skipSearch`/`needsRecent` cases.
 - `INTENT_TO_CATEGORY` mapping + category assembly in both the basic provider
@@ -354,7 +358,8 @@ Unit / integration (Vitest, `bun run test`):
 
 Live (staging ask-admin-feature :3739, then production per the standard
 merge→push→rebuild flow):
-- A code query auto-routes to `it` engines *in addition to* general (verify
+
+- A code query auto-routes to `it` engines _in addition to_ general (verify
   engine mix in results / logs).
 - A balanced multi-search turn runs exactly one advanced search, the rest
   basic (verify via `/api/advanced-search` call count / logs).
@@ -375,5 +380,7 @@ merge→push→rebuild flow):
 - Per-search intent chosen by the model (intent is turn-level from the
   classifier; the model's existing `content_types`/`search_mode` remain its
   per-search controls and compose additively).
+
 ```
 
+```

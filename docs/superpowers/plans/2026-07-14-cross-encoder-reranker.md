@@ -11,7 +11,7 @@
 ## Global Constraints
 
 - **Model:** `BAAI/bge-reranker-v2-m3` (Apache-2.0, true cross-encoder). Served via FlagEmbedding/PyTorch — NOT TEI or vLLM (neither supports Pascal compute 6.1).
-- **Service host:** P4000 box `192.168.50.160` (NightFuryS), Quadro P4000 8GB, driver 582.70, Debian 12 / WSL2. Reached over LAN — this is a *different machine* from the Ask host, so NO shared Docker network (that is same-host only); this supersedes the spec's `shared-infra` note.
+- **Service host:** P4000 box `192.168.50.160` (NightFuryS), Quadro P4000 8GB, driver 582.70, Debian 12 / WSL2. Reached over LAN — this is a _different machine_ from the Ask host, so NO shared Docker network (that is same-host only); this supersedes the spec's `shared-infra` note.
 - **Score convention:** the service returns sigmoid-normalized scores in `[0,1]` (`FlagReranker.compute_score(pairs, normalize=True)`), so downstream thresholds are on the same `[0,1]` scale as today's cosine.
 - **Fallback is mandatory:** every reranker call is timeout-bounded and falls back to the existing bi-encoder path on any failure. Total service failure ⇒ behavior identical to today.
 - **Ask test command:** `bun run test` (Vitest), NOT `bun test`. Run from `/home/nightfury/selfhosted/ask`.
@@ -23,6 +23,7 @@
 ## File Structure
 
 **New — reranker service (deployed to the P4000, lives in the Ask repo for versioning):**
+
 - `selfhosted/reranker/app.py` — FastAPI service: `/health`, `/rerank`.
 - `selfhosted/reranker/requirements.txt` — Python deps.
 - `selfhosted/reranker/Dockerfile` — CUDA-enabled image.
@@ -31,12 +32,14 @@
 - `selfhosted/reranker/smoke_test.py` — standalone `/rerank` correctness check.
 
 **New — Ask client + reranker function:**
+
 - `lib/utils/cross-encoder.ts` — `isCrossEncoderConfigured()`, `crossEncoderScore()`.
 - `lib/utils/__tests__/cross-encoder.test.ts` — client unit tests.
 - `lib/embeddings/rerank.ts` — add `rerankByCrossEncoder()` (modify).
 - `lib/embeddings/__tests__/rerank-cross-encoder.test.ts` — reranker unit tests.
 
 **Modified — integration:**
+
 - `app/api/advanced-search/route.ts` — Phase 1 cascade at the rerank block (lines ~333-371).
 - `lib/embeddings/upload-rag.ts` — Phase 2 in `queryFileChunks` (~88-118).
 - `lib/embeddings/__tests__/upload-rag-rerank.test.ts` — Phase 2 unit test.
@@ -46,6 +49,7 @@
 ## Task 1: Reranker service on the P4000
 
 **Files:**
+
 - Create: `selfhosted/reranker/app.py`
 - Create: `selfhosted/reranker/requirements.txt`
 - Create: `selfhosted/reranker/Dockerfile`
@@ -54,6 +58,7 @@
 - Create: `selfhosted/reranker/smoke_test.py`
 
 **Interfaces:**
+
 - Produces: HTTP `POST /rerank {query: string, passages: string[]} -> {scores: number[]}` (scores in `[0,1]`, index-aligned to `passages`); `GET /health -> {status, model, ready}`. Bearer-token auth on `/rerank`.
 
 - [ ] **Step 1: Write the service**
@@ -154,7 +159,7 @@ services:
     environment:
       RERANKER_MODEL: BAAI/bge-reranker-v2-m3
     ports:
-      - "8787:8787"
+      - '8787:8787'
     volumes:
       # Cache the downloaded model weights across container recreation.
       - hf-cache:/root/.cache/huggingface
@@ -166,7 +171,13 @@ services:
               count: all
               capabilities: [gpu]
     healthcheck:
-      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8787/health')"]
+      test:
+        [
+          'CMD',
+          'python',
+          '-c',
+          "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8787/health')"
+        ]
       interval: 30s
       timeout: 5s
       retries: 5
@@ -278,10 +289,12 @@ git commit -m "Add cross-encoder reranker service (bge-reranker-v2-m3) for the P
 ## Task 2: Ask client — `lib/utils/cross-encoder.ts`
 
 **Files:**
+
 - Create: `lib/utils/cross-encoder.ts`
 - Test: `lib/utils/__tests__/cross-encoder.test.ts`
 
 **Interfaces:**
+
 - Consumes: HTTP `/rerank` from Task 1.
 - Produces:
   - `isCrossEncoderConfigured(): boolean`
@@ -428,10 +441,12 @@ git commit -m "Add cross-encoder reranker client"
 ## Task 3: `rerankByCrossEncoder` in `lib/embeddings/rerank.ts`
 
 **Files:**
+
 - Modify: `lib/embeddings/rerank.ts`
 - Test: `lib/embeddings/__tests__/rerank-cross-encoder.test.ts`
 
 **Interfaces:**
+
 - Consumes: `crossEncoderScore(query, passages)` from Task 2; existing `splitText`, `PASSAGE_MAX_TOKENS`, `PASSAGE_OVERLAP_TOKENS`, `MAX_PASSAGES_PER_DOC`, `RerankableDoc`, `RerankedDoc<T>`, `embedTexts`, `cosineSimilarity`, `RERANK_MODEL` from this file.
 - Produces: `rerankByCrossEncoder<T extends RerankableDoc>(docs: T[], query: string, topK: number): Promise<RerankedDoc<T>[]>` — same shape as `rerankByEmbedding`; `score` is the doc's best-passage cross-encoder score in `[0,1]`; throws if the service call throws (caller falls back).
 - Refactors: extracts a private `rerankByPassageScorer<T>(docs, query, topK, scoreFn)` that holds the passage-split / best-passage / sort-and-slice logic once; `scoreFn: (query: string, passages: string[]) => Promise<number[]>` returns one score per passage in input order. Both `rerankByEmbedding` (existing behavior preserved — its tests in `lib/embeddings/__tests__/rerank.test.ts` must still pass) and `rerankByCrossEncoder` become thin wrappers over it. This removes the duplication the two functions would otherwise share.
@@ -590,9 +605,11 @@ git commit -m "Add rerankByCrossEncoder"
 ## Task 4: Phase 1 — wire cross-encoder into advanced search
 
 **Files:**
+
 - Modify: `app/api/advanced-search/route.ts` (rerank block, ~333-371)
 
 **Interfaces:**
+
 - Consumes: `rerankByCrossEncoder`, `rerankByEmbedding` from `lib/embeddings/rerank.ts`; `isCrossEncoderConfigured` from `lib/utils/cross-encoder.ts`; existing `calculateRelevanceScore`.
 - Produces: no new exports — replaces the two-tier rerank block with a three-tier cascade.
 
@@ -601,7 +618,10 @@ git commit -m "Add rerankByCrossEncoder"
 At the top of `app/api/advanced-search/route.ts`, alongside the existing `rerankByEmbedding` import:
 
 ```typescript
-import { rerankByCrossEncoder, rerankByEmbedding } from '@/lib/embeddings/rerank'
+import {
+  rerankByCrossEncoder,
+  rerankByEmbedding
+} from '@/lib/embeddings/rerank'
 import { isCrossEncoderConfigured } from '@/lib/utils/cross-encoder'
 ```
 
@@ -612,68 +632,68 @@ import { isCrossEncoderConfigured } from '@/lib/utils/cross-encoder'
 Replace the whole `try { const reranked = await rerankByEmbedding(...) ... } catch { ...keyword... }` block (currently ~lines 338-371) with:
 
 ```typescript
-      // Relevance reranking, best-available first:
-      //   cross-encoder service (jointly scores query+passage) →
-      //   bi-encoder cosine (local MiniLM) → keyword scorer.
-      // Each tier degrades to the next on failure, so a reranker outage is
-      // invisible. All three produce scores in [0,1] except the keyword
-      // scorer, which sorts on its own scale.
-      const docsForRerank = generalResults.map(result => ({
-        // Strip <mark> highlight tags before scoring — markup isn't content.
-        // The original (highlights intact for the UI) rides along.
-        content: result.content.replace(/<\/?mark>/g, ''),
-        original: result
+// Relevance reranking, best-available first:
+//   cross-encoder service (jointly scores query+passage) →
+//   bi-encoder cosine (local MiniLM) → keyword scorer.
+// Each tier degrades to the next on failure, so a reranker outage is
+// invisible. All three produce scores in [0,1] except the keyword
+// scorer, which sorts on its own scale.
+const docsForRerank = generalResults.map(result => ({
+  // Strip <mark> highlight tags before scoring — markup isn't content.
+  // The original (highlights intact for the UI) rides along.
+  content: result.content.replace(/<\/?mark>/g, ''),
+  original: result
+}))
+
+const applyReranked = (
+  reranked: { doc: { original: SearXNGResult }; score: number }[],
+  minScore: number
+) => {
+  generalResults = reranked
+    .filter(r => r.score >= minScore)
+    .map(r => r.doc.original)
+}
+
+let reranked = false
+if (isCrossEncoderConfigured()) {
+  try {
+    const out = await rerankByCrossEncoder(docsForRerank, query, maxResults)
+    // Cross-encoder [0,1]; 0.3 is a loose on-topic floor (the answering
+    // model does the fine-grained judging, this only drops clear junk).
+    applyReranked(out, 0.3)
+    reranked = true
+    console.log(
+      `[advanced-search] cross-encoder reranked ${out.length}/${docsForRerank.length}`
+    )
+  } catch (error) {
+    console.error(
+      '[advanced-search] cross-encoder failed, falling back to bi-encoder:',
+      error
+    )
+  }
+}
+
+if (!reranked) {
+  try {
+    const out = await rerankByEmbedding(docsForRerank, query, maxResults)
+    applyReranked(out, 0.2)
+    reranked = true
+  } catch (error) {
+    console.error(
+      '[advanced-search] embedding rerank failed, using keyword scorer:',
+      error
+    )
+    const MIN_RELEVANCE_SCORE = 10
+    generalResults = generalResults
+      .map(result => ({
+        ...result,
+        score: calculateRelevanceScore(result, query)
       }))
-
-      const applyReranked = (
-        reranked: { doc: { original: SearXNGResult }; score: number }[],
-        minScore: number
-      ) => {
-        generalResults = reranked
-          .filter(r => r.score >= minScore)
-          .map(r => r.doc.original)
-      }
-
-      let reranked = false
-      if (isCrossEncoderConfigured()) {
-        try {
-          const out = await rerankByCrossEncoder(docsForRerank, query, maxResults)
-          // Cross-encoder [0,1]; 0.3 is a loose on-topic floor (the answering
-          // model does the fine-grained judging, this only drops clear junk).
-          applyReranked(out, 0.3)
-          reranked = true
-          console.log(
-            `[advanced-search] cross-encoder reranked ${out.length}/${docsForRerank.length}`
-          )
-        } catch (error) {
-          console.error(
-            '[advanced-search] cross-encoder failed, falling back to bi-encoder:',
-            error
-          )
-        }
-      }
-
-      if (!reranked) {
-        try {
-          const out = await rerankByEmbedding(docsForRerank, query, maxResults)
-          applyReranked(out, 0.2)
-          reranked = true
-        } catch (error) {
-          console.error(
-            '[advanced-search] embedding rerank failed, using keyword scorer:',
-            error
-          )
-          const MIN_RELEVANCE_SCORE = 10
-          generalResults = generalResults
-            .map(result => ({
-              ...result,
-              score: calculateRelevanceScore(result, query)
-            }))
-            .filter(result => result.score >= MIN_RELEVANCE_SCORE)
-            .sort((a, b) => b.score - a.score)
-            .slice(0, maxResults)
-        }
-      }
+      .filter(result => result.score >= MIN_RELEVANCE_SCORE)
+      .sort((a, b) => b.score - a.score)
+      .slice(0, maxResults)
+  }
+}
 ```
 
 - [ ] **Step 3: Typecheck and full test suite**
@@ -718,10 +738,12 @@ Expected: a `[advanced-search] cross-encoder reranked N/M` log line, results ret
 ## Task 5: Phase 2 — upload-RAG reranking
 
 **Files:**
+
 - Modify: `lib/embeddings/upload-rag.ts` (`queryFileChunks`, ~88-118)
 - Test: `lib/embeddings/__tests__/upload-rag-rerank.test.ts`
 
 **Interfaces:**
+
 - Consumes: `crossEncoderScore`, `isCrossEncoderConfigured` from `lib/utils/cross-encoder.ts`.
 - Produces: `queryFileChunks(filePath, query, topK=10)` unchanged signature/return (`{filename, chunks: string[]} | null`); internally retrieves a wider cosine candidate pool then cross-encoder-reranks it when configured.
 
@@ -767,7 +789,11 @@ describe('queryFileChunks with cross-encoder', () => {
     }
     vi.spyOn(fs, 'readFile').mockResolvedValue(JSON.stringify(stored) as never)
 
-    const out = await queryFileChunks('/uploads/doc.pdf', 'what is the answer', 1)
+    const out = await queryFileChunks(
+      '/uploads/doc.pdf',
+      'what is the answer',
+      1
+    )
     expect(out).not.toBeNull()
     expect(out!.chunks[0]).toContain('answer')
   })
@@ -793,43 +819,43 @@ import {
 Replace the retrieval block (the `const ranked = stored.chunks...slice(0, topK)` and the `return { filename, chunks }` that follow) with:
 
 ```typescript
-  const [queryEmbedding] = await embedTexts([query], stored.model)
+const [queryEmbedding] = await embedTexts([query], stored.model)
 
-  // First stage: bi-encoder cosine to pull a wider candidate pool.
-  const CANDIDATE_POOL = Math.max(topK * 3, 30)
-  const candidates = stored.chunks
-    .map(chunk => ({
-      content: chunk.content,
-      score: cosineSimilarity(queryEmbedding, chunk.embedding)
-    }))
-    .sort((a, b) => b.score - a.score)
-    .slice(0, CANDIDATE_POOL)
+// First stage: bi-encoder cosine to pull a wider candidate pool.
+const CANDIDATE_POOL = Math.max(topK * 3, 30)
+const candidates = stored.chunks
+  .map(chunk => ({
+    content: chunk.content,
+    score: cosineSimilarity(queryEmbedding, chunk.embedding)
+  }))
+  .sort((a, b) => b.score - a.score)
+  .slice(0, CANDIDATE_POOL)
 
-  // Second stage: cross-encoder reranks the candidate pool when available.
-  // Any failure falls back to the cosine ordering already computed.
-  if (isCrossEncoderConfigured() && candidates.length > 1) {
-    try {
-      const scores = await crossEncoderScore(
-        query,
-        candidates.map(c => c.content)
-      )
-      const reranked = candidates
-        .map((c, i) => ({ content: c.content, score: scores[i] ?? 0 }))
-        .sort((a, b) => b.score - a.score)
-        .slice(0, topK)
-      return { filename: stored.filename, chunks: reranked.map(r => r.content) }
-    } catch (error) {
-      console.error(
-        '[upload-rag] cross-encoder failed, using cosine order:',
-        error
-      )
-    }
+// Second stage: cross-encoder reranks the candidate pool when available.
+// Any failure falls back to the cosine ordering already computed.
+if (isCrossEncoderConfigured() && candidates.length > 1) {
+  try {
+    const scores = await crossEncoderScore(
+      query,
+      candidates.map(c => c.content)
+    )
+    const reranked = candidates
+      .map((c, i) => ({ content: c.content, score: scores[i] ?? 0 }))
+      .sort((a, b) => b.score - a.score)
+      .slice(0, topK)
+    return { filename: stored.filename, chunks: reranked.map(r => r.content) }
+  } catch (error) {
+    console.error(
+      '[upload-rag] cross-encoder failed, using cosine order:',
+      error
+    )
   }
+}
 
-  return {
-    filename: stored.filename,
-    chunks: candidates.slice(0, topK).map(c => c.content)
-  }
+return {
+  filename: stored.filename,
+  chunks: candidates.slice(0, topK).map(c => c.content)
+}
 ```
 
 - [ ] **Step 4: Run test to verify it passes**
@@ -894,6 +920,7 @@ Expected: results returned and a `[advanced-search] cross-encoder reranked` log 
 ## Self-Review
 
 **Spec coverage:**
+
 - Reranker service (bge-reranker-v2-m3, FlagEmbedding, GPU, token, health) → Task 1. ✓
 - Ask client with config gate + timeout + throw-on-failure → Task 2. ✓
 - Phase 1 web reranking with layered fallback (cross → bi → keyword) → Tasks 3-4. ✓

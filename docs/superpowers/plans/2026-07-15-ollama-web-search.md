@@ -35,10 +35,12 @@
 ## Task 1: Ollama search client
 
 **Files:**
+
 - Create: `lib/utils/ollama-search-client.ts`
 - Create: `lib/utils/__tests__/ollama-search-client.test.ts`
 
 **Interfaces:**
+
 - Produces: `OllamaSearchResult` (`{title, url, content}`); `isOllamaSearchConfigured(): boolean`; `fetchOllamaSearch(query, maxResults, opts?): Promise<OllamaSearchResult[] | null>` (null when unconfigured, throws on failure).
 
 - [ ] **Step 1: Write the failing test**
@@ -103,7 +105,9 @@ describe('ollama-search-client', () => {
     process.env.OLLAMA_SEARCH_API_KEY = 'k'
     vi.stubGlobal(
       'fetch',
-      vi.fn().mockResolvedValue({ ok: false, status: 429, json: async () => ({}) })
+      vi
+        .fn()
+        .mockResolvedValue({ ok: false, status: 429, json: async () => ({}) })
     )
     await expect(fetchOllamaSearch('rust', 3)).rejects.toThrow(/429/)
   })
@@ -115,7 +119,9 @@ describe('ollama-search-client', () => {
       vi.fn().mockResolvedValue({
         ok: true,
         status: 200,
-        json: async () => ({ results: [{ title: 'x', content: 'c' }, { url: 'https://y.com' }] })
+        json: async () => ({
+          results: [{ title: 'x', content: 'c' }, { url: 'https://y.com' }]
+        })
       })
     )
     const res = await fetchOllamaSearch('rust', 3)
@@ -179,7 +185,9 @@ export async function fetchOllamaSearch(
   const envTimeout = Number(process.env.OLLAMA_SEARCH_TIMEOUT_MS)
   const timeoutMs =
     options.timeoutMs ??
-    (Number.isFinite(envTimeout) && envTimeout > 0 ? envTimeout : DEFAULT_TIMEOUT_MS)
+    (Number.isFinite(envTimeout) && envTimeout > 0
+      ? envTimeout
+      : DEFAULT_TIMEOUT_MS)
 
   const controller = new AbortController()
   const timer = setTimeout(() => controller.abort(), timeoutMs)
@@ -239,11 +247,13 @@ git commit -m "feat(search): ollama web search client (hosted, degoog-style grac
 ## Task 2: Ollama merge helpers
 
 **Files:**
+
 - Modify: `lib/tools/search/providers/merge-degoog.ts` (export `normalizeUrl`)
 - Create: `lib/tools/search/providers/merge-ollama.ts`
 - Create: `lib/tools/search/providers/__tests__/merge-ollama.test.ts`
 
 **Interfaces:**
+
 - Consumes: `OllamaSearchResult` (Task 1); `normalizeUrl` from `merge-degoog`.
 - Produces: `mergeOllamaIntoSearxngResults(searxngResults: SearXNGResult[], ollamaResults: OllamaSearchResult[], maxResults: number): SearXNGResult[]` (full content); `mergeOllamaIntoResults(items: SearchResultItem[], ollamaResults: OllamaSearchResult[], maxResults: number, maxContentChars: number): SearchResultItem[]` (truncated).
 
@@ -272,8 +282,13 @@ describe('mergeOllamaIntoSearxngResults', () => {
       [oll('https://b.com', 'long full content')],
       10
     )
-    expect(merged.map(r => r.url).sort()).toEqual(['https://a.com', 'https://b.com'])
-    expect(merged.find(r => r.url === 'https://b.com')!.content).toBe('long full content')
+    expect(merged.map(r => r.url).sort()).toEqual([
+      'https://a.com',
+      'https://b.com'
+    ])
+    expect(merged.find(r => r.url === 'https://b.com')!.content).toBe(
+      'long full content'
+    )
   })
 
   it('dedupes an ollama result that duplicates an existing URL', () => {
@@ -402,12 +417,14 @@ git commit -m "feat(search): ollama merge helpers (full content for advanced, tr
 ## Task 3: Plumb `useOllama` + basic-path integration
 
 **Files:**
+
 - Modify: `lib/tools/search.ts` (compute `useOllama`/`ollamaMaxResults`, pass to both paths)
 - Modify: `lib/tools/search/providers/base.ts` (`SearchProviderOptions` + `useOllama`/`ollamaMaxResults`)
 - Modify: `lib/tools/search/providers/searxng.ts` (basic path: fetch + merge Ollama)
 - Test: `lib/tools/search/providers/__tests__/searxng.test.ts`
 
 **Interfaces:**
+
 - Consumes: `isOllamaSearchConfigured`, `fetchOllamaSearch` (Task 1); `mergeOllamaIntoResults` (Task 2).
 - Produces: `SearchProviderOptions.useOllama?: boolean`, `ollamaMaxResults?: number`; the searxng provider merges Ollama into `results` when `options.useOllama`.
 
@@ -416,54 +433,60 @@ git commit -m "feat(search): ollama merge helpers (full content for advanced, tr
 Add to `lib/tools/search/providers/__tests__/searxng.test.ts` (inside the `describe('SearXNGSearchProvider', …)` block). Note: this file mocks `fetch` globally; the Ollama client also uses `fetch`, so branch the mock on URL:
 
 ```typescript
-  it('merges ollama results (truncated) into results when useOllama is set', async () => {
-    process.env.OLLAMA_SEARCH_API_KEY = 'k'
-    const fetchMock = vi.fn().mockImplementation((url: string) => {
-      if (String(url).includes('ollama.com/api/web_search')) {
-        return Promise.resolve({
-          ok: true,
-          status: 200,
-          json: async () => ({
-            results: [
-              { title: 'Ollama Src', url: 'https://ollama-src.com', content: 'x'.repeat(1000) }
-            ]
-          })
+it('merges ollama results (truncated) into results when useOllama is set', async () => {
+  process.env.OLLAMA_SEARCH_API_KEY = 'k'
+  const fetchMock = vi.fn().mockImplementation((url: string) => {
+    if (String(url).includes('ollama.com/api/web_search')) {
+      return Promise.resolve({
+        ok: true,
+        status: 200,
+        json: async () => ({
+          results: [
+            {
+              title: 'Ollama Src',
+              url: 'https://ollama-src.com',
+              content: 'x'.repeat(1000)
+            }
+          ]
         })
-      }
-      return Promise.resolve(mockSearxngResponse([
+      })
+    }
+    return Promise.resolve(
+      mockSearxngResponse([
         { title: 'SX', url: 'https://sx.com', content: 'sx snippet' }
-      ]))
-    })
-    vi.stubGlobal('fetch', fetchMock)
-
-    const result = await provider.search('rust', 10, 'basic', [], [], {
-      useOllama: true,
-      ollamaMaxResults: 3
-    })
-
-    const urls = result.results.map(r => r.url)
-    expect(urls).toContain('https://ollama-src.com')
-    expect(urls).toContain('https://sx.com')
-    // truncated on the basic path
-    const oll = result.results.find(r => r.url === 'https://ollama-src.com')!
-    expect(oll.content.length).toBeLessThan(1000)
-
-    delete process.env.OLLAMA_SEARCH_API_KEY
-  })
-
-  it('does not call ollama when useOllama is unset', async () => {
-    process.env.OLLAMA_SEARCH_API_KEY = 'k'
-    const fetchMock = vi.fn().mockResolvedValue(mockSearxngResponse([]))
-    vi.stubGlobal('fetch', fetchMock)
-
-    await provider.search('rust', 10, 'basic', [], [], {})
-
-    const calledOllama = fetchMock.mock.calls.some(c =>
-      String(c[0]).includes('ollama.com/api/web_search')
+      ])
     )
-    expect(calledOllama).toBe(false)
-    delete process.env.OLLAMA_SEARCH_API_KEY
   })
+  vi.stubGlobal('fetch', fetchMock)
+
+  const result = await provider.search('rust', 10, 'basic', [], [], {
+    useOllama: true,
+    ollamaMaxResults: 3
+  })
+
+  const urls = result.results.map(r => r.url)
+  expect(urls).toContain('https://ollama-src.com')
+  expect(urls).toContain('https://sx.com')
+  // truncated on the basic path
+  const oll = result.results.find(r => r.url === 'https://ollama-src.com')!
+  expect(oll.content.length).toBeLessThan(1000)
+
+  delete process.env.OLLAMA_SEARCH_API_KEY
+})
+
+it('does not call ollama when useOllama is unset', async () => {
+  process.env.OLLAMA_SEARCH_API_KEY = 'k'
+  const fetchMock = vi.fn().mockResolvedValue(mockSearxngResponse([]))
+  vi.stubGlobal('fetch', fetchMock)
+
+  await provider.search('rust', 10, 'basic', [], [], {})
+
+  const calledOllama = fetchMock.mock.calls.some(c =>
+    String(c[0]).includes('ollama.com/api/web_search')
+  )
+  expect(calledOllama).toBe(false)
+  delete process.env.OLLAMA_SEARCH_API_KEY
+})
 ```
 
 - [ ] **Step 2: Run to confirm they fail**
@@ -510,9 +533,9 @@ const OLLAMA_BASIC_SNIPPET_CHARS = 400
 Add the Ollama fetch to the existing `Promise.allSettled([...])` array (the one with `fetchSearxngJson` + degoog fetches). Append one more entry at the END of that array:
 
 ```typescript
-        options?.useOllama
-          ? fetchOllamaSearch(query, options.ollamaMaxResults ?? 5)
-          : Promise.resolve(null)
+options?.useOllama
+  ? fetchOllamaSearch(query, options.ollamaMaxResults ?? 5)
+  : Promise.resolve(null)
 ```
 
 and capture it by adding `ollamaSettled` to the destructured results array (append at the end, matching the appended promise).
@@ -520,16 +543,16 @@ and capture it by adding `ollamaSettled` to the destructured results array (appe
 After the degoog results are extracted, extract Ollama results (never throws):
 
 ```typescript
-      const ollamaResults: OllamaSearchResult[] =
-        ollamaSettled.status === 'fulfilled' && ollamaSettled.value
-          ? ollamaSettled.value
-          : []
-      if (ollamaSettled.status === 'rejected') {
-        console.warn(
-          '[ollama] basic web search failed, continuing without it:',
-          ollamaSettled.reason
-        )
-      }
+const ollamaResults: OllamaSearchResult[] =
+  ollamaSettled.status === 'fulfilled' && ollamaSettled.value
+    ? ollamaSettled.value
+    : []
+if (ollamaSettled.status === 'rejected') {
+  console.warn(
+    '[ollama] basic web search failed, continuing without it:',
+    ollamaSettled.reason
+  )
+}
 ```
 
 Finally, apply the Ollama merge to the returned `results` field. Replace the `results:` value in the `return { … }` at the end of the try block:
@@ -566,28 +589,26 @@ import { isOllamaSearchConfigured } from '@/lib/utils/ollama-search-client'
 Immediately AFTER the line `firstSearchDone = true` (right after the depth-resolution block), add:
 
 ```typescript
-      // Ollama web search runs on EVERY executing search of the turn when
-      // enabled (no per-turn cap). A dedup-skipped search returns earlier and
-      // never reaches here, so Ollama is only called for real searches.
-      const useOllama =
-        isOllamaSearchConfigured() && process.env.OLLAMA_SEARCH_ENABLED !== 'off'
-      const ollamaMaxEnv = Number(process.env.OLLAMA_SEARCH_MAX_RESULTS)
-      const ollamaMaxResults =
-        Number.isFinite(ollamaMaxEnv) && ollamaMaxEnv > 0 ? ollamaMaxEnv : 5
+// Ollama web search runs on EVERY executing search of the turn when
+// enabled (no per-turn cap). A dedup-skipped search returns earlier and
+// never reaches here, so Ollama is only called for real searches.
+const useOllama =
+  isOllamaSearchConfigured() && process.env.OLLAMA_SEARCH_ENABLED !== 'off'
+const ollamaMaxEnv = Number(process.env.OLLAMA_SEARCH_MAX_RESULTS)
+const ollamaMaxResults =
+  Number.isFinite(ollamaMaxEnv) && ollamaMaxEnv > 0 ? ollamaMaxEnv : 5
 ```
 
 In the **advanced** POST body (the `fetch(\`${baseUrl}/api/advanced-search\`)` call), add to the JSON body:
 
 ```typescript
-              useOllama,
-              ollamaMaxResults
+;(useOllama, ollamaMaxResults)
 ```
 
 In the **basic** `searchAPI === 'searxng'` provider `.search(...)` options object, add:
 
 ```typescript
-                useOllama,
-                ollamaMaxResults
+;(useOllama, ollamaMaxResults)
 ```
 
 - [ ] **Step 6: Run tests**
@@ -609,9 +630,11 @@ git commit -m "feat(search): plumb useOllama flag + merge ollama on the basic se
 ## Task 4: Advanced-path integration (merge + skip-Crawl4AI)
 
 **Files:**
+
 - Modify: `app/api/advanced-search/route.ts`
 
 **Interfaces:**
+
 - Consumes: `fetchOllamaSearch`, `OllamaSearchResult` (Task 1); `mergeOllamaIntoSearxngResults` (Task 2).
 
 - [ ] **Step 1: Read `useOllama`/`ollamaMaxResults` from the POST body**
@@ -619,17 +642,17 @@ git commit -m "feat(search): plumb useOllama flag + merge ollama on the basic se
 In `app/api/advanced-search/route.ts` `POST`, destructure them from the body:
 
 ```typescript
-  const {
-    query,
-    maxResults,
-    searchDepth,
-    includeDomains,
-    excludeDomains,
-    timeRange,
-    intent,
-    useOllama,
-    ollamaMaxResults
-  } = await request.json()
+const {
+  query,
+  maxResults,
+  searchDepth,
+  includeDomains,
+  excludeDomains,
+  timeRange,
+  intent,
+  useOllama,
+  ollamaMaxResults
+} = await request.json()
 ```
 
 Add to the Redis `cacheKey` (append so Ollama vs non-Ollama results don't collide):
@@ -641,9 +664,9 @@ Add to the Redis `cacheKey` (append so Ollama vs non-Ollama results don't collid
 Pass into `advancedSearchXNGSearch`:
 
 ```typescript
-      typeof intent === 'string' ? (intent as SearchIntent) : 'general',
-      Boolean(useOllama),
-      typeof ollamaMaxResults === 'number' ? ollamaMaxResults : 5
+;(typeof intent === 'string' ? (intent as SearchIntent) : 'general',
+  Boolean(useOllama),
+  typeof ollamaMaxResults === 'number' ? ollamaMaxResults : 5)
 ```
 
 - [ ] **Step 2: Extend `advancedSearchXNGSearch` signature + imports**
@@ -679,14 +702,21 @@ async function advancedSearchXNGSearch(
 In the `Promise.allSettled([...])` that runs SearXNG + degoog, append an Ollama entry, and capture it:
 
 ```typescript
-    const [searxngSettled, degoogWebSettled, degoogNewsSettled, degoogImgSettled, ollamaSettled] =
-      await Promise.allSettled([
-        fetchSearxngJson(buildUrl),
-        fetchDegoogJson(degoogUrl('web')),
-        intent === 'news' ? fetchDegoogJson(degoogUrl('news')) : Promise.resolve(null),
-        fetchDegoogJson(degoogUrl('images')),
-        useOllama ? fetchOllamaSearch(query, ollamaMaxResults) : Promise.resolve(null)
-      ])
+const [
+  searxngSettled,
+  degoogWebSettled,
+  degoogNewsSettled,
+  degoogImgSettled,
+  ollamaSettled
+] = await Promise.allSettled([
+  fetchSearxngJson(buildUrl),
+  fetchDegoogJson(degoogUrl('web')),
+  intent === 'news'
+    ? fetchDegoogJson(degoogUrl('news'))
+    : Promise.resolve(null),
+  fetchDegoogJson(degoogUrl('images')),
+  useOllama ? fetchOllamaSearch(query, ollamaMaxResults) : Promise.resolve(null)
+])
 ```
 
 (Match the existing destructuring order for the first four; only append `ollamaSettled`.)
@@ -694,17 +724,17 @@ In the `Promise.allSettled([...])` that runs SearXNG + degoog, append an Ollama 
 After the degoog extraction, extract Ollama results:
 
 ```typescript
-    const ollamaResults: OllamaSearchResult[] =
-      ollamaSettled.status === 'fulfilled' && ollamaSettled.value
-        ? (ollamaSettled.value as OllamaSearchResult[])
-        : []
-    if (ollamaSettled.status === 'rejected') {
-      console.warn(
-        '[ollama] advanced web search failed, continuing without it:',
-        ollamaSettled.reason
-      )
-    }
-    const prefetchedUrls = new Set(ollamaResults.map(r => r.url))
+const ollamaResults: OllamaSearchResult[] =
+  ollamaSettled.status === 'fulfilled' && ollamaSettled.value
+    ? (ollamaSettled.value as OllamaSearchResult[])
+    : []
+if (ollamaSettled.status === 'rejected') {
+  console.warn(
+    '[ollama] advanced web search failed, continuing without it:',
+    ollamaSettled.reason
+  )
+}
+const prefetchedUrls = new Set(ollamaResults.map(r => r.url))
 ```
 
 - [ ] **Step 4: Merge Ollama into candidates (before crawl)**
@@ -712,16 +742,16 @@ After the degoog extraction, extract Ollama results:
 Immediately AFTER the existing degoog merge block (`if (degoogWeb.length > 0) { generalResults = mergeDegoogIntoSearxngResults(...) }`) and BEFORE the `if (searchDepth === 'advanced')` crawl block, add:
 
 ```typescript
-    // Ollama results carry full content already — merge them into the candidate
-    // pool so they're reranked alongside crawled searxng/degoog results. They
-    // are tagged (prefetchedUrls) so the crawl step below skips them.
-    if (ollamaResults.length > 0) {
-      generalResults = mergeOllamaIntoSearxngResults(
-        generalResults,
-        ollamaResults,
-        maxResults * SEARXNG_CRAWL_MULTIPLIER
-      )
-    }
+// Ollama results carry full content already — merge them into the candidate
+// pool so they're reranked alongside crawled searxng/degoog results. They
+// are tagged (prefetchedUrls) so the crawl step below skips them.
+if (ollamaResults.length > 0) {
+  generalResults = mergeOllamaIntoSearxngResults(
+    generalResults,
+    ollamaResults,
+    maxResults * SEARXNG_CRAWL_MULTIPLIER
+  )
+}
 ```
 
 - [ ] **Step 5: Skip Crawl4AI for prefetched (Ollama) URLs**
@@ -731,37 +761,37 @@ Inside the `if (searchDepth === 'advanced')` block:
 Exclude prefetched URLs from the Crawl4AI batch — change `toEnrich`:
 
 ```typescript
-      const toEnrich = candidates
-        .filter(r => !prefetchedUrls.has(r.url))
-        .slice(0, MAX_ENRICH_URLS)
+const toEnrich = candidates
+  .filter(r => !prefetchedUrls.has(r.url))
+  .slice(0, MAX_ENRICH_URLS)
 ```
 
 In the per-candidate crawl map, keep a prefetched candidate's own content (apply the same highlight/substring treatment as a crawled result, so it's consistent) instead of calling `crawlPage`:
 
 ```typescript
-      const crawledResults = await Promise.all(
-        candidates.map(async result => {
-          if (prefetchedUrls.has(result.url)) {
-            // Ollama already fetched this — keep its content, don't crawl.
-            return {
-              ...result,
-              content: highlightQueryTerms(
-                `${result.title}\n\n${result.content}`.substring(0, 10000),
-                query
-              )
-            }
-          }
-          const hit = byUrl.get(result.url)
-          if (!hit) return crawlPage(result, query)
-          return {
-            ...result,
-            content: highlightQueryTerms(
-              `${result.title}\n\n${hit.markdown}`.substring(0, 10000),
-              query
-            )
-          }
-        })
+const crawledResults = await Promise.all(
+  candidates.map(async result => {
+    if (prefetchedUrls.has(result.url)) {
+      // Ollama already fetched this — keep its content, don't crawl.
+      return {
+        ...result,
+        content: highlightQueryTerms(
+          `${result.title}\n\n${result.content}`.substring(0, 10000),
+          query
+        )
+      }
+    }
+    const hit = byUrl.get(result.url)
+    if (!hit) return crawlPage(result, query)
+    return {
+      ...result,
+      content: highlightQueryTerms(
+        `${result.title}\n\n${hit.markdown}`.substring(0, 10000),
+        query
       )
+    }
+  })
+)
 ```
 
 - [ ] **Step 6: Typecheck + adjacent unit suites**
@@ -783,6 +813,7 @@ git commit -m "feat(search): merge ollama into the advanced path, skip Crawl4AI 
 ## Task 5: Env docs + enablement
 
 **Files:**
+
 - Modify: `.env.local.example`
 
 **Interfaces:** none (config/docs only).

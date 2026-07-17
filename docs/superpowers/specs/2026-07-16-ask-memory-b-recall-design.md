@@ -13,9 +13,9 @@ what was actually discussed, across all of the user's chats.
 This is **feature B**, the follow-on to **feature A** (auto-extracted user facts
 & preferences, shipped and live). The two are complements, not overlaps:
 
-- **Feature A** answers *who you are* — a small, curated set (~30 facts),
+- **Feature A** answers _who you are_ — a small, curated set (~30 facts),
   injected on every turn.
-- **Feature B** answers *what we already discussed* — the actual conversation
+- **Feature B** answers _what we already discussed_ — the actual conversation
   content, retrieved only when relevant.
 
 Both live on the same pgvector store and share the same fail-safe and
@@ -39,7 +39,7 @@ kill-switch philosophy.
   same shape properly in pgvector.
 - **Embedding window is the binding constraint:** `mxbai-embed-large-v1` has a
   512-token window, and `splitText` chunks at exactly `maxTokens=512,
-  overlapTokens=128` (token-aware, `js-tiktoken`, sentence boundaries). That
+overlapTokens=128` (token-aware, `js-tiktoken`, sentence boundaries). That
   alignment is deliberate. Assistant answers routinely run ~1500+ tokens, so
   embedding a whole Q&A pair as one vector would silently truncate to the first
   third and lose most of the answer.
@@ -56,17 +56,17 @@ Seven units, each independently testable.
 
 New Drizzle table, RLS-isolated exactly like `user_memories`:
 
-| column | type | notes |
-|---|---|---|
-| `id` | varchar (cuid) | PK |
-| `user_id` | varchar(255) | RLS key |
-| `chat_id` | varchar | **FK → `chats.id`, ON DELETE CASCADE** |
-| `message_id` | varchar | **FK → `messages.id`, ON DELETE CASCADE** |
-| `role` | varchar enum | `user` \| `assistant` |
-| `content` | text | the chunk text |
-| `chunk_index` | integer | position within the message |
-| `embedding` | `vector(1024)` | mxbai (`EMBEDDING_MODEL`) |
-| `created_at` | timestamp | mirrors the message's date (recency) |
+| column        | type           | notes                                     |
+| ------------- | -------------- | ----------------------------------------- |
+| `id`          | varchar (cuid) | PK                                        |
+| `user_id`     | varchar(255)   | RLS key                                   |
+| `chat_id`     | varchar        | **FK → `chats.id`, ON DELETE CASCADE**    |
+| `message_id`  | varchar        | **FK → `messages.id`, ON DELETE CASCADE** |
+| `role`        | varchar enum   | `user` \| `assistant`                     |
+| `content`     | text           | the chunk text                            |
+| `chunk_index` | integer        | position within the message               |
+| `embedding`   | `vector(1024)` | mxbai (`EMBEDDING_MODEL`)                 |
+| `created_at`  | timestamp      | mirrors the message's date (recency)      |
 
 - RLS policy `users_manage_own_conversation_chunks` using
   `user_id = (select current_setting('app.current_user_id', true))` — mirrors
@@ -76,7 +76,7 @@ New Drizzle table, RLS-isolated exactly like `user_memories`:
 
 **DB action layer** — `lib/db/recall-actions.ts`, mirroring
 `lib/db/memory-actions.ts` (every operation through `withOptionalRLS(userId, …)`
-*and* an explicit `user_id` predicate, per the established defence-in-depth
+_and_ an explicit `user_id` predicate, per the established defence-in-depth
 pattern):
 `insertChunks(userId, rows)` · `deleteChunksForMessage(userId, messageId)` ·
 `vectorSearchChunks(userId, embedding, n, excludeChatId?)` ·
@@ -89,8 +89,8 @@ pattern):
 
 **The FK cascade is load-bearing and is a deliberate inversion of feature A.**
 `user_memories.source_chat_id` has no FK on purpose — a distilled fact outlives
-its source chat. Chunks are the opposite: they are *derived copies of message
-text*. If a chat (or a message) is deleted and its chunks survive, the model
+its source chat. Chunks are the opposite: they are _derived copies of message
+text_. If a chat (or a message) is deleted and its chunks survive, the model
 recalls conversations the user deleted. That is a privacy defect, so deletion
 must cascade — covering both `deleteChat` and per-message deletion.
 
@@ -122,6 +122,7 @@ it the feature is dead on arrival (recall would find nothing until enough new
 history accumulates), so backfill of existing history is in scope for v1.
 
 Exposed two ways, both real:
+
 - `POST /api/memory/recall-backfill`, guarded by the same `MEMORY_CRON_SECRET`
   bearer as the consolidation route.
 - The **Rebuild index** control in settings (§8c).
@@ -154,7 +155,7 @@ implementation.
 (joins `chats` for the title).
 
 **`score` semantics — read this before tuning thresholds.** `score` means
-*cosine similarity* when `useRerank` is false, and *cross-encoder score* when
+_cosine similarity_ when `useRerank` is false, and _cross-encoder score_ when
 rerank ran; step 5 overwrites it. `minScore` is a gate on **whatever scale
 `score` currently is**, so it is only meaningful alongside a known `useRerank`
 setting.
@@ -166,7 +167,7 @@ setting.
 > `minScore` is always a **cross-encoder-scale** threshold. Recorded rather than
 > quietly rewritten, because the original reasoning looked sound and was wrong.
 
-**Fail closed on a scale mismatch.** If `useRerank: true` is requested *with* a
+**Fail closed on a scale mismatch.** If `useRerank: true` is requested _with_ a
 `minScore` but rerank cannot actually run (cross-encoder unconfigured, or it
 threw), the hits still carry **cosine** scores — and comparing a rerank-scale
 threshold (~0.05) against cosine values (~0.6) would pass **everything**. That is
@@ -189,7 +190,7 @@ it needs two things that only exist there: the classifier's resolved
 
 - `getRecallInjection(userId, query, currentChatId)` →
   `recallSearch(topK = RECALL_INJECT_TOP_K, useRerank: true,
-  excludeChatId: currentChatId, minScore: RECALL_INJECT_MIN_SCORE)`.
+excludeChatId: currentChatId, minScore: RECALL_INJECT_MIN_SCORE)`.
 - On hits: `execute` writes the `data-recall` part, then passes a `recallBlock`
   string into `researcher({ …, recallBlock })`, which appends it to the system
   prompt alongside feature A's memory block. Block shape:
@@ -209,12 +210,12 @@ it needs two things that only exist there: the classifier's resolved
 > - **The gate was unreachable.** For a genuinely relevant query ("How should I
 >   protect my data against ransomware?" against a chat that discussed
 >   ransomware, immutability and the 3-2-1 rule) the best real cosine was
->   **0.626** — so a 0.75 gate meant auto-injection could *never* fire. The
+>   **0.626** — so a 0.75 gate meant auto-injection could _never_ fire. The
 >   feature was silently inert while looking fully implemented.
 > - **Cosine cannot discriminate here at all.** Irrelevant chunks scored
 >   **0.570** against that same query, and the top-scoring chunk (0.626) was a
 >   stray reasoning fragment, not the backup content. A ~0.06-wide band between
->   relevant and irrelevant makes *any* cosine threshold arbitrary: lower it to
+>   relevant and irrelevant makes _any_ cosine threshold arbitrary: lower it to
 >   0.60 and you inject "I'm a software engineer" (0.622) for a ransomware
 >   question.
 > - **The cross-encoder discriminates cleanly on the same input:** relevant
@@ -222,8 +223,8 @@ it needs two things that only exist there: the classifier's resolved
 > - **The latency the original design optimised for was a rounding error.** The
 >   reranker is on the LAN; ~150ms against 30–90s turns is ~0.3%.
 >
-> Lesson worth keeping: a bi-encoder cosine score is a *ranking* signal, not a
-> calibrated *relevance* signal. It orders candidates fine; it cannot answer "is
+> Lesson worth keeping: a bi-encoder cosine score is a _ranking_ signal, not a
+> calibrated _relevance_ signal. It orders candidates fine; it cannot answer "is
 > anything here actually relevant?" Only the cross-encoder can, so only it can
 > gate. Thresholds must be measured against real data before being written into
 > a spec — 0.90/0.75 were plausible-looking numbers invented at design time.
@@ -258,7 +259,7 @@ means genuinely inert rather than "inert except the tool".
 > cosine-scale gate). So once the index held ≥1 chunk, **every query returned
 > hits**, which made the `ILIKE` "floor" unreachable in practice. Searching
 > gibberish returned 20 unrelated chats instead of "No results", and because
-> only message *text* is chunked (never `chats.title`), a chat matching only by
+> only message _text_ is chunked (never `chats.title`), a chat matching only by
 > its **title** — or any not-yet-indexed chat — became invisible. That is a
 > regression: the original keyword search matched `chats.title` OR
 > `parts.text_text`. The unit test masked it by mocking `recallSearch → []`, a
@@ -269,7 +270,7 @@ means genuinely inert rather than "inert except the tool".
 1. **Keyword arm** — the existing `ILIKE` implementation (`chats.title` OR
    `parts.text_text`), unchanged, still ordered most-recently-viewed first.
 2. **Semantic arm** — `recallSearch(topK = 20, useRerank: true,
-   minScore: RECALL_SEARCH_MIN_SCORE)`, mapped onto the existing
+minScore: RECALL_SEARCH_MIN_SCORE)`, mapped onto the existing
    `ChatSearchResult` shape (`{ chatId, chatTitle, snippet, role, lastViewedAt }`),
    so the Library UI needs no change.
 3. **Merge** — keyword results first in their existing order, then semantic hits
@@ -281,10 +282,10 @@ Two properties this buys, both load-bearing:
 - **Today's results are a strict subset, in today's order.** Semantic hits are
   purely additive, so nothing a user can find today stops being findable —
   including title-only matches.
-- **"No results" is honest again.** The function returns `[]` only when *both*
+- **"No results" is honest again.** The function returns `[]` only when _both_
   arms are empty — which requires the semantic arm to be **gated**
   (`RECALL_SEARCH_MIN_SCORE`, on the cross-encoder scale, default `0.01`).
-  Without that gate the vector arm returns its nearest 30 chunks for *any*
+  Without that gate the vector arm returns its nearest 30 chunks for _any_
   input, so the union would always be non-empty.
 
 > **Second amendment, 2026-07-16 — the union alone did not deliver this.** The
@@ -304,7 +305,7 @@ leaving the box behaving exactly as it does today. The user's own search box mus
 never break because of a memory setting.
 
 Deliberate scope call: the recall toggle governs **indexing, auto-injection, and
-the tool**. It does *not* remove the user's ability to search their own chats;
+the tool**. It does _not_ remove the user's ability to search their own chats;
 with recall off the box is simply the keyword arm.
 
 ## 8. User control (UI)
@@ -337,24 +338,24 @@ because the failure is instructive.)
 The original design persisted the chips like any other part. But
 `lib/utils/message-mapping.ts` persists **any** `data-*` part generically, and
 `lib/db/schema.ts`'s `public_chat_parts_readable` RLS policy exposes **every**
-part of a public chat `TO public`. Since a chip names the user's *other* chats by
+part of a public chat `TO public`. Since a chip names the user's _other_ chats by
 **title and id**, sharing a chat would have disclosed the titles of unrelated
 **private** conversations to anonymous visitors — e.g. a chat titled
 "Negotiating my severance package" surfacing on a shared, unrelated chat. RLS
-still blocked *opening* those chats, but the title is usually the most sensitive
+still blocked _opening_ those chats, but the title is usually the most sensitive
 string. Feature A has no equivalent exposure: it injects a prompt block and never
 writes a data part.
 
 The fix is to strip `data-recall` parts before `persistStreamResults` (see
 `lib/streaming/helpers/strip-recall-from-message.ts`), so the chips exist only in
 the live stream. This is also the more honest design: the chip is a claim about
-*this* generation, not a durable property of the message. The wiring is pinned by
+_this_ generation, not a durable property of the message. The wiring is pinned by
 a regression test — the strip is one line standing between a private chat title
 and an anonymous visitor, so it must not be removable without a test failing.
 
 **Note for any future `data-*` part:** anything written into a message is
 world-readable the moment that chat is shared. Data parts must contain nothing
-derived from the user's *other* chats unless it is stripped before persistence.
+derived from the user's _other_ chats unless it is stripped before persistence.
 
 ### b) Recall tool-step rendering
 
@@ -386,7 +387,7 @@ throws" and "report status honestly" pull against each other here. Three real
 defects were found and fixed in review/E2E, all worth keeping in mind for any
 similar control:
 
-- A round that *attempts* work but indexes nothing (embedding model missing,
+- A round that _attempts_ work but indexes nothing (embedding model missing,
   dimension mismatch) means the same rows are re-selected forever — so
   "made progress" must be distinguished from "attempted", and a no-progress
   round must surface an error and stop, plus a hard round cap as a backstop.
@@ -424,15 +425,15 @@ turn starts
 
 ## Config (env)
 
-| var | default | effect |
-|---|---|---|
-| `RECALL_ENABLED` | on | global kill switch (only `'off'` disables) |
-| `RECALL_INJECT_TOP_K` | `2` | auto-injected snippets per turn |
-| `RECALL_INJECT_MIN_SCORE` | `0.05` | **cross-encoder** gate for auto-injection |
-| `RECALL_SEARCH_MIN_SCORE` | `0.01` | **cross-encoder** gate for the Library search's semantic arm |
-| `RECALL_TOOL_TOP_K` | `5` | results returned by the recall tool |
-| `RECALL_CHUNK_TOKENS` | `512` | `splitText` maxTokens (matches the embedder window) |
-| `RECALL_CHUNK_OVERLAP` | `128` | `splitText` overlap |
+| var                       | default | effect                                                       |
+| ------------------------- | ------- | ------------------------------------------------------------ |
+| `RECALL_ENABLED`          | on      | global kill switch (only `'off'` disables)                   |
+| `RECALL_INJECT_TOP_K`     | `2`     | auto-injected snippets per turn                              |
+| `RECALL_INJECT_MIN_SCORE` | `0.05`  | **cross-encoder** gate for auto-injection                    |
+| `RECALL_SEARCH_MIN_SCORE` | `0.01`  | **cross-encoder** gate for the Library search's semantic arm |
+| `RECALL_TOOL_TOP_K`       | `5`     | results returned by the recall tool                          |
+| `RECALL_CHUNK_TOKENS`     | `512`   | `splitText` maxTokens (matches the embedder window)          |
+| `RECALL_CHUNK_OVERLAP`    | `128`   | `splitText` overlap                                          |
 
 **Both `*_MIN_SCORE` values are on the cross-encoder's scale, not cosine**
 (amended 2026-07-16 — see §4/§5). Measured on real data: a relevant match scores
@@ -467,6 +468,7 @@ from feature A applies here too.
 ## Testing
 
 Unit (Vitest):
+
 - Chunking + **idempotent re-index** (re-indexing a message replaces, never
   duplicates).
 - `recallSearch`: arm union + dedup by chunk id; `minScore` filter;
@@ -481,6 +483,7 @@ Unit (Vitest):
 Live (staging → prod, standard flow). Mocked tests structurally cannot catch
 SQL-generation or real-embedding defects — that is exactly how feature A's
 `setLastUsed` bug hid — so these are required, not optional:
+
 - Backfill over real history: counts land, chunks have `dim=1024`.
 - "What did we decide about X" ⇒ recall injects, chips render and link
   correctly.
@@ -504,7 +507,7 @@ SQL-generation or real-embedding defects — that is exactly how feature A's
 - Re-embedding on `EMBEDDING_MODEL` change (same as feature A).
 - Summarizing or compressing old chats to shrink the index (not needed at
   personal scale — ~760 chunks ≈ 3MB today).
-- Recall across *other users'* or shared/public chats — strictly per-user.
+- Recall across _other users'_ or shared/public chats — strictly per-user.
 - Classifier-side recall gating (v1 gates on `minScore`, not on a classifier
   signal).
 - Indexing non-text parts (reasoning, sources, files) — text parts only in v1.
