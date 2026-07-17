@@ -12,7 +12,7 @@ services:
     environment:
       RERANKER_MODEL: BAAI/bge-reranker-v2-m3
     ports:
-      - "8787:8787"
+      - '8787:8787'
     volumes:
       # Cache the downloaded model weights across container recreation.
       - hf-cache:/root/.cache/huggingface
@@ -24,7 +24,13 @@ services:
               count: all
               capabilities: [gpu]
     healthcheck:
-      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8787/health')"]
+      test:
+        [
+          'CMD',
+          'python',
+          '-c',
+          "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8787/health')"
+        ]
       interval: 30s
       timeout: 5s
       retries: 5

@@ -4,7 +4,7 @@
 **Status:** Design — pending user review, then implementation plan
 **Goal:** Replace Ask's bi-encoder cosine ranking of retrieved content with a
 cross-encoder reranker, served on the spare Quadro P4000 box. Cross-encoders
-score each (query, passage) pair *jointly* and are substantially better at
+score each (query, passage) pair _jointly_ and are substantially better at
 relevance ordering than comparing separately-embedded vectors — a direct,
 low-risk upgrade to what the answering model reads.
 
@@ -23,7 +23,7 @@ low-risk upgrade to what the answering model reads.
   8GB, driver 582.70, 20 cores, 58GB RAM, Debian 12 under WSL2. Ollama not
   installed; not needed for this.
 - **Pascal constraint (verified).** The strongest rerankers (Qwen3-Reranker
-  4B/8B) are *generative* and served via vLLM, which requires compute
+  4B/8B) are _generative_ and served via vLLM, which requires compute
   capability 7.0+. The P4000 is 6.1. Separately, HuggingFace TEI (the fast
   cross-encoder server) does not build for Pascal 6.1 either. **PyTorch does
   support Pascal**, so the service uses a PyTorch-based runtime
@@ -34,7 +34,7 @@ low-risk upgrade to what the answering model reads.
 
 `BAAI/bge-reranker-v2-m3` — 568M params, **true cross-encoder** (not
 generative), Apache-2.0, ~1-2GB VRAM (trivially fits 8GB). It is about the
-largest *pure* cross-encoder available; the higher-scoring v2 rerankers went
+largest _pure_ cross-encoder available; the higher-scoring v2 rerankers went
 generative (Qwen-based), which is exactly what Pascal can't serve
 efficiently. So this is the most capable model that actually runs well on
 this GPU, not merely one that fits its VRAM. `Qwen3-Reranker-0.6B` (~+0.04
@@ -45,7 +45,7 @@ MTEB, generative) is noted as a later A/B, not built now.
 A small containerized Python service under `selfhosted/reranker/`:
 
 - **Runtime:** FastAPI + FlagEmbedding `FlagReranker('BAAI/bge-reranker-v2-m3',
-  use_fp16=True)` on `device=cuda` (falls back to CPU if CUDA is
+use_fp16=True)` on `device=cuda` (falls back to CPU if CUDA is
   unavailable — this box has 20 cores, so CPU is acceptable, just slower).
 - **Endpoint:**
   `POST /rerank  { "query": str, "passages": [str, ...] }  →  { "scores": [float, ...] }`
@@ -87,8 +87,8 @@ so `app/api/advanced-search/route.ts` is otherwise unchanged:
 4. Rank docs by score, return top-K.
 
 **Fallback chain (layered, never errors a search):** cross-encoder service
-→ *(down/timeout/error)* → existing `rerankByEmbedding` (bi-encoder MiniLM)
-→ *(fails)* → keyword scorer. Selection: if `isCrossEncoderConfigured()`,
+→ _(down/timeout/error)_ → existing `rerankByEmbedding` (bi-encoder MiniLM)
+→ _(fails)_ → keyword scorer. Selection: if `isCrossEncoderConfigured()`,
 try cross-encoder; on throw, log and call `rerankByEmbedding`; that already
 falls back to the keyword scorer. A reranker outage silently degrades to
 today's behavior.
@@ -123,7 +123,7 @@ text-extractable documents.
   relevant history belongs to the parked Couchbase memory feature, not here.
 - **Replacing the embedding models** — MiniLM/mxbai stay for embedding
   (upload-RAG candidate retrieval, any future memory). The cross-encoder is
-  a *reranking* layer on top, not a replacement.
+  a _reranking_ layer on top, not a replacement.
 
 ## Error handling & testing
 

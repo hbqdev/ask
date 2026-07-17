@@ -16,7 +16,7 @@
 - **Inert when disabled:** `RECALL_ENABLED` env (only `'off'` disables) is the global switch; per-user `user_settings.recall_enabled` gates each user. Disabled ⇒ no indexing, no injection, **and no tool** — the tool must gate itself at execute time (feature A's I-1: the `remember` tool bypassed the kill switch because only injection/extraction were gated).
 - **Embeddings** use `EMBEDDING_MODEL` (mxbai, **1024-d**); `conversation_chunks.embedding` is pinned to `vector(1024)`. A different model's dimension makes every write fail — guard with a loud `console.error` and skip, never a silent swallow.
 - **FK cascade is a privacy requirement:** `chat_id` and `message_id` are `ON DELETE CASCADE`. A deleted chat's chunks MUST disappear or the model recalls conversations the user deleted. Verified in the E2E.
-- **`score` semantics:** `score` is *cosine* when `useRerank: false`, *cross-encoder score* when rerank ran. Only the auto-inject path sets `minScore`, and it always runs `useRerank: false` — so `RECALL_INJECT_MIN_SCORE` is unambiguously a cosine gate. Never pair `minScore` with rerank.
+- **`score` semantics:** `score` is _cosine_ when `useRerank: false`, _cross-encoder score_ when rerank ran. Only the auto-inject path sets `minScore`, and it always runs `useRerank: false` — so `RECALL_INJECT_MIN_SCORE` is unambiguously a cosine gate. Never pair `minScore` with rerank.
 - **UI hard rule:** every control must actually do what it appears to do. No decorative affordances, no fake progress, nothing that looks functional but isn't. "Rebuild index" polls real row counts; no "semantic" badge on a search that silently degrades to keyword.
 - **Env defaults (exact):** `RECALL_ENABLED` on; `RECALL_INJECT_TOP_K` 2; `RECALL_INJECT_MIN_SCORE` 0.75; `RECALL_TOOL_TOP_K` 5; `RECALL_CHUNK_TOKENS` 512; `RECALL_CHUNK_OVERLAP` 128. Backfill route reuses `MEMORY_CRON_SECRET`.
 - **Testing:** `bun run test` (NOT `bun test`). Pre-commit: `bun lint --fix`, `bun typecheck`, `npx prettier --write <only touched files>` (NOT `bun format` — it reformats the whole repo). Commit on `admin-feature`; do NOT push/redeploy until final verification.
@@ -52,12 +52,14 @@
 ## Task 1: Schema + migration
 
 **Files:**
+
 - Modify: `lib/db/schema.ts`
 - Create: `drizzle/0017_conversation_chunks.sql`
 - Modify: `drizzle/meta/_journal.json`
 - Test: `lib/db/__tests__/recall-schema.test.ts`
 
 **Interfaces:**
+
 - Consumes: existing `chats`, `messages`, `userSettings`, `vector`, `pgPolicy`, `index`, `ID_LENGTH`, `USER_ID_LENGTH`, `VARCHAR_LENGTH`, `generateId` (all already imported in `schema.ts`).
 - Produces: `conversationChunks` table + `ConversationChunk` type; `userSettings.recallEnabled`.
 
@@ -203,13 +205,13 @@ Note: `CREATE EXTENSION vector` is NOT needed — feature A's migration already 
 Add the journal entry to `drizzle/meta/_journal.json` after `0016_pgvector_user_memories`, using the same shape as its neighbours:
 
 ```json
-		{
-			"idx": 17,
-			"version": "7",
-			"when": 1784200000000,
-			"tag": "0017_conversation_chunks",
-			"breakpoints": true
-		}
+{
+  "idx": 17,
+  "version": "7",
+  "when": 1784200000000,
+  "tag": "0017_conversation_chunks",
+  "breakpoints": true
+}
 ```
 
 - [ ] **Step 5: Verify the migration replays on a throwaway pgvector DB**
@@ -228,6 +230,7 @@ docker exec -i pgv-test psql -U morphic -d morphic < drizzle/0017_conversation_c
 docker exec pgv-test psql -U morphic -d morphic -c "\d conversation_chunks"
 docker rm -f pgv-test
 ```
+
 Expected: table created with `vector(1024)`, hnsw index, policy; `user_settings.recall_enabled` added.
 
 - [ ] **Step 6: Run tests, then commit**
@@ -245,10 +248,12 @@ git commit -m "feat(recall): conversation_chunks pgvector table + per-user recal
 ## Task 2: DB action layer
 
 **Files:**
+
 - Create: `lib/db/recall-actions.ts`
 - Test: `lib/db/__tests__/recall-actions-sql.test.ts`
 
 **Interfaces:**
+
 - Consumes: `withOptionalRLS` (`lib/db/with-rls.ts`), `db` (`@/lib/db`), `conversationChunks`/`chats`/`messages`/`userSettings` (Task 1).
 - Produces: `insertChunks(userId, rows)`; `deleteChunksForMessage(userId, messageId)`; `vectorSearchChunks(userId, embedding, n, excludeChatId?)`; `keywordSearchChunks(userId, term, n, excludeChatId?)`; `countChunks(userId)`; `clearChunks(userId)`; `messagesWithoutChunks(userId, limit)`; `isRecallEnabled(userId)`; `setRecallEnabled(userId, on)`. Row type `ChunkSearchRow = { chunkId, chatId, chatTitle, role, content, createdAt, score }`.
 
@@ -326,7 +331,10 @@ export async function insertChunks(userId: string, rows: NewChunk[]) {
   })
 }
 
-export async function deleteChunksForMessage(userId: string, messageId: string) {
+export async function deleteChunksForMessage(
+  userId: string,
+  messageId: string
+) {
   await withOptionalRLS(userId, async tx => {
     await tx
       .delete(conversationChunks)
@@ -430,7 +438,12 @@ export async function messagesWithoutChunks(
   userId: string,
   limit = 25
 ): Promise<
-  { messageId: string; chatId: string; role: 'user' | 'assistant'; text: string }[]
+  {
+    messageId: string
+    chatId: string
+    role: 'user' | 'assistant'
+    text: string
+  }[]
 > {
   return withOptionalRLS(userId, async tx => {
     const res = await tx.execute(sql`
@@ -450,7 +463,9 @@ export async function messagesWithoutChunks(
       ORDER BY m.created_at ASC
       LIMIT ${limit}
     `)
-    return (res as unknown as { rows?: any[] }).rows ?? (res as unknown as any[])
+    return (
+      (res as unknown as { rows?: any[] }).rows ?? (res as unknown as any[])
+    )
   })
 }
 
@@ -497,11 +512,13 @@ git commit -m "feat(recall): RLS'd conversation-chunk DB actions"
 ## Task 3: Indexing (idempotent)
 
 **Files:**
+
 - Create: `lib/memory/recall-types.ts`
 - Create: `lib/memory/recall-index.ts`
 - Test: `lib/memory/__tests__/recall-index.test.ts`
 
 **Interfaces:**
+
 - Consumes: `splitText` (`lib/embeddings/split-text.ts`), `embedTexts`/`getConfiguredModel` (`lib/embeddings/transformers-embedding.ts`), `deleteChunksForMessage`/`insertChunks`/`isRecallEnabled` (Task 2).
 - Produces: `indexMessage(userId, chatId, messageId, role, text): Promise<number>` (chunks written; never throws). `RecallHit`/`RecallOptions` types.
 
@@ -538,7 +555,9 @@ Create `lib/memory/__tests__/recall-index.test.ts`:
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 vi.mock('@/lib/embeddings/transformers-embedding', () => ({
-  embedTexts: vi.fn(async (t: string[]) => t.map(() => new Array(1024).fill(0.1))),
+  embedTexts: vi.fn(async (t: string[]) =>
+    t.map(() => new Array(1024).fill(0.1))
+  ),
   getConfiguredModel: vi.fn(() => 'm')
 }))
 vi.mock('@/lib/db/recall-actions', () => ({
@@ -582,7 +601,9 @@ describe('indexMessage', () => {
 
   it('never throws — a DB error resolves to 0', async () => {
     vi.mocked(db.insertChunks).mockRejectedValueOnce(new Error('db down'))
-    await expect(indexMessage('u1', 'c1', 'm1', 'user', 'hello')).resolves.toBe(0)
+    await expect(indexMessage('u1', 'c1', 'm1', 'user', 'hello')).resolves.toBe(
+      0
+    )
   })
 
   it('returns 0 for empty text without touching the DB', async () => {
@@ -690,10 +711,12 @@ git commit -m "feat(recall): idempotent per-message chunk indexing"
 ## Task 4: Hybrid retrieval core
 
 **Files:**
+
 - Create: `lib/memory/recall-search.ts`
 - Test: `lib/memory/__tests__/recall-search.test.ts`
 
 **Interfaces:**
+
 - Consumes: `vectorSearchChunks`/`keywordSearchChunks`/`isRecallEnabled` (Task 2), `embedTexts`/`getConfiguredModel`, `crossEncoderScore`/`isCrossEncoderConfigured` (`lib/utils/cross-encoder.ts`), `RecallHit`/`RecallOptions` (Task 3).
 - Produces: `recallSearch(userId, query, opts: RecallOptions): Promise<RecallHit[]>` (never throws).
 
@@ -719,7 +742,10 @@ vi.mock('@/lib/utils/cross-encoder', () => ({
 }))
 
 import * as db from '@/lib/db/recall-actions'
-import { crossEncoderScore, isCrossEncoderConfigured } from '@/lib/utils/cross-encoder'
+import {
+  crossEncoderScore,
+  isCrossEncoderConfigured
+} from '@/lib/utils/cross-encoder'
 
 import { recallSearch } from '../recall-search'
 
@@ -744,7 +770,10 @@ describe('recallSearch', () => {
   it('unions both arms and dedups by chunk id (vector score wins)', async () => {
     vi.mocked(db.vectorSearchChunks).mockResolvedValue([row({ score: 0.9 })])
     vi.mocked(db.keywordSearchChunks).mockResolvedValue([row({ score: 0 })])
-    const hits = await recallSearch('u1', 'backups', { topK: 5, useRerank: false })
+    const hits = await recallSearch('u1', 'backups', {
+      topK: 5,
+      useRerank: false
+    })
     expect(hits).toHaveLength(1)
     expect(hits[0].score).toBe(0.9)
   })
@@ -786,17 +815,30 @@ describe('recallSearch', () => {
   })
 
   it('passes excludeChatId to both arms', async () => {
-    await recallSearch('u1', 'q', { topK: 5, useRerank: false, excludeChatId: 'c9' })
-    expect(db.vectorSearchChunks).toHaveBeenCalledWith('u1', expect.anything(), 30, 'c9')
+    await recallSearch('u1', 'q', {
+      topK: 5,
+      useRerank: false,
+      excludeChatId: 'c9'
+    })
+    expect(db.vectorSearchChunks).toHaveBeenCalledWith(
+      'u1',
+      expect.anything(),
+      30,
+      'c9'
+    )
     expect(db.keywordSearchChunks).toHaveBeenCalledWith('u1', 'q', 30, 'c9')
   })
 
   it('is inert when recall is disabled, and never throws on error', async () => {
     vi.mocked(db.isRecallEnabled).mockResolvedValue(false)
-    expect(await recallSearch('u1', 'q', { topK: 5, useRerank: false })).toEqual([])
+    expect(
+      await recallSearch('u1', 'q', { topK: 5, useRerank: false })
+    ).toEqual([])
     vi.mocked(db.isRecallEnabled).mockResolvedValue(true)
     vi.mocked(db.vectorSearchChunks).mockRejectedValue(new Error('db down'))
-    await expect(recallSearch('u1', 'q', { topK: 5, useRerank: false })).resolves.toEqual([])
+    await expect(
+      recallSearch('u1', 'q', { topK: 5, useRerank: false })
+    ).resolves.toEqual([])
   })
 })
 ```
@@ -906,11 +948,13 @@ git commit -m "feat(recall): hybrid vector+keyword retrieval core with optional 
 ## Task 5: Backfill + cron route
 
 **Files:**
+
 - Create: `lib/memory/recall-backfill.ts`
 - Create: `app/api/memory/recall-backfill/route.ts`
 - Test: `lib/memory/__tests__/recall-backfill.test.ts`
 
 **Interfaces:**
+
 - Consumes: `messagesWithoutChunks` (Task 2), `indexMessage` (Task 3), `db`/`conversationChunks` for the all-users sweep.
 - Produces: `backfillUser(userId, opts?): Promise<{ messages: number; chunks: number }>`; `backfillAllUsers(): Promise<{ users: number; messages: number; chunks: number }>`.
 
@@ -958,7 +1002,10 @@ describe('backfillUser', () => {
 
   it('never throws — a DB error returns what it managed', async () => {
     vi.mocked(db.messagesWithoutChunks).mockRejectedValue(new Error('db down'))
-    await expect(backfillUser('u1')).resolves.toEqual({ messages: 0, chunks: 0 })
+    await expect(backfillUser('u1')).resolves.toEqual({
+      messages: 0,
+      chunks: 0
+    })
   })
 })
 ```
@@ -995,7 +1042,13 @@ export async function backfillUser(
       const batch = await messagesWithoutChunks(userId, batchSize)
       if (batch.length === 0) break
       for (const m of batch) {
-        chunks += await indexMessage(userId, m.chatId, m.messageId, m.role, m.text)
+        chunks += await indexMessage(
+          userId,
+          m.chatId,
+          m.messageId,
+          m.role,
+          m.text
+        )
         messages++
       }
     }
@@ -1059,12 +1112,14 @@ git commit -m "feat(recall): resumable backfill + cron route"
 ## Task 6: The `recall` tool + researcher wiring
 
 **Files:**
+
 - Create: `lib/tools/recall.ts`
 - Modify: `lib/types/agent.ts`
 - Modify: `lib/agents/researcher.ts`
 - Test: `lib/tools/__tests__/recall.test.ts`
 
 **Interfaces:**
+
 - Consumes: `recallSearch` (Task 4), `isRecallEnabled` (Task 2).
 - Produces: `createRecallTool(userId, currentChatId)`; `ResearcherTools['recall']`.
 
@@ -1098,14 +1153,18 @@ describe('createRecallTool', () => {
 
   it('is inert without a userId and never searches', async () => {
     const tool = createRecallTool(undefined, 'c1')
-    expect(await tool.execute!({ query: 'x' }, {} as any)).toEqual({ results: [] })
+    expect(await tool.execute!({ query: 'x' }, {} as any)).toEqual({
+      results: []
+    })
     expect(recallSearch).not.toHaveBeenCalled()
   })
 
   it('is inert when recall is disabled (kill switch gates the TOOL too)', async () => {
     vi.mocked(isRecallEnabled).mockResolvedValue(false)
     const tool = createRecallTool('u1', 'c1')
-    expect(await tool.execute!({ query: 'x' }, {} as any)).toEqual({ results: [] })
+    expect(await tool.execute!({ query: 'x' }, {} as any)).toEqual({
+      results: []
+    })
     expect(recallSearch).not.toHaveBeenCalled()
   })
 
@@ -1155,11 +1214,13 @@ export function createRecallTool(
 ) {
   return tool({
     description:
-      "Search the user's own past conversations for what was previously discussed or decided. Use when the user refers to earlier context (\"what did we decide about X\", \"that tool you recommended\"). Do NOT use for general web knowledge — use search for that.",
+      'Search the user\'s own past conversations for what was previously discussed or decided. Use when the user refers to earlier context ("what did we decide about X", "that tool you recommended"). Do NOT use for general web knowledge — use search for that.',
     inputSchema: z.object({
       query: z
         .string()
-        .describe('What to look for in the past conversations, in plain language')
+        .describe(
+          'What to look for in the past conversations, in plain language'
+        )
     }),
     execute: async ({ query }) => {
       if (!userId || !(await isRecallEnabled(userId))) return { results: [] }
@@ -1187,7 +1248,7 @@ export function createRecallTool(
 In `lib/types/agent.ts`, add to the `ResearcherTools` object literal (next to `remember`):
 
 ```typescript
-  recall: ReturnType<typeof import('@/lib/tools/recall').createRecallTool>
+recall: ReturnType<typeof import('@/lib/tools/recall').createRecallTool>
 ```
 
 - [ ] **Step 5: Wire it into the researcher**
@@ -1195,19 +1256,25 @@ In `lib/types/agent.ts`, add to the `ResearcherTools` object literal (next to `r
 In `lib/agents/researcher.ts`:
 
 1. Import it near the other tool imports:
+
 ```typescript
 import { createRecallTool } from '../tools/recall'
 ```
+
 2. Add `currentChatId?: string` to `createResearcher`'s params object **and** its type block (alongside `userId`), with this comment:
+
 ```typescript
-  // The chat this turn belongs to — excluded from recall results so the tool
-  // never returns the conversation the user is already in.
-  currentChatId
+// The chat this turn belongs to — excluded from recall results so the tool
+// never returns the conversation the user is already in.
+currentChatId
 ```
+
 3. Add to the `tools` object literal (keep the `as ResearcherTools` cast):
+
 ```typescript
       recall: createRecallTool(userId, currentChatId),
 ```
+
 4. Append `'recall'` to **all four** `activeToolsList` assignments (skip / speed / quality / balanced). A mode missing it silently cannot call the tool.
 
 - [ ] **Step 6: Run tests; commit**
@@ -1225,6 +1292,7 @@ git commit -m "feat(recall): recall tool wired into the researcher, kill-switch 
 ## Task 7: Auto-injection + `data-recall` part
 
 **Files:**
+
 - Create: `lib/memory/recall-inject.ts`
 - Modify: `lib/types/ai.ts`
 - Modify: `lib/agents/researcher.ts`
@@ -1232,6 +1300,7 @@ git commit -m "feat(recall): recall tool wired into the researcher, kill-switch 
 - Test: `lib/memory/__tests__/recall-inject.test.ts`
 
 **Interfaces:**
+
 - Consumes: `recallSearch` (Task 4), `RecallHit` (Task 3).
 - Produces: `buildRecallBlock(hits): string`; `getRecallInjection(userId, query, currentChatId): Promise<{ block: string; hits: RecallHit[] }>`; `createResearcher({ …, recallBlock })`.
 
@@ -1277,7 +1346,10 @@ describe('getRecallInjection', () => {
   beforeEach(() => vi.clearAllMocks())
 
   it('returns an empty block without a userId and never searches', async () => {
-    expect(await getRecallInjection(undefined, 'q', 'c1')).toEqual({ block: '', hits: [] })
+    expect(await getRecallInjection(undefined, 'q', 'c1')).toEqual({
+      block: '',
+      hits: []
+    })
     expect(recallSearch).not.toHaveBeenCalled()
   })
 
@@ -1288,13 +1360,20 @@ describe('getRecallInjection', () => {
     expect(recallSearch).toHaveBeenCalledWith(
       'u1',
       'q',
-      expect.objectContaining({ useRerank: false, excludeChatId: 'c9', minScore: 0.75 })
+      expect.objectContaining({
+        useRerank: false,
+        excludeChatId: 'c9',
+        minScore: 0.75
+      })
     )
   })
 
   it('never throws — an error yields an empty block', async () => {
     vi.mocked(recallSearch).mockRejectedValue(new Error('boom'))
-    await expect(getRecallInjection('u1', 'q', 'c1')).resolves.toEqual({ block: '', hits: [] })
+    await expect(getRecallInjection('u1', 'q', 'c1')).resolves.toEqual({
+      block: '',
+      hits: []
+    })
   })
 })
 ```
@@ -1376,16 +1455,16 @@ In `lib/types/ai.ts`, add to `UIDataTypes` (after the `classifier` entry):
 In `lib/agents/researcher.ts`, add `recallBlock` to the params object and its type (`recallBlock?: string`), with the comment:
 
 ```typescript
-  // Past-conversation excerpts, retrieved in the streaming layer (it owns the
-  // resolved standaloneQuery and the stream writer). Appended to the system
-  // prompt next to the feature-A memory block.
-  recallBlock
+// Past-conversation excerpts, retrieved in the streaming layer (it owns the
+// resolved standaloneQuery and the stream writer). Appended to the system
+// prompt next to the feature-A memory block.
+recallBlock
 ```
 
 Then, immediately after the existing memory-block append (currently lines 433-434):
 
 ```typescript
-    if (recallBlock) systemPrompt = systemPrompt + recallBlock
+if (recallBlock) systemPrompt = systemPrompt + recallBlock
 ```
 
 - [ ] **Step 6: Wire the streaming layer**
@@ -1393,66 +1472,77 @@ Then, immediately after the existing memory-block append (currently lines 433-43
 In `lib/streaming/create-chat-stream-response.ts`:
 
 1. Add imports:
+
 ```typescript
 import { getRecallInjection } from '../memory/recall-inject'
 import { indexMessage } from '../memory/recall-index'
 ```
+
 2. Inside `execute`, after `classification = await classificationPromise` (line ~288) and before the `researcher({...})` call (line ~319):
+
 ```typescript
-        // Past-conversation recall: retrieve here (not in createResearcher)
-        // because this scope owns both the resolved standaloneQuery and the
-        // stream writer needed for the attribution chips.
-        const recall = await getRecallInjection(
-          userId,
-          classification?.standaloneQuery || latestMessageText,
-          chatId
-        )
-        if (recall.hits.length > 0) {
-          writer.write({
-            type: 'data-recall',
-            id: 'recall',
-            data: {
-              chats: [
-                ...new Map(
-                  recall.hits.map(h => [h.chatId, { chatId: h.chatId, title: h.chatTitle }])
-                ).values()
-              ]
-            }
-          })
-        }
+// Past-conversation recall: retrieve here (not in createResearcher)
+// because this scope owns both the resolved standaloneQuery and the
+// stream writer needed for the attribution chips.
+const recall = await getRecallInjection(
+  userId,
+  classification?.standaloneQuery || latestMessageText,
+  chatId
+)
+if (recall.hits.length > 0) {
+  writer.write({
+    type: 'data-recall',
+    id: 'recall',
+    data: {
+      chats: [
+        ...new Map(
+          recall.hits.map(h => [
+            h.chatId,
+            { chatId: h.chatId, title: h.chatTitle }
+          ])
+        ).values()
+      ]
+    }
+  })
+}
 ```
+
 3. Add these two args to the `researcher({ … })` call:
+
 ```typescript
           currentChatId: chatId,
           recallBlock: recall.block,
 ```
+
 4. In the `onFinish` handler, inside the existing non-aborted branch and alongside the feature-A extraction block, add the turn indexing (fire-and-forget, never awaited):
+
 ```typescript
-        // Conversation recall: index this turn's question + answer (async,
-        // non-blocking — mirrors the memory extraction above).
-        if (userId && process.env.RECALL_ENABLED !== 'off') {
-          void (async () => {
-            try {
-              const userText = getTextFromParts(message?.parts)
-              if (userText?.trim() && message?.id) {
-                await indexMessage(userId, chatId, message.id, 'user', userText)
-              }
-              const answerText = getTextFromParts(cleanedMessage?.parts)
-              if (answerText?.trim() && cleanedMessage?.id) {
-                await indexMessage(
-                  userId,
-                  chatId,
-                  cleanedMessage.id,
-                  'assistant',
-                  answerText
-                )
-              }
-            } catch (error) {
-              console.error('[recall] indexing failed:', error)
-            }
-          })()
-        }
+// Conversation recall: index this turn's question + answer (async,
+// non-blocking — mirrors the memory extraction above).
+if (userId && process.env.RECALL_ENABLED !== 'off') {
+  void (async () => {
+    try {
+      const userText = getTextFromParts(message?.parts)
+      if (userText?.trim() && message?.id) {
+        await indexMessage(userId, chatId, message.id, 'user', userText)
+      }
+      const answerText = getTextFromParts(cleanedMessage?.parts)
+      if (answerText?.trim() && cleanedMessage?.id) {
+        await indexMessage(
+          userId,
+          chatId,
+          cleanedMessage.id,
+          'assistant',
+          answerText
+        )
+      }
+    } catch (error) {
+      console.error('[recall] indexing failed:', error)
+    }
+  })()
+}
 ```
+
 Do **not** touch `create-ephemeral-chat-stream-response.ts` beyond nothing at all — it has no `userId`, so recall stays inert there (its `researcher(...)` call simply omits `currentChatId`/`recallBlock`, which are optional).
 
 - [ ] **Step 7: Run tests; commit**
@@ -1470,10 +1560,12 @@ git commit -m "feat(recall): per-turn auto-injection + turn indexing + data-reca
 ## Task 8: Library search goes hybrid
 
 **Files:**
+
 - Modify: `lib/db/actions.ts` (`searchUserChats`, ~line 653)
 - Test: `lib/db/__tests__/search-user-chats.test.ts`
 
 **Interfaces:**
+
 - Consumes: `recallSearch` (Task 4).
 - Produces: `searchUserChats(userId, query, limit)` — unchanged signature and `ChatSearchResult[]` return, now semantic with a keyword fallback.
 
@@ -1531,7 +1623,9 @@ describe('searchUserChatsHybrid', () => {
   it('falls back when recall throws — the search box must never break', async () => {
     vi.mocked(recallSearch).mockRejectedValue(new Error('down'))
     const fallback = vi.fn(async () => [])
-    await expect(searchUserChatsHybrid('u1', 'q', 20, fallback as any)).resolves.toEqual([])
+    await expect(
+      searchUserChatsHybrid('u1', 'q', 20, fallback as any)
+    ).resolves.toEqual([])
     expect(fallback).toHaveBeenCalled()
   })
 })
@@ -1619,6 +1713,7 @@ git commit -m "feat(recall): Library search goes hybrid with a keyword fallback"
 ## Task 9: UI — attribution chips + recall tool step
 
 **Files:**
+
 - Create: `components/recall-section.tsx`
 - Create: `components/recall-tool-section.tsx`
 - Modify: `components/research-process-section.tsx`
@@ -1626,6 +1721,7 @@ git commit -m "feat(recall): Library search goes hybrid with a keyword fallback"
 - Test: `components/__tests__/recall-section.test.tsx`
 
 **Interfaces:**
+
 - Consumes: the `data-recall` part (Task 7), `ResearcherTools['recall']` (Task 6).
 - Produces: `RecallSection`, `RecallPart`, `RecallData`, `RecallToolSection`.
 
@@ -1772,7 +1868,9 @@ export function RecallToolSection({
         >
           <div className="flex items-center justify-between gap-2">
             <span className="truncate font-medium">{r.chatTitle}</span>
-            <span className="shrink-0 text-xs text-muted-foreground">{r.date}</span>
+            <span className="shrink-0 text-xs text-muted-foreground">
+              {r.date}
+            </span>
           </div>
           <p className="mt-1 line-clamp-2 text-xs text-muted-foreground">
             {r.content}
@@ -1793,6 +1891,7 @@ function isRecallPart(part: MessagePart): part is RecallPart {
   return part.type === 'data-recall'
 }
 ```
+
 Import `RecallPart`/`RecallSection` from `./recall-section` and render it in the step list wherever `isClassifierPart` is handled, using the same row treatment.
 
 In `components/render-message.tsx`, add `data-recall` to the buffered part types (the `else if` at ~line 191):
@@ -1818,11 +1917,13 @@ git commit -m "feat(recall): attribution chips + recall tool step renderer"
 ## Task 10: UI — settings (toggle, real status, rebuild, clear)
 
 **Files:**
+
 - Create: `lib/actions/recall.ts`
 - Modify: `components/settings/memory-tab.tsx`
 - Test: `lib/actions/__tests__/recall.test.ts`
 
 **Interfaces:**
+
 - Consumes: `getCurrentUserId` (`@/lib/auth/get-current-user`), `countChunks`/`clearChunks`/`isRecallEnabled`/`setRecallEnabled` (Task 2), `backfillUser` (Task 5).
 - Produces: `getRecallEnabled()`; `setRecallEnabledAction(on)`; `getRecallStatus()`; `rebuildRecallIndexAction()`; `clearRecallIndexAction()`.
 
@@ -1882,8 +1983,15 @@ describe('recall actions', () => {
 
   it('rebuild delegates to backfillUser with the user id', async () => {
     vi.mocked(getCurrentUserId).mockResolvedValue('u1')
-    vi.mocked(backfill.backfillUser).mockResolvedValue({ messages: 4, chunks: 9 })
-    expect(await rebuildRecallIndexAction()).toEqual({ success: true, messages: 4, chunks: 9 })
+    vi.mocked(backfill.backfillUser).mockResolvedValue({
+      messages: 4,
+      chunks: 9
+    })
+    expect(await rebuildRecallIndexAction()).toEqual({
+      success: true,
+      messages: 4,
+      chunks: 9
+    })
     expect(backfill.backfillUser).toHaveBeenCalledWith('u1')
   })
 })
@@ -1922,7 +2030,10 @@ export async function setRecallEnabledAction(on: boolean) {
 }
 
 /** Real row counts — the settings panel shows these, never a guess. */
-export async function getRecallStatus(): Promise<{ chunks: number; chats: number }> {
+export async function getRecallStatus(): Promise<{
+  chunks: number
+  chats: number
+}> {
   const userId = await getCurrentUserId()
   if (!userId) return { chunks: 0, chats: 0 }
   return countChunks(userId)
@@ -1949,15 +2060,17 @@ In `components/settings/memory-tab.tsx`:
 
 1. Import the new actions and `AlertDialog` pieces already imported there.
 2. Add state:
+
 ```typescript
-  const [recallEnabled, setRecallEnabledState] = useState(true)
-  const [status, setStatus] = useState<{ chunks: number; chats: number }>({
-    chunks: 0,
-    chats: 0
-  })
-  const [rebuilding, setRebuilding] = useState(false)
-  const [clearIndexOpen, setClearIndexOpen] = useState(false)
+const [recallEnabled, setRecallEnabledState] = useState(true)
+const [status, setStatus] = useState<{ chunks: number; chats: number }>({
+  chunks: 0,
+  chats: 0
+})
+const [rebuilding, setRebuilding] = useState(false)
+const [clearIndexOpen, setClearIndexOpen] = useState(false)
 ```
+
 3. Load `getRecallEnabled()` and `getRecallStatus()` alongside the existing loads in the mount effect.
 4. Render two labelled groups. Keep the existing facts UI under a **Facts** heading, then add:
 
@@ -2073,6 +2186,7 @@ git commit -m "feat(recall): settings — recall toggle, real index status, rebu
 ## Task 11: Env docs
 
 **Files:**
+
 - Modify: `.env.local.example`
 
 - [ ] **Step 1: Document the vars**
@@ -2120,6 +2234,7 @@ docker compose -f docker-compose.yaml -f docker-compose.admin-feature.yaml build
 docker compose -f docker-compose.yaml -f docker-compose.admin-feature.yaml -f <anon-override>.yaml up -d --force-recreate --no-deps ask
 docker logs ask-admin-feature 2>&1 | grep -iE "migrat|Ready|error"
 ```
+
 Expected: "Migrations completed successfully", "Ready".
 
 - [ ] **Step 2: Verify the migration**
@@ -2128,6 +2243,7 @@ Expected: "Migrations completed successfully", "Ready".
 docker exec ask-postgres-admin-feature psql -U morphic -d morphic -c "\d conversation_chunks"
 docker exec ask-postgres-admin-feature psql -U morphic -d morphic -c "SELECT recall_enabled FROM user_settings LIMIT 1;"
 ```
+
 Expected: `embedding vector(1024)`, the hnsw index, the RLS policy, both FKs; `recall_enabled` exists.
 
 - [ ] **Step 3: Backfill real history**
@@ -2137,6 +2253,7 @@ curl -X POST -H "Authorization: Bearer $MEMORY_CRON_SECRET" http://localhost:373
 docker exec ask-postgres-admin-feature psql -U morphic -d morphic -c \
   "SELECT count(*) chunks, count(distinct chat_id) chats FROM conversation_chunks;"
 ```
+
 Expected: non-zero counts. Confirm dimension: chunks embed at 1024 (a mismatch would have logged `[recall] embedding dimension mismatch`).
 
 - [ ] **Step 4: Auto-injection + attribution chips**
@@ -2160,6 +2277,7 @@ docker exec ask-postgres-admin-feature psql -U morphic -d morphic -c \
 docker exec ask-postgres-admin-feature psql -U morphic -d morphic -c \
   "SELECT count(*) FROM conversation_chunks WHERE chat_id = '<that id>';"
 ```
+
 Expected: **0** — a deleted chat's chunks must be gone.
 
 - [ ] **Step 8: Library search is semantic**

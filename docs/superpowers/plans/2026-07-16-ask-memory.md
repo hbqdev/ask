@@ -42,12 +42,14 @@
 ## Task 1: pgvector infra + schema + migration
 
 **Files:**
+
 - Modify: `docker-compose.yaml`
 - Modify: `lib/db/schema.ts`
 - Generate: `drizzle/NNNN_*.sql` (edited to add the extension)
 - Test: `lib/db/__tests__/memory-schema.test.ts`
 
 **Interfaces:**
+
 - Produces: Drizzle tables `userMemories`, `userSettings`; types `UserMemory`, `UserSettings`.
 
 - [ ] **Step 1: Swap the Postgres image to pgvector**
@@ -191,12 +193,14 @@ git commit -m "feat(memory): pgvector user_memories + user_settings schema and m
 ## Task 2: Memory write-path logic + DB actions
 
 **Files:**
+
 - Create: `lib/memory/types.ts`
 - Create: `lib/memory/write.ts`
 - Create: `lib/db/memory-actions.ts`
 - Test: `lib/memory/__tests__/write.test.ts`
 
 **Interfaces:**
+
 - Consumes: `withOptionalRLS` (`lib/db/with-rls.ts`), `embedTexts` (`lib/embeddings/transformers-embedding.ts`), `userMemories`/`userSettings` (Task 1).
 - Produces: `decideWrite(candidate, nearest, cfg): WriteDecision` (pure); `saveMemory(userId, candidate, opts)`; `getConfirmedMemories(userId, limit)`; `listMemories(userId)`; `deleteMemory(userId, id)`; `clearMemories(userId)`; `setLastUsed(userId, ids)`; `isMemoryEnabled(userId)`; `setMemoryEnabled(userId, on)`.
 
@@ -356,7 +360,10 @@ Create `lib/db/memory-actions.ts` mirroring `lib/db/actions.ts` (all ops through
 ```typescript
 import { and, desc, eq, sql } from 'drizzle-orm'
 
-import { embedTexts, getConfiguredModel } from '@/lib/embeddings/transformers-embedding'
+import {
+  embedTexts,
+  getConfiguredModel
+} from '@/lib/embeddings/transformers-embedding'
 
 import { userMemories, userSettings } from './schema'
 import { withOptionalRLS } from './with-rls'
@@ -451,7 +458,10 @@ export async function getConfirmedMemories(userId: string, limit: number) {
       .select()
       .from(userMemories)
       .where(
-        and(eq(userMemories.userId, userId), eq(userMemories.status, 'confirmed'))
+        and(
+          eq(userMemories.userId, userId),
+          eq(userMemories.status, 'confirmed')
+        )
       )
       .orderBy(desc(userMemories.lastUsedAt), desc(userMemories.updatedAt))
       .limit(limit)
@@ -556,10 +566,12 @@ git commit -m "feat(memory): write-path decision logic + pgvector DB actions"
 ## Task 3: Extraction pass (granite)
 
 **Files:**
+
 - Create: `lib/agents/memory-extractor.ts`
 - Test: `lib/agents/__tests__/memory-extractor.test.ts`
 
 **Interfaces:**
+
 - Consumes: the same Ollama-host + `createTimeoutFetch` pattern as `lib/agents/query-classifier.ts`.
 - Produces: `extractMemories({ userMessage, standaloneQuery, abortSignal }): Promise<MemoryCandidate[]>` (returns `[]` on nothing/failure).
 
@@ -613,7 +625,9 @@ describe('extractMemories', () => {
 
   it('returns [] when the model finds nothing durable', async () => {
     mockGen.mockResolvedValue({ output: { memories: [] } } as any)
-    expect(await extractMemories({ userMessage: 'what time is it' })).toEqual([])
+    expect(await extractMemories({ userMessage: 'what time is it' })).toEqual(
+      []
+    )
   })
 
   it('returns [] on model error (fail-safe)', async () => {
@@ -717,6 +731,7 @@ export async function extractMemories({
 - [ ] **Step 4: Run to confirm pass; commit**
 
 Run: `bun run test lib/agents/__tests__/memory-extractor.test.ts` → PASS (4).
+
 ```bash
 bun lint --fix && bun typecheck && npx prettier --write lib/agents/memory-extractor.ts lib/agents/__tests__/memory-extractor.test.ts
 git add lib/agents/memory-extractor.ts lib/agents/__tests__/memory-extractor.test.ts
@@ -728,12 +743,14 @@ git commit -m "feat(memory): granite extraction pass for durable user facts"
 ## Task 4: Save orchestration + `remember` tool
 
 **Files:**
+
 - Modify: `lib/memory/write.ts` (add `saveCandidates` orchestrator)
 - Create: `lib/tools/remember.ts`
 - Modify: `lib/types/agent.ts` (add `remember` to `ResearcherTools`)
 - Test: `lib/memory/__tests__/save.test.ts`
 
 **Interfaces:**
+
 - Consumes: `decideWrite` (Task 2), `nearestMemory`/`insertMemory`/`bumpMemory`/`supersedeMemory`/`evictOverCap`/`embedTexts` (Task 2).
 - Produces: `saveCandidates(userId, candidates, opts): Promise<number>` (count saved/updated; never throws); `createRememberTool(userId)`.
 
@@ -920,12 +937,13 @@ export function createRememberTool(userId: string | undefined) {
 Add `remember` to `ResearcherTools` in `lib/types/agent.ts` (mirror the existing tool keys):
 
 ```typescript
-  remember: ReturnType<typeof import('@/lib/tools/remember').createRememberTool>
+remember: ReturnType<typeof import('@/lib/tools/remember').createRememberTool>
 ```
 
 - [ ] **Step 5: Run tests; commit**
 
 Run: `bun run test lib/memory/__tests__/save.test.ts` → PASS (3).
+
 ```bash
 bun lint --fix && bun typecheck && npx prettier --write lib/memory/write.ts lib/tools/remember.ts lib/types/agent.ts lib/memory/__tests__/save.test.ts
 git add lib/memory/write.ts lib/tools/remember.ts lib/types/agent.ts lib/memory/__tests__/save.test.ts
@@ -937,12 +955,14 @@ git commit -m "feat(memory): saveCandidates orchestrator + remember tool"
 ## Task 5: Researcher injection + streaming extraction hook
 
 **Files:**
+
 - Create: `lib/memory/inject.ts`
 - Modify: `lib/agents/researcher.ts`
 - Modify: `lib/streaming/create-chat-stream-response.ts` (+ `create-ephemeral-chat-stream-response.ts`)
 - Test: `lib/memory/__tests__/inject.test.ts`
 
 **Interfaces:**
+
 - Consumes: `getConfirmedMemories`/`setLastUsed`/`isMemoryEnabled` (Task 2), `createRememberTool` (Task 4), `extractMemories` (Task 3), `saveCandidates` (Task 4).
 - Produces: `buildMemoryBlock(memories): string`; `getMemoryInjection(userId): Promise<string>`; `createResearcher({ …, userId })`.
 
@@ -985,9 +1005,7 @@ import {
   setLastUsed
 } from '@/lib/db/memory-actions'
 
-export function buildMemoryBlock(
-  memories: { content: string }[]
-): string {
+export function buildMemoryBlock(memories: { content: string }[]): string {
   if (memories.length === 0) return ''
   const lines = memories.map(m => `- ${m.content}`).join('\n')
   return `\n\n## What you know about this user\nThese are durable facts/preferences remembered from past conversations. Use them to personalize your answer when relevant; do not mention that you have memory unless asked.\n${lines}`
@@ -1026,21 +1044,26 @@ Run: `bun run test lib/memory/__tests__/inject.test.ts` → PASS (2).
 - [ ] **Step 3: Thread `userId` + memory into `createResearcher`**
 
 In `lib/agents/researcher.ts`:
+
 - Add `userId?: string` to `createResearcher`'s params + destructure.
 - Import `createRememberTool` and `getMemoryInjection`.
 - Build the remember tool and add it to the `tools` object and to each mode's `activeToolsList` (speed/balanced/quality/skip): `remember: createRememberTool(userId)` in `tools`; add `'remember'` to each `activeToolsList`.
 - After the existing `systemInstructions` append block, await and append the memory block:
+
   ```typescript
   const memoryBlock = await getMemoryInjection(userId)
   if (memoryBlock) systemPrompt = systemPrompt + memoryBlock
   ```
+
   (Place it before the `ToolLoopAgent` is constructed so `instructions` include it. `createResearcher` is already `async`-friendly — it returns after building the agent; add the `await` inside its body.)
 
 - [ ] **Step 4: Pass `userId` + kick off extraction in the streaming pipeline**
 
 In `lib/streaming/create-chat-stream-response.ts`:
+
 - Pass `userId` into the `researcher({ … })` call.
 - In the `onFinish` handler (after `stripNarrationFromMessage`, where the turn is complete and non-aborted), kick off async extraction — fire-and-forget, never awaited into the response:
+
   ```typescript
   // Long-term memory: extract durable user facts from this turn (async,
   // non-blocking — mirrors title generation). Fully guarded + fail-safe.
@@ -1063,12 +1086,14 @@ In `lib/streaming/create-chat-stream-response.ts`:
     })()
   }
   ```
+
   Add the imports (`extractMemories`, `saveCandidates`, `isMemoryEnabled`, and reuse the existing `getTextFromParts`). Make the identical change in `create-ephemeral-chat-stream-response.ts`.
 
 - [ ] **Step 5: Run tests (researcher + streaming suites), commit**
 
 Run: `bun run test lib/memory/__tests__/inject.test.ts lib/agents/__tests__/researcher.test.ts`
 Expected: PASS (memory injection is optional/`userId`-gated, so existing researcher tests are unaffected).
+
 ```bash
 bun lint --fix && bun typecheck && npx prettier --write lib/memory/inject.ts lib/agents/researcher.ts lib/types/agent.ts lib/streaming/create-chat-stream-response.ts lib/streaming/create-ephemeral-chat-stream-response.ts lib/memory/__tests__/inject.test.ts
 git add lib/memory/inject.ts lib/agents/researcher.ts lib/types/agent.ts lib/streaming/create-chat-stream-response.ts lib/streaming/create-ephemeral-chat-stream-response.ts lib/memory/__tests__/inject.test.ts
@@ -1080,20 +1105,26 @@ git commit -m "feat(memory): inject confirmed memories into researcher + async e
 ## Task 6: Minimal consolidation + cron route
 
 **Files:**
+
 - Create: `lib/agents/memory-consolidator.ts`
 - Create: `app/api/memory/consolidate/route.ts`
 - Test: `lib/agents/__tests__/memory-consolidator.test.ts`
 
 **Interfaces:**
+
 - Consumes: `listMemories`/`supersedeMemory`/`deleteMemory`/`evictOverCap` (Task 2); granite (extractor pattern).
 - Produces: `consolidateUser(userId): Promise<{ merged: number; evicted: number }>`.
 
 - [ ] **Step 1: Implement a minimal, testable consolidation**
 
-Create `lib/agents/memory-consolidator.ts`. v1 keeps it mechanical + fail-safe: for a user's confirmed memories, collapse exact-duplicate contents (keep newest, delete the rest) and enforce the cap via `evictOverCap`. (Granite-based semantic merge of *near*-duplicates and contradiction resolution is a documented v1.1 extension — the per-turn write path already dedups by similarity, so v1 consolidation is a safety sweep.)
+Create `lib/agents/memory-consolidator.ts`. v1 keeps it mechanical + fail-safe: for a user's confirmed memories, collapse exact-duplicate contents (keep newest, delete the rest) and enforce the cap via `evictOverCap`. (Granite-based semantic merge of _near_-duplicates and contradiction resolution is a documented v1.1 extension — the per-turn write path already dedups by similarity, so v1 consolidation is a safety sweep.)
 
 ```typescript
-import { deleteMemory, evictOverCap, listMemories } from '@/lib/db/memory-actions'
+import {
+  deleteMemory,
+  evictOverCap,
+  listMemories
+} from '@/lib/db/memory-actions'
 
 export async function consolidateUser(
   userId: string
@@ -1143,6 +1174,7 @@ Add `consolidateAllActiveUsers()` to `memory-consolidator.ts` — selects distin
 - [ ] **Step 2: Test the dup-collapse logic + commit**
 
 Create `lib/agents/__tests__/memory-consolidator.test.ts` mocking the DB actions: two confirmed memories with identical normalized content → the older one is deleted, `merged === 1`; a DB error → resolves `{ merged: 0 }` (never throws). Run it green, then:
+
 ```bash
 bun lint --fix && bun typecheck && npx prettier --write lib/agents/memory-consolidator.ts app/api/memory/consolidate/route.ts lib/agents/__tests__/memory-consolidator.test.ts
 git add lib/agents/memory-consolidator.ts app/api/memory/consolidate/route.ts lib/agents/__tests__/memory-consolidator.test.ts
@@ -1154,6 +1186,7 @@ git commit -m "feat(memory): minimal consolidation sweep + cron route"
 ## Task 7: Memory settings UI + saved indicator
 
 **Files:**
+
 - Create: `lib/actions/memory.ts` (server actions)
 - Create: `app/settings/memory/page.tsx` + `components/memory/memory-list.tsx`, `components/memory/memory-toggle.tsx`
 - Modify: the settings navigation to link the Memory page
@@ -1161,6 +1194,7 @@ git commit -m "feat(memory): minimal consolidation sweep + cron route"
 - Test: `lib/actions/__tests__/memory.test.ts`
 
 **Interfaces:**
+
 - Consumes: `listMemories`/`deleteMemory`/`clearMemories`/`isMemoryEnabled`/`setMemoryEnabled` (Task 2), `getCurrentUser` (auth).
 - Produces: server actions `getMemories()`, `deleteMemoryAction(id)`, `clearMemoriesAction()`, `getMemoryEnabled()`, `setMemoryEnabledAction(on)`; a Memory settings page.
 
@@ -1179,6 +1213,7 @@ In `create-chat-stream-response.ts`, when the async extraction/tool save reports
 - [ ] **Step 4: Run tests; commit**
 
 Run: `bun run test lib/actions/__tests__/memory.test.ts` → PASS. Then:
+
 ```bash
 bun lint --fix && bun typecheck && npx prettier --write lib/actions/memory.ts app/settings/memory/page.tsx components/memory/memory-list.tsx components/memory/memory-toggle.tsx lib/actions/__tests__/memory.test.ts
 git add lib/actions/memory.ts app/settings/memory components/memory lib/actions/__tests__/memory.test.ts lib/streaming/create-chat-stream-response.ts
@@ -1190,6 +1225,7 @@ git commit -m "feat(memory): settings UI (list/delete/clear + toggle) and saved 
 ## Task 8: Env docs + deployment notes
 
 **Files:**
+
 - Modify: `.env.local.example`
 
 - [ ] **Step 1: Document the env vars**
@@ -1227,12 +1263,14 @@ Deployment (not code steps): the Postgres image swap to `pgvector/pgvector:pg17`
 - [ ] **Step 1: Migrate + rebuild staging on pgvector**
 
 Recreate the staging Postgres on the pgvector image and rebuild the app:
+
 ```bash
 cd /home/nightfury/selfhosted/ask
 docker compose -f docker-compose.yaml -f docker-compose.admin-feature.yaml up -d postgres  # picks up pgvector/pgvector:pg17
 docker compose -f docker-compose.yaml -f docker-compose.admin-feature.yaml run --rm ask bun migrate  # or exec after build
 docker compose -f docker-compose.yaml -f docker-compose.admin-feature.yaml up -d --build ask
 ```
+
 Verify: `docker exec ask-postgres-admin-feature psql -U morphic -d morphic -c "\dx"` shows `vector`; `\d user_memories` shows the `vector(1024)` column. Confirm `ask-admin-feature` is healthy on `:3739`.
 
 - [ ] **Step 2: Enable anon mode (drive turns) + confirm memory is on**
@@ -1242,10 +1280,12 @@ Bring staging up with `ENABLE_AUTH=false` (the anon-override compose used previo
 - [ ] **Step 3: Graduation scenario (the core mechanism)**
 
 Drive two turns (via `/?q=…` or Playwright) where the user states the SAME durable preference, e.g. turn 1 "I only ever want concise answers, no preamble" then a later turn "keep it concise please, I hate long answers". After each turn's async extraction settles (~a few seconds), inspect the DB:
+
 ```bash
 docker exec ask-postgres-admin-feature psql -U morphic -d morphic -c \
   "SELECT content, status, sightings FROM user_memories ORDER BY updated_at DESC LIMIT 10;"
 ```
+
 Expected: a "concise answers" memory appears as `candidate` (sightings 1) after turn 1, then bumps to `confirmed` (sightings ≥2) after the repeat. Then drive a THIRD unrelated turn and confirm the researcher's answer reflects the remembered preference (concise), and that the injected block was built (check `last_used_at` got set on that row).
 
 - [ ] **Step 4: `remember` tool (immediate save)**

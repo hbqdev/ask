@@ -23,7 +23,8 @@ export const calculateTool = tool({
     } catch (err) {
       return {
         expression,
-        error: err instanceof Error ? err.message : 'Could not evaluate expression',
+        error:
+          err instanceof Error ? err.message : 'Could not evaluate expression',
         success: false
       }
     }

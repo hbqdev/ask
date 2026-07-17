@@ -5,7 +5,6 @@ import { isProviderEnabled } from '@/lib/utils/registry'
 
 export type ModelsByProvider = Record<string, Model[]>
 
-
 const MODEL_CACHE_TTL_MS = 2 * 60 * 1000
 const DATE_SNAPSHOT_SUFFIX_REGEX = /-\d{4}-\d{2}-\d{2}$/
 const GOOGLE_PREVIEW_SNAPSHOT_REGEX = /preview-\d{2}-\d{2,4}$/i
@@ -451,7 +450,12 @@ export async function fetchOllamaEmbedModels(): Promise<string[]> {
     return data
       .map((item: Record<string, unknown>) => String(item?.name ?? ''))
       .filter(Boolean)
-      .filter((name: string) => name.toLowerCase().includes('embed') || name.toLowerCase().includes('minilm') || name.toLowerCase().includes('nomic'))
+      .filter(
+        (name: string) =>
+          name.toLowerCase().includes('embed') ||
+          name.toLowerCase().includes('minilm') ||
+          name.toLowerCase().includes('nomic')
+      )
   } catch {
     return []
   }

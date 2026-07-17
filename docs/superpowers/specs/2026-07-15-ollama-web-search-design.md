@@ -146,6 +146,7 @@ Search #2..N (basic, every search when enabled):
 ## Error handling
 
 Ollama is a pure complement, identical to degoog:
+
 - Unconfigured (`OLLAMA_SEARCH_API_KEY` unset) → `fetchOllamaSearch` returns
   `null` → path proceeds on searxng+degoog. Feature inert.
 - Timeout / non-OK / rate-limit → throws → caught by `Promise.allSettled` →
@@ -156,12 +157,12 @@ Ollama is a pure complement, identical to degoog:
 
 ## Config (env)
 
-| Env var | Default | Effect |
-|---|---|---|
-| `OLLAMA_SEARCH_API_KEY` | *(unset)* | Ollama cloud key. **Enables** the feature; reuse the existing key. |
-| `OLLAMA_SEARCH_ENABLED` | on | Only `'off'` disables (kill switch). |
-| `OLLAMA_SEARCH_MAX_RESULTS` | `5` | `max_results` per Ollama call. |
-| `OLLAMA_SEARCH_TIMEOUT_MS` | `10000` | Per-request timeout. |
+| Env var                     | Default   | Effect                                                             |
+| --------------------------- | --------- | ------------------------------------------------------------------ |
+| `OLLAMA_SEARCH_API_KEY`     | _(unset)_ | Ollama cloud key. **Enables** the feature; reuse the existing key. |
+| `OLLAMA_SEARCH_ENABLED`     | on        | Only `'off'` disables (kill switch).                               |
+| `OLLAMA_SEARCH_MAX_RESULTS` | `5`       | `max_results` per Ollama call.                                     |
+| `OLLAMA_SEARCH_TIMEOUT_MS`  | `10000`   | Per-request timeout.                                               |
 
 `OLLAMA_SEARCH_API_KEY` is distinct from `OLLAMA_BASE_URL` (the local Ollama for
 models) — web search is the cloud endpoint and needs the cloud key in Ask's
@@ -170,6 +171,7 @@ models) — web search is the cloud endpoint and needs the cloud key in Ask's
 ## Testing
 
 Unit (Vitest, `bun run test`):
+
 - `ollama-search-client`: returns `null` unconfigured; parses `{results}` on
   success; throws on non-OK/timeout; circuit-breaker suppresses during cooldown.
 - `merge-ollama`: Ollama → `SearXNGResult`/`SearchResultItem` shape; dedup by
@@ -181,6 +183,7 @@ Unit (Vitest, `bun run test`):
 
 Live (staging ask-admin-feature :3739, then production per the standard
 merge→push→rebuild flow):
+
 - With the key set, a balanced turn's results include Ollama-sourced URLs.
 - Advanced-search logs show Crawl4AI enriching only searxng/degoog URLs (Ollama
   URLs skipped) while Ollama content still appears in the reranked output.

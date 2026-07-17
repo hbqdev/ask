@@ -36,12 +36,14 @@
 ## Task 1: Shared intent module + classifier `intent` field
 
 **Files:**
+
 - Create: `lib/tools/search/intent.ts`
 - Create: `lib/tools/search/__tests__/intent.test.ts`
 - Modify: `lib/agents/query-classifier.ts`
 - Test: `lib/agents/__tests__/query-classifier.test.ts`
 
 **Interfaces:**
+
 - Produces: `SEARCH_INTENTS: readonly ['general','code','discussion','news','academic']`; `type SearchIntent = (typeof SEARCH_INTENTS)[number]`; `intentToCategory(intent: SearchIntent): string | null` (null for `general`). `QueryClassification` gains `intent: SearchIntent`.
 
 - [ ] **Step 1: Write the failing test for the intent module**
@@ -133,33 +135,33 @@ Expected: PASS (3 tests).
 Add to `lib/agents/__tests__/query-classifier.test.ts` (inside the existing `describe('classifyQuery', …)` block):
 
 ```typescript
-  it('returns the model-provided intent on success', async () => {
-    mockGenerateText.mockResolvedValue({
-      output: {
-        skipSearch: false,
-        standaloneQuery: 'latest node.js LTS version',
-        needsRecent: true,
-        intent: 'code'
-      }
-    } as any)
+it('returns the model-provided intent on success', async () => {
+  mockGenerateText.mockResolvedValue({
+    output: {
+      skipSearch: false,
+      standaloneQuery: 'latest node.js LTS version',
+      needsRecent: true,
+      intent: 'code'
+    }
+  } as any)
 
-    const result = await classifyQuery({
-      messages: [userMsg('whats the newest node lts')]
-    })
-
-    expect(result.intent).toBe('code')
+  const result = await classifyQuery({
+    messages: [userMsg('whats the newest node lts')]
   })
 
-  it('falls back to intent="general" when the classifier errors', async () => {
-    mockGenerateText.mockRejectedValue(new Error('boom'))
+  expect(result.intent).toBe('code')
+})
 
-    const result = await classifyQuery({
-      messages: [userMsg('anything')]
-    })
+it('falls back to intent="general" when the classifier errors', async () => {
+  mockGenerateText.mockRejectedValue(new Error('boom'))
 
-    expect(result.intent).toBe('general')
-    expect(result.skipSearch).toBe(false)
+  const result = await classifyQuery({
+    messages: [userMsg('anything')]
   })
+
+  expect(result.intent).toBe('general')
+  expect(result.skipSearch).toBe(false)
+})
 ```
 
 - [ ] **Step 6: Run the classifier tests to confirm the new ones fail**
@@ -191,11 +193,11 @@ const classifierSchema = z.object({
 Extend the `QueryClassification` interface — add after `needsRecent`:
 
 ```typescript
-  // The kind of sources most useful for this turn. Maps to ONE additive
-  // SearXNG category (intentToCategory) on top of the always-on general
-  // baseline — never replaces it. 'general' adds nothing. A wrong guess is
-  // harmless because the baseline always fires.
-  intent: import('../tools/search/intent').SearchIntent
+// The kind of sources most useful for this turn. Maps to ONE additive
+// SearXNG category (intentToCategory) on top of the always-on general
+// baseline — never replaces it. 'general' adds nothing. A wrong guess is
+// harmless because the baseline always fires.
+intent: import('../tools/search/intent').SearchIntent
 ```
 
 In `CLASSIFIER_SYSTEM_PROMPT`, insert this block immediately BEFORE the line `If uncertain about needsRecent, default to needsRecent=false.`:
@@ -230,12 +232,12 @@ standaloneQuery is always a short plain string, never empty, never a meta-questi
 Update the `fallback` object (in `classifyQuery`) to include intent:
 
 ```typescript
-  const fallback: QueryClassification = {
-    skipSearch: false,
-    standaloneQuery: latestMessage,
-    needsRecent: false,
-    intent: 'general'
-  }
+const fallback: QueryClassification = {
+  skipSearch: false,
+  standaloneQuery: latestMessage,
+  needsRecent: false,
+  intent: 'general'
+}
 ```
 
 - [ ] **Step 8: Run the classifier tests to confirm they pass**
@@ -257,6 +259,7 @@ git commit -m "feat(search): add intent to query classifier + shared intent→ca
 ## Task 2: Plumb intent end-to-end + basic-path routing
 
 **Files:**
+
 - Modify: `lib/tools/search.ts` (add `intent` to `SearchToolOptions`, forward to provider + advanced body)
 - Modify: `lib/agents/researcher.ts` (accept `intent`, forward to `createSearchTool`)
 - Modify: `lib/streaming/create-chat-stream-response.ts` and `lib/streaming/create-ephemeral-chat-stream-response.ts` (pass `classification.intent`)
@@ -264,6 +267,7 @@ git commit -m "feat(search): add intent to query classifier + shared intent→ca
 - Test: `lib/tools/search/providers/__tests__/searxng.test.ts`
 
 **Interfaces:**
+
 - Consumes: `SearchIntent`, `intentToCategory` (Task 1).
 - Produces: `SearchToolOptions.intent?: SearchIntent`; `createResearcher({ …, intent?: SearchIntent })`; `SearXNGSearchProvider.search` accepts `options.intent?: SearchIntent`.
 
@@ -272,42 +276,42 @@ git commit -m "feat(search): add intent to query classifier + shared intent→ca
 Add to `lib/tools/search/providers/__tests__/searxng.test.ts` (inside the `describe('SearXNGSearchProvider', …)` block):
 
 ```typescript
-  it('appends the intent category (code -> it) on top of general,images', async () => {
-    const fetchMock = vi.fn().mockResolvedValue(mockSearxngResponse([]))
-    vi.stubGlobal('fetch', fetchMock)
+it('appends the intent category (code -> it) on top of general,images', async () => {
+  const fetchMock = vi.fn().mockResolvedValue(mockSearxngResponse([]))
+  vi.stubGlobal('fetch', fetchMock)
 
-    await provider.search('python asyncio gather', 10, 'basic', [], [], {
-      intent: 'code'
-    })
-
-    const calledUrl = new URL(fetchMock.mock.calls[0][0])
-    expect(calledUrl.searchParams.get('categories')).toBe('general,images,it')
+  await provider.search('python asyncio gather', 10, 'basic', [], [], {
+    intent: 'code'
   })
 
-  it('adds nothing for intent=general', async () => {
-    const fetchMock = vi.fn().mockResolvedValue(mockSearxngResponse([]))
-    vi.stubGlobal('fetch', fetchMock)
+  const calledUrl = new URL(fetchMock.mock.calls[0][0])
+  expect(calledUrl.searchParams.get('categories')).toBe('general,images,it')
+})
 
-    await provider.search('hello world', 10, 'basic', [], [], {
-      intent: 'general'
-    })
+it('adds nothing for intent=general', async () => {
+  const fetchMock = vi.fn().mockResolvedValue(mockSearxngResponse([]))
+  vi.stubGlobal('fetch', fetchMock)
 
-    const calledUrl = new URL(fetchMock.mock.calls[0][0])
-    expect(calledUrl.searchParams.get('categories')).toBe('general,images')
+  await provider.search('hello world', 10, 'basic', [], [], {
+    intent: 'general'
   })
 
-  it('does not apply intent routing in the exclusive academic branch', async () => {
-    const fetchMock = vi.fn().mockResolvedValue(mockSearxngResponse([]))
-    vi.stubGlobal('fetch', fetchMock)
+  const calledUrl = new URL(fetchMock.mock.calls[0][0])
+  expect(calledUrl.searchParams.get('categories')).toBe('general,images')
+})
 
-    await provider.search('quantum error correction', 10, 'basic', [], [], {
-      searchMode: 'academic',
-      intent: 'code'
-    })
+it('does not apply intent routing in the exclusive academic branch', async () => {
+  const fetchMock = vi.fn().mockResolvedValue(mockSearxngResponse([]))
+  vi.stubGlobal('fetch', fetchMock)
 
-    const calledUrl = new URL(fetchMock.mock.calls[0][0])
-    expect(calledUrl.searchParams.get('categories')).toBe('science')
+  await provider.search('quantum error correction', 10, 'basic', [], [], {
+    searchMode: 'academic',
+    intent: 'code'
   })
+
+  const calledUrl = new URL(fetchMock.mock.calls[0][0])
+  expect(calledUrl.searchParams.get('categories')).toBe('science')
+})
 ```
 
 - [ ] **Step 2: Run to confirm they fail**
@@ -392,15 +396,15 @@ Wait — correct the import path: the intent module is `lib/tools/search/intent.
 In `search.ts`, pass intent to the **advanced** POST body — in the `fetch(\`${baseUrl}/api/advanced-search\`)` call's JSON body, add:
 
 ```typescript
-            body: JSON.stringify({
-              query: filledQuery,
-              maxResults: effectiveMaxResults,
-              searchDepth: effectiveSearchDepthForAPI,
-              includeDomains: include_domains,
-              excludeDomains: exclude_domains,
-              timeRange: toolOptions?.timeRange,
-              intent: toolOptions?.intent
-            })
+body: JSON.stringify({
+  query: filledQuery,
+  maxResults: effectiveMaxResults,
+  searchDepth: effectiveSearchDepthForAPI,
+  includeDomains: include_domains,
+  excludeDomains: exclude_domains,
+  timeRange: toolOptions?.timeRange,
+  intent: toolOptions?.intent
+})
 ```
 
 And pass intent to the **basic** searxng provider call — in the `searchAPI === 'searxng'` branch of the provider `.search(...)`, add `intent` to the options object:
@@ -432,11 +436,11 @@ Add it to the destructured params type block:
 And forward it into the `createSearchTool` call:
 
 ```typescript
-    const originalSearchTool = createSearchTool(model, {
-      timeRange: needsRecent ? 'month' : undefined,
-      expandedQueries: expandedQueriesPromise,
-      intent
-    })
+const originalSearchTool = createSearchTool(model, {
+  timeRange: needsRecent ? 'month' : undefined,
+  expandedQueries: expandedQueriesPromise,
+  intent
+})
 ```
 
 - [ ] **Step 6: Pass classification.intent from both streaming entrypoints**
@@ -468,11 +472,13 @@ git commit -m "feat(search): route auto-detected intent to SearXNG engines (basi
 ## Task 3: Advanced-path intent routing + degoog parity
 
 **Files:**
+
 - Modify: `lib/tools/search/providers/merge-degoog.ts` (add `mergeDegoogIntoSearxngResults`)
 - Test: `lib/tools/search/providers/__tests__/merge-degoog.test.ts`
 - Modify: `app/api/advanced-search/route.ts` (read intent, append category, query+merge degoog before crawl)
 
 **Interfaces:**
+
 - Consumes: `intentToCategory` (Task 1); existing `fetchDegoogJson`, `resolveDegoogUrl`, `DegoogResult`, `SearXNGResult`.
 - Produces: `mergeDegoogIntoSearxngResults(searxngResults: SearXNGResult[], degoogResults: DegoogResult[], maxResults: number): SearXNGResult[]`.
 
@@ -485,8 +491,16 @@ import { mergeDegoogIntoSearxngResults } from '../merge-degoog'
 // (add this import alongside the file's existing imports)
 
 describe('mergeDegoogIntoSearxngResults', () => {
-  const sx = (url: string, title = 't', content = 'c') => ({ url, title, content })
-  const dg = (url: string, title = 'dt', snippet = 'ds') => ({ url, title, snippet })
+  const sx = (url: string, title = 't', content = 'c') => ({
+    url,
+    title,
+    content
+  })
+  const dg = (url: string, title = 'dt', snippet = 'ds') => ({
+    url,
+    title,
+    snippet
+  })
 
   it('appends unique degoog web results as SearXNGResult candidates', () => {
     const merged = mergeDegoogIntoSearxngResults(
@@ -578,46 +592,49 @@ Add imports (with the existing imports):
 ```typescript
 import { fetchDegoogJson } from '@/lib/utils/degoog-client'
 import { intentToCategory, type SearchIntent } from '@/lib/tools/search/intent'
-import { mergeDegoogIntoSearxngResults, resolveDegoogUrl } from '@/lib/tools/search/providers/merge-degoog'
+import {
+  mergeDegoogIntoSearxngResults,
+  resolveDegoogUrl
+} from '@/lib/tools/search/providers/merge-degoog'
 import type { DegoogResponse } from '@/lib/types'
 ```
 
 In `POST`, destructure `intent` from the body and thread it into the call + cache key:
 
 ```typescript
-  const {
-    query,
-    maxResults,
-    searchDepth,
-    includeDomains,
-    excludeDomains,
-    timeRange,
-    intent
-  } = await request.json()
+const {
+  query,
+  maxResults,
+  searchDepth,
+  includeDomains,
+  excludeDomains,
+  timeRange,
+  intent
+} = await request.json()
 ```
 
 Add intent to the cache key (so `code` and `general` for the same query don't collide) — append `:${typeof intent === 'string' ? intent : ''}` to the existing `cacheKey` template:
 
 ```typescript
-    const cacheKey = `search:${query}:${maxResults}:${searchDepth}:${
-      Array.isArray(includeDomains) ? includeDomains.join(',') : ''
-    }:${Array.isArray(excludeDomains) ? excludeDomains.join(',') : ''}:${
-      effectiveTimeRange ?? ''
-    }:${typeof intent === 'string' ? intent : ''}`
+const cacheKey = `search:${query}:${maxResults}:${searchDepth}:${
+  Array.isArray(includeDomains) ? includeDomains.join(',') : ''
+}:${Array.isArray(excludeDomains) ? excludeDomains.join(',') : ''}:${
+  effectiveTimeRange ?? ''
+}:${typeof intent === 'string' ? intent : ''}`
 ```
 
 Pass intent to `advancedSearchXNGSearch`:
 
 ```typescript
-    const results = await advancedSearchXNGSearch(
-      query,
-      Math.min(maxResults, SEARXNG_MAX_RESULTS),
-      searchDepth || SEARXNG_DEFAULT_DEPTH,
-      Array.isArray(includeDomains) ? includeDomains : [],
-      Array.isArray(excludeDomains) ? excludeDomains : [],
-      effectiveTimeRange,
-      typeof intent === 'string' ? (intent as SearchIntent) : 'general'
-    )
+const results = await advancedSearchXNGSearch(
+  query,
+  Math.min(maxResults, SEARXNG_MAX_RESULTS),
+  searchDepth || SEARXNG_DEFAULT_DEPTH,
+  Array.isArray(includeDomains) ? includeDomains : [],
+  Array.isArray(excludeDomains) ? excludeDomains : [],
+  effectiveTimeRange,
+  typeof intent === 'string' ? (intent as SearchIntent) : 'general'
+)
 ```
 
 Update the `advancedSearchXNGSearch` signature (add the `intent` param):
@@ -637,11 +654,11 @@ async function advancedSearchXNGSearch(
 Inside the SearXNG URL builder, append the intent category to the fixed `general,images` list:
 
 ```typescript
-        const intentCategory = intentToCategory(intent)
-        url.searchParams.append(
-          'categories',
-          intentCategory ? `general,images,${intentCategory}` : 'general,images'
-        )
+const intentCategory = intentToCategory(intent)
+url.searchParams.append(
+  'categories',
+  intentCategory ? `general,images,${intentCategory}` : 'general,images'
+)
 ```
 
 (Replace the existing `url.searchParams.append('categories', 'general,images')` line.)
@@ -649,36 +666,39 @@ Inside the SearXNG URL builder, append the intent category to the fixed `general
 Query degoog concurrently with SearXNG. Replace the single `await fetchSearxngJson(buildUrl)` with a concurrent settle of SearXNG + degoog web (+ degoog news when `intent==='news'`) + degoog images:
 
 ```typescript
-    const DEGOOG_MAX = Math.min(20, maxResults * 2)
-    const degoogUrl = (type: string) => (baseUrl: string) => {
-      const u = new URL(`${baseUrl}/api/search`)
-      u.searchParams.append('q', query)
-      u.searchParams.append('type', type)
-      u.searchParams.append('max_results', String(DEGOOG_MAX))
-      return u.toString()
-    }
+const DEGOOG_MAX = Math.min(20, maxResults * 2)
+const degoogUrl = (type: string) => (baseUrl: string) => {
+  const u = new URL(`${baseUrl}/api/search`)
+  u.searchParams.append('q', query)
+  u.searchParams.append('type', type)
+  u.searchParams.append('max_results', String(DEGOOG_MAX))
+  return u.toString()
+}
 
-    const [searxngSettled, degoogWebSettled, degoogNewsSettled, degoogImgSettled] =
-      await Promise.allSettled([
-        fetchSearxngJson(buildUrl),
-        fetchDegoogJson(degoogUrl('web')),
-        intent === 'news'
-          ? fetchDegoogJson(degoogUrl('news'))
-          : Promise.resolve(null),
-        fetchDegoogJson(degoogUrl('images'))
-      ])
+const [searxngSettled, degoogWebSettled, degoogNewsSettled, degoogImgSettled] =
+  await Promise.allSettled([
+    fetchSearxngJson(buildUrl),
+    fetchDegoogJson(degoogUrl('web')),
+    intent === 'news'
+      ? fetchDegoogJson(degoogUrl('news'))
+      : Promise.resolve(null),
+    fetchDegoogJson(degoogUrl('images'))
+  ])
 
-    if (searxngSettled.status === 'rejected') throw searxngSettled.reason
-    const { data: rawData, baseUrlUsed: apiUrl } = searxngSettled.value
+if (searxngSettled.status === 'rejected') throw searxngSettled.reason
+const { data: rawData, baseUrlUsed: apiUrl } = searxngSettled.value
 
-    const degoogOf = (
-      s: PromiseSettledResult<{ data: unknown } | null>
-    ): DegoogResponse['results'] => {
-      if (s.status !== 'fulfilled' || !s.value) return []
-      return (s.value.data as DegoogResponse).results ?? []
-    }
-    const degoogWeb = [...degoogOf(degoogWebSettled), ...degoogOf(degoogNewsSettled)]
-    const degoogImages = degoogOf(degoogImgSettled)
+const degoogOf = (
+  s: PromiseSettledResult<{ data: unknown } | null>
+): DegoogResponse['results'] => {
+  if (s.status !== 'fulfilled' || !s.value) return []
+  return (s.value.data as DegoogResponse).results ?? []
+}
+const degoogWeb = [
+  ...degoogOf(degoogWebSettled),
+  ...degoogOf(degoogNewsSettled)
+]
+const degoogImages = degoogOf(degoogImgSettled)
 ```
 
 (Remove the old `const { data: rawData, baseUrlUsed: apiUrl } = await fetchSearxngJson(buildUrl)` line — `rawData`/`apiUrl` now come from `searxngSettled.value`. Keep `const data = rawData as SearXNGResponse` and everything after it.)
@@ -686,17 +706,17 @@ Query degoog concurrently with SearXNG. Replace the single `await fetchSearxngJs
 Merge degoog web results into `generalResults` AFTER domain filtering and BEFORE the `if (searchDepth === 'advanced')` crawl block, so degoog URLs are crawl+rerank candidates:
 
 ```typescript
-    // degoog parity: fold degoog web results into the candidate pool BEFORE
-    // crawl+rerank so the advanced (deepest) search has the same source union
-    // as the basic path. Cap at the crawl candidate size so niche degoog
-    // results reach the crawler.
-    if (degoogWeb.length > 0) {
-      generalResults = mergeDegoogIntoSearxngResults(
-        generalResults,
-        degoogWeb,
-        maxResults * SEARXNG_CRAWL_MULTIPLIER
-      )
-    }
+// degoog parity: fold degoog web results into the candidate pool BEFORE
+// crawl+rerank so the advanced (deepest) search has the same source union
+// as the basic path. Cap at the crawl candidate size so niche degoog
+// results reach the crawler.
+if (degoogWeb.length > 0) {
+  generalResults = mergeDegoogIntoSearxngResults(
+    generalResults,
+    degoogWeb,
+    maxResults * SEARXNG_CRAWL_MULTIPLIER
+  )
+}
 ```
 
 Merge degoog images into the returned `images` array (in the `return { … }`). Replace the `images:` field:
@@ -739,11 +759,13 @@ git commit -m "feat(search): intent routing + degoog parity on the advanced sear
 ## Task 4: Depth tiering
 
 **Files:**
+
 - Modify: `lib/tools/search.ts` (add `firstSearchDepth` option, closure flag, `resolveEffectiveDepth`)
 - Create: `lib/tools/__tests__/search-depth-tiering.test.ts`
 - Modify: `lib/agents/researcher.ts` (set `firstSearchDepth` per mode)
 
 **Interfaces:**
+
 - Produces: `SearchToolOptions.firstSearchDepth?: 'basic' | 'advanced'`; `resolveEffectiveDepth(opts)` exported from `search.ts`.
 
 - [ ] **Step 1: Write the failing depth-resolution test**
@@ -886,27 +908,27 @@ export function resolveEffectiveDepth(opts: {
 Add the closure flag inside `createSearchTool` (next to `let expansionUsed = false`):
 
 ```typescript
-  let firstSearchDone = false
+let firstSearchDone = false
 ```
 
 Replace the current `effectiveSearchDepthForAPI` computation:
 
 ```typescript
-      const tieringEnabled = process.env.SEARCH_DEPTH_TIERING !== 'off'
-      const effectiveSearchDepthForAPI = resolveEffectiveDepth({
-        searchAPI,
-        modelRequestedDepth: (effectiveSearchDepth || 'basic') as
-          | 'basic'
-          | 'advanced',
-        envDefaultAdvanced: process.env.SEARXNG_DEFAULT_DEPTH === 'advanced',
-        firstSearchDepth: toolOptions?.firstSearchDepth ?? 'basic',
-        firstSearchDone,
-        tieringEnabled
-      })
-      // Mark the turn's first search consumed AFTER resolving its depth, so
-      // search #1 gets firstSearchDepth and #2+ tier down. (Dedup-skipped
-      // searches return before reaching this point and don't consume it.)
-      firstSearchDone = true
+const tieringEnabled = process.env.SEARCH_DEPTH_TIERING !== 'off'
+const effectiveSearchDepthForAPI = resolveEffectiveDepth({
+  searchAPI,
+  modelRequestedDepth: (effectiveSearchDepth || 'basic') as
+    | 'basic'
+    | 'advanced',
+  envDefaultAdvanced: process.env.SEARXNG_DEFAULT_DEPTH === 'advanced',
+  firstSearchDepth: toolOptions?.firstSearchDepth ?? 'basic',
+  firstSearchDone,
+  tieringEnabled
+})
+// Mark the turn's first search consumed AFTER resolving its depth, so
+// search #1 gets firstSearchDepth and #2+ tier down. (Dedup-skipped
+// searches return before reaching this point and don't consume it.)
+firstSearchDone = true
 ```
 
 Note: `searchAPI` is currently computed a few lines BELOW this point. Move the `effectiveSearchDepthForAPI` computation to AFTER `searchAPI` is determined (after the `if (type === 'general') { … } else { … }` block that sets `searchAPI`). The `firstSearchDone = true` line goes immediately after the depth resolution.
@@ -916,18 +938,18 @@ Note: `searchAPI` is currently computed a few lines BELOW this point. Move the `
 In `lib/agents/researcher.ts`, compute the first-search depth from the mode/skip state and pass it into `createSearchTool`. Replace the `createSearchTool(model, { … })` call:
 
 ```typescript
-    // Depth tiering: the first search of a balanced/quality turn goes deep
-    // (advanced crawl+rerank); speed and skip turns stay basic. Subsequent
-    // searches tier down to basic inside the search tool.
-    const firstSearchDepth: 'basic' | 'advanced' =
-      skipSearch || searchMode === 'speed' ? 'basic' : 'advanced'
+// Depth tiering: the first search of a balanced/quality turn goes deep
+// (advanced crawl+rerank); speed and skip turns stay basic. Subsequent
+// searches tier down to basic inside the search tool.
+const firstSearchDepth: 'basic' | 'advanced' =
+  skipSearch || searchMode === 'speed' ? 'basic' : 'advanced'
 
-    const originalSearchTool = createSearchTool(model, {
-      timeRange: needsRecent ? 'month' : undefined,
-      expandedQueries: expandedQueriesPromise,
-      intent,
-      firstSearchDepth
-    })
+const originalSearchTool = createSearchTool(model, {
+  timeRange: needsRecent ? 'month' : undefined,
+  expandedQueries: expandedQueriesPromise,
+  intent,
+  firstSearchDepth
+})
 ```
 
 - [ ] **Step 5: Run the depth tests + adjacent suites**
@@ -949,10 +971,12 @@ git commit -m "feat(search): depth tiering — only first search of a turn runs 
 ## Task 5: Search-intent dedup
 
 **Files:**
+
 - Modify: `lib/tools/search.ts` (dedup helper + closure state + skip payload)
 - Create: `lib/tools/__tests__/search-dedup.test.ts`
 
 **Interfaces:**
+
 - Produces: `findDuplicateQueryIndex(embedding: number[], priorEmbeddings: number[][], threshold: number): number` exported from `search.ts` (returns the index of the first near-duplicate, or -1).
 
 - [ ] **Step 1: Write the failing dedup-helper test**
@@ -971,9 +995,7 @@ describe('findDuplicateQueryIndex', () => {
 
   it('flags a near-identical vector above threshold', () => {
     // normalized-ish vectors; cosine of [1,0] with [0.99,0.14] ~ 0.99
-    expect(
-      findDuplicateQueryIndex([1, 0], [[0.99, 0.141]], 0.92)
-    ).toBe(0)
+    expect(findDuplicateQueryIndex([1, 0], [[0.99, 0.141]], 0.92)).toBe(0)
   })
 
   it('does not flag a dissimilar vector below threshold', () => {
@@ -982,7 +1004,14 @@ describe('findDuplicateQueryIndex', () => {
 
   it('returns the index of the first prior embedding that matches', () => {
     expect(
-      findDuplicateQueryIndex([1, 0], [[0, 1], [1, 0]], 0.92)
+      findDuplicateQueryIndex(
+        [1, 0],
+        [
+          [0, 1],
+          [1, 0]
+        ],
+        0.92
+      )
     ).toBe(1)
   })
 })
@@ -1028,10 +1057,10 @@ export function findDuplicateQueryIndex(
 Add per-turn closure state inside `createSearchTool` (next to `firstSearchDone`):
 
 ```typescript
-  // Per-turn search-intent dedup state, keyed within a search_mode so a web
-  // search and an academic search of the same words aren't treated as dupes.
-  const executedQueries: { mode: string; query: string; embedding: number[] }[] =
-    []
+// Per-turn search-intent dedup state, keyed within a search_mode so a web
+// search and an academic search of the same words aren't treated as dupes.
+const executedQueries: { mode: string; query: string; embedding: number[] }[] =
+  []
 ```
 
 At the very START of `execute` — right after the initial `yield { state: 'searching', query }` and BEFORE any expansion/search work — add the dedup gate:
@@ -1126,10 +1155,12 @@ git commit -m "feat(search): skip near-duplicate query reformulations within a t
 ## Task 6: Depth-tiering prompt guidance
 
 **Files:**
+
 - Modify: `lib/agents/prompts/search-mode-prompts.ts`
 - Test: `lib/agents/prompts/__tests__/search-mode-prompts.test.ts`
 
 **Interfaces:**
+
 - Consumes: nothing new. Adds prose to the balanced + quality prompt builders.
 
 - [ ] **Step 1: Inspect the prompt builders**
@@ -1141,12 +1172,12 @@ Read `lib/agents/prompts/search-mode-prompts.ts` to find the balanced (`getAdapt
 Add to `lib/agents/prompts/__tests__/search-mode-prompts.test.ts`:
 
 ```typescript
-  it('balanced + quality prompts explain depth tiering and fetch-for-depth', () => {
-    for (const prompt of [getAdaptiveModePrompt(), getQualityModePrompt()]) {
-      expect(prompt.toLowerCase()).toContain('first search')
-      expect(prompt.toLowerCase()).toContain('fetch')
-    }
-  })
+it('balanced + quality prompts explain depth tiering and fetch-for-depth', () => {
+  for (const prompt of [getAdaptiveModePrompt(), getQualityModePrompt()]) {
+    expect(prompt.toLowerCase()).toContain('first search')
+    expect(prompt.toLowerCase()).toContain('fetch')
+  }
+})
 ```
 
 (Ensure `getAdaptiveModePrompt` and `getQualityModePrompt` are imported in the test file — add them to the existing import from `../search-mode-prompts` if missing.)

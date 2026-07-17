@@ -34,7 +34,11 @@ describe('queryFileChunks with cross-encoder', () => {
     }
     vi.spyOn(fs, 'readFile').mockResolvedValue(JSON.stringify(stored) as never)
 
-    const out = await queryFileChunks('/uploads/doc.pdf', 'what is the answer', 1)
+    const out = await queryFileChunks(
+      '/uploads/doc.pdf',
+      'what is the answer',
+      1
+    )
     expect(out).not.toBeNull()
     expect(out!.chunks[0]).toContain('answer')
   })

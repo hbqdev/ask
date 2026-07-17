@@ -61,14 +61,17 @@ export function ModelSelectorClient({ data }: ModelSelectorClientProps) {
     if (!search) return providerEntries
     const q = search.toLowerCase()
     return providerEntries
-      .map(([provider, models]) => [
-        provider,
-        models.filter(
-          m =>
-            m.name.toLowerCase().includes(q) ||
-            provider.toLowerCase().includes(q)
-        )
-      ] as [string, Model[]])
+      .map(
+        ([provider, models]) =>
+          [
+            provider,
+            models.filter(
+              m =>
+                m.name.toLowerCase().includes(q) ||
+                provider.toLowerCase().includes(q)
+            )
+          ] as [string, Model[]]
+      )
       .filter(([, models]) => models.length > 0)
   }, [providerEntries, search])
 
@@ -112,12 +115,23 @@ export function ModelSelectorClient({ data }: ModelSelectorClientProps) {
           />
         </Button>
       </PopoverTrigger>
-      <PopoverContent className="w-[280px] p-0 overflow-hidden" align="end" sideOffset={6}>
+      <PopoverContent
+        className="w-[280px] p-0 overflow-hidden"
+        align="end"
+        sideOffset={6}
+      >
         {/* Search */}
         <div className="p-2 border-b border-border/50">
           <div className="relative">
-            <svg className="absolute left-2.5 top-1/2 -translate-y-1/2 size-3.5 text-muted-foreground" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-              <circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/>
+            <svg
+              className="absolute left-2.5 top-1/2 -translate-y-1/2 size-3.5 text-muted-foreground"
+              fill="none"
+              viewBox="0 0 24 24"
+              stroke="currentColor"
+              strokeWidth={2}
+            >
+              <circle cx="11" cy="11" r="8" />
+              <path d="m21 21-4.35-4.35" />
             </svg>
             <input
               type="text"
@@ -132,7 +146,9 @@ export function ModelSelectorClient({ data }: ModelSelectorClientProps) {
         {/* Model list */}
         <div className="max-h-[280px] overflow-y-auto">
           {filteredEntries.length === 0 ? (
-            <p className="text-center py-6 text-xs text-muted-foreground">No model found.</p>
+            <p className="text-center py-6 text-xs text-muted-foreground">
+              No model found.
+            </p>
           ) : (
             filteredEntries.map(([provider, models], providerIndex) => (
               <div key={provider}>
@@ -166,9 +182,7 @@ export function ModelSelectorClient({ data }: ModelSelectorClientProps) {
                         }}
                         className={cn(
                           'w-full flex items-center gap-2.5 px-2.5 py-2 rounded-lg text-left transition-colors duration-150 cursor-pointer',
-                          isSelected
-                            ? 'bg-muted'
-                            : 'hover:bg-muted/60'
+                          isSelected ? 'bg-muted' : 'hover:bg-muted/60'
                         )}
                       >
                         <Cpu

@@ -87,7 +87,9 @@ export function KeyboardShortcutHandler() {
     )
     const next = SOURCES_CYCLE[(currentIdx + 1) % SOURCES_CYCLE.length]
     setCookie('sources', JSON.stringify(next))
-    toast.info(`Sources: ${SOURCES_LABELS[JSON.stringify(next)] ?? JSON.stringify(next)}`)
+    toast.info(
+      `Sources: ${SOURCES_LABELS[JSON.stringify(next)] ?? JSON.stringify(next)}`
+    )
   })
 
   useKeyboardShortcut(SHORTCUTS.showShortcuts, () => {

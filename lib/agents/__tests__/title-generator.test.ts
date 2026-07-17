@@ -2,7 +2,9 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 vi.mock('ai', () => ({ generateText: vi.fn() }))
 vi.mock('../../utils/registry', () => ({ getModel: vi.fn(() => 'model') }))
-vi.mock('../../utils/telemetry', () => ({ isTracingEnabled: vi.fn(() => false) }))
+vi.mock('../../utils/telemetry', () => ({
+  isTracingEnabled: vi.fn(() => false)
+}))
 
 import { generateText } from 'ai'
 
@@ -19,9 +21,9 @@ describe('generateChatTitle', () => {
 
   it('returns a normal short title unchanged', async () => {
     gen('Firecrawl Alternatives')
-    await expect(call('give me a list of providers like firecrawl')).resolves.toBe(
-      'Firecrawl Alternatives'
-    )
+    await expect(
+      call('give me a list of providers like firecrawl')
+    ).resolves.toBe('Firecrawl Alternatives')
   })
 
   it('falls back when the model ANSWERS instead of titling', async () => {
@@ -33,8 +35,12 @@ describe('generateChatTitle', () => {
     const answer =
       'Here is a comprehensive breakdown of providers and tools similar to Firecrawl, grouped by how closely they match its core function (crawling/scraping websites).'
     gen(answer)
-    const title = await call('give me a list of all providers like firecrawl, comprehensive')
-    expect(title).toBe('give me a list of all providers like firecrawl, comprehensive')
+    const title = await call(
+      'give me a list of all providers like firecrawl, comprehensive'
+    )
+    expect(title).toBe(
+      'give me a list of all providers like firecrawl, comprehensive'
+    )
     expect(title).not.toContain('Here is a comprehensive')
     expect(title.length).toBeLessThanOrEqual(75)
   })

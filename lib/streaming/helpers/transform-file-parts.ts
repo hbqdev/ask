@@ -12,7 +12,11 @@ function urlToLocalPath(url: string): string | null {
     if (!parsed.pathname.startsWith('/uploads/')) return null
     const relative = parsed.pathname.slice('/uploads/'.length)
     const resolved = path.join(UPLOADS_DIR, relative)
-    if (!resolved.startsWith(UPLOADS_DIR + path.sep) && resolved !== UPLOADS_DIR) return null
+    if (
+      !resolved.startsWith(UPLOADS_DIR + path.sep) &&
+      resolved !== UPLOADS_DIR
+    )
+      return null
     return resolved
   } catch {
     return null
@@ -20,7 +24,12 @@ function urlToLocalPath(url: string): string | null {
 }
 
 async function fileExists(p: string): Promise<boolean> {
-  try { await fs.access(p); return true } catch { return false }
+  try {
+    await fs.access(p)
+    return true
+  } catch {
+    return false
+  }
 }
 
 // Extract the plain text from the most recent user turn's text parts.
@@ -50,10 +59,12 @@ async function transformPart(part: any, userQuery: string): Promise<any[]> {
     const result = await queryFileChunks(localPath, query, 10)
     if (result) {
       const context = result.chunks.join('\n\n---\n\n')
-      return [{
-        type: 'text',
-        text: `[Attached document: ${filename}]\n\nRelevant excerpts:\n\n${context}`,
-      }]
+      return [
+        {
+          type: 'text',
+          text: `[Attached document: ${filename}]\n\nRelevant excerpts:\n\n${context}`
+        }
+      ]
     }
 
     // Fallback: extract full text (handles files uploaded before RAG was added,
@@ -63,23 +74,38 @@ async function transformPart(part: any, userQuery: string): Promise<any[]> {
       const { promisify } = await import('node:util')
       const execFileAsync = promisify(execFile)
       const { stdout } = await execFileAsync(
-        'pdftotext', ['-layout', '-enc', 'UTF-8', localPath, '-'],
+        'pdftotext',
+        ['-layout', '-enc', 'UTF-8', localPath, '-'],
         { maxBuffer: 10 * 1024 * 1024 }
       )
       const text = stdout.trim()
       if (text.length > 50) {
-        return [{ type: 'text', text: `[Attached document: ${filename}]\n\n${text}` }]
+        return [
+          { type: 'text', text: `[Attached document: ${filename}]\n\n${text}` }
+        ]
       }
-    } catch { /* fall through */ }
+    } catch {
+      /* fall through */
+    }
 
-    return [{ type: 'text', text: `[Attached document: ${filename}]\n\n(Could not extract content.)` }]
+    return [
+      {
+        type: 'text',
+        text: `[Attached document: ${filename}]\n\n(Could not extract content.)`
+      }
+    ]
   }
 
   // ── Image — base64 encode ────────────────────────────────────────────────
   if (part.mediaType?.startsWith('image/')) {
     try {
       const buf = await fs.readFile(localPath)
-      return [{ ...part, url: `data:${part.mediaType};base64,${buf.toString('base64')}` }]
+      return [
+        {
+          ...part,
+          url: `data:${part.mediaType};base64,${buf.toString('base64')}`
+        }
+      ]
     } catch {
       return []
     }
@@ -88,7 +114,9 @@ async function transformPart(part: any, userQuery: string): Promise<any[]> {
   return [] // unsupported type
 }
 
-export async function transformFileParts(messages: UIMessage[]): Promise<UIMessage[]> {
+export async function transformFileParts(
+  messages: UIMessage[]
+): Promise<UIMessage[]> {
   return Promise.all(
     messages.map(async msg => {
       if (msg.role !== 'user') return msg
@@ -97,7 +125,9 @@ export async function transformFileParts(messages: UIMessage[]): Promise<UIMessa
       if (!parts.some((p: any) => p.type === 'file')) return msg
 
       const userQuery = extractUserQuery(parts)
-      const transformed = await Promise.all(parts.map(p => transformPart(p, userQuery)))
+      const transformed = await Promise.all(
+        parts.map(p => transformPart(p, userQuery))
+      )
       const flat = transformed.flat()
 
       // Merge consecutive text parts — openai-compatible provider rejects arrays of text parts

@@ -37,7 +37,7 @@ search:
 # Enable discussion-intent engines (disabled in upstream defaults) so the
 # local fallback matches the primary instance for Ask's engine routing.
 engines:
-  - name: gentoo   # timeout=10, niche distro engine, chronic slow responder
+  - name: gentoo # timeout=10, niche distro engine, chronic slow responder
     disabled: true
   - name: hackernews
     disabled: false

@@ -180,10 +180,7 @@ export function ActionButtons({
   }, [activeCategory, inputRef])
 
   return (
-    <div
-      ref={containerRef}
-      className={cn('relative', className)}
-    >
+    <div ref={containerRef} className={cn('relative', className)}>
       {/* Action buttons — natural height */}
       <div
         className={cn(
