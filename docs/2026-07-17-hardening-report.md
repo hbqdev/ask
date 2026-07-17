@@ -169,6 +169,37 @@ buffered into the research-process accordion, collapsed by default, so
 attribution was invisible unless expanded. They now render above the answer.
 (This is also what cost hours of debugging — see §4.)
 
+### 2.11 The Memory settings tab was unreachable below 1024px (user-reported)
+
+The Settings dialog's ONLY tab navigation was a `hidden lg:flex` sidebar — so on
+any window narrower than 1024px the entire tab rail (Personalization, Models,
+**Memory**) was gone, with no replacement, and the content pane was stuck on the
+default Preferences. There was literally no way to open the Memory settings. The
+user hit this at 780px: "where is the memory thing in the UI, don't see it at
+all."
+
+**This is also the sharpest example of the §4 testing failure.** My "comprehensive
+UI sweep" ran in an 780px-wide Playwright viewport where this was already broken —
+but I reached the Memory tab with a raw JS `.click()` on the present-but-invisible
+DOM node instead of a real click, so I never noticed a real user couldn't get
+there. When Playwright's normal click timed out with "element is not visible", I
+worked around it instead of treating it as the signal it was.
+
+**Fix:** a horizontal, scrollable tab bar shown only below lg (mutually exclusive
+with the desktop sidebar, covering every width), `pr-12` to clear the dialog's
+close button. Added a test asserting every tab has a nav control not gated behind
+`lg:`, verified failing against the old layout. Verified with REAL clicks on
+production at 780px: the Memory tab appears and opens.
+
+### 2.12 The chat title overlapped the sidebar toggle (user-reported, my regression)
+
+Fixing §2.8 (toggle always visible) broke an assumption in the header: it only
+reserved left space for the floating toggle when the sidebar was closed
+(`!open && pl-14`), on the premise that the toggle only existed then. Now that it
+always renders, the title rendered underneath it whenever the sidebar was open.
+Reserve the space unconditionally. Verified on production, sidebar open: toggle
+ends at x=120, title starts at x=136 — a clean 16px gap.
+
 ### 2.10 Pre-PR gate was red
 
 `lint` had 1 error (mine); `format:check` failed on 31 files (30 pre-existing).
