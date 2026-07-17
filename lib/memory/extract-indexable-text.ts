@@ -46,6 +46,15 @@ function collapseWhitespace(text: string): string {
  *   content. If there is no tool part at all (a no-search turn), every text
  *   part is the answer.
  *
+ *   Exception: a tool call can TRAIL the answer — the generative-UI
+ *   `tool-dynamic` (follow-up questions) is emitted after the answer text —
+ *   leaving no text after the last tool and silently dropping the whole
+ *   answer from the index (live prod data had exactly this shape: a 2,498
+ *   char answer indexed as nothing). That case is indistinguishable by
+ *   position from "narration, then a tool call, and no answer", since both
+ *   end in a tool part, so it is resolved by the First-token rule instead —
+ *   see the fallback below.
+ *
  * Note: if narration text appears again after the last tool call (rare —
  * e.g. a trailing "Here's what I found:" before the real answer part), it
  * is indistinguishable from the answer by position alone and is included
@@ -64,7 +73,28 @@ export function extractIndexableText(
     for (let i = 0; i < parts.length; i++) {
       if (parts[i].type.startsWith('tool-')) lastToolIndex = i
     }
-    if (lastToolIndex !== -1) relevant = parts.slice(lastToolIndex + 1)
+    if (lastToolIndex !== -1) {
+      relevant = parts.slice(lastToolIndex + 1)
+
+      // Nothing after the last tool call. Two different shapes land here and
+      // position cannot tell them apart — both end in a tool part:
+      //   (a) narration, then a tool call, and the turn produced no answer
+      //       -> index nothing, which is what `relevant` already gives us;
+      //   (b) the real answer, then a tool call TRAILING it (the
+      //       generative-UI tool-dynamic that renders follow-up questions is
+      //       emitted after the answer text) -> the answer must be indexed,
+      //       and slicing past it silently dropped the whole message.
+      // Fall back to the First-token rule every mode's prompt enforces and
+      // render-message.tsx already relies on: the final answer starts with a
+      // markdown heading, and nothing else may. So a heading here means (b).
+      if (textOf(relevant).length === 0) {
+        const texts = textOf(parts)
+        const last = texts[texts.length - 1]
+        if (last !== undefined && /^#{1,6}\s/.test(last.trimStart())) {
+          relevant = [{ type: 'text', text: last }]
+        }
+      }
+    }
   }
 
   const selected = textOf(relevant)
