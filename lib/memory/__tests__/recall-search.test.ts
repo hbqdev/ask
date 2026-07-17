@@ -71,7 +71,7 @@ describe('selectRerankCandidates', () => {
     expect(picked.every(h => h.chunkId.startsWith('v'))).toBe(true)
   })
 
-  it('preserves each arm\'s ordering (vector by cosine, keyword by recency)', () => {
+  it("preserves each arm's ordering (vector by cosine, keyword by recency)", () => {
     const picked = selectRerankCandidates(vec(30), kw(30), 20)
     expect(picked.slice(0, 3).map(h => h.chunkId)).toEqual(['v0', 'v1', 'v2'])
     expect(picked.slice(15).map(h => h.chunkId)).toEqual([
