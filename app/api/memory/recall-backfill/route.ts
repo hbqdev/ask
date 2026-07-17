@@ -1,0 +1,20 @@
+import { NextResponse } from 'next/server'
+
+import { backfillAllUsers } from '@/lib/memory/recall-backfill'
+
+export async function POST(request: Request) {
+  const secret = process.env.MEMORY_CRON_SECRET
+  if (secret && request.headers.get('authorization') !== `Bearer ${secret}`) {
+    return NextResponse.json({ error: 'unauthorized' }, { status: 401 })
+  }
+  // `ok` reflects backfillAllUsers' honesty signal (see recall-backfill.ts):
+  // false means at least one user's sweep hit a REAL error — it is no
+  // longer flipped false just because some users have recall disabled
+  // (that's an expected, non-error per-user outcome, counted separately in
+  // `skipped`). `failed` counts the users behind an `ok: false`. Surfaced
+  // here (not swallowed into a flat 200) so a caller polling this endpoint
+  // can tell a quiet cron run apart from one that silently didn't work, and
+  // can tell "some users opted out" apart from "something broke".
+  const result = await backfillAllUsers()
+  return NextResponse.json(result)
+}

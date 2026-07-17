@@ -21,6 +21,9 @@ import { classifyQuery } from '../agents/query-classifier'
 import { expandQuery } from '../agents/query-expander'
 import { generateChatTitle } from '../agents/title-generator'
 import { isMemoryEnabled } from '../db/memory-actions'
+import { extractIndexableText } from '../memory/extract-indexable-text'
+import { indexMessage } from '../memory/recall-index'
+import { getRecallInjection } from '../memory/recall-inject'
 import { saveCandidates } from '../memory/write'
 import {
   getMaxAllowedTokens,
@@ -307,6 +310,31 @@ export async function createChatStreamResponse(
 
         classification = await classificationPromise
 
+        // Past-conversation recall: retrieve here (not in createResearcher)
+        // because this scope owns both the resolved standaloneQuery and the
+        // stream writer needed for the attribution chips.
+        const recall = await getRecallInjection(
+          userId,
+          classification?.standaloneQuery || latestMessageText,
+          chatId
+        )
+        if (recall.hits.length > 0) {
+          writer.write({
+            type: 'data-recall',
+            id: 'recall',
+            data: {
+              chats: [
+                ...new Map(
+                  recall.hits.map(h => [
+                    h.chatId,
+                    { chatId: h.chatId, title: h.chatTitle }
+                  ])
+                ).values()
+              ]
+            }
+          })
+        }
+
         // Query expansion (lib/agents/query-expander.ts) starts as soon as
         // the resolved standalone query exists and overlaps with agent
         // construction — the first search of the turn awaits it (bounded)
@@ -349,7 +377,9 @@ export async function createChatStreamResponse(
           needsRecent: classification.needsRecent,
           intent: classification.intent,
           expandedQueriesPromise,
-          userId
+          userId,
+          currentChatId: chatId,
+          recallBlock: recall.block
         })
 
         llmStart = performance.now()
@@ -431,6 +461,55 @@ export async function createChatStreamResponse(
                 }
               } catch (error) {
                 console.error('[memory] extraction failed:', error)
+              }
+            })()
+          }
+
+          // Conversation recall: index this turn's question + answer (async,
+          // non-blocking — mirrors the memory extraction above). Uses
+          // extractIndexableText rather than getTextFromParts so the
+          // assistant side indexes only the final answer — not the
+          // inter-step narration the researcher (a multi-step ToolLoopAgent)
+          // emits as text parts between tool calls, and not citation
+          // markers like `[1](#anchor)` — all of which dilute the
+          // embedding (see lib/memory/extract-indexable-text.ts).
+          if (userId && process.env.RECALL_ENABLED !== 'off') {
+            void (async () => {
+              try {
+                const userText = extractIndexableText(
+                  'user',
+                  (message?.parts ?? []).map(p => ({
+                    type: p.type,
+                    text: (p as any).text ?? null
+                  }))
+                )
+                if (userText?.trim() && message?.id) {
+                  await indexMessage(
+                    userId,
+                    chatId,
+                    message.id,
+                    'user',
+                    userText
+                  )
+                }
+                const answerText = extractIndexableText(
+                  'assistant',
+                  (cleanedMessage?.parts ?? []).map(p => ({
+                    type: p.type,
+                    text: (p as any).text ?? null
+                  }))
+                )
+                if (answerText?.trim() && cleanedMessage?.id) {
+                  await indexMessage(
+                    userId,
+                    chatId,
+                    cleanedMessage.id,
+                    'assistant',
+                    answerText
+                  )
+                }
+              } catch (error) {
+                console.error('[recall] indexing failed:', error)
               }
             })()
           }

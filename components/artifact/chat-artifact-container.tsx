@@ -5,7 +5,7 @@ import React, { useCallback, useEffect, useRef, useState } from 'react'
 import { useHasUser } from '@/lib/contexts/user-context'
 import { cn } from '@/lib/utils'
 
-import { SidebarTrigger, useSidebar } from '@/components/ui/sidebar'
+import { SidebarTrigger } from '@/components/ui/sidebar'
 
 import { InspectorDrawer } from '@/components/inspector/inspector-drawer'
 import { InspectorPanel } from '@/components/inspector/inspector-panel'
@@ -50,7 +50,6 @@ export function ChatArtifactContainer({
   const [width, setWidth] = useState(DEFAULT_WIDTH)
   const [isResizing, setIsResizing] = useState(false)
   const hasUser = useHasUser()
-  const { open, isMobile: isMobileSidebar } = useSidebar()
   const { isOpen: libraryOpen } = useLibrary()
   const artifactOpen = state.isOpen && state.part
   const panelOpen = Boolean(artifactOpen || libraryOpen)
@@ -138,9 +137,7 @@ export function ChatArtifactContainer({
   return (
     <div className="flex-1 min-h-0 min-w-0 h-full flex">
       <div className="absolute z-50 p-4 transition-opacity duration-[180ms] ease-[var(--motion-ease-out)]">
-        {hasUser && (!open || isMobileSidebar) && (
-          <SidebarTrigger className="animate-fade-in" />
-        )}
+        {hasUser && <SidebarTrigger className="animate-fade-in" />}
       </div>
 
       {/* Desktop: Independent panels like morphic-studio */}

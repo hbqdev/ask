@@ -6,6 +6,7 @@ import type { ToolPart, UIDataTypes, UIMessage, UITools } from '@/lib/types/ai'
 
 import FetchSection from './fetch-section'
 import { QuestionConfirmation } from './question-confirmation'
+import { type RecallToolResult, RecallToolSection } from './recall-tool-section'
 import { SearchSection } from './search-section'
 import { ToolTodoDisplay } from './tool-todo-display'
 
@@ -88,6 +89,16 @@ export function ToolSection({
           isOpen={isOpen}
           onOpenChange={onOpenChange}
           status={status}
+          borderless={borderless}
+          isFirst={isFirst}
+          isLast={isLast}
+        />
+      )
+    case 'tool-recall':
+      return (
+        <RecallToolSection
+          query={(tool.input as { query?: string } | undefined)?.query}
+          output={tool.output as RecallToolResult | undefined}
           borderless={borderless}
           isFirst={isFirst}
           isLast={isLast}

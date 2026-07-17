@@ -43,6 +43,10 @@ export type UIDataTypes = {
         standaloneQuery?: string
         durationMs?: number
       }
+  // Streamed by create-chat-stream-response.ts when confirmed past-conversation
+  // excerpts were injected into this turn — rendered as attribution chips by
+  // components/recall-section.tsx. Only written when recall actually injected.
+  recall?: { chats: { chatId: string; title: string }[] }
   // Streamed by create-chat-stream-response.ts as soon as the generated chat
   // title resolves — which happens seconds in, in parallel with the answer.
   // Without this the client never learns the title: it is only persisted in

@@ -8,6 +8,7 @@ import { getRelatedQuestionsSpecPrompt } from '../render/prompt'
 import { calculateTool } from '../tools/calculate'
 import { fetchTool } from '../tools/fetch'
 import { createQuestionTool } from '../tools/question'
+import { createRecallTool } from '../tools/recall'
 import { createRememberTool } from '../tools/remember'
 import { createSearchTool } from '../tools/search'
 import { createTodoTools } from '../tools/todo'
@@ -245,7 +246,14 @@ export async function createResearcher({
   // The authenticated user, if any — used to inject their confirmed
   // long-term memories into the system prompt and to bind the `remember`
   // tool. Undefined (ephemeral/incognito chats) leaves memory fully off.
-  userId
+  userId,
+  // The chat this turn belongs to — excluded from recall results so the tool
+  // never returns the conversation the user is already in.
+  currentChatId,
+  // Past-conversation excerpts, retrieved in the streaming layer (it owns the
+  // resolved standaloneQuery and the stream writer). Appended to the system
+  // prompt next to the feature-A memory block.
+  recallBlock
 }: {
   model: string
   modelConfig?: Model
@@ -275,6 +283,13 @@ export async function createResearcher({
   expandedQueriesPromise?: Promise<string[]>
   intent?: import('../tools/search/intent').SearchIntent
   userId?: string
+  // The chat this turn belongs to — excluded from recall results so the tool
+  // never returns the conversation the user is already in.
+  currentChatId?: string
+  // Past-conversation excerpts, retrieved in the streaming layer (it owns the
+  // resolved standaloneQuery and the stream writer). Appended to the system
+  // prompt next to the feature-A memory block.
+  recallBlock?: string
 }) {
   try {
     const currentDate = new Date().toLocaleString()
@@ -330,7 +345,8 @@ export async function createResearcher({
         'fetch',
         'calculate',
         'get_weather',
-        'remember'
+        'remember',
+        'recall'
       ]
       maxSteps = 10
       searchTool = wrapSearchToolForSources(
@@ -350,7 +366,8 @@ export async function createResearcher({
             'fetch',
             'calculate',
             'get_weather',
-            'remember'
+            'remember',
+            'recall'
           ]
           maxSteps = 20
           searchTool = wrapSearchToolForSources(
@@ -370,7 +387,8 @@ export async function createResearcher({
             'todoWrite',
             'calculate',
             'get_weather',
-            'remember'
+            'remember',
+            'recall'
           ]
           console.log(
             `[Researcher] Quality mode: maxSteps=100, tools=[${activeToolsList.join(', ')}], sources=${JSON.stringify(sources)}`
@@ -391,7 +409,8 @@ export async function createResearcher({
             'todoWrite',
             'calculate',
             'get_weather',
-            'remember'
+            'remember',
+            'recall'
           ]
           console.log(
             `[Researcher] Balanced mode: maxSteps=50, tools=[${activeToolsList.join(', ')}], sources=${JSON.stringify(sources)}`
@@ -417,7 +436,17 @@ export async function createResearcher({
     if (standaloneQuery) {
       systemPrompt =
         systemPrompt +
-        `\n\nResolved form of the user's latest message: "${standaloneQuery}" — the conversation history may include other topics already covered in earlier turns; if you search, scope it to what's actually needed for this resolved query, not everything discussed previously.`
+        `\n\n## Scope of this turn
+
+Resolved form of the user's latest message: "${standaloneQuery}"
+
+**This resolved query is the ENTIRE scope of this turn — for searching AND for answering.**
+
+The conversation history is background context, not a to-do list. Any topic from an earlier turn has already been answered and is NOT outstanding work:
+- Answer ONLY this resolved query. Do NOT re-address, re-diagnose, revisit, or add an "update" section about an earlier topic unless this resolved query itself asks about it.
+- If you search, search only for this resolved query — never for topics from earlier turns.
+- The user switching to a new topic is normal and complete on its own. An abrupt change of subject is NOT a request to also continue the previous one, and is NOT the user "appending" a second question to an older one — treat the resolved query above as the whole of what was asked.
+- Your answer must address exactly one thing: the resolved query. If you catch yourself planning to cover two topics because the earlier one is still in the history, that is this rule being violated — drop the earlier one.`
     }
 
     // Append user's custom instructions at lower priority (per Vane pattern)
@@ -433,6 +462,8 @@ export async function createResearcher({
     const memoryBlock = await getMemoryInjection(userId)
     if (memoryBlock) systemPrompt = systemPrompt + memoryBlock
 
+    if (recallBlock) systemPrompt = systemPrompt + recallBlock
+
     // Build tools object with proper typing
     const tools: ResearcherTools = {
       search: searchTool,
@@ -441,6 +472,7 @@ export async function createResearcher({
       calculate: calculateTool,
       get_weather: weatherTool,
       remember: createRememberTool(userId),
+      recall: createRecallTool(userId, currentChatId),
       ...todoTools
     } as ResearcherTools
 

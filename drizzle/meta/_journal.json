@@ -120,6 +120,13 @@
       "when": 1784183276833,
       "tag": "0016_pgvector_user_memories",
       "breakpoints": true
+    },
+    {
+      "idx": 17,
+      "version": "7",
+      "when": 1784200000000,
+      "tag": "0017_conversation_chunks",
+      "breakpoints": true
     }
   ]
 }
