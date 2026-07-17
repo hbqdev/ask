@@ -6,17 +6,24 @@
 import path from 'node:path'
 
 export type EmbeddingModelId =
-  | 'Xenova/all-MiniLM-L6-v2'        // 384d — fastest, good general purpose
+  | 'Xenova/all-MiniLM-L6-v2' // 384d — fastest, good general purpose
   | 'mixedbread-ai/mxbai-embed-large-v1' // 1024d — highest quality
-  | 'Xenova/nomic-embed-text-v1'     // 768d — good balance
+  | 'Xenova/nomic-embed-text-v1' // 768d — good balance
 
-export const EMBEDDING_MODELS: Record<EmbeddingModelId, { dims: number; label: string }> = {
-  'Xenova/all-MiniLM-L6-v2':           { dims: 384,  label: 'all-MiniLM-L6-v2' },
-  'mixedbread-ai/mxbai-embed-large-v1': { dims: 1024, label: 'mxbai-embed-large-v1' },
-  'Xenova/nomic-embed-text-v1':         { dims: 768,  label: 'nomic-embed-text-v1' },
+export const EMBEDDING_MODELS: Record<
+  EmbeddingModelId,
+  { dims: number; label: string }
+> = {
+  'Xenova/all-MiniLM-L6-v2': { dims: 384, label: 'all-MiniLM-L6-v2' },
+  'mixedbread-ai/mxbai-embed-large-v1': {
+    dims: 1024,
+    label: 'mxbai-embed-large-v1'
+  },
+  'Xenova/nomic-embed-text-v1': { dims: 768, label: 'nomic-embed-text-v1' }
 }
 
-export const DEFAULT_EMBEDDING_MODEL: EmbeddingModelId = 'Xenova/all-MiniLM-L6-v2'
+export const DEFAULT_EMBEDDING_MODEL: EmbeddingModelId =
+  'Xenova/all-MiniLM-L6-v2'
 
 export function getConfiguredModel(): EmbeddingModelId {
   const env = process.env.EMBEDDING_MODEL
@@ -33,7 +40,14 @@ async function getPipeline(modelId: EmbeddingModelId) {
   const { pipeline, env } = await import('@huggingface/transformers')
   env.cacheDir = process.env.MODEL_CACHE_DIR || path.join('/app', 'model-cache')
 
-  const pipe = await pipeline('feature-extraction', modelId, { dtype: 'fp32' })
+  // q8, not fp32. Embeddings run on this box's CPU (no GPU anywhere on the app
+  // host), and they sit on hot paths: search-intent dedup on EVERY search, plus
+  // memory writes and upload RAG. Measured here (mxbai, ~512-token chunks,
+  // 16-core CPU): fp32 = 873ms/chunk, q8 = 469ms/chunk — ~1.9x faster.
+  // Quantization is effectively free in quality: cos(fp32, q8) = 0.991–0.996 on
+  // real memory/answer text, and the output is still 1024-d, so the
+  // vector(1024) columns and every stored embedding stay compatible.
+  const pipe = await pipeline('feature-extraction', modelId, { dtype: 'q8' })
   pipelines.set(modelId, pipe)
   return pipe
 }
