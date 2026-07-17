@@ -27,6 +27,7 @@ import { incrementDbOperationCount } from '@/lib/utils/perf-tracking'
 
 import type { Chat, Message, NewNote, Note } from './schema'
 import {
+  CHAT_TITLE_MAX_LENGTH,
   chats,
   conversationChunks,
   feedback,
@@ -878,17 +879,28 @@ export async function updateChatVisibility(
 }
 
 /**
- * Update chat title
+ * Update chat title.
+ *
+ * Truncates to CHAT_TITLE_MAX_LENGTH as a backstop. `chats.title` is
+ * unbounded `text`, and createChat/createChatAndSaveMessage already cap at
+ * 255 with substring() — but this path did not, so a caller handing over a
+ * runaway title wrote it verbatim. That happened in production: the title
+ * model answered the user's question instead of titling it and the whole
+ * answer landed here, giving four chats titles of up to 4,832 characters
+ * that then rendered in the sidebar, the library, and recall's chips.
+ * title-generator.ts now rejects such output at the source; this cap makes
+ * the invariant hold for every caller of this function, not just that one.
  */
 export async function updateChatTitle(
   chatId: string,
   title: string,
   userId?: string
 ): Promise<Chat | null> {
+  const capped = title.substring(0, CHAT_TITLE_MAX_LENGTH)
   return withOptionalRLS(userId || null, async tx => {
     const [updatedChat] = await tx
       .update(chats)
-      .set({ title })
+      .set({ title: capped })
       .where(eq(chats.id, chatId))
       .returning()
 
