@@ -341,6 +341,20 @@ export function Chat({
   // message column. Only the chat instance actually visible at the current
   // URL should own the header — guards against stale/duplicate Chat
   // instances briefly kept mounted by Next.js router caching.
+  // The title generated for a brand-new chat arrives mid-stream as a
+  // `data-title` part (see create-chat-stream-response.ts). The `title` prop is
+  // whatever the server rendered with — "Untitled" for a new chat — and it does
+  // not update on its own, so prefer the streamed one once it shows up.
+  const streamedTitle = useMemo(() => {
+    for (let i = messages.length - 1; i >= 0; i--) {
+      const part = messages[i].parts?.find(p => p.type === 'data-title')
+      if (part) return (part as { data?: { title?: string } }).data?.title
+    }
+    return undefined
+  }, [messages])
+
+  const effectiveTitle = streamedTitle || title
+
   useEffect(() => {
     const isCurrentChat =
       window.location.pathname === `/search/${chatId}` ||
@@ -349,7 +363,7 @@ export function Chat({
     if (!isCurrentChat) return
 
     if (sections.length > 0) {
-      setChatHeaderInfo({ chatId, title })
+      setChatHeaderInfo({ chatId, title: effectiveTitle })
     } else {
       setChatHeaderInfo(prev => (prev?.chatId === chatId ? null : prev))
     }
@@ -357,7 +371,7 @@ export function Chat({
     return () => {
       setChatHeaderInfo(prev => (prev?.chatId === chatId ? null : prev))
     }
-  }, [chatId, title, sections.length, setChatHeaderInfo])
+  }, [chatId, effectiveTitle, sections.length, setChatHeaderInfo])
 
   // Listen for copy message shortcut
   // Uses ref to avoid re-registering listener on every messages change.
