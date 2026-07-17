@@ -14,6 +14,59 @@ import {
 
 import type { RecallHit, RecallOptions } from './recall-types'
 
+/** Passages sent to the cross-encoder per turn. See selectRerankCandidates. */
+function rerankPoolSize(): number {
+  const n = Number(process.env.RECALL_RERANK_POOL)
+  return Number.isFinite(n) && n > 0 ? n : 20
+}
+
+/**
+ * How many of the pool's slots are held for keyword-only hits — chunks the
+ * ILIKE arm found that the vector arm missed.
+ */
+const KEYWORD_RESERVE = 5
+
+/**
+ * Choose which candidates the cross-encoder actually scores.
+ *
+ * Rerank cost scales with pool size (measured on the live P4000: 3 passages
+ * 489ms, 15 976ms, 30 3.4s, 60 7.6s). The two arms return up to `pool` rows
+ * EACH, so an uncapped union reranks up to ~60 and spends ~7.6s against a
+ * 10s timeout — 2.4s from failing closed, on every turn.
+ *
+ * Selection is NOT "top N of the union by score". Keyword-only hits carry
+ * score 0 by construction (keywordSearchChunks selects a literal 0), so
+ * sorting the union by score parks every keyword-only hit at the bottom, and
+ * any top-N cut would drop all of them whenever the vector arm alone fills N
+ * — which it always does, since it returns up to 30. That would silently
+ * reduce the hybrid to its vector arm. Instead the vector arm fills the pool
+ * by cosine rank, minus up to KEYWORD_RESERVE slots held for keyword-only
+ * hits. The reserve costs nothing when the keyword arm is empty (the common
+ * case for natural-language queries, where ILIKE '%whole sentence%' rarely
+ * matches) — the vector arm simply takes every slot.
+ *
+ * Both arms' orderings are preserved as given: vector by cosine descending,
+ * keyword by recency. The cross-encoder overwrites these scores anyway; the
+ * ordering only decides who gets judged.
+ */
+export function selectRerankCandidates(
+  vectorHits: RecallHit[],
+  keywordHits: RecallHit[],
+  pool: number,
+  keywordReserve: number = KEYWORD_RESERVE
+): RecallHit[] {
+  const vectorIds = new Set(vectorHits.map(h => h.chunkId))
+  const keywordOnly = keywordHits.filter(h => !vectorIds.has(h.chunkId))
+
+  const kwTake = Math.min(keywordReserve, keywordOnly.length, pool)
+  const vecTake = Math.max(0, pool - kwTake)
+
+  const byId = new Map<string, RecallHit>()
+  for (const h of vectorHits.slice(0, vecTake)) byId.set(h.chunkId, h)
+  for (const h of keywordOnly.slice(0, kwTake)) byId.set(h.chunkId, h)
+  return [...byId.values()]
+}
+
 /**
  * The single hybrid retrieval core, shared by the auto-injection, the `recall`
  * tool, and the Library search box. Never throws — every caller degrades to
@@ -65,14 +118,22 @@ export async function recallSearch(
     // crossEncoderScore may throw.
     let reranked = false
     if (opts.useRerank && isCrossEncoderConfigured() && hits.length > 1) {
+      // Cap only this path: the cap exists to bound rerank cost, and the
+      // non-rerank path pays none, so truncating it would drop results for
+      // nothing.
+      const candidates = selectRerankCandidates(
+        vectorHits as RecallHit[],
+        keywordHits as RecallHit[],
+        rerankPoolSize()
+      )
       try {
         const scores = await crossEncoderScore(
           query,
-          hits.map(h => h.content),
+          candidates.map(h => h.content),
           // Chunks are 512 tokens — judge the whole chunk, like upload-rag.
           { maxLength: 512, timeoutMs: 10_000 }
         )
-        hits = hits
+        hits = candidates
           .map((h, i) => ({ ...h, score: scores[i] ?? 0 }))
           .sort((a, b) => b.score - a.score)
         reranked = true

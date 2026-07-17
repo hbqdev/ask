@@ -20,7 +20,7 @@ import {
   isCrossEncoderConfigured
 } from '@/lib/utils/cross-encoder'
 
-import { recallSearch } from '../recall-search'
+import { recallSearch, selectRerankCandidates } from '../recall-search'
 
 const row = (over: Partial<any> = {}) => ({
   chunkId: 'k1',
@@ -31,6 +31,61 @@ const row = (over: Partial<any> = {}) => ({
   createdAt: new Date('2026-07-01'),
   score: 0.9,
   ...over
+})
+
+describe('selectRerankCandidates', () => {
+  const vec = (n: number) =>
+    Array.from({ length: n }, (_, i) =>
+      row({ chunkId: `v${i}`, score: 1 - i / 100 })
+    )
+  const kw = (n: number) =>
+    Array.from({ length: n }, (_, i) => row({ chunkId: `k${i}`, score: 0 }))
+
+  it('caps the pool at the requested size', () => {
+    expect(selectRerankCandidates(vec(30), kw(30), 20)).toHaveLength(20)
+  })
+
+  it('keeps keyword-only hits that a top-N-by-score cut would discard', () => {
+    // The regression this guards: keyword-only hits carry score 0, so any
+    // "sort the union by score, take the top N" cap drops all of them once
+    // the vector arm alone fills N — silently reducing the hybrid to its
+    // vector arm. The vector arm returns up to 30, so that is always.
+    const picked = selectRerankCandidates(vec(30), kw(30), 20)
+    const keywordOnly = picked.filter(h => h.chunkId.startsWith('k'))
+    expect(keywordOnly).toHaveLength(5)
+    expect(picked.filter(h => h.chunkId.startsWith('v'))).toHaveLength(15)
+  })
+
+  it('gives the whole pool to the vector arm when no keyword-only hits exist', () => {
+    const picked = selectRerankCandidates(vec(30), [], 20)
+    expect(picked).toHaveLength(20)
+    expect(picked.every(h => h.chunkId.startsWith('v'))).toBe(true)
+  })
+
+  it('does not reserve slots for keyword hits the vector arm already found', () => {
+    // Same chunk in both arms is not a "keyword-only" hit — it must not
+    // consume reserve, or the pool loses vector candidates for nothing.
+    const overlap = [row({ chunkId: 'v0', score: 0 })]
+    const picked = selectRerankCandidates(vec(30), overlap, 20)
+    expect(picked).toHaveLength(20)
+    expect(picked.every(h => h.chunkId.startsWith('v'))).toBe(true)
+  })
+
+  it('preserves each arm\'s ordering (vector by cosine, keyword by recency)', () => {
+    const picked = selectRerankCandidates(vec(30), kw(30), 20)
+    expect(picked.slice(0, 3).map(h => h.chunkId)).toEqual(['v0', 'v1', 'v2'])
+    expect(picked.slice(15).map(h => h.chunkId)).toEqual([
+      'k0',
+      'k1',
+      'k2',
+      'k3',
+      'k4'
+    ])
+  })
+
+  it('returns everything when the arms are smaller than the pool', () => {
+    expect(selectRerankCandidates(vec(3), kw(2), 20)).toHaveLength(5)
+  })
 })
 
 describe('recallSearch', () => {
@@ -79,6 +134,37 @@ describe('recallSearch', () => {
     const hits = await recallSearch('u1', 'q', { topK: 5, useRerank: true })
     expect(hits.map(h => h.chunkId)).toEqual(['b', 'a'])
     expect(hits[0].score).toBe(0.99)
+  })
+
+  it('sends the capped candidate set to the reranker, not the full union', async () => {
+    // Pins the cost bound: both arms return up to 30 rows each, so an
+    // uncapped union would rerank ~60 passages (measured 7.6s against a 10s
+    // timeout). RECALL_RERANK_POOL defaults to 20.
+    vi.mocked(db.vectorSearchChunks).mockResolvedValue(
+      Array.from({ length: 30 }, (_, i) =>
+        row({ chunkId: `v${i}`, score: 1 - i / 100 })
+      )
+    )
+    vi.mocked(db.keywordSearchChunks).mockResolvedValue(
+      Array.from({ length: 30 }, (_, i) => row({ chunkId: `k${i}`, score: 0 }))
+    )
+    vi.mocked(isCrossEncoderConfigured).mockReturnValue(true)
+    vi.mocked(crossEncoderScore).mockResolvedValue(new Array(20).fill(0.5))
+
+    await recallSearch('u1', 'q', { topK: 2, useRerank: true })
+
+    const passages = vi.mocked(crossEncoderScore).mock.calls[0][1]
+    expect(passages).toHaveLength(20)
+  })
+
+  it('does not cap the non-rerank path (the cap only bounds rerank cost)', async () => {
+    vi.mocked(db.vectorSearchChunks).mockResolvedValue(
+      Array.from({ length: 30 }, (_, i) =>
+        row({ chunkId: `v${i}`, score: 1 - i / 100 })
+      )
+    )
+    const hits = await recallSearch('u1', 'q', { topK: 50, useRerank: false })
+    expect(hits).toHaveLength(30)
   })
 
   it('falls back to cosine order when the reranker throws (no minScore)', async () => {
