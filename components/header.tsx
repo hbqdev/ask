@@ -27,13 +27,13 @@ export const Header: React.FC<HeaderProps> = ({ user }) => {
         'absolute top-0 right-0 p-2 md:p-3 flex justify-between items-center z-10 backdrop-blur-sm lg:backdrop-blur-none bg-background/80 lg:bg-transparent transition-[width] duration-200 ease-linear',
         open ? 'md:w-[calc(100%-var(--sidebar-width))]' : 'md:w-full',
         'w-full',
-        // When the sidebar is collapsed, its toggle button floats at the
-        // top-left (absolute, p-4 inset). Reserve left space so the chat
-        // title doesn't render underneath it. Needs md:pl-14 as well — the
-        // header's md:p-3 (a responsive variant) would otherwise override a
-        // base-only pl-14 at desktop widths. No offset when the sidebar is
-        // open — the toggle lives inside the sidebar then.
-        !open && 'pl-14 md:pl-14'
+        // The sidebar toggle floats at the content area's top-left (absolute,
+        // p-4 inset) in BOTH states — it is rendered unconditionally now so it
+        // stays reachable while the sidebar is open. Always reserve left space
+        // so the chat title never renders underneath it. Needs md:pl-14 too —
+        // the header's md:p-3 (a responsive variant) would otherwise override
+        // a base-only pl-14 at desktop widths.
+        'pl-14 md:pl-14'
       )}
     >
       <div className="min-w-0">

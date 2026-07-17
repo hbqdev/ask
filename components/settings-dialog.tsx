@@ -412,8 +412,32 @@ export function SettingsDialog({ open, onOpenChange }: SettingsDialogProps) {
 
           {/* Content */}
           <div className="w-full flex flex-col overflow-hidden">
+            {/* Mobile/tablet tab bar. The sidebar above is `hidden lg:flex`, so
+                below the lg breakpoint it is gone entirely — without this row
+                there is NO way to reach any tab but the default (Memory,
+                Personalization and Models become unreachable on any window
+                narrower than 1024px). Shown only below lg, so it and the
+                sidebar are mutually exclusive and cover every width. */}
+            <div className="lg:hidden flex flex-row gap-1 overflow-x-auto border-b border-border/60 pl-3 pr-12 py-2 flex-shrink-0">
+              {TABS.map(({ key, label, icon: Icon }) => (
+                <button
+                  key={key}
+                  onClick={() => setActiveTab(key)}
+                  className={cn(
+                    'flex flex-row items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm whitespace-nowrap shrink-0 transition-colors active:scale-95',
+                    activeTab === key
+                      ? 'bg-muted text-foreground/90'
+                      : 'text-foreground/70 hover:bg-muted'
+                  )}
+                >
+                  <Icon size={16} />
+                  <span>{label}</span>
+                </button>
+              ))}
+            </div>
+
             {/* Section header — matches Vane: border-b px-6 pb-6 lg:pt-6 */}
-            <div className="border-b border-border/60 px-6 pb-6 lg:pt-6 flex-shrink-0">
+            <div className="border-b border-border/60 px-6 pb-6 pt-6 flex-shrink-0">
               <div className="flex flex-col">
                 <h4 className="font-medium text-foreground text-sm">
                   {activeSection.label}
