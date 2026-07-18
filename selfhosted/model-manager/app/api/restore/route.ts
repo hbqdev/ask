@@ -3,6 +3,7 @@ import { rollback, type ApplyDeps } from '@/lib/apply'
 import { getToolConfig } from '@/lib/config'
 import { writeAskEnvAtomic, readAskEnv } from '@/lib/env-io'
 import { realRunner } from '@/lib/exec'
+import { withApplyLock } from '@/lib/lock'
 
 export async function POST(req: Request) {
   const { backupPath } = (await req.json()) as { backupPath: string }
@@ -22,6 +23,8 @@ export async function POST(req: Request) {
     backup: async () => '',
     sleep: ms => new Promise(r => setTimeout(r, ms))
   }
-  const res = await rollback(deps, backupPath, e => events.push(e))
+  const res = await withApplyLock(() =>
+    rollback(deps, backupPath, e => events.push(e))
+  )
   return Response.json({ ok: res.ok, events })
 }

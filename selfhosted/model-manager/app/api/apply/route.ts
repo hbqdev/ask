@@ -4,6 +4,7 @@ import { getToolConfig } from '@/lib/config'
 import { readAskEnv, writeAskEnvAtomic } from '@/lib/env-io'
 import { realRunner } from '@/lib/exec'
 import { writeBackup, pruneBackups } from '@/lib/backups'
+import { withApplyLock } from '@/lib/lock'
 
 export async function POST(req: Request) {
   const { edits } = (await req.json()) as { edits: Record<string, string> }
@@ -32,11 +33,13 @@ export async function POST(req: Request) {
         sleep: ms => new Promise(r => setTimeout(r, ms))
       }
       try {
-        const res = await applyPlan(plan, deps, emit)
-        emit({
-          step: 'done',
-          status: res.ok ? 'ok' : 'fail',
-          detail: res.backupPath
+        await withApplyLock(async () => {
+          const res = await applyPlan(plan, deps, emit)
+          emit({
+            step: 'done',
+            status: res.ok ? 'ok' : 'fail',
+            detail: res.backupPath
+          })
         })
       } catch (e) {
         emit({

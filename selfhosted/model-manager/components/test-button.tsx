@@ -62,17 +62,24 @@ export function TestButton({
       </Button>
       {error && <p className="text-xs text-red-500">{error}</p>}
       {models.length > 0 && (
-        <div className="flex flex-wrap gap-1">
-          {models.map(m => (
-            <button
-              key={m}
-              type="button"
-              onClick={() => onPick?.(m)}
-              className="rounded bg-muted px-2 py-0.5 text-xs hover:bg-muted/70"
-            >
-              {m}
-            </button>
-          ))}
+        <div className="flex flex-wrap items-center gap-1">
+          <span className="text-xs text-muted-foreground">On host:</span>
+          {models.map(m =>
+            onPick ? (
+              <button
+                key={m}
+                type="button"
+                onClick={() => onPick(m)}
+                className="rounded bg-muted px-2 py-0.5 text-xs hover:bg-muted/70"
+              >
+                {m}
+              </button>
+            ) : (
+              <span key={m} className="rounded bg-muted px-2 py-0.5 text-xs">
+                {m}
+              </span>
+            )
+          )}
         </div>
       )}
     </div>
