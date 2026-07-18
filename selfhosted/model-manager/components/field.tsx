@@ -5,6 +5,7 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Switch } from '@/components/ui/switch'
 import { ModelListEditor } from './model-list-editor'
+import { TestButton } from './test-button'
 
 export function Field({
   spec,
@@ -67,6 +68,7 @@ export function Field({
         <p className="text-xs text-muted-foreground">{spec.help}</p>
       )}
       {error && <p className="text-xs text-red-500">{error}</p>}
+      {spec.testable && <TestButton spec={spec} value={value} />}
     </div>
   )
 }
