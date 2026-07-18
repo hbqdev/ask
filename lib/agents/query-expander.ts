@@ -12,7 +12,7 @@ import { createTimeoutFetch } from '../utils/fetch-with-timeout'
 // widened to let expansion still land; if it doesn't, expansion is simply
 // skipped and the turn does a single-query search — exactly today's
 // fallback, never an error.
-const EXPANDER_MODEL_ID = 'granite4.1:8b'
+const EXPANDER_MODEL_ID = process.env.EXPANDER_MODEL_ID ?? 'granite4.1:8b'
 
 // Generous, matching 8b's real expansion latency (~10-14s warm). Expansion
 // is a nice-to-have kicked off in parallel with turn prep, so a longer
