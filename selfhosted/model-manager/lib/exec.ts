@@ -20,16 +20,29 @@ export const realRunner: Runner = {
       const child = spawn(cmd, args, { cwd: opts.cwd })
       let stdout = ''
       let stderr = ''
+      let timedOut = false
       let timer: NodeJS.Timeout | undefined
       if (opts.timeoutMs) {
-        timer = setTimeout(() => child.kill('SIGKILL'), opts.timeoutMs)
+        timer = setTimeout(() => {
+          timedOut = true
+          child.kill('SIGKILL')
+        }, opts.timeoutMs)
       }
       child.stdout.on('data', d => (stdout += d.toString()))
       child.stderr.on('data', d => (stderr += d.toString()))
-      child.on('error', reject)
+      child.on('error', err => {
+        if (timer) clearTimeout(timer)
+        reject(err)
+      })
       child.on('close', code => {
         if (timer) clearTimeout(timer)
-        resolve({ code: code ?? -1, stdout, stderr })
+        resolve({
+          code: code ?? -1,
+          stdout,
+          stderr: timedOut
+            ? `${stderr}\n[timed out after ${opts.timeoutMs}ms]`
+            : stderr
+        })
       })
       if (opts.input !== undefined) child.stdin.end(opts.input)
       else child.stdin.end()
