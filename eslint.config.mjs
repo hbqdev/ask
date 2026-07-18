@@ -36,5 +36,12 @@ export default defineConfig([
       'simple-import-sort/exports': 'error'
     }
   },
-  globalIgnores(['.next/**', 'out/**', 'build/**', 'next-env.d.ts'])
+  globalIgnores([
+    '.next/**',
+    'out/**',
+    'build/**',
+    'next-env.d.ts',
+    // Separate standalone app; it lints under its own config.
+    'selfhosted/model-manager/**'
+  ])
 ])

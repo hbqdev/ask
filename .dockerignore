@@ -1,0 +1,10 @@
+# Standalone sibling apps (reranker, model-manager) are deployed separately and
+# are not part of the Ask image. Excluding them keeps the Ask build context
+# small (the model-manager alone carries ~840MB of node_modules) and prevents
+# the build from ever picking up their sources.
+selfhosted/
+
+# Scratch/state that must never enter the image or the build context.
+.superpowers/
+.claude/
+.git/

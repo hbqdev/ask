@@ -23,6 +23,9 @@ export default defineConfig({
     // checkout with its own copy of every test file. Without this, the same
     // handful of real failures gets counted once per stray worktree,
     // inflating the failed-file/test count several times over.
-    exclude: [...defaultExclude, '**/.claude/**']
+    // selfhosted/model-manager is a fully separate app with its own vitest
+    // config, aliases, and deps — its tests must not be picked up (and broken)
+    // by Ask's root suite.
+    exclude: [...defaultExclude, '**/.claude/**', '**/selfhosted/model-manager/**']
   }
 })
