@@ -1,5 +1,8 @@
 export function parseList(v: string): string[] {
-  return v.split(',').map(s => s.trim()).filter(Boolean)
+  return v
+    .split(',')
+    .map(s => s.trim())
+    .filter(Boolean)
 }
 
 export function serializeList(items: string[]): string {
@@ -17,7 +20,13 @@ export function removeAt(items: string[], i: number): string[] {
 }
 
 export function move(items: string[], from: number, to: number): string[] {
-  if (from === to || from < 0 || to < 0 || from >= items.length || to >= items.length) {
+  if (
+    from === to ||
+    from < 0 ||
+    to < 0 ||
+    from >= items.length ||
+    to >= items.length
+  ) {
     return items
   }
   const next = [...items]

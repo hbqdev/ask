@@ -37,7 +37,9 @@ export default function LoginPage() {
           />
         </div>
         {error && <p className="text-sm text-red-500">{error}</p>}
-        <Button type="submit" className="w-full">Sign in</Button>
+        <Button type="submit" className="w-full">
+          Sign in
+        </Button>
       </form>
     </div>
   )

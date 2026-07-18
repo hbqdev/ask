@@ -26,7 +26,8 @@ export function computeChanges(
     if (before === after) continue
     const secret = isSecret(key)
     if (before === undefined) changes.push({ key, kind: 'add', after, secret })
-    else if (after === undefined) changes.push({ key, kind: 'remove', before, secret })
+    else if (after === undefined)
+      changes.push({ key, kind: 'remove', before, secret })
     else changes.push({ key, kind: 'change', before, after, secret })
   }
   return changes.sort((a, b) => a.key.localeCompare(b.key))

@@ -2,7 +2,12 @@ import { mkdtemp, readFile, writeFile } from 'fs/promises'
 import { tmpdir } from 'os'
 import { join } from 'path'
 import { describe, expect, it } from 'vitest'
-import { listBackups, pruneBackups, restoreBackup, writeBackup } from '../backups'
+import {
+  listBackups,
+  pruneBackups,
+  restoreBackup,
+  writeBackup
+} from '../backups'
 
 async function tmpEnv(): Promise<string> {
   const dir = await mkdtemp(join(tmpdir(), 'mm-'))

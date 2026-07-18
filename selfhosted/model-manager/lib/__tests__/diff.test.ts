@@ -15,7 +15,10 @@ describe('diff', () => {
   })
   it('masks secret values in the rendered diff', () => {
     const out = renderDiff(
-      computeChanges({ RERANKER_API_TOKEN: 'old' }, { RERANKER_API_TOKEN: 'new' })
+      computeChanges(
+        { RERANKER_API_TOKEN: 'old' },
+        { RERANKER_API_TOKEN: 'new' }
+      )
     )
     expect(out).toContain(MASK)
     expect(out).not.toContain('old')
@@ -23,19 +26,26 @@ describe('diff', () => {
   })
   it('shows non-secret values in the rendered diff', () => {
     const out = renderDiff(
-      computeChanges({ OLLAMA_BASE_URL: 'http://a' }, { OLLAMA_BASE_URL: 'http://b' })
+      computeChanges(
+        { OLLAMA_BASE_URL: 'http://a' },
+        { OLLAMA_BASE_URL: 'http://b' }
+      )
     )
     expect(out).toContain('http://a')
     expect(out).toContain('http://b')
   })
   it('masks a secret ADD (before absent)', () => {
-    const out = renderDiff(computeChanges({}, { RERANKER_API_TOKEN: 'plaintextsecret' }))
+    const out = renderDiff(
+      computeChanges({}, { RERANKER_API_TOKEN: 'plaintextsecret' })
+    )
     expect(out).toContain(MASK)
     expect(out).not.toContain('plaintextsecret')
   })
 
   it('masks a secret REMOVE (after absent)', () => {
-    const out = renderDiff(computeChanges({ RERANKER_API_TOKEN: 'plaintextsecret' }, {}))
+    const out = renderDiff(
+      computeChanges({ RERANKER_API_TOKEN: 'plaintextsecret' }, {})
+    )
     expect(out).toContain(MASK)
     expect(out).not.toContain('plaintextsecret')
   })

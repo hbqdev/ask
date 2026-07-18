@@ -1,5 +1,11 @@
 import { describe, expect, it } from 'vitest'
-import { getValue, parseEnv, serializeEnv, setValue, toValueMap } from '../env-file'
+import {
+  getValue,
+  parseEnv,
+  serializeEnv,
+  setValue,
+  toValueMap
+} from '../env-file'
 
 const SAMPLE = `# comment
 OLLAMA_BASE_URL=http://192.168.50.231:11434

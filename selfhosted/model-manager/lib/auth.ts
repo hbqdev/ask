@@ -19,7 +19,9 @@ export function verifyPassword(input: string, env: Env = process.env): boolean {
 }
 
 function secret(env: Env): string {
-  return env.MODEL_MANAGER_SESSION_SECRET || `derived:${env.MODEL_MANAGER_PASSWORD}`
+  return (
+    env.MODEL_MANAGER_SESSION_SECRET || `derived:${env.MODEL_MANAGER_PASSWORD}`
+  )
 }
 
 export function makeSessionToken(env: Env = process.env): string {
@@ -28,7 +30,10 @@ export function makeSessionToken(env: Env = process.env): string {
   return `${payload}.${sig}`
 }
 
-export function verifySessionToken(token: string | undefined, env: Env = process.env): boolean {
+export function verifySessionToken(
+  token: string | undefined,
+  env: Env = process.env
+): boolean {
   if (!token || !isConfigured(env)) return false
   const expected = makeSessionToken(env)
   const a = sha256(token)

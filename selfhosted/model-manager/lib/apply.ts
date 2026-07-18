@@ -154,7 +154,11 @@ async function restartReranker(
     emit({ step: 'reranker-restart', status: 'ok' })
     return true
   } catch (e) {
-    emit({ step: 'reranker-restart', status: 'fail', detail: redact(errText(e)) })
+    emit({
+      step: 'reranker-restart',
+      status: 'fail',
+      detail: redact(errText(e))
+    })
     return false
   }
 }
@@ -190,7 +194,9 @@ export async function applyPlan(
     if (!(await restartAsk(deps, emit, redact))) ok = false
   }
   if (plan.touchedTargets.includes('reranker')) {
-    if (!(await restartReranker(deps, plan.rerankerEnvText ?? '', emit, redact))) {
+    if (
+      !(await restartReranker(deps, plan.rerankerEnvText ?? '', emit, redact))
+    ) {
       ok = false
     }
   }

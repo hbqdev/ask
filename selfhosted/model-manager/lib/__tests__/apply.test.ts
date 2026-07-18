@@ -75,16 +75,26 @@ describe('applyPlan', () => {
   })
 
   it('reports failure independently — ask ok, reranker ssh fails', async () => {
-    const { d } = deps((cmd) => (cmd === 'ssh' ? { code: 255, stdout: '', stderr: 'no route' } : ok))
+    const { d } = deps(cmd =>
+      cmd === 'ssh' ? { code: 255, stdout: '', stderr: 'no route' } : ok
+    )
     const events: { step: string; status: string }[] = []
     const res = await applyPlan(
-      { askEnvText: 'A=1\n', touchedTargets: ['ask', 'reranker'], rerankerEnvText: 'x' },
+      {
+        askEnvText: 'A=1\n',
+        touchedTargets: ['ask', 'reranker'],
+        rerankerEnvText: 'x'
+      },
       d,
       e => events.push(e)
     )
     expect(res.ok).toBe(false)
-    expect(events.some(e => e.step.startsWith('ask') && e.status === 'ok')).toBe(true)
-    expect(events.some(e => e.step.startsWith('reranker') && e.status === 'fail')).toBe(true)
+    expect(
+      events.some(e => e.step.startsWith('ask') && e.status === 'ok')
+    ).toBe(true)
+    expect(
+      events.some(e => e.step.startsWith('reranker') && e.status === 'fail')
+    ).toBe(true)
   })
 
   it('never throws past emit — a runner rejection becomes a fail event and ok:false', async () => {
@@ -132,7 +142,11 @@ describe('applyPlan', () => {
     const d: ApplyDeps = { ...base.d, config: { ...config, reranker: null } }
     const events: ApplyEvent[] = []
     const res = await applyPlan(
-      { askEnvText: 'A=1\n', touchedTargets: ['reranker'], rerankerEnvText: 'x' },
+      {
+        askEnvText: 'A=1\n',
+        touchedTargets: ['reranker'],
+        rerankerEnvText: 'x'
+      },
       d,
       e => events.push(e)
     )

@@ -1,5 +1,11 @@
 import { describe, expect, it } from 'vitest'
-import { addItem, move, parseList, removeAt, serializeList } from '../model-list'
+import {
+  addItem,
+  move,
+  parseList,
+  removeAt,
+  serializeList
+} from '../model-list'
 
 describe('model-list codec', () => {
   it('parses comma lists, trimming and dropping empties', () => {

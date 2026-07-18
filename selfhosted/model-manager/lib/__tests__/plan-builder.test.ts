@@ -15,14 +15,22 @@ describe('buildPlan', () => {
     expect(plan.touchedTargets).toContain('ask')
     expect(plan.touchedTargets).not.toContain('reranker')
     expect(plan.askEnvText).toContain('CLASSIFIER_MODEL_ID=qwen3:8b')
-    expect(changes.find(c => c.key === 'CLASSIFIER_MODEL_ID')?.kind).toBe('change')
+    expect(changes.find(c => c.key === 'CLASSIFIER_MODEL_ID')?.kind).toBe(
+      'change'
+    )
   })
   it('marks reranker target and builds reranker env when RERANKER_MODEL changes', () => {
-    const { plan } = buildPlan(CURRENT, { RERANKER_MODEL: 'BAAI/bge-reranker-base' })
+    const { plan } = buildPlan(CURRENT, {
+      RERANKER_MODEL: 'BAAI/bge-reranker-base'
+    })
     expect(plan.touchedTargets).toContain('reranker')
-    expect(plan.rerankerEnvText).toContain('RERANKER_MODEL=BAAI/bge-reranker-base')
+    expect(plan.rerankerEnvText).toContain(
+      'RERANKER_MODEL=BAAI/bge-reranker-base'
+    )
     // reranker model must NOT be written into Ask's .env
-    expect(plan.askEnvText).not.toContain('RERANKER_MODEL=BAAI/bge-reranker-base')
+    expect(plan.askEnvText).not.toContain(
+      'RERANKER_MODEL=BAAI/bge-reranker-base'
+    )
   })
   it('no edits ⇒ no targets', () => {
     const { plan, changes } = buildPlan(CURRENT, {})
