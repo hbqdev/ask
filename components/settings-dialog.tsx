@@ -4,7 +4,6 @@ import { useEffect, useState } from 'react'
 
 import {
   IconAdjustments,
-  IconBrain,
   IconChevronLeft,
   IconNotes,
   IconPalette
@@ -47,12 +46,6 @@ const TABS = [
     label: 'Personalization',
     description: 'Customize the behavior and tone of the model.',
     icon: IconPalette
-  },
-  {
-    key: 'models',
-    label: 'Models',
-    description: 'View model and server configuration.',
-    icon: IconBrain
   },
   {
     key: 'memory',
@@ -291,59 +284,6 @@ function PersonalizationTab() {
 }
 
 // ---------------------------------------------------------------------------
-// Models tab
-// ---------------------------------------------------------------------------
-function ModelsTab() {
-  const ollamaBase =
-    process.env.NEXT_PUBLIC_OLLAMA_BASE_URL ?? 'http://192.168.50.231:11434'
-
-  return (
-    <div className="flex-1 space-y-6 overflow-y-auto px-6 py-6">
-      <SettingRow
-        title="Chat Model"
-        description="Use the model selector in the search bar to choose your active model. Models are served via Ollama."
-      >
-        <p className="text-xs text-foreground/50">
-          Configured via{' '}
-          <code className="bg-muted px-1 rounded">OLLAMA_BASE_URL</code> in{' '}
-          <code className="bg-muted px-1 rounded">.env</code>
-        </p>
-      </SettingRow>
-
-      <SettingRow
-        title="Ollama Server"
-        description="Native Ollama API — no API key required. Cloud models listed via OLLAMA_MODELS."
-      >
-        <code className="text-xs bg-muted px-3 py-2 rounded-lg border border-border block text-foreground/80">
-          {ollamaBase}
-        </code>
-      </SettingRow>
-
-      <SettingRow
-        title="Embedding Model"
-        description="Used for semantic search over uploaded files (RAG). Set OLLAMA_EMBED_MODEL in .env."
-      >
-        <div className="space-y-1.5">
-          <p className="text-xs text-foreground/50">
-            Recommended:{' '}
-            <code className="bg-muted px-1 rounded">nomic-embed-text</code> (137
-            MB) or{' '}
-            <code className="bg-muted px-1 rounded">mxbai-embed-large</code>{' '}
-            (670 MB)
-          </p>
-          <p className="text-xs text-foreground/50">
-            Pull:{' '}
-            <code className="bg-muted px-1 rounded">
-              ollama pull nomic-embed-text
-            </code>
-          </p>
-        </div>
-      </SettingRow>
-    </div>
-  )
-}
-
-// ---------------------------------------------------------------------------
 // Main dialog
 // ---------------------------------------------------------------------------
 interface SettingsDialogProps {
@@ -414,10 +354,10 @@ export function SettingsDialog({ open, onOpenChange }: SettingsDialogProps) {
           <div className="w-full flex flex-col overflow-hidden">
             {/* Mobile/tablet tab bar. The sidebar above is `hidden lg:flex`, so
                 below the lg breakpoint it is gone entirely — without this row
-                there is NO way to reach any tab but the default (Memory,
-                Personalization and Models become unreachable on any window
-                narrower than 1024px). Shown only below lg, so it and the
-                sidebar are mutually exclusive and cover every width. */}
+                there is NO way to reach any tab but the default (Memory and
+                Personalization become unreachable on any window narrower
+                than 1024px). Shown only below lg, so it and the sidebar are
+                mutually exclusive and cover every width. */}
             <div className="lg:hidden flex flex-row gap-1 overflow-x-auto border-b border-border/60 pl-3 pr-12 py-2 flex-shrink-0">
               {TABS.map(({ key, label, icon: Icon }) => (
                 <button
@@ -452,7 +392,6 @@ export function SettingsDialog({ open, onOpenChange }: SettingsDialogProps) {
             <div className="flex-1 overflow-y-auto">
               {activeTab === 'preferences' && <PreferencesTab />}
               {activeTab === 'personalization' && <PersonalizationTab />}
-              {activeTab === 'models' && <ModelsTab />}
               {activeTab === 'memory' && <MemoryTab />}
             </div>
           </div>
