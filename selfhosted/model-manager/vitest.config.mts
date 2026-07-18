@@ -4,6 +4,10 @@ import { fileURLToPath } from 'url'
 
 export default defineConfig({
   plugins: [react()],
-  test: { environment: 'jsdom', setupFiles: ['./vitest.setup.ts'], globals: true },
+  test: {
+    environment: 'jsdom',
+    setupFiles: ['./vitest.setup.ts'],
+    globals: true
+  },
   resolve: { alias: { '@': fileURLToPath(new URL('./', import.meta.url)) } }
 })

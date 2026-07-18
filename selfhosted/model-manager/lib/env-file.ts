@@ -57,7 +57,8 @@ function splitComment(rest: string): { valueRaw: string; comment: string } {
     return { valueRaw: lead + body.slice(0, end), comment: body.slice(end) }
   }
   const m = rest.match(/(\s+#.*)$/)
-  if (m) return { valueRaw: rest.slice(0, rest.length - m[1].length), comment: m[1] }
+  if (m)
+    return { valueRaw: rest.slice(0, rest.length - m[1].length), comment: m[1] }
   return { valueRaw: rest, comment: '' }
 }
 
@@ -94,7 +95,8 @@ export function getValue(doc: EnvDoc, key: string): string | undefined {
   // Last assignment wins — matches toValueMap and how env loaders resolve a
   // duplicated key.
   let found: string | undefined
-  for (const l of doc.lines) if (l.kind === 'pair' && l.key === key) found = l.value
+  for (const l of doc.lines)
+    if (l.kind === 'pair' && l.key === key) found = l.value
   return found
 }
 

@@ -20,9 +20,13 @@ describe('realRunner', () => {
     expect(r.code).toBe(3)
   })
   it('marks stderr when a command times out', async () => {
-    const r = await realRunner.run('node', ['-e', 'setTimeout(() => {}, 10000)'], {
-      timeoutMs: 300
-    })
+    const r = await realRunner.run(
+      'node',
+      ['-e', 'setTimeout(() => {}, 10000)'],
+      {
+        timeoutMs: 300
+      }
+    )
     expect(r.stderr).toContain('timed out')
   })
 })

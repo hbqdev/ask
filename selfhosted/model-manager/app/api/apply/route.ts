@@ -33,13 +33,23 @@ export async function POST(req: Request) {
       }
       try {
         const res = await applyPlan(plan, deps, emit)
-        emit({ step: 'done', status: res.ok ? 'ok' : 'fail', detail: res.backupPath })
+        emit({
+          step: 'done',
+          status: res.ok ? 'ok' : 'fail',
+          detail: res.backupPath
+        })
       } catch (e) {
-        emit({ step: 'done', status: 'fail', detail: e instanceof Error ? e.message : String(e) })
+        emit({
+          step: 'done',
+          status: 'fail',
+          detail: e instanceof Error ? e.message : String(e)
+        })
       } finally {
         controller.close()
       }
     }
   })
-  return new Response(stream, { headers: { 'Content-Type': 'application/x-ndjson' } })
+  return new Response(stream, {
+    headers: { 'Content-Type': 'application/x-ndjson' }
+  })
 }

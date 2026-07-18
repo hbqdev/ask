@@ -23,7 +23,10 @@ export async function listBackups(
     .sort((a, b) => (a.ts < b.ts ? 1 : -1))
 }
 
-export async function pruneBackups(envPath: string, keep: number): Promise<void> {
+export async function pruneBackups(
+  envPath: string,
+  keep: number
+): Promise<void> {
   const list = await listBackups(envPath)
   for (const b of list.slice(keep)) await unlink(b.path)
 }

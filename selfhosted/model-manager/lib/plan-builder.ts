@@ -61,7 +61,9 @@ export function buildPlan(
     askEnvText: serializeEnv(askDoc),
     touchedTargets: [...targets],
     rerankerEnvText:
-      rerankerModel !== undefined ? `RERANKER_MODEL=${rerankerModel}\n` : undefined
+      rerankerModel !== undefined
+        ? `RERANKER_MODEL=${rerankerModel}\n`
+        : undefined
   }
   return { plan, changes }
 }

@@ -12,5 +12,8 @@ export async function POST(req: Request) {
   const cfg = getToolConfig()
   const current = await readAskEnv(cfg.askEnvPath)
   const { changes, plan } = buildPlan(current, edits)
-  return Response.json({ diff: renderDiff(changes), targets: plan.touchedTargets })
+  return Response.json({
+    diff: renderDiff(changes),
+    targets: plan.touchedTargets
+  })
 }
