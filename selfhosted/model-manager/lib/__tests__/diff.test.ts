@@ -28,4 +28,15 @@ describe('diff', () => {
     expect(out).toContain('http://a')
     expect(out).toContain('http://b')
   })
+  it('masks a secret ADD (before absent)', () => {
+    const out = renderDiff(computeChanges({}, { RERANKER_API_TOKEN: 'plaintextsecret' }))
+    expect(out).toContain(MASK)
+    expect(out).not.toContain('plaintextsecret')
+  })
+
+  it('masks a secret REMOVE (after absent)', () => {
+    const out = renderDiff(computeChanges({ RERANKER_API_TOKEN: 'plaintextsecret' }, {}))
+    expect(out).toContain(MASK)
+    expect(out).not.toContain('plaintextsecret')
+  })
 })
