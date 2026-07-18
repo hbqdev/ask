@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { buildPlan } from '../plan-builder'
+import { buildPlan, validateEdits } from '../plan-builder'
 
 const CURRENT = `OLLAMA_BASE_URL=http://a:11434
 CLASSIFIER_MODEL_ID=granite4.1:8b
@@ -28,5 +28,29 @@ describe('buildPlan', () => {
     const { plan, changes } = buildPlan(CURRENT, {})
     expect(plan.touchedTargets).toHaveLength(0)
     expect(changes).toHaveLength(0)
+  })
+  it('validateEdits flags unknown keys and values failing their validator', () => {
+    const v = validateEdits({
+      OLLAMA_BASE_URL: 'not-a-url', // fails the url validator
+      TOTALLY_UNKNOWN_KEY: 'x', // not in the registry
+      CLASSIFIER_MODEL_ID: 'granite4.1:8b' // valid, no validator
+    })
+    const byKey = Object.fromEntries(v.map(x => [x.key, x.error]))
+    expect(byKey.OLLAMA_BASE_URL).toBeTruthy()
+    expect(byKey.TOTALLY_UNKNOWN_KEY).toBeTruthy()
+    expect(byKey.CLASSIFIER_MODEL_ID).toBeUndefined()
+  })
+  it('validateEdits passes a well-formed edit set', () => {
+    expect(
+      validateEdits({ OLLAMA_BASE_URL: 'http://192.168.50.231:11434' })
+    ).toEqual([])
+  })
+  it('buildPlan defensively ignores an unknown key', () => {
+    const { plan, changes } = buildPlan('OLLAMA_BASE_URL=http://a:11434\n', {
+      TOTALLY_UNKNOWN_KEY: 'x'
+    })
+    expect(plan.askEnvText).not.toContain('TOTALLY_UNKNOWN_KEY')
+    expect(plan.touchedTargets).toHaveLength(0)
+    expect(changes.find(c => c.key === 'TOTALLY_UNKNOWN_KEY')).toBeUndefined()
   })
 })
