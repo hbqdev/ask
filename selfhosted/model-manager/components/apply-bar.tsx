@@ -30,56 +30,106 @@ export function ApplyBar({ edits }: { edits: Record<string, string> }) {
   const [restoring, setRestoring] = useState<string | null>(null)
 
   async function review() {
-    const res = await fetch('/api/preview', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ edits })
-    })
-    const body = (await res.json()) as { diff: string }
-    setDiff(body.diff)
-    setEvents([])
-    setOpen(true)
+    try {
+      const res = await fetch('/api/preview', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ edits })
+      })
+      if (!res.ok) {
+        let msg = `Preview failed (HTTP ${res.status})`
+        try {
+          const j = (await res.json()) as {
+            violations?: { key: string; error: string }[]
+          }
+          if (j?.violations?.length) {
+            msg = `Invalid: ${j.violations.map(v => v.key).join(', ')}`
+          }
+        } catch {
+          // response had no JSON body — keep the HTTP-status message
+        }
+        toast.error(msg)
+        return
+      }
+      const body = (await res.json()) as { diff: string }
+      setDiff(body.diff)
+      setEvents([])
+      setOpen(true)
+    } catch (e) {
+      toast.error(
+        `Preview failed: ${e instanceof Error ? e.message : String(e)}`
+      )
+    }
   }
 
   async function apply() {
     setApplying(true)
     setEvents([])
-    const res = await fetch('/api/apply', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ edits })
-    })
-    const reader = res.body!.getReader()
-    const dec = new TextDecoder()
-    let buf = ''
     // Track failure locally as events stream in — `events` state only
     // reflects the last completed render, so reading it right after the loop
     // would see a stale (often empty) closure and could report success for a
     // run that actually failed.
     let sawFail = false
-    for (;;) {
-      const { value, done } = await reader.read()
-      if (done) break
-      buf += dec.decode(value, { stream: true })
-      const lines = buf.split('\n')
-      buf = lines.pop() ?? ''
-      for (const l of lines.filter(Boolean)) {
-        const evt = JSON.parse(l) as ApplyEvent
-        if (evt.status === 'fail') sawFail = true
-        setEvents(e => [...e, evt])
+    try {
+      const res = await fetch('/api/apply', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ edits })
+      })
+      if (!res.ok || !res.body) {
+        sawFail = true
+        let detail = `Apply failed (HTTP ${res.status})`
+        try {
+          const j = (await res.json()) as {
+            violations?: { key: string; error: string }[]
+          }
+          if (j?.violations?.length) {
+            detail = `Invalid: ${j.violations.map(v => `${v.key} (${v.error})`).join(', ')}`
+          }
+        } catch {
+          // response had no JSON body — keep the HTTP-status detail
+        }
+        setEvents(e => [...e, { step: 'apply', status: 'fail', detail }])
+      } else {
+        const reader = res.body.getReader()
+        const dec = new TextDecoder()
+        let buf = ''
+        const handleLine = (l: string) => {
+          const evt = JSON.parse(l) as ApplyEvent
+          if (evt.status === 'fail') sawFail = true
+          setEvents(e => [...e, evt])
+        }
+        for (;;) {
+          const { value, done } = await reader.read()
+          if (done) break
+          buf += dec.decode(value, { stream: true })
+          const lines = buf.split('\n')
+          buf = lines.pop() ?? ''
+          for (const l of lines) if (l.trim()) handleLine(l)
+        }
+        if (buf.trim()) handleLine(buf) // flush any trailing unterminated line
       }
+      toast[sawFail ? 'error' : 'success'](
+        sawFail ? 'Apply finished with errors' : 'Applied'
+      )
+    } catch (e) {
+      toast.error(`Apply failed: ${e instanceof Error ? e.message : String(e)}`)
+    } finally {
+      setApplying(false)
     }
-    setApplying(false)
-    toast[sawFail ? 'error' : 'success'](
-      sawFail ? 'Apply finished with errors' : 'Applied'
-    )
   }
 
   async function openBackups() {
     setBackupsOpen(true)
-    const res = await fetch('/api/backups')
-    const body = (await res.json()) as { backups: Backup[] }
-    setBackups(body.backups)
+    try {
+      const res = await fetch('/api/backups')
+      const body = (await res.json()) as { backups: Backup[] }
+      setBackups(body.backups)
+    } catch (e) {
+      toast.error(
+        `Failed to load backups: ${e instanceof Error ? e.message : String(e)}`
+      )
+    }
   }
 
   async function restore(backupPath: string) {
@@ -95,6 +145,10 @@ export function ApplyBar({ edits }: { edits: Record<string, string> }) {
         body.ok ? 'Restored' : 'Restore failed'
       )
       if (body.ok) setBackupsOpen(false)
+    } catch (e) {
+      toast.error(
+        `Restore failed: ${e instanceof Error ? e.message : String(e)}`
+      )
     } finally {
       setRestoring(null)
     }
