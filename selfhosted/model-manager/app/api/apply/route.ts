@@ -1,5 +1,5 @@
 import { applyPlan, type ApplyEvent, type ApplyDeps } from '@/lib/apply'
-import { buildPlan } from '@/lib/plan-builder'
+import { buildPlan, validateEdits } from '@/lib/plan-builder'
 import { getToolConfig } from '@/lib/config'
 import { readAskEnv, writeAskEnvAtomic } from '@/lib/env-io'
 import { realRunner } from '@/lib/exec'
@@ -7,6 +7,10 @@ import { writeBackup, pruneBackups } from '@/lib/backups'
 
 export async function POST(req: Request) {
   const { edits } = (await req.json()) as { edits: Record<string, string> }
+  const violations = validateEdits(edits)
+  if (violations.length) {
+    return Response.json({ violations }, { status: 400 })
+  }
   const cfg = getToolConfig()
   const current = await readAskEnv(cfg.askEnvPath)
   const { plan } = buildPlan(current, edits)
