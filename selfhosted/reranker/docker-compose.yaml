@@ -9,8 +9,6 @@ services:
     build: .
     container_name: reranker
     env_file: .env
-    environment:
-      RERANKER_MODEL: BAAI/bge-reranker-v2-m3
     ports:
       - '8787:8787'
     volumes:
