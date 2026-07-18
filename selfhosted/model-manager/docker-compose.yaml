@@ -1,0 +1,18 @@
+name: model-manager
+services:
+  model-manager:
+    build: .
+    container_name: model-manager
+    env_file: .env
+    ports:
+      - '${MODEL_MANAGER_PORT:-3939}:3939'
+    volumes:
+      # Ask's config + compose so the tool can edit and recreate the ask service.
+      - /home/nightfury/selfhosted/ask/.env:/ask/.env
+      - /home/nightfury/selfhosted/ask/docker-compose.yaml:/ask/docker-compose.yaml:ro
+      - /home/nightfury/selfhosted/ask:/ask/context:ro
+      # Docker socket to run `docker compose up -d ask` on the host.
+      - /var/run/docker.sock:/var/run/docker.sock
+      # SSH key to reach nightfuryS for the reranker.
+      - ${RERANKER_SSH_KEY_HOST:-./keys/nightfurys}:/keys/nightfurys:ro
+    restart: unless-stopped
