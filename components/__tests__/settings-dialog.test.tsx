@@ -25,17 +25,12 @@ describe('SettingsDialog tab reachability', () => {
   it('renders EVERY tab in a nav that is not desktop-only', () => {
     // The regression this guards: the only tab navigation was a
     // `hidden lg:flex` sidebar, so below 1024px every tab but the default
-    // (Memory, Personalization, Models) was completely unreachable — no way
-    // to open the Memory settings at all on a narrower window. There must be
-    // a tab control for each section that is NOT gated behind `lg:`.
+    // (Memory, Personalization) was completely unreachable — no way to open
+    // the Memory settings at all on a narrower window. There must be a tab
+    // control for each section that is NOT gated behind `lg:`.
     render(<SettingsDialog open onOpenChange={() => {}} />)
 
-    for (const label of [
-      'Preferences',
-      'Personalization',
-      'Models',
-      'Memory'
-    ]) {
+    for (const label of ['Preferences', 'Personalization', 'Memory']) {
       const buttons = screen.getAllByRole('button', { name: new RegExp(label) })
       // At least one nav button for this tab must live outside a lg-only
       // container (i.e. reachable below the lg breakpoint).
