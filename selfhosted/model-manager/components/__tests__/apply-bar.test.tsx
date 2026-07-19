@@ -35,7 +35,7 @@ describe('ApplyBar', () => {
   })
   it('shows the change count', () => {
     render(<ApplyBar edits={{ OLLAMA_BASE_URL: 'http://b' }} />)
-    expect(screen.getByText(/1 change/i)).toBeInTheDocument()
+    expect(screen.getByText(/1 pending change/i)).toBeInTheDocument()
   })
   it('fetches and shows the masked diff on Review', async () => {
     render(<ApplyBar edits={{ OLLAMA_BASE_URL: 'http://b' }} />)
