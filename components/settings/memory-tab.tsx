@@ -65,27 +65,41 @@ export function MemoryTab() {
   // in the background or updating state after unmount.
   const rebuildCancelledRef = useRef(false)
 
+  const [loadError, setLoadError] = useState(false)
+  const [loadNonce, setLoadNonce] = useState(0)
+
   useEffect(() => {
     let cancelled = false
     ;(async () => {
-      const [memoryEnabled, userMemories, recallOn, recallStatus] =
-        await Promise.all([
-          getMemoryEnabled(),
-          getMemories(),
-          getRecallEnabled(),
-          getRecallStatus()
-        ])
-      if (cancelled) return
-      setEnabled(memoryEnabled)
-      setMemories(userMemories)
-      setRecallEnabledState(recallOn)
-      setStatus(recallStatus)
-      setIsLoading(false)
+      // A failed load must surface as an explicit error, never as an
+      // eternal spinner or a false "No memories yet." — the most common
+      // cause is a tab from before a redeploy calling stale server
+      // actions, which a page refresh fixes.
+      try {
+        const [memoryEnabled, userMemories, recallOn, recallStatus] =
+          await Promise.all([
+            getMemoryEnabled(),
+            getMemories(),
+            getRecallEnabled(),
+            getRecallStatus()
+          ])
+        if (cancelled) return
+        setEnabled(memoryEnabled)
+        setMemories(userMemories)
+        setRecallEnabledState(recallOn)
+        setStatus(recallStatus)
+        setLoadError(false)
+      } catch {
+        if (cancelled) return
+        setLoadError(true)
+      } finally {
+        if (!cancelled) setIsLoading(false)
+      }
     })()
     return () => {
       cancelled = true
     }
-  }, [])
+  }, [loadNonce])
 
   useEffect(() => {
     return () => {
@@ -174,6 +188,23 @@ export function MemoryTab() {
           {isLoading ? (
             <div className="flex items-center justify-center py-6">
               <Spinner className="size-5" />
+            </div>
+          ) : loadError ? (
+            <div className="flex items-center justify-between gap-3">
+              <p className="text-xs text-destructive">
+                Couldn&apos;t load memories. If the app was just updated,
+                refresh the page.
+              </p>
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={() => {
+                  setIsLoading(true)
+                  setLoadNonce(n => n + 1)
+                }}
+              >
+                Retry
+              </Button>
             </div>
           ) : memories.length === 0 ? (
             <p className="text-xs text-foreground/50">No memories yet.</p>
