@@ -2,28 +2,29 @@
 
 # Ask
 
-Self-hosted AI answer engine that searches the web, reads what it finds, and writes you a cited answer.
+Self-hosted AI answer engine. Searches the web and writes cited answers.
 
 </div>
 
-Ask runs on your own hardware and keeps everything in your own database. It started life as a fork of [Morphic](https://github.com/miurla/morphic) and still shares its bones with that project (full acknowledgements at the bottom), but most of what's described below was built here.
+Ask is a fork of [Morphic](https://github.com/miurla/morphic), extended for self-hosted use. See acknowledgements at the end.
 
 ## Features
 
-Ask doesn't just paste your message into a search box. It first works out what you're actually asking — a follow-up like "what about the second one?" becomes a proper standalone search — then searches the web, reads the result pages, and reranks them so the answer is written from the best sources rather than the first page of links.
-
-- Cited answers with a generative UI. Tables, images, and headings stream in live as the model writes.
-- Long-term memory. Ask notices durable facts about you ("prefers metric", "vegetarian") and quietly carries them into later conversations. Everything it has learned is listed in settings where you can review or delete it, and new facts have to be seen twice before they're trusted.
-- Conversation recall. When a past chat is relevant, Ask pulls it in and shows exactly which conversations it drew from, with links, so nothing feels spooky.
-- Multi-user from the start. Supabase handles login, and Postgres row-level security keeps each user's chats, memories, and uploads isolated at the database layer, not just in app code.
-- File uploads with retrieval, so you can ask questions about your own PDFs and documents.
-- A library for saving answers as notes, shareable chat links, and small home-screen touches like weather and a news feed.
-- Works with Ollama models, OpenAI, Anthropic, Google, or any OpenAI-compatible endpoint, switchable per chat. Search providers beyond the bundled SearXNG include Tavily, Brave, and Exa.
-- Bring your own GPUs, anywhere. The heavier support models (reranking, embeddings, query understanding) don't have to run inside the app — they can live as small authenticated services on any machine on your network. And none of it is mandatory: leave those settings unset and everything falls back gracefully, all the way down to running with nothing but a chat model.
+- Web search before answering, with inline citations and streamed rich output (tables, images, headings)
+- Follow-up questions are resolved into standalone search queries; messages that don't need a search skip it
+- Result pages are crawled and reranked before the answer is written
+- Long-term memory: durable user facts are extracted automatically, applied in later conversations, and can be reviewed or deleted in settings
+- Conversation recall: relevant past chats are retrieved and linked in the answer
+- Multi-user: Supabase authentication with Postgres row-level security per user
+- File uploads with retrieval (PDF and document Q&A)
+- Notes library, shareable chat links, weather and news widgets
+- Models: Ollama, OpenAI, Anthropic, Google, or any OpenAI-compatible endpoint, selectable per chat
+- Search providers: SearXNG (bundled), Tavily, Brave, Exa
+- Optional remote services for reranking and embeddings (token-authenticated HTTP, any host); without them, in-process defaults are used
 
 ## Model manager
 
-`selfhosted/model-manager` is a small companion app for operating a deployment. It's a web UI over Ask's configuration: settings grouped by what they do, tooltips that explain them, a masked diff before anything is written, automatic backups, and a one-click apply that restarts the right services — including ones running on other machines. It earns its keep once your setup spans more than one box.
+`selfhosted/model-manager` is a companion web UI for Ask's configuration: grouped settings with validation and tooltips, diff preview before writing, automatic backups, and apply-with-restart for the affected services, including remote hosts over SSH.
 
 ## Running with Docker
 
@@ -39,7 +40,7 @@ Edit `.env.local` with your keys and endpoints, then:
 docker compose up -d
 ```
 
-Compose brings up Postgres, Redis, SearXNG, and Ask itself. SearXNG is bundled, so you don't need an external search API key just to try it.
+This starts Postgres, Redis, SearXNG, and Ask. SearXNG is bundled, so no external search API key is required.
 
 ## Local development
 
@@ -49,13 +50,13 @@ cp .env.local.example .env.local
 bun dev
 ```
 
-Visit http://localhost:3000. `bun run test` runs the test suite.
+Visit http://localhost:3000. Run tests with `bun run test`.
 
 ## Acknowledgements
 
-Ask began as a fork of [Morphic](https://github.com/miurla/morphic) by [Yoshiki Miura](https://github.com/miurla). The original architecture, the generative UI system, and the first version of the search pipeline are his and his contributors' work, and this project wouldn't exist without it.
+Ask began as a fork of [Morphic](https://github.com/miurla/morphic) by [Yoshiki Miura](https://github.com/miurla). The original architecture, generative UI system, and search pipeline are the work of Morphic and its contributors.
 
-It also stands on [SearXNG](https://github.com/searxng/searxng), [Ollama](https://ollama.com), the [Qwen](https://github.com/QwenLM) model family, the [Vercel AI SDK](https://sdk.vercel.ai), and [shadcn/ui](https://ui.shadcn.com).
+Built with [SearXNG](https://github.com/searxng/searxng), [Ollama](https://ollama.com), [Qwen](https://github.com/QwenLM) models, the [Vercel AI SDK](https://sdk.vercel.ai), and [shadcn/ui](https://ui.shadcn.com).
 
 ## License
 
