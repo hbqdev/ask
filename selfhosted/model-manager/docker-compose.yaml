@@ -3,7 +3,14 @@ services:
   model-manager:
     build: .
     container_name: model-manager
-    env_file: .env
+    # NOTE: keep MODEL_MANAGER_PASSWORD (and any value containing a `$`) in
+    # secrets.env, NOT .env. Compose interpolates `$` in its project .env file
+    # (e.g. `$foo` → the value of var `foo`, usually empty), which silently
+    # mangles a password like `G0d$peed1522!` into `G0d!`. A dedicated env_file
+    # is passed to the container literally, so `$` survives.
+    env_file:
+      - .env
+      - secrets.env
     ports:
       - '${MODEL_MANAGER_PORT:-3939}:3939'
     volumes:

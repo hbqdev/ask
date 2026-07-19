@@ -1,0 +1,13 @@
+# Never bake env/secrets/keys or build artifacts into the image. Runtime
+# config comes ONLY from the container environment (compose env_file); a
+# baked-in .env would be loaded+expanded by Next at runtime, overriding and
+# mangling the real values (e.g. a `$` in a password).
+node_modules
+.next
+.env
+.env.*
+secrets.env
+keys
+*.bak.*
+*.tmp.*
+.git
