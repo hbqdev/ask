@@ -52,10 +52,68 @@ async function getPipeline(modelId: EmbeddingModelId) {
   return pipe
 }
 
+// Remote GPU embedding service (selfhosted/embedder, on the P4000 at
+// EMBEDDING_SERVICE_URL). Replicates this file's exact semantics (mean
+// pooling + L2 normalize) on GPU, so its vectors are interchangeable with
+// everything already stored. Any failure falls back to the local CPU path
+// below — embeddings never hard-fail because the service is down.
+const REMOTE_TIMEOUT_MS = 30_000
+
+function isRemoteConfigured(): boolean {
+  return Boolean(
+    process.env.EMBEDDING_SERVICE_URL && process.env.EMBEDDING_SERVICE_TOKEN
+  )
+}
+
+async function embedRemote(
+  texts: string[],
+  modelId: EmbeddingModelId
+): Promise<number[][]> {
+  const baseUrl = process.env.EMBEDDING_SERVICE_URL as string
+  const controller = new AbortController()
+  const timeoutId = setTimeout(() => controller.abort(), REMOTE_TIMEOUT_MS)
+  try {
+    const response = await fetch(`${baseUrl.replace(/\/$/, '')}/embed`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${process.env.EMBEDDING_SERVICE_TOKEN}`
+      },
+      body: JSON.stringify({ texts, model: modelId }),
+      signal: controller.signal
+    })
+    if (!response.ok) {
+      throw new Error(`embedder HTTP ${response.status}`)
+    }
+    const json = (await response.json()) as { embeddings?: number[][] }
+    if (
+      !Array.isArray(json.embeddings) ||
+      json.embeddings.length !== texts.length
+    ) {
+      throw new Error('embedder returned a malformed embeddings array')
+    }
+    return json.embeddings
+  } finally {
+    clearTimeout(timeoutId)
+  }
+}
+
 export async function embedTexts(
   texts: string[],
   modelId: EmbeddingModelId = getConfiguredModel()
 ): Promise<number[][]> {
+  if (texts.length === 0) return []
+  if (isRemoteConfigured()) {
+    try {
+      return await embedRemote(texts, modelId)
+    } catch (error) {
+      console.warn(
+        `[embeddings] remote embedder failed (${
+          error instanceof Error ? error.message : String(error)
+        }); falling back to local CPU inference`
+      )
+    }
+  }
   const pipe = await getPipeline(modelId)
   const output = await pipe(texts, { pooling: 'mean', normalize: true })
   return output.tolist() as number[][]
