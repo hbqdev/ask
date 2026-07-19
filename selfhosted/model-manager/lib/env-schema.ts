@@ -168,6 +168,7 @@ export const REGISTRY: EnvVarSpec[] = [
   },
   {
     key: 'OPENAI_COMPATIBLE_PROVIDER_NAME',
+    default: 'OpenAI Compatible',
     category: 'models',
     group: 'Cloud providers',
     label: 'OpenAI-compatible label',
@@ -307,6 +308,7 @@ export const REGISTRY: EnvVarSpec[] = [
   },
   {
     key: 'SEARXNG_ENGINES',
+    default: 'google,bing,duckduckgo,wikipedia',
     category: 'search',
     group: 'SearXNG',
     label: 'Engines',
@@ -314,6 +316,7 @@ export const REGISTRY: EnvVarSpec[] = [
   },
   {
     key: 'SEARXNG_MAX_RESULTS',
+    default: '50',
     category: 'search',
     group: 'SearXNG',
     label: 'Max results',
@@ -322,6 +325,7 @@ export const REGISTRY: EnvVarSpec[] = [
   },
   {
     key: 'SEARXNG_DEFAULT_DEPTH',
+    default: 'basic',
     category: 'search',
     group: 'SearXNG',
     label: 'Default depth',
@@ -329,6 +333,7 @@ export const REGISTRY: EnvVarSpec[] = [
   },
   {
     key: 'SEARXNG_TIME_RANGE',
+    default: 'None',
     category: 'search',
     group: 'SearXNG',
     label: 'Time range',
@@ -336,6 +341,7 @@ export const REGISTRY: EnvVarSpec[] = [
   },
   {
     key: 'SEARXNG_SAFESEARCH',
+    default: '0',
     category: 'search',
     group: 'SearXNG',
     label: 'Safesearch',
@@ -344,6 +350,7 @@ export const REGISTRY: EnvVarSpec[] = [
   },
   {
     key: 'SEARXNG_CRAWL_MULTIPLIER',
+    default: '4',
     category: 'search',
     group: 'SearXNG',
     label: 'Crawl multiplier',
@@ -505,6 +512,7 @@ export const REGISTRY: EnvVarSpec[] = [
   },
   {
     key: 'ANONYMOUS_USER_ID',
+    default: 'anonymous-user',
     category: 'auth',
     label: 'Anonymous user id',
     type: 'string'
@@ -652,6 +660,7 @@ export const REGISTRY: EnvVarSpec[] = [
   },
   {
     key: 'LOCAL_REDIS_URL',
+    default: 'redis://localhost:6379',
     category: 'infra',
     label: 'Local Redis URL',
     type: 'string'
@@ -685,7 +694,8 @@ export const REGISTRY: EnvVarSpec[] = [
     group: 'Local uploads',
     label: 'Uploads directory',
     type: 'string',
-    help: 'Container path where uploaded files are stored when object storage (R2/S3) is not configured.'
+    default: '/app/uploads',
+    help: 'Container path where uploaded files are stored (the default local storage). The ask container mounts the "morphic-uploads" Docker volume here. Only bypassed when R2/S3 is configured.'
   },
   {
     key: 'UPLOAD_TTL_DAYS',
@@ -694,6 +704,7 @@ export const REGISTRY: EnvVarSpec[] = [
     label: 'Upload retention (days)',
     type: 'int',
     validate: int,
+    default: '3',
     help: 'Uploaded files older than this many days are cleaned up automatically.'
   },
   {
@@ -706,6 +717,7 @@ export const REGISTRY: EnvVarSpec[] = [
   },
   {
     key: 'R2_BUCKET_NAME',
+    default: 'user-uploads',
     category: 'storage',
     group: 'Cloudflare R2',
     label: 'R2 bucket name',
