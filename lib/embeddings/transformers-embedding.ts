@@ -7,19 +7,30 @@ import path from 'node:path'
 
 export type EmbeddingModelId =
   | 'Xenova/all-MiniLM-L6-v2' // 384d — fastest, good general purpose
-  | 'mixedbread-ai/mxbai-embed-large-v1' // 1024d — highest quality
+  | 'mixedbread-ai/mxbai-embed-large-v1' // 1024d — ONNX-servable
   | 'Xenova/nomic-embed-text-v1' // 768d — good balance
+  | 'Qwen/Qwen3-Embedding-0.6B' // 1024d — highest quality, remote-only
 
 export const EMBEDDING_MODELS: Record<
   EmbeddingModelId,
-  { dims: number; label: string }
+  { dims: number; label: string; remoteOnly?: boolean }
 > = {
   'Xenova/all-MiniLM-L6-v2': { dims: 384, label: 'all-MiniLM-L6-v2' },
   'mixedbread-ai/mxbai-embed-large-v1': {
     dims: 1024,
     label: 'mxbai-embed-large-v1'
   },
-  'Xenova/nomic-embed-text-v1': { dims: 768, label: 'nomic-embed-text-v1' }
+  'Xenova/nomic-embed-text-v1': { dims: 768, label: 'nomic-embed-text-v1' },
+  // Causal-LM embedder: last-token pooling + a query-side instruction,
+  // neither of which the local ONNX feature-extraction pipeline can
+  // replicate — so it is remote-only. Falling back locally would produce
+  // wrong-space vectors that silently poison the store; failing loudly is
+  // the correct behavior when the service is down.
+  'Qwen/Qwen3-Embedding-0.6B': {
+    dims: 1024,
+    label: 'Qwen3-Embedding-0.6B',
+    remoteOnly: true
+  }
 }
 
 export const DEFAULT_EMBEDDING_MODEL: EmbeddingModelId =
@@ -65,9 +76,15 @@ function isRemoteConfigured(): boolean {
   )
 }
 
+// 'query' texts get a retrieval instruction on instruction-aware models
+// (Qwen3); 'document' texts always embed raw. Symmetric comparisons
+// (search dedup, memory-vs-memory dedup) must use 'document' on both sides.
+export type EmbedKind = 'query' | 'document'
+
 async function embedRemote(
   texts: string[],
-  modelId: EmbeddingModelId
+  modelId: EmbeddingModelId,
+  kind: EmbedKind
 ): Promise<number[][]> {
   const baseUrl = process.env.EMBEDDING_SERVICE_URL as string
   const controller = new AbortController()
@@ -79,7 +96,7 @@ async function embedRemote(
         'Content-Type': 'application/json',
         Authorization: `Bearer ${process.env.EMBEDDING_SERVICE_TOKEN}`
       },
-      body: JSON.stringify({ texts, model: modelId }),
+      body: JSON.stringify({ texts, model: modelId, kind }),
       signal: controller.signal
     })
     if (!response.ok) {
@@ -100,19 +117,27 @@ async function embedRemote(
 
 export async function embedTexts(
   texts: string[],
-  modelId: EmbeddingModelId = getConfiguredModel()
+  modelId: EmbeddingModelId = getConfiguredModel(),
+  opts?: { kind?: EmbedKind }
 ): Promise<number[][]> {
   if (texts.length === 0) return []
+  const remoteOnly = EMBEDDING_MODELS[modelId]?.remoteOnly === true
   if (isRemoteConfigured()) {
     try {
-      return await embedRemote(texts, modelId)
+      return await embedRemote(texts, modelId, opts?.kind ?? 'document')
     } catch (error) {
+      if (remoteOnly) throw error
       console.warn(
         `[embeddings] remote embedder failed (${
           error instanceof Error ? error.message : String(error)
         }); falling back to local CPU inference`
       )
     }
+  } else if (remoteOnly) {
+    throw new Error(
+      `embedding model ${modelId} requires the remote embedding service ` +
+        '(set EMBEDDING_SERVICE_URL / EMBEDDING_SERVICE_TOKEN)'
+    )
   }
   const pipe = await getPipeline(modelId)
   const output = await pipe(texts, { pooling: 'mean', normalize: true })

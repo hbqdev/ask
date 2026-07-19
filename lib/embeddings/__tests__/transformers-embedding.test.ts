@@ -52,7 +52,8 @@ describe('embedTexts remote embedding service', () => {
         }),
         body: JSON.stringify({
           texts: ['hello'],
-          model: 'mixedbread-ai/mxbai-embed-large-v1'
+          model: 'mixedbread-ai/mxbai-embed-large-v1',
+          kind: 'document'
         })
       })
     )
@@ -107,6 +108,48 @@ describe('embedTexts remote embedding service', () => {
 
     expect(result).toEqual([[0.5, 0.5]])
     expect(fetchMock).not.toHaveBeenCalled()
+  })
+
+  it('passes kind through to the service, defaulting to document', async () => {
+    const bodies: Array<{ kind?: string }> = []
+    const fetchMock = vi.fn(async (_url: unknown, init?: RequestInit) => {
+      bodies.push(JSON.parse(String(init?.body)))
+      return new Response(JSON.stringify({ embeddings: REMOTE_VECTORS }), {
+        status: 200
+      })
+    })
+    vi.stubGlobal('fetch', fetchMock)
+
+    await embedTexts(['q'], 'mixedbread-ai/mxbai-embed-large-v1', {
+      kind: 'query'
+    })
+    await embedTexts(['d'], 'mixedbread-ai/mxbai-embed-large-v1')
+
+    expect(bodies.map(b => b.kind)).toEqual(['query', 'document'])
+  })
+
+  it('throws instead of falling back locally for remote-only models', async () => {
+    // Qwen3 uses last-token pooling + query instructions, which the local
+    // ONNX path cannot replicate — a silent fallback would write
+    // wrong-space vectors into the store.
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => new Response('boom', { status: 500 }))
+    )
+
+    await expect(
+      embedTexts(['hello'], 'Qwen/Qwen3-Embedding-0.6B')
+    ).rejects.toThrow('embedder HTTP 500')
+    expect(mockPipe).not.toHaveBeenCalled()
+  })
+
+  it('throws for remote-only models when the service is not configured', async () => {
+    vi.stubEnv('EMBEDDING_SERVICE_URL', '')
+
+    await expect(
+      embedTexts(['hello'], 'Qwen/Qwen3-Embedding-0.6B')
+    ).rejects.toThrow('requires the remote embedding service')
+    expect(mockPipe).not.toHaveBeenCalled()
   })
 
   it('returns [] for empty input without calling anything', async () => {

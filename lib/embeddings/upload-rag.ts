@@ -107,7 +107,9 @@ export async function queryFileChunks(
 
   if (stored.chunks.length === 0) return null
 
-  const [queryEmbedding] = await embedTexts([query], stored.model)
+  const [queryEmbedding] = await embedTexts([query], stored.model, {
+    kind: 'query'
+  })
 
   // First stage: bi-encoder cosine to pull a wider candidate pool.
   const CANDIDATE_POOL = Math.max(topK * 3, 30)
