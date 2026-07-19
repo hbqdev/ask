@@ -14,17 +14,17 @@ services:
     ports:
       - '${MODEL_MANAGER_PORT:-3939}:3939'
     volumes:
-      # Mount the Ask repo DIRECTORY (rw) at /ask — a single mount, deliberately:
-      #  1. The tool writes .env atomically (temp file in the same dir, then
-      #     rename onto .env). That ONLY works when .env lives inside a
-      #     bind-mounted DIRECTORY — you cannot rename over a single-file bind
-      #     mount (it errors / doesn't propagate to the host).
-      #  2. `docker compose -f /ask/docker-compose.yaml up -d ask` then resolves
-      #     Ask's own relative paths (build context, ./searxng-*.yml, env_file:
-      #     .env) correctly, because the compose project dir /ask IS the real
-      #     repo. (ASK_ENV_PATH=/ask/.env and ASK_COMPOSE_FILE=/ask/docker-
-      #     compose.yaml both point into this one mount.)
-      - /home/nightfury/selfhosted/ask:/ask
+      # Mount the Ask repo at the SAME path inside the container as on the host.
+      # This identical-path mapping is REQUIRED — the tool runs
+      # `docker compose up -d ask` via the mounted docker socket, and the HOST
+      # daemon resolves Ask's RELATIVE bind mounts (./searxng-*.yml, build
+      # context) and env_file against the HOST filesystem. If the compose
+      # project dir differs in-container vs on-host, the daemon looks for those
+      # paths at the wrong place and the restart fails ("mount a directory onto
+      # a file"). Mounting a DIRECTORY (not a single-file .env) is also required
+      # for the atomic .env write (temp file + rename in the same dir).
+      # ASK_ENV_PATH / ASK_COMPOSE_FILE below must live under this same path.
+      - ${ASK_REPO_DIR:-/home/nightfury/selfhosted/ask}:${ASK_REPO_DIR:-/home/nightfury/selfhosted/ask}
       # Docker socket to run `docker compose up -d ask` on the host.
       - /var/run/docker.sock:/var/run/docker.sock
       # SSH key to reach nightfuryS for the reranker.

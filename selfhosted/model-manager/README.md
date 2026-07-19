@@ -85,11 +85,11 @@ tool without setting a password.
 
 ## What it mounts and why
 
-| Mount                                                | Purpose                                                                                                                                                                                   |
-| ---------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `/home/nightfury/selfhosted/ask` → `/ask` (rw)       | The whole Ask repo, mounted as a **directory** (not a single-file `.env` mount). Required so the atomic `.env` write (temp + rename) persists, and so `docker compose up -d ask` resolves Ask's relative paths. |
-| `/var/run/docker.sock`                               | Run `docker compose -f /ask/docker-compose.yaml up -d ask` on the host to apply changes.                                                                                                 |
-| SSH key → `/keys/nightfurys` (ro)                    | Reach `nightfuryS` to manage the `reranker` container remotely.                                                                                                                          |
+| Mount                                                                       | Purpose                                                                                                                                                                                                                                                                                              |
+| --------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `${ASK_REPO_DIR}` → **same path** inside the container (rw)                  | The whole Ask repo, mounted at the **identical host path** (a **directory**, not a single-file `.env`). Identical path is REQUIRED: the tool runs `docker compose up -d ask` via the socket, and the **host** daemon resolves Ask's relative bind mounts (`./searxng-*.yml`, build context) — so the compose project dir must be the same in-container and on-host, or the restart fails. Directory mount is also required for the atomic `.env` write. |
+| `/var/run/docker.sock`                                                      | Run `docker compose -f $ASK_COMPOSE_FILE up -d ask` on the host to apply changes.                                                                                                                                                                                                                   |
+| SSH key → `/keys/nightfurys` (ro)                                           | Reach `nightfuryS` to manage the `reranker` container remotely.                                                                                                                                                                                                                                     |
 
 ## Configuration reference
 
