@@ -231,6 +231,24 @@ export const REGISTRY: EnvVarSpec[] = [
     help: 'Local ONNX embeddings. Changing dimension affects the memory/recall schema.'
   },
   {
+    key: 'EMBEDDING_SERVICE_URL',
+    category: 'models',
+    group: 'Embeddings',
+    label: 'Embedding service URL (GPU, on nightfuryS)',
+    type: 'url',
+    validate: url,
+    target: 'ask',
+    help: 'Remote GPU embedder on the P4000. When unset, Ask embeds in-process on CPU (also the automatic fallback if the service is down).'
+  },
+  {
+    key: 'EMBEDDING_SERVICE_TOKEN',
+    category: 'models',
+    group: 'Embeddings',
+    label: 'Embedding service token',
+    type: 'secret',
+    target: 'ask'
+  },
+  {
     key: 'MODEL_CACHE_DIR',
     category: 'models',
     group: 'Embeddings',
@@ -260,11 +278,11 @@ export const REGISTRY: EnvVarSpec[] = [
     key: 'RERANKER_MODEL',
     category: 'models',
     group: 'Reranker',
-    label: 'Reranker model (on nightfuryS)',
+    label: 'Reranker model (on nightfuryX)',
     type: 'model',
-    default: 'BAAI/bge-reranker-v2-m3',
+    default: 'Qwen/Qwen3-Reranker-4B',
     target: 'reranker',
-    help: 'Applied over SSH; a change re-downloads weights (slow).'
+    help: 'Applied over SSH to the 2080 Ti box; a change re-downloads weights (slow). 8B fits but is ~1.7x slower.'
   },
 
   // ---------- Search ----------
