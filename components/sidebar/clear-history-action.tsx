@@ -43,7 +43,17 @@ export function ClearHistoryAction({ empty }: ClearHistoryActionProps) {
 
   const handleClearAction = useCallback(() => {
     startTransition(async () => {
-      const res = await clearChats()
+      // A rejected action (network failure, stale server action after a
+      // redeploy) must surface, not die silently.
+      let res: Awaited<ReturnType<typeof clearChats>> | null = null
+      try {
+        res = await clearChats()
+      } catch {
+        toast.error('Failed to clear history — refresh the page and try again.')
+        setIsAlertOpen(false)
+        setIsMenuOpen(false)
+        return
+      }
       if (res?.success) {
         toast.success('History cleared')
         router.push('/')

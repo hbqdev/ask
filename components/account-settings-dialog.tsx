@@ -67,7 +67,17 @@ export function AccountSettingsDialog({
 
   const handleDeleteAccount = () => {
     startDeleteTransition(async () => {
-      const result = await deleteAccount()
+      // A rejected action (network failure, stale server action after a
+      // redeploy) must surface, not die silently.
+      let result: Awaited<ReturnType<typeof deleteAccount>>
+      try {
+        result = await deleteAccount()
+      } catch {
+        toast.error(
+          'Failed to delete account — refresh the page and try again.'
+        )
+        return
+      }
 
       if (result.success) {
         try {
