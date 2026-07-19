@@ -1,5 +1,11 @@
 export type Category =
-  'models' | 'search' | 'database' | 'auth' | 'memory' | 'storage' | 'infra'
+  | 'models'
+  | 'search'
+  | 'database'
+  | 'auth'
+  | 'memory'
+  | 'storage'
+  | 'infra'
 
 export const CATEGORIES: Category[] = [
   'models',
@@ -56,7 +62,14 @@ export const CATEGORY_META: Record<Category, CategoryMeta> = {
 }
 
 export type FieldType =
-  'url' | 'model' | 'model-list' | 'secret' | 'bool' | 'int' | 'enum' | 'string'
+  | 'url'
+  | 'model'
+  | 'model-list'
+  | 'secret'
+  | 'bool'
+  | 'int'
+  | 'enum'
+  | 'string'
 
 export interface EnvVarSpec {
   key: string
@@ -226,9 +239,10 @@ export const REGISTRY: EnvVarSpec[] = [
     enumValues: [
       'Xenova/all-MiniLM-L6-v2',
       'mixedbread-ai/mxbai-embed-large-v1',
-      'Xenova/nomic-embed-text-v1'
+      'Xenova/nomic-embed-text-v1',
+      'Qwen/Qwen3-Embedding-0.6B'
     ],
-    help: 'Local ONNX embeddings. Changing dimension affects the memory/recall schema.'
+    help: 'Qwen3 (best) requires the GPU embedding service and a re-embed of stored vectors. Changing dimension affects the memory/recall schema.'
   },
   {
     key: 'EMBEDDING_SERVICE_URL',

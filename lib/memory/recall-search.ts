@@ -97,7 +97,9 @@ export async function recallSearch(
     // Mirrors upload-rag's CANDIDATE_POOL sizing.
     const pool = Math.max(opts.topK * 3, 30)
 
-    const [queryEmbedding] = await embedTexts([query], getConfiguredModel())
+    const [queryEmbedding] = await embedTexts([query], getConfiguredModel(), {
+      kind: 'query'
+    })
 
     const [vectorHits, keywordHits] = await Promise.all([
       vectorSearchChunks(userId, queryEmbedding, pool, opts.excludeChatId),
