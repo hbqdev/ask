@@ -9,7 +9,7 @@ restart the `ask` service. It also supports cross-host management of the
 
 This container is granted, by design:
 
-- **Read-write access to Ask's `.env`** (`/home/nightfury/selfhosted/ask/.env`)
+- **Read-write access to the Ask repo directory** (`/home/nightfury/selfhosted/ask`, mounted at `/ask`) — needed to write `.env` atomically and to recreate the `ask` service
 - **The host Docker socket** (`/var/run/docker.sock`)
 - **An SSH private key** used to reach `nightfuryS` (the reranker host)
 
@@ -78,13 +78,11 @@ tool without setting a password.
 
 ## What it mounts and why
 
-| Mount                                                                                  | Purpose                                                         |
-| -------------------------------------------------------------------------------------- | --------------------------------------------------------------- |
-| `/home/nightfury/selfhosted/ask/.env` → `/ask/.env` (rw)                               | Read and write Ask's live configuration.                        |
-| `/home/nightfury/selfhosted/ask/docker-compose.yaml` → `/ask/docker-compose.yaml` (ro) | Know how to recreate the `ask` service after an env change.     |
-| `/home/nightfury/selfhosted/ask` → `/ask/context` (ro)                                 | Read-only context for the Ask repo (e.g. for validation).       |
-| `/var/run/docker.sock`                                                                 | Run `docker compose up -d ask` on the host to apply changes.    |
-| SSH key → `/keys/nightfurys` (ro)                                                      | Reach `nightfuryS` to manage the `reranker` container remotely. |
+| Mount                                                | Purpose                                                                                                                                                                                   |
+| ---------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `/home/nightfury/selfhosted/ask` → `/ask` (rw)       | The whole Ask repo, mounted as a **directory** (not a single-file `.env` mount). Required so the atomic `.env` write (temp + rename) persists, and so `docker compose up -d ask` resolves Ask's relative paths. |
+| `/var/run/docker.sock`                               | Run `docker compose -f /ask/docker-compose.yaml up -d ask` on the host to apply changes.                                                                                                 |
+| SSH key → `/keys/nightfurys` (ro)                    | Reach `nightfuryS` to manage the `reranker` container remotely.                                                                                                                          |
 
 ## Configuration reference
 

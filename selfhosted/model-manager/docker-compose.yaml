@@ -7,10 +7,17 @@ services:
     ports:
       - '${MODEL_MANAGER_PORT:-3939}:3939'
     volumes:
-      # Ask's config + compose so the tool can edit and recreate the ask service.
-      - /home/nightfury/selfhosted/ask/.env:/ask/.env
-      - /home/nightfury/selfhosted/ask/docker-compose.yaml:/ask/docker-compose.yaml:ro
-      - /home/nightfury/selfhosted/ask:/ask/context:ro
+      # Mount the Ask repo DIRECTORY (rw) at /ask — a single mount, deliberately:
+      #  1. The tool writes .env atomically (temp file in the same dir, then
+      #     rename onto .env). That ONLY works when .env lives inside a
+      #     bind-mounted DIRECTORY — you cannot rename over a single-file bind
+      #     mount (it errors / doesn't propagate to the host).
+      #  2. `docker compose -f /ask/docker-compose.yaml up -d ask` then resolves
+      #     Ask's own relative paths (build context, ./searxng-*.yml, env_file:
+      #     .env) correctly, because the compose project dir /ask IS the real
+      #     repo. (ASK_ENV_PATH=/ask/.env and ASK_COMPOSE_FILE=/ask/docker-
+      #     compose.yaml both point into this one mount.)
+      - /home/nightfury/selfhosted/ask:/ask
       # Docker socket to run `docker compose up -d ask` on the host.
       - /var/run/docker.sock:/var/run/docker.sock
       # SSH key to reach nightfuryS for the reranker.

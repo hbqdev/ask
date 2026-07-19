@@ -28,6 +28,9 @@ yarn-error.log*
 # local env files
 .env
 .env*.local
+# model-manager writes timestamped backups + atomic-write temp files next to .env
+.env.bak.*
+.env.tmp.*
 
 # vercel
 .vercel
