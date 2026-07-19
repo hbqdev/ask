@@ -249,6 +249,7 @@ describe('RenderMessage', () => {
         getIsOpen={() => true}
         onOpenChange={() => {}}
         status="streaming"
+        isLatestMessage={true}
       />
     )
 
@@ -285,9 +286,49 @@ describe('RenderMessage', () => {
         getIsOpen={() => true}
         onOpenChange={() => {}}
         status="streaming"
+        isLatestMessage={true}
       />
     )
 
     expect(screen.getByTestId('answer-section')).toHaveTextContent('## Report')
+  })
+
+  test('renders a completed prior answer without a heading even while a newer turn streams', () => {
+    // Regression for the "double search" UI bug. `status` is the single
+    // global chat status, so it reads "streaming" for EVERY rendered message
+    // while any turn generates. A previous, already-finished answer that does
+    // not begin with a markdown heading (common for short diagnostic replies)
+    // must still render — it is not the message being streamed
+    // (isLatestMessage is false), so the first-token heading gate must not
+    // apply to it and its text must not vanish behind the research process.
+    const message: UIMessage = {
+      id: 'old-assistant-msg',
+      role: 'assistant',
+      parts: [
+        {
+          type: 'tool-search',
+          toolCallId: 'tool-1',
+          state: 'output-available',
+          input: {},
+          output: {}
+        } as any,
+        { type: 'text', text: 'Port 22 appears free right now.' } as any
+      ]
+    } as UIMessage
+
+    render(
+      <RenderMessage
+        message={message}
+        messageId={message.id}
+        getIsOpen={() => true}
+        onOpenChange={() => {}}
+        status="streaming"
+        isLatestMessage={false}
+      />
+    )
+
+    expect(screen.getByTestId('answer-section')).toHaveTextContent(
+      'Port 22 appears free right now.'
+    )
   })
 })
