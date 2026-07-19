@@ -1,7 +1,7 @@
 {
   "version": 2,
   "models": {
-    "quick": {
+    "speed": {
       "id": "gemini-3.1-flash-lite",
       "name": "Gemini 3.1 Flash Lite",
       "provider": "Google",
@@ -14,7 +14,20 @@
         }
       }
     },
-    "adaptive": {
+    "balanced": {
+      "id": "gemini-3-flash-preview",
+      "name": "Gemini 3 Flash Preview",
+      "provider": "Google",
+      "providerId": "google",
+      "providerOptions": {
+        "google": {
+          "thinkingConfig": {
+            "includeThoughts": true
+          }
+        }
+      }
+    },
+    "quality": {
       "id": "gemini-3-flash-preview",
       "name": "Gemini 3 Flash Preview",
       "provider": "Google",

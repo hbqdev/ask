@@ -146,3 +146,37 @@ export function processCitations(
     }
   )
 }
+
+/**
+ * Collapse whitespace and punctuation artifacts left behind by stripped
+ * citations. When a model fabricates a citation anchor (e.g. `[1](#fetch_prevention)`)
+ * and `processCitations` returns `''` for it, the surrounding text can end
+ * up with double-spaces, double-periods, or stray commas after the period.
+ *
+ * Examples (before → after):
+ *   "text .[1](#fake) more"  → "text. more"  (model wrote "text ." before [1])
+ *   "text  more"             → "text more"
+ *   "text.. more"            → "text. more"
+ *   "text. ,more"            → "text. more"
+ *   "Hello. World"           → "Hello. World"  (unchanged, already clean)
+ */
+export function collapseCitationArtifacts(text: string): string {
+  if (!text) return text
+
+  return (
+    text
+      .replace(/[ \t]{2,}/g, ' ') // collapse multiple spaces (but keep newlines)
+      .replace(/([.!?])\s*\./g, '$1') // ".." → "."
+      // The artifact: "text . word" came from "text .[1] word" → "text . word"
+      // We want "text. word" — drop the lone space before a sentence-ending
+      // punctuation that is itself followed by a single space + word.
+      .replace(/(\w)\s+([.!?])\s+(\w)/g, '$1$2 $3')
+      // Drop duplicate punctuation (with optional whitespace between):
+      // ".." / ".," / ". ," / ". ." all collapse to "."
+      .replace(/([.!?])[\s,;:.!?]+(?=[.!?])/g, '$1')
+      // Drop a comma that sits between a period and a word: ". ,more" or "., more" → ". more"
+      .replace(/([.!?])\s*,\s*(\w)/g, '$1 $2')
+      // Re-collapse any double spaces that the rules above may have introduced
+      .replace(/[ \t]{2,}/g, ' ')
+  )
+}

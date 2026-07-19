@@ -46,14 +46,25 @@ export async function getChats() {
 }
 
 /**
- * Get chats with pagination for the current user
+ * Get chats with pagination for the current user, along with lightweight
+ * per-chat badge data (search mode used, file attachment count) for the
+ * library list.
  */
-export async function getChatsPage(limit = 20, offset = 0) {
+export async function getChatsPage(
+  limit = 20,
+  offset = 0,
+  sort: dbActions.ChatSortOption = 'recent'
+) {
   const userId = await getCurrentUserId()
   if (!userId) {
-    return { chats: [], nextOffset: null }
+    return { chats: [], nextOffset: null, badges: {} }
   }
-  return dbActions.getChatsPage(userId, limit, offset)
+  const page = await dbActions.getChatsPage(userId, limit, offset, sort)
+  const badges = await dbActions.getChatBadgeData(
+    userId,
+    page.chats.map(chat => chat.id)
+  )
+  return { ...page, badges }
 }
 
 /**
@@ -76,6 +87,44 @@ export async function loadChat(
 ): Promise<(Chat & { messages: UIMessage[] }) | null> {
   // Use cached version for individual chat loading
   const chat = await getCachedChatWithMessages(chatId, requestingUserId)
+  if (!chat) return null
+
+  return {
+    ...chat,
+    messages: await signFilePartUrlsInMessages(chat.messages)
+  }
+}
+
+/**
+ * Uncached chat load — always reads the DB.
+ *
+ * The streaming path MUST use this instead of `loadChat`. `loadChat` goes
+ * through `unstable_cache`, which returns STALE data here for two compounding
+ * reasons:
+ *   1. Its `revalidateTag` invalidation is issued from `upsertMessage` inside
+ *      `persistStreamResults`, which runs in the stream's `onFinish` — i.e.
+ *      after the HTTP response is already committed, where revalidation is not
+ *      reliably applied. (The regenerate path in prepare-messages.ts already
+ *      documents this: "may return stale data even after revalidateTag".)
+ *   2. `revalidate: 60` is stale-while-revalidate: the request after expiry is
+ *      still served the stale value and only triggers a background refresh.
+ *
+ * A stale read silently DROPS the most recent assistant answer from the
+ * conversation history. The model then sees two consecutive user messages, has
+ * no way to know the earlier one was already answered, and re-answers it —
+ * producing the long-standing "it answers my previous question again / it says
+ * I'm asking two things" bug. No prompt wording can fix that, because the
+ * transcript the model reads is genuinely missing the answer.
+ *
+ * Correctness of the conversation history outranks one indexed local-Postgres
+ * query per turn (against a 30–90s turn, the cache saved nothing that mattered).
+ * The cache remains in `loadChat` for page rendering, where staleness is benign.
+ */
+export async function loadChatUncached(
+  chatId: string,
+  requestingUserId?: string
+): Promise<(Chat & { messages: UIMessage[] }) | null> {
+  const chat = await dbActions.loadChatWithMessages(chatId, requestingUserId)
   if (!chat) return null
 
   return {
@@ -321,6 +370,30 @@ export async function deleteMessagesFromIndex(
     messageId,
     userId
   )
+
+  revalidateTag(`chat-${chatId}`, 'max')
+
+  return { success: true, count: result.count }
+}
+
+/**
+ * Delete a single conversational turn (an exact set of message IDs — a
+ * user message plus its assistant response(s)) without affecting any other
+ * message in the chat.
+ */
+export async function deleteMessages(chatId: string, messageIds: string[]) {
+  const userId = await getCurrentUserId()
+  if (!userId) {
+    return { success: false, error: 'User not authenticated' }
+  }
+
+  // Verify access
+  const chat = await dbActions.getChat(chatId, userId)
+  if (!chat || chat.userId !== userId) {
+    return { success: false, error: 'Unauthorized' }
+  }
+
+  const result = await dbActions.deleteMessagesByIds(chatId, messageIds, userId)
 
   revalidateTag(`chat-${chatId}`, 'max')
 

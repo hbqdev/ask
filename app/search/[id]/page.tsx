@@ -50,8 +50,10 @@ export default async function SearchPage(props: {
 
   return (
     <Chat
+      key={id}
       id={id}
       savedMessages={messages}
+      title={chat.title}
       isGuest={!userId}
       isCloudDeployment={isCloudDeployment}
       libraryAvailable={libraryAvailable}

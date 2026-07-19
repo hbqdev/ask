@@ -25,8 +25,12 @@ async function getConfiguredOllamaModels(): Promise<Model[]> {
   try {
     const config = await loadModelsConfig()
 
-    // Check quick/adaptive models
-    const cloudModels = [config.models.quick, config.models.adaptive]
+    // Check speed/balanced/quality models
+    const cloudModels = [
+      config.models.speed,
+      config.models.balanced,
+      config.models.quality
+    ]
 
     for (const model of cloudModels) {
       if (model?.providerId === 'ollama') {
@@ -49,6 +53,16 @@ export async function initializeOllamaValidation(): Promise<void> {
   // Skip validation if OLLAMA_BASE_URL is not configured
   if (!process.env.OLLAMA_BASE_URL) {
     console.log('Ollama validation skipped (OLLAMA_BASE_URL not configured)')
+    return
+  }
+
+  // Skip /api/tags validation when using a static cloud model list —
+  // cloud models (e.g. minimax-m3:cloud) don't appear in /api/tags but
+  // they do work via the native Ollama API without an API key.
+  if (process.env.OLLAMA_MODELS) {
+    console.log(
+      `Ollama validation skipped — using static OLLAMA_MODELS list (${process.env.OLLAMA_MODELS.split(',').length} cloud models)`
+    )
     return
   }
 
@@ -118,7 +132,7 @@ export async function initializeOllamaValidation(): Promise<void> {
             '\n⚠️  ERROR: Configured Ollama models do not support tools!\n' +
               `The following model(s) in your config/models/*.json do not support tools capability:\n` +
               invalidModels.map(m => `  - ${m}`).join('\n') +
-              '\n\nMorphic requires models with tools capability for web search functionality.\n' +
+              '\n\nAsk requires models with tools capability for web search functionality.\n' +
               'Please update your configuration to use models with tools support, for example:\n' +
               '  ollama pull qwen3\n' +
               '  ollama pull gpt-oss\n' +
@@ -134,18 +148,18 @@ export async function initializeOllamaValidation(): Promise<void> {
     if (validated.size === 0) {
       console.error(
         '\n⚠️  ERROR: No Ollama models with tools support found!\n' +
-          'Morphic requires models with tools capability for web search functionality.\n' +
+          'Ask requires models with tools capability for web search functionality.\n' +
           'Please install a model with tools support, for example:\n' +
           '  ollama pull qwen3\n' +
           '  ollama pull gpt-oss\n' +
           '  ollama pull deepseek-v3.1\n' +
-          'Models without tools support will not work with Morphic.\n'
+          'Models without tools support will not work with Ask.\n'
       )
     }
   } catch (error) {
     validationError = error as Error
     console.error('Ollama validation failed:', error)
-    console.warn('Morphic will continue, but Ollama models may not work')
+    console.warn('Ask will continue, but Ollama models may not work')
   }
 }
 
@@ -179,7 +193,7 @@ export function validateOllamaModel(modelId: string): {
   if (!validatedModels!.has(modelId)) {
     return {
       valid: false,
-      error: `Model "${modelId}" does not support tools capability required for Morphic. Please use a model with tools support.`
+      error: `Model "${modelId}" does not support tools capability required for Ask. Please use a model with tools support.`
     }
   }
 

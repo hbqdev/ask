@@ -12,6 +12,8 @@ export type PublicErrorCode =
   | 'provider_rate_limit'
   | 'provider_unavailable'
   | 'rate_limit'
+  | 'timeout'
+  | 'unsupported_input'
   | 'unknown'
 
 export type PublicErrorPayload = {
@@ -54,6 +56,8 @@ const PUBLIC_ERROR_CODES: ReadonlySet<string> = new Set([
   'provider_rate_limit',
   'provider_unavailable',
   'rate_limit',
+  'timeout',
+  'unsupported_input',
   'unknown'
 ])
 
@@ -110,11 +114,38 @@ const CONTEXT_LENGTH_PATTERNS = [
   /too many tokens/i
 ]
 
+// Matches the DOMException AbortSignal.timeout() produces (name
+// "TimeoutError", message "The operation was aborted due to timeout") when
+// our own generation-timeout fires — see app/api/chat/route.ts. Distinct
+// from a plain client-disconnect abort, which has no matching reason here
+// and falls through to the generic unknown-error message instead.
+const TIMEOUT_PATTERNS = [
+  /timeouterror/i,
+  /aborted due to timeout/i,
+  /timed out/i
+]
+
 const MODEL_UNAVAILABLE_PATTERNS = [
   /model .*not found/i,
   /no such model/i,
   /model .*unavailable/i,
   /unsupported model/i
+]
+
+// Matches provider errors thrown when an attachment's type isn't accepted by
+// the selected model (e.g. a text-only model rejecting an image attachment).
+// Distinct from MODEL_UNAVAILABLE_PATTERNS: the model itself is fine, it's the
+// input that doesn't fit — so the fix is "remove it / switch models", not
+// "pick a different model because this one is down".
+const UNSUPPORTED_INPUT_PATTERNS = [
+  /does not support image/i,
+  /does not support images/i,
+  /does not support vision/i,
+  /does not support multimodal/i,
+  /image input is not supported/i,
+  /images? (?:are|is) not supported/i,
+  /vision is not supported/i,
+  /invalid input type: ?image/i
 ]
 
 const SYSTEM_PATTERNS = [
@@ -331,11 +362,30 @@ function classifyError(snapshot: ErrorSnapshot, fallbackMessage?: string) {
     }
   }
 
+  if (matchesAny(combined, TIMEOUT_PATTERNS)) {
+    return {
+      code: 'timeout' as const,
+      type: 'general' as const,
+      error: 'The response took too long and was stopped. Please try again.',
+      retryable: true
+    }
+  }
+
   if (matchesAny(combined, MODEL_UNAVAILABLE_PATTERNS)) {
     return {
       code: 'model_unavailable' as const,
       type: 'general' as const,
       error: 'The selected model is unavailable. Please choose another model.',
+      retryable: false
+    }
+  }
+
+  if (matchesAny(combined, UNSUPPORTED_INPUT_PATTERNS)) {
+    return {
+      code: 'unsupported_input' as const,
+      type: 'general' as const,
+      error:
+        'The selected model does not support image input. Remove the attached image or switch to a vision-capable model, then try again.',
       retryable: false
     }
   }
@@ -487,8 +537,8 @@ export function createPublicErrorResponse(
 }
 
 export function getPublicRateLimitDetails(error: PublicErrorPayload): string {
-  if (error.mode === 'adaptive') {
-    return 'The limit resets at midnight UTC. You can continue using Quick mode without restrictions.'
+  if (error.mode === 'balanced' || error.mode === 'quality') {
+    return 'The limit resets at midnight UTC. You can continue using Speed mode without restrictions.'
   }
 
   if (error.details) return error.details

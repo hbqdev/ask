@@ -14,6 +14,7 @@ import {
   createChatAndSaveMessage,
   createChatWithFirstMessage,
   deleteChat,
+  deleteMessages,
   deleteMessagesAfter,
   deleteMessagesFromIndex,
   getChats,
@@ -43,7 +44,8 @@ describe('Chat Actions', () => {
           title: 'Chat 1',
           userId,
           visibility: 'private',
-          createdAt: new Date()
+          createdAt: new Date(),
+          lastViewedAt: null
         }
       ]
 
@@ -67,28 +69,39 @@ describe('Chat Actions', () => {
   })
 
   describe('getChatsPage', () => {
-    it('should return paginated chats for authenticated user', async () => {
+    it('should return paginated chats with badge data for authenticated user', async () => {
       const userId = 'user-123'
-      const mockResult = {
+      const mockPage = {
         chats: [
           {
             id: 'chat-1',
             title: 'Chat 1',
             userId,
             visibility: 'private' as const,
-            createdAt: new Date()
+            createdAt: new Date(),
+            lastViewedAt: null
           }
         ],
         nextOffset: 20
       }
+      const mockBadges = { 'chat-1': { fileCount: 2 } }
 
       vi.mocked(getCurrentUserId).mockResolvedValue(userId)
-      vi.mocked(dbActions.getChatsPage).mockResolvedValue(mockResult)
+      vi.mocked(dbActions.getChatsPage).mockResolvedValue(mockPage)
+      vi.mocked(dbActions.getChatBadgeData).mockResolvedValue(mockBadges)
 
       const result = await getChatsPage(20, 0)
 
-      expect(result).toEqual(mockResult)
-      expect(dbActions.getChatsPage).toHaveBeenCalledWith(userId, 20, 0)
+      expect(result).toEqual({ ...mockPage, badges: mockBadges })
+      expect(dbActions.getChatsPage).toHaveBeenCalledWith(
+        userId,
+        20,
+        0,
+        'recent'
+      )
+      expect(dbActions.getChatBadgeData).toHaveBeenCalledWith(userId, [
+        'chat-1'
+      ])
     })
 
     it('should return empty result for unauthenticated user', async () => {
@@ -96,8 +109,28 @@ describe('Chat Actions', () => {
 
       const result = await getChatsPage()
 
-      expect(result).toEqual({ chats: [], nextOffset: null })
+      expect(result).toEqual({ chats: [], nextOffset: null, badges: {} })
       expect(dbActions.getChatsPage).not.toHaveBeenCalled()
+      expect(dbActions.getChatBadgeData).not.toHaveBeenCalled()
+    })
+
+    it('should forward an explicit sort option to the DB layer', async () => {
+      const userId = 'user-123'
+      vi.mocked(getCurrentUserId).mockResolvedValue(userId)
+      vi.mocked(dbActions.getChatsPage).mockResolvedValue({
+        chats: [],
+        nextOffset: null
+      })
+      vi.mocked(dbActions.getChatBadgeData).mockResolvedValue({})
+
+      await getChatsPage(20, 0, 'title')
+
+      expect(dbActions.getChatsPage).toHaveBeenCalledWith(
+        userId,
+        20,
+        0,
+        'title'
+      )
     })
   })
 
@@ -111,6 +144,7 @@ describe('Chat Actions', () => {
         userId,
         visibility: 'private' as const,
         createdAt: new Date(),
+        lastViewedAt: null,
         messages: [
           {
             id: 'msg-1',
@@ -140,6 +174,7 @@ describe('Chat Actions', () => {
         userId: 'user-123',
         visibility: 'public' as const,
         createdAt: new Date(),
+        lastViewedAt: null,
         messages: []
       }
 
@@ -165,7 +200,8 @@ describe('Chat Actions', () => {
         title,
         userId,
         visibility: 'private',
-        createdAt: new Date()
+        createdAt: new Date(),
+        lastViewedAt: null
       }
 
       vi.mocked(dbActions.createChat).mockResolvedValue(mockChat)
@@ -191,7 +227,8 @@ describe('Chat Actions', () => {
         title: 'Untitled',
         userId,
         visibility: 'private',
-        createdAt: new Date()
+        createdAt: new Date(),
+        lastViewedAt: null
       }
 
       vi.mocked(dbActions.createChat).mockResolvedValue(mockChat)
@@ -221,7 +258,8 @@ describe('Chat Actions', () => {
         title: 'Hello',
         userId,
         visibility: 'private',
-        createdAt: new Date()
+        createdAt: new Date(),
+        lastViewedAt: null
       }
       const mockMessage: Message = {
         id: 'msg-1',
@@ -274,7 +312,8 @@ describe('Chat Actions', () => {
           title,
           userId,
           visibility: 'private' as const,
-          createdAt: new Date()
+          createdAt: new Date(),
+          lastViewedAt: null
         },
         message: {
           id: 'msg-1',
@@ -417,14 +456,16 @@ describe('Chat Actions', () => {
           title: 'Chat 1',
           userId,
           visibility: 'private',
-          createdAt: new Date()
+          createdAt: new Date(),
+          lastViewedAt: null
         },
         {
           id: 'chat-2',
           title: 'Chat 2',
           userId,
           visibility: 'private',
-          createdAt: new Date()
+          createdAt: new Date(),
+          lastViewedAt: null
         }
       ]
 
@@ -452,7 +493,8 @@ describe('Chat Actions', () => {
         title: 'Test Chat',
         userId,
         visibility: 'private',
-        createdAt: new Date()
+        createdAt: new Date(),
+        lastViewedAt: null
       }
 
       vi.mocked(getCurrentUserId).mockResolvedValue(userId)
@@ -478,7 +520,8 @@ describe('Chat Actions', () => {
         title: 'Test Chat',
         userId: 'other-user',
         visibility: 'private',
-        createdAt: new Date()
+        createdAt: new Date(),
+        lastViewedAt: null
       }
 
       vi.mocked(getCurrentUserId).mockResolvedValue(userId)
@@ -500,7 +543,8 @@ describe('Chat Actions', () => {
         title: 'Test Chat',
         userId,
         visibility: 'public',
-        createdAt: new Date()
+        createdAt: new Date(),
+        lastViewedAt: null
       }
 
       vi.mocked(getCurrentUserId).mockResolvedValue(userId)
@@ -537,7 +581,8 @@ describe('Chat Actions', () => {
         title: 'Test Chat',
         userId,
         visibility: 'private',
-        createdAt: new Date()
+        createdAt: new Date(),
+        lastViewedAt: null
       }
 
       vi.mocked(getCurrentUserId).mockResolvedValue(userId)
@@ -558,6 +603,69 @@ describe('Chat Actions', () => {
     })
   })
 
+  describe('deleteMessages', () => {
+    it('should delete an exact set of message IDs (a single conversational turn)', async () => {
+      const chatId = 'chat-123'
+      const messageIds = ['msg-user-1', 'msg-assistant-1']
+      const userId = 'user-123'
+      const mockChat: Chat = {
+        id: chatId,
+        title: 'Test Chat',
+        userId,
+        visibility: 'private',
+        createdAt: new Date(),
+        lastViewedAt: null
+      }
+
+      vi.mocked(getCurrentUserId).mockResolvedValue(userId)
+      vi.mocked(dbActions.getChat).mockResolvedValue(mockChat)
+      vi.mocked(dbActions.deleteMessagesByIds).mockResolvedValue({ count: 2 })
+
+      const result = await deleteMessages(chatId, messageIds)
+
+      expect(result).toEqual({ success: true, count: 2 })
+      expect(dbActions.deleteMessagesByIds).toHaveBeenCalledWith(
+        chatId,
+        messageIds,
+        userId
+      )
+      expect(revalidateTag).toHaveBeenCalledWith(`chat-${chatId}`, 'max')
+    })
+
+    it('should return error for unauthenticated user', async () => {
+      vi.mocked(getCurrentUserId).mockResolvedValue(undefined)
+
+      const result = await deleteMessages('chat-123', ['msg-1'])
+
+      expect(result).toEqual({
+        success: false,
+        error: 'User not authenticated'
+      })
+      expect(dbActions.deleteMessagesByIds).not.toHaveBeenCalled()
+    })
+
+    it('should return error for unauthorized access (chat belongs to another user)', async () => {
+      const chatId = 'chat-123'
+      const userId = 'user-123'
+      const mockChat: Chat = {
+        id: chatId,
+        title: 'Test Chat',
+        userId: 'other-user',
+        visibility: 'private',
+        createdAt: new Date(),
+        lastViewedAt: null
+      }
+
+      vi.mocked(getCurrentUserId).mockResolvedValue(userId)
+      vi.mocked(dbActions.getChat).mockResolvedValue(mockChat)
+
+      const result = await deleteMessages(chatId, ['msg-1'])
+
+      expect(result).toEqual({ success: false, error: 'Unauthorized' })
+      expect(dbActions.deleteMessagesByIds).not.toHaveBeenCalled()
+    })
+  })
+
   describe('saveChatTitle', () => {
     it('should generate and save title for new chat', async () => {
       const chatId = 'chat-123'
@@ -575,7 +683,8 @@ describe('Chat Actions', () => {
         title: generatedTitle,
         userId: 'user-123',
         visibility: 'private',
-        createdAt: new Date()
+        createdAt: new Date(),
+        lastViewedAt: null
       })
 
       await saveChatTitle(null, chatId, message, modelId)
@@ -598,7 +707,8 @@ describe('Chat Actions', () => {
         title: 'Existing Chat',
         userId: 'user-123',
         visibility: 'private',
-        createdAt: new Date()
+        createdAt: new Date(),
+        lastViewedAt: null
       }
       const message: UIMessage = {
         id: 'msg-1',

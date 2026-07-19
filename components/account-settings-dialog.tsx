@@ -67,7 +67,17 @@ export function AccountSettingsDialog({
 
   const handleDeleteAccount = () => {
     startDeleteTransition(async () => {
-      const result = await deleteAccount()
+      // A rejected action (network failure, stale server action after a
+      // redeploy) must surface, not die silently.
+      let result: Awaited<ReturnType<typeof deleteAccount>>
+      try {
+        result = await deleteAccount()
+      } catch {
+        toast.error(
+          'Failed to delete account — refresh the page and try again.'
+        )
+        return
+      }
 
       if (result.success) {
         try {
@@ -125,7 +135,7 @@ export function AccountSettingsDialog({
             <div className="grid gap-1">
               <h3 className="text-sm font-medium">Theme</h3>
               <p className="text-sm text-muted-foreground">
-                Choose how Morphic appears on this device.
+                Choose how Ask appears on this device.
               </p>
             </div>
             <div className="grid grid-cols-3 gap-2">

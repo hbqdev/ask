@@ -1,7 +1,7 @@
 import type { SearchMode } from '@/lib/types/search'
 
 export const ADAPTIVE_MODE_AUTH_REQUIRED_MESSAGE =
-  'Sign in to use Adaptive mode. Quick mode remains available without an account.'
+  'Sign in to use Balanced or Quality mode. Speed mode remains available without an account.'
 
 export function requiresAdaptiveModeAuth({
   isGuest,
@@ -23,7 +23,7 @@ export function isAdaptiveModeAuthBlocked({
   isCloudDeployment?: boolean
 }) {
   return (
-    mode === 'adaptive' &&
+    (mode === 'balanced' || mode === 'quality') &&
     requiresAdaptiveModeAuth({ isGuest, isCloudDeployment })
   )
 }

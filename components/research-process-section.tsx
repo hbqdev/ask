@@ -1,13 +1,10 @@
 'use client'
 
-import { useCallback, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 
 import type { ReasoningPart } from '@ai-sdk/provider-utils'
 import { UseChatHelpers } from '@ai-sdk/react'
-import {
-  IconChevronDown as ChevronDown,
-  IconRoute as Waypoints
-} from '@tabler/icons-react'
+import { IconChevronDown as ChevronDown } from '@tabler/icons-react'
 
 import type { ToolPart, UIDataTypes, UIMessage, UITools } from '@/lib/types/ai'
 import type { DynamicToolPart } from '@/lib/types/dynamic-tools'
@@ -18,6 +15,8 @@ import {
   CollapsibleContent,
   CollapsibleTrigger
 } from './ui/collapsible'
+import { type AttachmentsPart, AttachmentsSection } from './attachments-section'
+import { type ClassifierPart, ClassifierSection } from './classifier-section'
 import { ReasoningSection } from './reasoning-section'
 import { ToolSection } from './tool-section'
 
@@ -27,11 +26,25 @@ type TextPart = {
   text: string
 }
 
-type MessagePart = ReasoningPart | ToolPart | TextPart | DynamicToolPart
+type MessagePart =
+  | ReasoningPart
+  | ToolPart
+  | TextPart
+  | DynamicToolPart
+  | ClassifierPart
+  | AttachmentsPart
 
 // Type guards
 function isReasoningPart(part: MessagePart): part is ReasoningPart {
   return part.type === 'reasoning'
+}
+
+function isClassifierPart(part: MessagePart): part is ClassifierPart {
+  return part.type === 'data-classifier'
+}
+
+function isAttachmentsPart(part: MessagePart): part is AttachmentsPart {
+  return part.type === 'data-attachments'
 }
 
 function isToolPart(part: MessagePart): part is ToolPart {
@@ -61,6 +74,15 @@ type Props = {
   getIsOpen: (id: string, partType?: string, hasNextPart?: boolean) => boolean
   onOpenChange: (id: string, open: boolean) => void
   status?: UseChatHelpers<UIMessage<unknown, UIDataTypes, UITools>>['status']
+  /**
+   * Whether this is the latest assistant message — the only one that can
+   * actually be streaming. `status` is the single global chat status, so it
+   * cannot by itself distinguish the message being generated from earlier,
+   * finished ones. Without this gate, every prior turn's process section
+   * would show "Working on it" whenever a new turn runs (the "double search"
+   * UI bug).
+   */
+  isLatestMessage?: boolean
   addToolResult?: (params: { toolCallId: string; result: any }) => void
   parts?: MessagePart[]
   hasSubsequentText?: boolean
@@ -201,6 +223,14 @@ function RenderPart({
 }) {
   const hasSubsequent = hasNext || hasSubsequentContent
 
+  if (isClassifierPart(part)) {
+    return <ClassifierSection part={part} />
+  }
+
+  if (isAttachmentsPart(part)) {
+    return <AttachmentsSection part={part} />
+  }
+
   if (isReasoningPart(part)) {
     const isOpen = isSingle
       ? getIsOpen(partId, 'reasoning', hasSubsequent)
@@ -284,6 +314,7 @@ export function ResearchProcessSection({
   getIsOpen,
   onOpenChange,
   status,
+  isLatestMessage = false,
   addToolResult,
   parts: partsOverride,
   hasSubsequentText = false
@@ -314,6 +345,29 @@ export function ResearchProcessSection({
     Record<string, boolean>
   >({})
 
+  // Still actively researching: this is the message currently being
+  // generated, no text has followed this segment yet, and the chat hasn't
+  // finished streaming. Matches Perplexity's live status line before the
+  // answer starts. `isLatestMessage` is essential — `status` alone is the
+  // global chat status and would mark every earlier turn as in-progress
+  // whenever a new turn runs.
+  const isInProgress =
+    isLatestMessage &&
+    !hasSubsequentText &&
+    (status === 'streaming' || status === 'submitted')
+
+  // Peek open for a couple seconds when research starts so the user sees
+  // it's doing something, then auto-collapse to just the pulsing summary
+  // line — a research run can take minutes, and it shouldn't stay expanded
+  // scrolling live updates the whole time. Never resets back open once
+  // triggered; the summary line keeps updating its step count regardless.
+  const [autoCollapsed, setAutoCollapsed] = useState(false)
+  useEffect(() => {
+    if (!isInProgress || autoCollapsed) return
+    const timer = setTimeout(() => setAutoCollapsed(true), 2000)
+    return () => clearTimeout(timer)
+  }, [isInProgress, autoCollapsed])
+
   if (segments.length === 0 || segments.every(seg => seg.length === 0))
     return null
 
@@ -326,13 +380,16 @@ export function ResearchProcessSection({
 
         // Count total parts in this segment
         const totalParts = seg.length
-        const needsParentCollapsible = totalParts >= 5
 
         // Parent collapsible ID
         const parentId = `${messageId}-parent-${sidx}`
-        // If user has explicitly set state, use that; otherwise auto-collapse when text follows
+        // If user has explicitly set state, use that; otherwise: closed
+        // once text follows, open for an initial 2-second peek while
+        // actively researching (then auto-collapsed), open by default in
+        // the rare case research ended with no answer following at all.
         const isParentOpen =
-          parentOpenStates[parentId] ?? (hasSubsequentText ? false : true)
+          parentOpenStates[parentId] ??
+          (hasSubsequentText ? false : isInProgress ? !autoCollapsed : true)
 
         const segmentContent = (
           <div className={containerClass}>
@@ -368,40 +425,44 @@ export function ResearchProcessSection({
           </div>
         )
 
-        if (needsParentCollapsible) {
-          return (
-            <Collapsible
-              key={`${messageId}-seg-${sidx}`}
-              open={isParentOpen}
-              onOpenChange={open => {
-                setParentOpenStates(prev => ({ ...prev, [parentId]: open }))
-              }}
-            >
-              <CollapsibleTrigger asChild>
-                <button
-                  type="button"
-                  className="flex items-center px-1 py-0.5 gap-2 text-sm rounded-lg group"
+        // Always summarize behind a single "Completed N steps" line —
+        // never render the step list unwrapped, regardless of count.
+        return (
+          <Collapsible
+            key={`${messageId}-seg-${sidx}`}
+            open={isParentOpen}
+            onOpenChange={open => {
+              setParentOpenStates(prev => ({ ...prev, [parentId]: open }))
+            }}
+          >
+            <CollapsibleTrigger asChild>
+              <button
+                type="button"
+                className="flex items-center px-1 py-0.5 gap-2 text-sm rounded-lg group"
+              >
+                <span
+                  className={cn(
+                    'font-medium text-muted-foreground group-hover:text-muted-foreground/70',
+                    isInProgress && 'animate-pulse'
+                  )}
                 >
-                  <Waypoints className="size-4 text-muted-foreground group-hover:text-muted-foreground/70" />
-                  <span className="font-medium text-muted-foreground group-hover:text-muted-foreground/70">
-                    Research Process ({totalParts} steps)
-                  </span>
-                  <ChevronDown
-                    className={cn(
-                      'size-4 text-muted-foreground group-hover:text-muted-foreground/70 transition-transform duration-200',
-                      isParentOpen && 'rotate-180'
-                    )}
-                  />
-                </button>
-              </CollapsibleTrigger>
-              <CollapsibleContent className="data-[state=closed]:animate-collapse-up data-[state=open]:animate-collapse-down">
-                <div className="pt-2">{segmentContent}</div>
-              </CollapsibleContent>
-            </Collapsible>
-          )
-        }
-
-        return <div key={`${messageId}-seg-${sidx}`}>{segmentContent}</div>
+                  {isInProgress
+                    ? `Working on it — ${totalParts} step${totalParts === 1 ? '' : 's'} so far`
+                    : `Completed ${totalParts} step${totalParts === 1 ? '' : 's'}`}
+                </span>
+                <ChevronDown
+                  className={cn(
+                    'size-4 text-muted-foreground group-hover:text-muted-foreground/70 transition-transform duration-200',
+                    isParentOpen && 'rotate-180'
+                  )}
+                />
+              </button>
+            </CollapsibleTrigger>
+            <CollapsibleContent className="data-[state=closed]:animate-collapse-up data-[state=open]:animate-collapse-down">
+              <div className="pt-2">{segmentContent}</div>
+            </CollapsibleContent>
+          </Collapsible>
+        )
       })}
     </div>
   )

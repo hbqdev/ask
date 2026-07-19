@@ -1,0 +1,32 @@
+name: model-manager
+services:
+  model-manager:
+    build: .
+    container_name: model-manager
+    # NOTE: keep MODEL_MANAGER_PASSWORD (and any value containing a `$`) in
+    # secrets.env, NOT .env. Compose interpolates `$` in its project .env file
+    # (e.g. `$foo` → the value of var `foo`, usually empty), which silently
+    # mangles a password like `G0d$peed1522!` into `G0d!`. A dedicated env_file
+    # is passed to the container literally, so `$` survives.
+    env_file:
+      - .env
+      - secrets.env
+    ports:
+      - '${MODEL_MANAGER_PORT:-3939}:3939'
+    volumes:
+      # Mount the Ask repo at the SAME path inside the container as on the host.
+      # This identical-path mapping is REQUIRED — the tool runs
+      # `docker compose up -d ask` via the mounted docker socket, and the HOST
+      # daemon resolves Ask's RELATIVE bind mounts (./searxng-*.yml, build
+      # context) and env_file against the HOST filesystem. If the compose
+      # project dir differs in-container vs on-host, the daemon looks for those
+      # paths at the wrong place and the restart fails ("mount a directory onto
+      # a file"). Mounting a DIRECTORY (not a single-file .env) is also required
+      # for the atomic .env write (temp file + rename in the same dir).
+      # ASK_ENV_PATH / ASK_COMPOSE_FILE below must live under this same path.
+      - ${ASK_REPO_DIR:-/home/nightfury/selfhosted/ask}:${ASK_REPO_DIR:-/home/nightfury/selfhosted/ask}
+      # Docker socket to run `docker compose up -d ask` on the host.
+      - /var/run/docker.sock:/var/run/docker.sock
+      # SSH key to reach nightfuryS for the reranker.
+      - ${RERANKER_SSH_KEY_HOST:-./keys/nightfurys}:/keys/nightfurys:ro
+    restart: unless-stopped

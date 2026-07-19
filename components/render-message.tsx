@@ -11,6 +11,7 @@ import type { DynamicToolPart } from '@/lib/types/dynamic-tools'
 
 import { AnswerSection } from './answer-section'
 import { DynamicToolDisplay } from './dynamic-tool-display'
+import { RecallSection } from './recall-section'
 import ResearchProcessSection from './research-process-section'
 import { UserFileSection } from './user-file-section'
 import { UserTextSection } from './user-text-section'
@@ -28,6 +29,7 @@ interface RenderMessageProps {
   addToolResult?: (params: { toolCallId: string; result: any }) => void
   onUpdateMessage?: (messageId: string, newContent: string) => Promise<void>
   reload?: (messageId: string) => Promise<void | string | null | undefined>
+  onDelete?: () => Promise<void> | void
   isLatestMessage?: boolean
   citationMaps?: Record<string, Record<number, SearchResultItem>>
   onQuoteContext?: (text: string) => void
@@ -46,6 +48,7 @@ export function RenderMessage({
   addToolResult,
   onUpdateMessage,
   reload,
+  onDelete,
   isLatestMessage = false,
   citationMaps = {},
   onQuoteContext
@@ -101,7 +104,23 @@ export function RenderMessage({
   // New rendering: interleave text parts with grouped non-text segments
   const elements: React.ReactNode[] = []
   let buffer: any[] = []
-  const flushBuffer = (keySuffix: string) => {
+
+  // Recall attribution renders ABOVE the research process, not inside it.
+  // The point of the chips is to make an auto-injected memory inspectable
+  // rather than spooky — "this answer was shaped by these past chats" — and
+  // that fails if it is only discoverable by expanding a section that is
+  // collapsed by default. It cannot simply be flushed in place either: the
+  // part arrives right after the classifier, so flushing there would split
+  // the research process into two accordions around it.
+  const recallPart = (message.parts as any[] | undefined)?.find(
+    (part: any) => part.type === 'data-recall'
+  )
+  if (recallPart?.data?.chats?.length) {
+    elements.push(
+      <RecallSection key={`${messageId}-recall`} data={recallPart.data} />
+    )
+  }
+  const flushBuffer = (keySuffix: string, hasSubsequentText = false) => {
     if (buffer.length === 0) return
     elements.push(
       <ResearchProcessSection
@@ -112,11 +131,25 @@ export function RenderMessage({
         getIsOpen={getIsOpen}
         onOpenChange={onOpenChange}
         status={status}
+        isLatestMessage={isLatestMessage}
         addToolResult={addToolResult}
+        hasSubsequentText={hasSubsequentText}
       />
     )
     buffer = []
   }
+
+  // Only the latest assistant message can actually be streaming. Keying this
+  // off the GLOBAL chat status instead would make every earlier, already-
+  // finished message re-enter "still streaming" rendering whenever a NEW turn
+  // runs — the first-token heading gate below would then suppress any prior
+  // answer that doesn't start with a heading, and its research process would
+  // light up as "Working on it" (the "double search" UI bug). Scope it to
+  // this specific message.
+  const isThisMessageStreaming =
+    Boolean(isLatestMessage) &&
+    (status === 'streaming' || status === 'submitted')
+  const isStreamingComplete = !isThisMessageStreaming
 
   message.parts?.forEach((part: any, index: number) => {
     if (part.type === 'text') {
@@ -125,35 +158,37 @@ export function RenderMessage({
         return
       }
 
-      // Check if there's buffered content before this text part
-      const hasBufferedContent = buffer.length > 0
-
-      // Flush accumulated non-text first, marking that text follows
-      if (hasBufferedContent) {
-        // Create a custom flush that passes hasSubsequentText
-        if (buffer.length > 0) {
-          elements.push(
-            <ResearchProcessSection
-              key={`${messageId}-proc-seg-${index}`}
-              message={message}
-              messageId={messageId}
-              parts={buffer}
-              getIsOpen={getIsOpen}
-              onOpenChange={onOpenChange}
-              status={status}
-              addToolResult={addToolResult}
-              hasSubsequentText={true}
-            />
-          )
-          buffer = []
-        }
-      }
-
       const remainingParts = message.parts?.slice(index + 1) || []
       const hasMoreTextParts = remainingParts.some(isNonEmptyTextPart)
       const isLastTextPart = !hasMoreTextParts
-      const isStreamingComplete =
-        status !== 'streaming' && status !== 'submitted'
+
+      // Interim narration between tool rounds (e.g. "Let me start
+      // researching...", "Excellent! Let me update todos...") is process
+      // chatter, not user-facing content. Once streaming is finished we
+      // know the whole parts array, so "is this the last text part" is a
+      // reliable check. But *while still streaming*, nothing has followed
+      // the current text part *yet* — that's inherent to live streaming —
+      // so "last so far" can't distinguish real final content from
+      // narration that a tool call will follow a moment later. Instead,
+      // lean on the "First-token rule" every mode's prompt enforces: the
+      // true final answer must start with a markdown heading, and nothing
+      // else may. That's knowable immediately, without waiting for more
+      // parts to arrive, so it's what mutes interim narration during
+      // streaming instead of letting it flash on screen first.
+      const looksLikeFinalAnswer = /^#{1,6}\s/.test(part.text.trimStart())
+      const shouldRenderAsAnswer = isStreamingComplete
+        ? isLastTextPart
+        : looksLikeFinalAnswer
+
+      if (!shouldRenderAsAnswer) {
+        return
+      }
+
+      // Flush accumulated non-text first, marking that text follows
+      if (buffer.length > 0) {
+        flushBuffer(`seg-${index}`, true)
+      }
+
       const shouldShowActions =
         isLastTextPart && (isLatestMessage ? isStreamingComplete : true)
 
@@ -175,12 +210,18 @@ export function RenderMessage({
           messageId={messageId}
           metadata={message.metadata as UIMessageMetadata | undefined}
           reload={reload}
+          onDelete={onDelete}
           status={status}
           citationMaps={citationMaps}
           onQuoteContext={onQuoteContext}
         />
       )
-    } else if (part.type === 'reasoning' || part.type?.startsWith?.('tool-')) {
+    } else if (
+      part.type === 'reasoning' ||
+      part.type === 'data-classifier' ||
+      part.type === 'data-attachments' ||
+      part.type?.startsWith?.('tool-')
+    ) {
       buffer.push(part)
     } else if (part.type === 'dynamic-tool') {
       flushBuffer(`seg-${index}`)

@@ -1,6 +1,7 @@
 import {
   FirecrawlImageSearchOptions,
   FirecrawlImageSearchResponse,
+  FirecrawlScrapeResponse,
   FirecrawlSearchOptions,
   FirecrawlSearchResponse
 } from './types'
@@ -76,6 +77,48 @@ export class FirecrawlClient {
     } catch (error) {
       console.error('Firecrawl image search error:', error)
       return []
+    }
+  }
+
+  /**
+   * Scrape a single URL into clean markdown. Costs 1 Firecrawl credit per
+   * call — used only as the last tier of the fetch rescue chain, after
+   * the free tiers (plain fetch, FlareSolverr) have failed.
+   */
+  async scrape(
+    url: string,
+    options?: { timeoutMs?: number }
+  ): Promise<{ markdown: string; title?: string }> {
+    const controller = new AbortController()
+    const timeoutMs = options?.timeoutMs ?? 30_000
+    const timeoutId = setTimeout(() => controller.abort(), timeoutMs)
+
+    try {
+      const response = await fetch(`${this.baseUrl}/scrape`, {
+        method: 'POST',
+        headers: this.getHeaders(),
+        body: JSON.stringify({
+          url,
+          formats: ['markdown'],
+          onlyMainContent: true,
+          proxy: 'auto',
+          blockAds: true,
+          timeout: timeoutMs
+        }),
+        signal: controller.signal
+      })
+
+      const json = await this.handleResponse<FirecrawlScrapeResponse>(response)
+      if (!json.success || !json.data?.markdown) {
+        throw new Error('Firecrawl scrape returned no markdown content')
+      }
+
+      return {
+        markdown: json.data.markdown,
+        title: json.data.metadata?.title
+      }
+    } finally {
+      clearTimeout(timeoutId)
     }
   }
 

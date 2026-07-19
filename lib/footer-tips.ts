@@ -1,7 +1,7 @@
 import { formatShortcutKeys, SHORTCUTS } from '@/lib/keyboard-shortcuts'
 
 export const DISCLAIMER_TEXT =
-  'Morphic can make mistakes. Please double-check responses.'
+  'Ask can make mistakes. Please double-check responses.'
 
 const SHORTCUT_ENTRIES = [
   SHORTCUTS.newChat,
@@ -9,6 +9,7 @@ const SHORTCUT_ENTRIES = [
   SHORTCUTS.toggleSidebar,
   SHORTCUTS.toggleTheme,
   SHORTCUTS.toggleSearchMode,
+  SHORTCUTS.toggleSources,
   SHORTCUTS.showShortcuts
 ] as const
 

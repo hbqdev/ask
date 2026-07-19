@@ -3,7 +3,10 @@ import { getModelSelectorData } from '@/lib/model-selector/get-model-selector-da
 
 import { Chat } from '@/components/chat'
 
-export default async function Page() {
+export default async function Page(props: {
+  searchParams: Promise<{ q?: string }>
+}) {
+  const searchParams = await props.searchParams
   const userId = await getCurrentUserId()
   const isCloudDeployment = process.env.MORPHIC_CLOUD_DEPLOYMENT === 'true'
   const libraryAvailable = process.env.ENABLE_AUTH !== 'false'
@@ -15,6 +18,7 @@ export default async function Page() {
       isCloudDeployment={isCloudDeployment}
       libraryAvailable={libraryAvailable}
       modelSelectorData={modelSelectorData}
+      query={searchParams.q}
     />
   )
 }

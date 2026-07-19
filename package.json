@@ -13,9 +13,12 @@
     "format:check": "prettier --check .",
     "migrate": "bun run lib/db/migrate.ts",
     "backfill:file-keys": "bun run scripts/backfill-file-object-keys.ts",
+    "clean:narration": "bun run scripts/clean-narration-preambles.ts",
     "test": "NODE_ENV=test vitest run",
     "test:watch": "vitest --watch",
-    "chat": "bun run scripts/chat-cli.ts"
+    "chat": "bun run scripts/chat-cli.ts",
+    "eval": "bun run scripts/eval/run-eval.ts",
+    "eval:mine": "bun run scripts/eval/mine-questions.ts"
   },
   "dependencies": {
     "@ai-sdk/anthropic": "^3.0.77",
@@ -26,8 +29,10 @@
     "@ai-sdk/react": "^3.0.182",
     "@aws-sdk/client-s3": "3.859.0",
     "@aws-sdk/s3-request-presigner": "3.859.0",
+    "@huggingface/transformers": "3.8.1",
     "@json-render/core": "^0.16.0",
     "@json-render/react": "^0.16.0",
+    "@mozilla/readability": "^0.6.0",
     "@opentelemetry/api-logs": "0.57.2",
     "@opentelemetry/instrumentation": "0.57.2",
     "@opentelemetry/sdk-logs": "0.57.2",
@@ -73,8 +78,10 @@
     "jsdom": "^26.1.0",
     "katex": "^0.16.10",
     "langfuse-vercel": "^3.38.4",
+    "mathjs": "^15.2.0",
     "next": "^16.2.6",
     "node-html-parser": "^6.1.13",
+    "onnxruntime-node": "1.21.0",
     "postgres": "^3.4.5",
     "posthog-js": "^1.382.0",
     "posthog-node": "^5.36.4",
@@ -87,6 +94,7 @@
     "tailwind-merge": "^2.6.0",
     "tailwindcss-animate": "^1.0.7",
     "vaul": "^1.1.2",
+    "youtube-transcript-plus": "^2.0.0",
     "zod": "^4.3.6"
   },
   "devDependencies": {
@@ -109,5 +117,8 @@
   },
   "engines": {
     "node": "22.x"
-  }
+  },
+  "trustedDependencies": [
+    "onnxruntime-node"
+  ]
 }

@@ -33,6 +33,7 @@ interface ChatMessagesProps {
   scrollContainerRef: React.RefObject<HTMLDivElement>
   onUpdateMessage?: (messageId: string, newContent: string) => Promise<void>
   reload?: (messageId: string) => Promise<void | string | null | undefined>
+  onDeleteSection?: (section: ChatSection) => void | Promise<void>
   error?: Error | string | null | undefined
   onQuoteContext?: (text: string) => void
 }
@@ -52,6 +53,7 @@ export function ChatMessages({
   scrollContainerRef,
   onUpdateMessage,
   reload,
+  onDeleteSection,
   error,
   onQuoteContext
 }: ChatMessagesProps) {
@@ -241,7 +243,6 @@ export function ChatMessages({
 
             {/* Assistant messages */}
             {section.assistantMessages.map((assistantMessage, messageIndex) => {
-              // Check if this is the latest assistant message in the latest section
               const isLatestMessage =
                 sectionIndex === sections.length - 1 &&
                 messageIndex === section.assistantMessages.length - 1
@@ -266,6 +267,11 @@ export function ChatMessages({
                     addToolResult={addToolResult}
                     onUpdateMessage={onUpdateMessage}
                     reload={reload}
+                    onDelete={
+                      onDeleteSection
+                        ? () => onDeleteSection(section)
+                        : undefined
+                    }
                     isLatestMessage={isLatestMessage}
                     citationMaps={allCitationMaps}
                     onQuoteContext={onQuoteContext}

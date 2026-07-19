@@ -2,6 +2,8 @@ import type { UIMessage } from 'ai'
 import {
   consumeStream,
   convertToModelMessages,
+  createUIMessageStream,
+  createUIMessageStreamResponse,
   pruneMessages,
   smoothStream
 } from 'ai'
@@ -15,11 +17,14 @@ import {
 } from '@/lib/errors/public-error'
 import { isTracingEnabled } from '@/lib/utils/telemetry'
 
+import { classifyQuery } from '../agents/query-classifier'
+import { expandQuery } from '../agents/query-expander'
 import {
   getMaxAllowedTokens,
   shouldTruncateMessages,
   truncateMessages
 } from '../utils/context-window'
+import { getTextFromParts } from '../utils/message-utils'
 import { isUsageLogging, logUsage } from '../utils/usage-logging'
 
 import { convertDataPart } from './helpers/convert-data-part'
@@ -29,7 +34,7 @@ import { BaseStreamConfig } from './types'
 
 type EphemeralStreamConfig = Pick<
   BaseStreamConfig,
-  'model' | 'abortSignal' | 'searchMode'
+  'model' | 'abortSignal' | 'searchMode' | 'sources'
 > & {
   messages: UIMessage[]
   chatId?: string
@@ -38,7 +43,7 @@ type EphemeralStreamConfig = Pick<
 export async function createEphemeralChatStreamResponse(
   config: EphemeralStreamConfig
 ): Promise<Response> {
-  const { messages, model, abortSignal, searchMode, chatId } = config
+  const { messages, model, abortSignal, searchMode, sources, chatId } = config
 
   if (!messages || messages.length === 0) {
     return new Response('messages are required', {
@@ -68,67 +73,133 @@ export async function createEphemeralChatStreamResponse(
   }
 
   try {
-    const isOpenAI = `${model.providerId}:${model.id}`.startsWith('openai:')
-    const messagesWithoutSpec = stripSpecFromMessages(messages)
-    const messagesToConvert = isOpenAI
-      ? stripReasoningParts(messagesWithoutSpec)
-      : messagesWithoutSpec
-
-    let modelMessages = await convertToModelMessages(messagesToConvert, {
-      convertDataPart
-    })
-
-    modelMessages = pruneMessages({
-      messages: modelMessages,
-      reasoning: 'before-last-message',
-      toolCalls: 'before-last-2-messages',
-      emptyMessages: 'remove'
-    })
-
-    if (shouldTruncateMessages(modelMessages, model)) {
-      const maxTokens = getMaxAllowedTokens(model)
-      modelMessages = truncateMessages(modelMessages, maxTokens, model.id)
-    }
-
-    const researchAgent = researcher({
-      model: `${model.providerId}:${model.id}`,
-      modelConfig: model,
-      parentTraceId,
-      searchMode
-    })
+    // See create-chat-stream-response.ts for the reasoning behind this —
+    // kicked off in parallel with message-prep below, awaited just before
+    // constructing the researcher agent, with the wait surfaced to the
+    // client as a data-classifier step. (No regenerate bypass here:
+    // ephemeral chats have no Retry trigger.)
+    const latestMessage = messages[messages.length - 1]
+    const latestMessageText = getTextFromParts(latestMessage?.parts)
+    const containsUrl = /https?:\/\/\S+/i.test(latestMessageText)
+    const classifyStart = performance.now()
+    const classificationPromise = containsUrl
+      ? Promise.resolve({
+          skipSearch: false,
+          standaloneQuery: latestMessageText,
+          needsRecent: false,
+          intent: 'general' as const
+        })
+      : classifyQuery({ messages, abortSignal })
 
     const modelId = `${model.providerId}:${model.id}`
-    const result = await researchAgent.stream({
-      messages: modelMessages,
-      abortSignal,
-      experimental_transform: smoothStream({ chunking: 'word' }),
-      ...(isUsageLogging() && {
-        onStepFinish: step => {
-          logUsage(
-            { scope: 'step', modelId },
-            step.usage,
-            step.providerMetadata
-          )
-        }
-      })
-    })
-    result.consumeStream()
 
-    if (isUsageLogging()) {
-      Promise.resolve(result.totalUsage)
-        .then(usage => logUsage({ scope: 'total', modelId }, usage))
-        .catch(() => {})
-    }
-
-    return result.toUIMessageStreamResponse({
-      messageMetadata: ({ part }) => {
-        if (part.type === 'start') {
-          return {
+    const stream = createUIMessageStream({
+      execute: async ({ writer }) => {
+        writer.write({
+          type: 'start',
+          messageMetadata: {
             traceId: parentTraceId,
             searchMode,
-            modelId: `${model.providerId}:${model.id}`
+            modelId
           }
+        })
+
+        if (!containsUrl) {
+          writer.write({
+            type: 'data-classifier',
+            id: 'classifier',
+            data: { state: 'running' }
+          })
         }
+
+        const isOpenAI = modelId.startsWith('openai:')
+        const messagesWithoutSpec = stripSpecFromMessages(messages)
+        const messagesToConvert = isOpenAI
+          ? stripReasoningParts(messagesWithoutSpec)
+          : messagesWithoutSpec
+
+        let modelMessages = await convertToModelMessages(messagesToConvert, {
+          convertDataPart
+        })
+
+        modelMessages = pruneMessages({
+          messages: modelMessages,
+          reasoning: 'before-last-message',
+          toolCalls: 'before-last-2-messages',
+          emptyMessages: 'remove'
+        })
+
+        if (shouldTruncateMessages(modelMessages, model)) {
+          const maxTokens = getMaxAllowedTokens(model)
+          modelMessages = truncateMessages(modelMessages, maxTokens, model.id)
+        }
+
+        const classification = await classificationPromise
+
+        // Query expansion (lib/agents/query-expander.ts) starts as soon as
+        // the resolved standalone query exists and overlaps with agent
+        // construction — the first search of the turn awaits it (bounded)
+        // and fans out to the variants. Speed mode and skipped turns stay
+        // single-query.
+        const expandedQueriesPromise =
+          !classification.skipSearch && searchMode !== 'speed'
+            ? expandQuery({
+                standaloneQuery: classification.standaloneQuery,
+                abortSignal
+              })
+            : Promise.resolve([])
+
+        if (!containsUrl) {
+          // Same part id — replaces the 'running' entry in place.
+          writer.write({
+            type: 'data-classifier',
+            id: 'classifier',
+            data: {
+              state: 'done',
+              skipSearch: classification.skipSearch,
+              standaloneQuery: classification.standaloneQuery,
+              durationMs: Math.round(performance.now() - classifyStart)
+            }
+          })
+        }
+
+        const researchAgent = await researcher({
+          model: modelId,
+          modelConfig: model,
+          parentTraceId,
+          searchMode,
+          sources,
+          abortSignal,
+          skipSearch: classification.skipSearch,
+          standaloneQuery: classification.standaloneQuery,
+          needsRecent: classification.needsRecent,
+          intent: classification.intent,
+          expandedQueriesPromise
+        })
+
+        const result = await researchAgent.stream({
+          messages: modelMessages,
+          abortSignal,
+          experimental_transform: smoothStream({ chunking: 'word' }),
+          ...(isUsageLogging() && {
+            onStepFinish: step => {
+              logUsage(
+                { scope: 'step', modelId },
+                step.usage,
+                step.providerMetadata
+              )
+            }
+          })
+        })
+        result.consumeStream()
+
+        if (isUsageLogging()) {
+          Promise.resolve(result.totalUsage)
+            .then(usage => logUsage({ scope: 'total', modelId }, usage))
+            .catch(() => {})
+        }
+
+        writer.merge(result.toUIMessageStream({ sendStart: false }))
       },
       onFinish: async () => {
         if (langfuse) {
@@ -138,7 +209,11 @@ export async function createEphemeralChatStreamResponse(
       onError: (error: unknown) => {
         console.error('Ephemeral stream response error:', error)
         return serializePublicError(error)
-      },
+      }
+    })
+
+    return createUIMessageStreamResponse({
+      stream,
       consumeSseStream: consumeStream
     })
   } catch (error) {

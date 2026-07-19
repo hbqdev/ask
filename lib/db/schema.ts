@@ -1,6 +1,7 @@
 import { createId } from '@paralleldrive/cuid2'
 import { InferSelectModel, sql } from 'drizzle-orm'
 import {
+  boolean,
   check,
   index,
   integer,
@@ -10,7 +11,8 @@ import {
   pgTable,
   text,
   timestamp,
-  varchar
+  varchar,
+  vector
 } from 'drizzle-orm/pg-core'
 
 // Constants
@@ -23,6 +25,16 @@ const FILENAME_LENGTH = 1024
 export const generateId = () => createId()
 
 // Chats table
+/**
+ * Application-level cap on `chats.title`. The column is unbounded `text`, so
+ * this is enforced in code (createChat, createChatAndSaveMessage and
+ * updateChatTitle all apply it) rather than by the database. Lives here, not
+ * in db/actions.ts, because that file is 'use server' — only async functions
+ * may be exported from it, and exporting a const there fails the Next build
+ * while still passing typecheck and the unit tests.
+ */
+export const CHAT_TITLE_MAX_LENGTH = 255
+
 export const chats = pgTable(
   'chats',
   {
@@ -60,8 +72,8 @@ export const chats = pgTable(
       as: 'permissive',
       for: 'all',
       to: 'public',
-      using: sql`user_id = current_setting('app.current_user_id', true)`,
-      withCheck: sql`user_id = current_setting('app.current_user_id', true)`
+      using: sql`user_id = (select current_setting('app.current_user_id', true))`,
+      withCheck: sql`user_id = (select current_setting('app.current_user_id', true))`
     }),
     pgPolicy('public_chats_readable', {
       as: 'permissive',
@@ -101,12 +113,12 @@ export const messages = pgTable(
       using: sql`EXISTS (
         SELECT 1 FROM ${chats}
         WHERE ${chats}.id = chat_id
-        AND ${chats}.user_id = current_setting('app.current_user_id', true)
+        AND ${chats}.user_id = (select current_setting('app.current_user_id', true))
       )`,
       withCheck: sql`EXISTS (
         SELECT 1 FROM ${chats}
         WHERE ${chats}.id = chat_id
-        AND ${chats}.user_id = current_setting('app.current_user_id', true)
+        AND ${chats}.user_id = (select current_setting('app.current_user_id', true))
       )`
     }),
     pgPolicy('public_chat_messages_readable', {
@@ -238,13 +250,13 @@ export const parts = pgTable(
         SELECT 1 FROM ${messages}
         INNER JOIN ${chats} ON ${chats}.id = ${messages}.chat_id
         WHERE ${messages}.id = message_id
-        AND ${chats}.user_id = current_setting('app.current_user_id', true)
+        AND ${chats}.user_id = (select current_setting('app.current_user_id', true))
       )`,
       withCheck: sql`EXISTS (
         SELECT 1 FROM ${messages}
         INNER JOIN ${chats} ON ${chats}.id = ${messages}.chat_id
         WHERE ${messages}.id = message_id
-        AND ${chats}.user_id = current_setting('app.current_user_id', true)
+        AND ${chats}.user_id = (select current_setting('app.current_user_id', true))
       )`
     }),
     pgPolicy('public_chat_parts_readable', {
@@ -297,8 +309,8 @@ export const notes = pgTable(
       as: 'permissive',
       for: 'all',
       to: 'public',
-      using: sql`user_id = current_setting('app.current_user_id', true)`,
-      withCheck: sql`user_id = current_setting('app.current_user_id', true)`
+      using: sql`user_id = (select current_setting('app.current_user_id', true))`,
+      withCheck: sql`user_id = (select current_setting('app.current_user_id', true))`
     })
   ]
 ).enableRLS()
@@ -340,8 +352,8 @@ export const libraryFiles = pgTable(
       as: 'permissive',
       for: 'all',
       to: 'public',
-      using: sql`user_id = current_setting('app.current_user_id', true)`,
-      withCheck: sql`user_id = current_setting('app.current_user_id', true)`
+      using: sql`user_id = (select current_setting('app.current_user_id', true))`,
+      withCheck: sql`user_id = (select current_setting('app.current_user_id', true))`
     })
   ]
 ).enableRLS()
@@ -391,10 +403,126 @@ export const feedback = pgTable(
       as: 'permissive',
       for: 'update',
       to: 'public',
-      using: sql`user_id = current_setting('app.current_user_id', true)`,
+      using: sql`user_id = (select current_setting('app.current_user_id', true))`,
       withCheck: sql`user_id IS NULL`
     })
   ]
 ).enableRLS()
 
 export type Feedback = InferSelectModel<typeof feedback>
+
+// User long-term memory (feature A). Only `confirmed` rows are injected;
+// `candidate` rows accumulate `sightings` until they graduate. RLS-isolated
+// per user exactly like `chats`.
+export const userMemories = pgTable(
+  'user_memories',
+  {
+    id: varchar('id', { length: ID_LENGTH })
+      .primaryKey()
+      .$defaultFn(() => generateId()),
+    userId: varchar('user_id', { length: USER_ID_LENGTH }).notNull(),
+    content: text('content').notNull(),
+    category: varchar('category', {
+      length: VARCHAR_LENGTH,
+      enum: ['preference', 'fact', 'interest']
+    }).notNull(),
+    status: varchar('status', {
+      length: VARCHAR_LENGTH,
+      enum: ['candidate', 'confirmed']
+    })
+      .notNull()
+      .default('candidate'),
+    sightings: integer('sightings').notNull().default(1),
+    embedding: vector('embedding', { dimensions: 1024 }).notNull(),
+    sourceChatId: varchar('source_chat_id', { length: ID_LENGTH }),
+    createdAt: timestamp('created_at').notNull().defaultNow(),
+    updatedAt: timestamp('updated_at').notNull().defaultNow(),
+    lastUsedAt: timestamp('last_used_at')
+  },
+  table => [
+    index('user_memories_user_id_idx').on(table.userId),
+    index('user_memories_user_id_status_idx').on(table.userId, table.status),
+    index('user_memories_embedding_idx').using(
+      'hnsw',
+      table.embedding.op('vector_cosine_ops')
+    ),
+    pgPolicy('users_manage_own_memories', {
+      as: 'permissive',
+      for: 'all',
+      to: 'public',
+      using: sql`user_id = (select current_setting('app.current_user_id', true))`,
+      withCheck: sql`user_id = (select current_setting('app.current_user_id', true))`
+    })
+  ]
+).enableRLS()
+
+export type UserMemory = InferSelectModel<typeof userMemories>
+
+// Conversation recall (feature B). Chunked copies of message text, embedded
+// for semantic retrieval. Unlike `user_memories` (whose source_chat_id has no
+// FK on purpose — facts outlive their chat), these are DERIVED copies, so
+// deleting a chat/message MUST delete its chunks or the model would recall
+// conversations the user deleted.
+export const conversationChunks = pgTable(
+  'conversation_chunks',
+  {
+    id: varchar('id', { length: ID_LENGTH })
+      .primaryKey()
+      .$defaultFn(() => generateId()),
+    userId: varchar('user_id', { length: USER_ID_LENGTH }).notNull(),
+    chatId: varchar('chat_id', { length: ID_LENGTH })
+      .notNull()
+      .references(() => chats.id, { onDelete: 'cascade' }),
+    messageId: varchar('message_id', { length: ID_LENGTH })
+      .notNull()
+      .references(() => messages.id, { onDelete: 'cascade' }),
+    role: varchar('role', {
+      length: VARCHAR_LENGTH,
+      enum: ['user', 'assistant']
+    }).notNull(),
+    content: text('content').notNull(),
+    chunkIndex: integer('chunk_index').notNull(),
+    embedding: vector('embedding', { dimensions: 1024 }).notNull(),
+    createdAt: timestamp('created_at').notNull().defaultNow()
+  },
+  table => [
+    index('conversation_chunks_user_id_idx').on(table.userId),
+    index('conversation_chunks_chat_id_idx').on(table.chatId),
+    index('conversation_chunks_message_id_idx').on(table.messageId),
+    index('conversation_chunks_embedding_idx').using(
+      'hnsw',
+      table.embedding.op('vector_cosine_ops')
+    ),
+    pgPolicy('users_manage_own_conversation_chunks', {
+      as: 'permissive',
+      for: 'all',
+      to: 'public',
+      using: sql`user_id = (select current_setting('app.current_user_id', true))`,
+      withCheck: sql`user_id = (select current_setting('app.current_user_id', true))`
+    })
+  ]
+).enableRLS()
+
+export type ConversationChunk = InferSelectModel<typeof conversationChunks>
+
+// Per-user settings (currently just the memory on/off toggle).
+export const userSettings = pgTable(
+  'user_settings',
+  {
+    userId: varchar('user_id', { length: USER_ID_LENGTH }).primaryKey(),
+    memoryEnabled: boolean('memory_enabled').notNull().default(true),
+    recallEnabled: boolean('recall_enabled').notNull().default(true),
+    updatedAt: timestamp('updated_at').notNull().defaultNow()
+  },
+  table => [
+    pgPolicy('users_manage_own_settings', {
+      as: 'permissive',
+      for: 'all',
+      to: 'public',
+      using: sql`user_id = (select current_setting('app.current_user_id', true))`,
+      withCheck: sql`user_id = (select current_setting('app.current_user_id', true))`
+    })
+  ]
+).enableRLS()
+
+export type UserSettings = InferSelectModel<typeof userSettings>

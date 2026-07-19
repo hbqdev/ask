@@ -95,6 +95,7 @@ const promptSamples: Record<string, string[]> = {
 interface ActionButtonsProps {
   onSelectPrompt: (prompt: string) => void
   onCategoryClick: (category: string) => void
+  onActiveCategoryChange?: (active: boolean) => void
   inputRef?: React.RefObject<HTMLTextAreaElement>
   className?: string
 }
@@ -102,6 +103,7 @@ interface ActionButtonsProps {
 export function ActionButtons({
   onSelectPrompt,
   onCategoryClick,
+  onActiveCategoryChange,
   inputRef,
   className
 }: ActionButtonsProps) {
@@ -111,6 +113,7 @@ export function ActionButtons({
   const handleCategoryClick = (category: ActionCategory) => {
     setActiveCategory(category.key)
     onCategoryClick(category.label)
+    onActiveCategoryChange?.(true)
     captureClient('example_category_opened', { category: category.key })
   }
 
@@ -120,11 +123,13 @@ export function ActionButtons({
       prompt
     })
     setActiveCategory(null)
+    onActiveCategoryChange?.(false)
     onSelectPrompt(prompt)
   }
 
   const resetToButtons = () => {
     setActiveCategory(null)
+    onActiveCategoryChange?.(false)
   }
 
   // Handle Escape key and clicks outside (including focus loss)
@@ -174,69 +179,61 @@ export function ActionButtons({
     }
   }, [activeCategory, inputRef])
 
-  // Max height for samples (4 items up to 2 lines each + padding); overflow scrolls
-  const containerHeight = 'h-[232px]'
-
   return (
-    <div
-      ref={containerRef}
-      className={cn('relative', containerHeight, className)}
-    >
-      <div className="relative h-full">
-        {/* Action buttons */}
-        <div
-          className={cn(
-            'absolute inset-0 flex items-start justify-center pt-2 transition-opacity duration-[180ms] ease-[var(--motion-ease-out)]',
-            activeCategory ? 'opacity-0 pointer-events-none' : 'opacity-100'
-          )}
-        >
-          <div className="flex flex-wrap justify-center gap-2 px-2">
-            {actionCategories.map(category => {
-              const Icon = category.icon
-              return (
-                <Button
-                  key={category.key}
-                  type="button"
-                  variant="outline"
-                  size="sm"
-                  className={cn(
-                    'flex items-center gap-2 whitespace-nowrap rounded-full',
-                    'text-xs sm:text-sm px-3 sm:px-4'
-                  )}
-                  onClick={() => handleCategoryClick(category)}
-                >
-                  <Icon className="h-3 w-3 sm:h-4 sm:w-4" />
-                  <span>{category.label}</span>
-                </Button>
-              )
-            })}
-          </div>
-        </div>
-
-        {/* Prompt samples */}
-        <div
-          className={cn(
-            'absolute inset-0 space-y-1 overflow-y-auto py-1 transition-opacity duration-[180ms] ease-[var(--motion-ease-out)]',
-            !activeCategory ? 'opacity-0 pointer-events-none' : 'opacity-100'
-          )}
-        >
-          {activeCategory &&
-            promptSamples[activeCategory]?.map((prompt, index) => (
-              <button
-                key={index}
+    <div ref={containerRef} className={cn('relative', className)}>
+      {/* Action buttons — natural height */}
+      <div
+        className={cn(
+          'flex items-start justify-center pt-2 transition-opacity duration-[180ms] ease-[var(--motion-ease-out)]',
+          activeCategory ? 'opacity-0 pointer-events-none' : 'opacity-100'
+        )}
+      >
+        <div className="flex flex-wrap justify-center gap-2 px-2">
+          {actionCategories.map(category => {
+            const Icon = category.icon
+            return (
+              <Button
+                key={category.key}
                 type="button"
+                variant="outline"
+                size="sm"
                 className={cn(
-                  'w-full rounded-md px-3 py-2 text-left text-sm',
-                  'transition-colors duration-[140ms] ease-[var(--motion-ease-out)] hover:bg-muted',
-                  'flex items-center gap-2 group'
+                  'flex items-center gap-2 whitespace-nowrap rounded-full',
+                  'text-xs sm:text-sm px-3 sm:px-4'
                 )}
-                onClick={() => handlePromptClick(prompt)}
+                onClick={() => handleCategoryClick(category)}
               >
-                <Search className="h-3 w-3 text-muted-foreground flex-shrink-0 group-hover:text-foreground" />
-                <span className="line-clamp-2">{prompt}</span>
-              </button>
-            ))}
+                <Icon className="h-3 w-3 sm:h-4 sm:w-4" />
+                <span>{category.label}</span>
+              </Button>
+            )
+          })}
         </div>
+      </div>
+
+      {/* Prompt samples — overlays button row, expands downward with z-index */}
+      <div
+        className={cn(
+          'absolute top-0 left-0 right-0 z-10 space-y-1 max-h-[220px] overflow-y-auto py-1 transition-opacity duration-[180ms] ease-[var(--motion-ease-out)]',
+          !activeCategory ? 'opacity-0 pointer-events-none' : 'opacity-100'
+        )}
+      >
+        {activeCategory &&
+          promptSamples[activeCategory]?.map((prompt, index) => (
+            <button
+              key={index}
+              type="button"
+              className={cn(
+                'w-full rounded-md px-3 py-2 text-left text-sm',
+                'transition-colors duration-[140ms] ease-[var(--motion-ease-out)] hover:bg-muted',
+                'flex items-center gap-2 group'
+              )}
+              onClick={() => handlePromptClick(prompt)}
+            >
+              <Search className="h-3 w-3 text-muted-foreground flex-shrink-0 group-hover:text-foreground" />
+              <span className="line-clamp-2">{prompt}</span>
+            </button>
+          ))}
       </div>
     </div>
   )

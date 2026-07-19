@@ -1,12 +1,6 @@
 'use client'
 
-import {
-  useCallback,
-  useEffect,
-  useRef,
-  useState,
-  useTransition
-} from 'react'
+import { useCallback, useEffect, useRef, useState, useTransition } from 'react'
 
 import { IconSearch as Search, IconX as X } from '@tabler/icons-react'
 import { toast } from 'sonner'
@@ -60,7 +54,9 @@ export function ChatHistoryClient() {
 
   // Search state
   const [searchQuery, setSearchQuery] = useState('')
-  const [searchResults, setSearchResults] = useState<SearchResult[] | null>(null)
+  const [searchResults, setSearchResults] = useState<SearchResult[] | null>(
+    null
+  )
   const [isSearching, setIsSearching] = useState(false)
   const searchDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const searchInputRef = useRef<HTMLInputElement>(null)
@@ -243,11 +239,13 @@ export function ChatHistoryClient() {
                 <ChatHistorySkeleton />
               </div>
             )}
-            {!isSearching && searchResults !== null && searchResults.length === 0 && (
-              <div className="px-2 text-foreground/30 text-sm text-center py-4">
-                No results for &ldquo;{searchQuery}&rdquo;
-              </div>
-            )}
+            {!isSearching &&
+              searchResults !== null &&
+              searchResults.length === 0 && (
+                <div className="px-2 text-foreground/30 text-sm text-center py-4">
+                  No results for &ldquo;{searchQuery}&rdquo;
+                </div>
+              )}
             {!isSearching && searchResults && searchResults.length > 0 && (
               <SidebarMenu>
                 {searchResults.map(result => (
@@ -259,11 +257,12 @@ export function ChatHistoryClient() {
                       <span className="font-medium text-foreground truncate">
                         {highlightMatch(result.chatTitle, searchQuery)}
                       </span>
-                      {result.snippet && result.snippet !== result.chatTitle && (
-                        <span className="text-xs text-muted-foreground line-clamp-2 leading-relaxed">
-                          {highlightMatch(result.snippet, searchQuery)}
-                        </span>
-                      )}
+                      {result.snippet &&
+                        result.snippet !== result.chatTitle && (
+                          <span className="text-xs text-muted-foreground line-clamp-2 leading-relaxed">
+                            {highlightMatch(result.snippet, searchQuery)}
+                          </span>
+                        )}
                     </a>
                   </li>
                 ))}

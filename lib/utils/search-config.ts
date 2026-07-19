@@ -4,11 +4,13 @@
  */
 
 /**
- * Checks if a dedicated "general" search provider is available
- * Currently checks for Brave Search, but can be extended for other providers
+ * Checks if a dedicated "general" search provider is available.
+ * Brave Search supports it directly; SearXNG supports it too via its
+ * `categories` param (general,images,videos in one request) — see
+ * SearXNGSearchProvider.search(). Tavily/Exa/Firecrawl don't.
  */
 export function isGeneralSearchProviderAvailable(): boolean {
-  return !!process.env.BRAVE_SEARCH_API_KEY
+  return !!process.env.BRAVE_SEARCH_API_KEY || !!process.env.SEARXNG_API_URL
 }
 
 /**
@@ -18,6 +20,9 @@ export function getGeneralSearchProviderName(): string {
   if (process.env.BRAVE_SEARCH_API_KEY) {
     return 'Brave Search'
   }
+  if (process.env.SEARXNG_API_URL) {
+    return 'SearXNG'
+  }
   return 'primary provider'
 }
 
@@ -25,8 +30,8 @@ export function getGeneralSearchProviderName(): string {
  * Checks if the general search provider supports multimedia content types
  */
 export function supportsMultimediaContentTypes(): boolean {
-  // Currently only Brave supports video/image content_types
-  return !!process.env.BRAVE_SEARCH_API_KEY
+  // Brave and SearXNG both support video/image content_types
+  return !!process.env.BRAVE_SEARCH_API_KEY || !!process.env.SEARXNG_API_URL
 }
 
 /**
@@ -69,9 +74,12 @@ export function getContentTypesGuidance(): string {
   - Uses ${providerName} for enhanced multimedia support
   - Returns search results without deep content extraction
   - Best for:
-    - Today's news, current events, recent updates
+    - Today's news, current events, recent updates: content_types: ['news']
     - Videos: content_types: ['video'] or ['web', 'video']
     - Images: content_types: ['image'] or ['web', 'image']
+    - Programming/software/library/package questions: content_types: ['it'] (searches GitHub, StackOverflow, npm, PyPI, MDN)
+    - Location/place questions ("where is X"): content_types: ['map']
+    - Song/artist/album questions: content_types: ['music']
     - When you need the LATEST information where recency matters
   - Pattern: type="general" search → identify sources → fetch for content`
   } else {
@@ -107,12 +115,17 @@ export function getSearchStrategyGuidance(): string {
 }
 
 /**
- * Gets the appropriate search provider type for "general" searches
- * Returns 'brave' if available, otherwise null to indicate fallback
+ * Gets the appropriate search provider type for "general" searches.
+ * Prefers Brave when configured, falls back to SearXNG (also multimedia-
+ * capable), otherwise null to indicate the caller should fall back to the
+ * primary optimized-search provider.
  */
-export function getGeneralSearchProviderType(): 'brave' | null {
+export function getGeneralSearchProviderType(): 'brave' | 'searxng' | null {
   if (process.env.BRAVE_SEARCH_API_KEY) {
     return 'brave'
+  }
+  if (process.env.SEARXNG_API_URL) {
+    return 'searxng'
   }
   return null
 }

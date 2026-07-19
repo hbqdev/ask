@@ -7,6 +7,11 @@ import {
   useState,
   useSyncExternalStore
 } from 'react'
+
+// Next.js 16 component caching can mount multiple ChatPanel instances
+// simultaneously during navigation. This module-level set ensures only the
+// first instance to fire submits a given query; clears after 2s so retries work.
+const _pendingQuerySubmits = new Set<string>()
 import Textarea from 'react-textarea-autosize'
 import { useRouter } from 'next/navigation'
 
@@ -39,6 +44,8 @@ import {
   subscribeToCookieChange
 } from '@/lib/utils/cookies'
 
+import { useClientSettingEnabled } from '@/hooks/use-client-setting'
+
 import { useArtifact } from './artifact/artifact-context'
 import { Button } from './ui/button'
 import { IconBlinkingLogo } from './ui/icons'
@@ -52,8 +59,11 @@ import { ActionButtons } from './action-buttons'
 import { FileUploadButton } from './file-upload-button'
 import { MessageNavigationDots } from './message-navigation-dots'
 import { ModelSelectorClient } from './model-selector-client'
+import { NewsArticleWidget } from './news-article-widget'
 import { SearchModeSelector } from './search-mode-selector'
+import { SourceSelector } from './source-selector'
 import { UploadedFileList } from './uploaded-file-list'
+import { WeatherWidget } from './weather-widget'
 
 // Constants for timing delays
 const INPUT_UPDATE_DELAY_MS = 10 // Delay to ensure input value is updated before form submission
@@ -67,7 +77,12 @@ const PASTE_CARD_MIN_CHARS = 400
 const BARE_URL_RE = /^https?:\/\/\S+$/
 
 function getSearchModeSnapshot(): SearchMode {
-  return getCookie('searchMode') === 'adaptive' ? 'adaptive' : 'quick'
+  const val = getCookie('searchMode')
+  if (val === 'quick') return 'speed'
+  if (val === 'adaptive') return 'balanced'
+  if (val === 'speed' || val === 'balanced' || val === 'quality')
+    return val as SearchMode
+  return 'balanced'
 }
 
 interface ChatPanelProps {
@@ -149,7 +164,7 @@ export function ChatPanel({
   const searchMode = useSyncExternalStore(
     subscribeToCookieChange,
     getSearchModeSnapshot,
-    () => 'quick' as SearchMode
+    () => 'balanced' as SearchMode
   )
   const isAdaptiveAuthRequired = requiresAdaptiveModeAuth({
     isGuest,
@@ -160,6 +175,8 @@ export function ChatPanel({
     isGuest,
     isCloudDeployment
   })
+  const showWeatherWidget = useClientSettingEnabled('showWeatherWidget')
+  const showNewsWidget = useClientSettingEnabled('showNewsWidget')
 
   const handleCompositionStart = () => setIsComposing(true)
 
@@ -225,21 +242,35 @@ export function ChatPanel({
     )
   }
 
-  // if query is not empty, submit the query
+  // if query is not empty, submit the query.
+  // Use a module-level dedupe set to guard against Next.js 16 component caching
+  // mounting multiple ChatPanel instances simultaneously — only the first one wins.
+  // `append` is intentionally excluded from deps: it's an inline arrow function
+  // that changes on every parent render, causing spurious extra effect runs.
   useEffect(() => {
-    if (isFirstRender.current && query && query.trim().length > 0) {
-      if (adaptiveModeSubmitBlocked) {
-        setCookie('searchMode', 'quick')
-        return
-      }
-
-      append({
-        role: 'user',
-        parts: [{ type: 'text', text: query }]
-      })
-      isFirstRender.current = false
+    if (!isFirstRender.current || !query || !query.trim()) return
+    if (_pendingQuerySubmits.has(query)) return
+    if (adaptiveModeSubmitBlocked) {
+      // Reset to speed mode — the one mode that doesn't require auth (see
+      // isAdaptiveModeAuthBlocked) — not back to the same blocked mode.
+      // Resetting to 'balanced' here would leave adaptiveModeSubmitBlocked
+      // true forever: the effect re-runs, resets to 'balanced' again, and
+      // the query is silently dropped on every render with no submission
+      // and no auth prompt (this only runs for an auto-submitted initial
+      // query, so there's no user click to show onAdaptiveModeAuthRequired
+      // from).
+      setCookie('searchMode', 'speed')
+      return
     }
-  }, [adaptiveModeSubmitBlocked, append, query])
+    isFirstRender.current = false
+    _pendingQuerySubmits.add(query)
+    setTimeout(() => _pendingQuerySubmits.delete(query), 2000)
+    append({
+      role: 'user',
+      parts: [{ type: 'text', text: query }]
+    })
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [adaptiveModeSubmitBlocked, query])
 
   const handleFileRemove = useCallback(
     (index: number) => {
@@ -294,7 +325,9 @@ export function ChatPanel({
             )
           } catch (e) {
             const detail = e instanceof Error ? e.message : 'Unknown error'
-            toast.error(`Failed to upload ${uf.file?.name ?? 'file'} — ${detail}`)
+            toast.error(
+              `Failed to upload ${uf.file?.name ?? 'file'} — ${detail}`
+            )
             setUploadedFiles(prev =>
               prev.map(f =>
                 f.file === uf.file ? { ...f, status: 'error' } : f
@@ -333,6 +366,21 @@ export function ChatPanel({
           <h1 className="text-xl md:text-2xl font-medium text-foreground">
             What would you like to know?
           </h1>
+        </div>
+      )}
+
+      {messages.length === 0 && (showWeatherWidget || showNewsWidget) && (
+        <div className="max-w-full md:max-w-3xl w-full mx-auto mb-3 hidden sm:flex flex-row gap-3">
+          {showWeatherWidget && (
+            <div className="flex-1">
+              <WeatherWidget />
+            </div>
+          )}
+          {showNewsWidget && (
+            <div className="flex-1">
+              <NewsArticleWidget />
+            </div>
+          )}
         </div>
       )}
       {uploadedFiles.length > 0 && (
@@ -697,13 +745,12 @@ export function ChatPanel({
           {/* Bottom menu area */}
           <div className="flex items-center justify-between p-2 md:p-3">
             <div className="flex items-center gap-2">
-              {!isGuest && (
-                <FileUploadButton onFileSelect={handleFiles} />
-              )}
+              {!isGuest && <FileUploadButton onFileSelect={handleFiles} />}
               <SearchModeSelector
                 isAdaptiveAuthRequired={isAdaptiveAuthRequired}
                 onAdaptiveAuthRequired={onAdaptiveModeAuthRequired}
               />
+              <SourceSelector />
             </div>
             <div className="flex items-center gap-2">
               {!isCloudDeployment && modelSelectorData && (

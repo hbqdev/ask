@@ -8,7 +8,8 @@ import {
   IconBookmark as Bookmark,
   IconCopy as Copy,
   IconThumbDown as ThumbsDown,
-  IconThumbUp as ThumbsUp
+  IconThumbUp as ThumbsUp,
+  IconTrash as Trash
 } from '@tabler/icons-react'
 import { toast } from 'sonner'
 
@@ -18,9 +19,22 @@ import { stripSpecBlocks } from '@/lib/render/strip-spec-blocks'
 import type { SearchResultItem } from '@/lib/types'
 import type { UIDataTypes, UIMessage, UITools } from '@/lib/types/ai'
 import { cn } from '@/lib/utils'
-import { processCitations } from '@/lib/utils/citation'
+import {
+  collapseCitationArtifacts,
+  processCitations
+} from '@/lib/utils/citation'
 
 import { useLibrary } from './library/library-context'
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle
+} from './ui/alert-dialog'
 import { Button } from './ui/button'
 import {
   Dialog,
@@ -39,6 +53,7 @@ interface MessageActionsProps {
   traceId?: string
   feedbackScore?: number | null
   reload?: () => Promise<void | string | null | undefined>
+  onDelete?: () => Promise<void> | void
   chatId?: string
   enableShare?: boolean
   isGuest?: boolean
@@ -56,6 +71,7 @@ export function MessageActions({
   traceId,
   feedbackScore: initialFeedbackScore,
   reload,
+  onDelete,
   chatId,
   enableShare,
   isGuest = false,
@@ -71,10 +87,16 @@ export function MessageActions({
   )
   const [isSavingNote, setIsSavingNote] = useState(false)
   const [authPromptOpen, setAuthPromptOpen] = useState(false)
+  const [confirmDelete, setConfirmDelete] = useState(false)
+  const [isDeleting, setIsDeleting] = useState(false)
   const { openLibrary, upsertCachedNote } = useLibrary()
   const mappedMessage = useMemo(() => {
     if (!message) return ''
-    return processCitations(message, citationMaps || {})
+    // Collapse any whitespace/punctuation artifacts left by stripped
+    // fabricated anchors (e.g. "[1](#fetch_prevention)" → "" leaves "text .")
+    return collapseCitationArtifacts(
+      processCitations(message, citationMaps || {})
+    )
   }, [message, citationMaps])
 
   const [isSubmittingFeedback, setIsSubmittingFeedback] = useState(false)
@@ -89,6 +111,17 @@ export function MessageActions({
   async function handleCopy() {
     await navigator.clipboard.writeText(stripSpecBlocks(mappedMessage))
     toast.success('Message copied to clipboard')
+  }
+
+  async function handleDelete() {
+    if (!onDelete || isDeleting) return
+    setConfirmDelete(false)
+    setIsDeleting(true)
+    try {
+      await onDelete()
+    } finally {
+      setIsDeleting(false)
+    }
   }
 
   async function handleSaveNote() {
@@ -215,6 +248,18 @@ export function MessageActions({
             <Copy size={14} />
           </Button>
           {enableShare && chatId && <ChatShare chatId={chatId} />}
+          {onDelete && (
+            <Button
+              variant="ghost"
+              size="icon"
+              onClick={() => setConfirmDelete(true)}
+              disabled={isDeleting}
+              className="rounded-full hover:bg-destructive/10 hover:text-destructive"
+              aria-label="Delete this response"
+            >
+              <Trash size={14} />
+            </Button>
+          )}
           {traceId && (
             <>
               {(feedbackScore === null || feedbackScore === 1) && (
@@ -311,6 +356,32 @@ export function MessageActions({
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      {onDelete && (
+        <AlertDialog open={confirmDelete} onOpenChange={setConfirmDelete}>
+          <AlertDialogContent>
+            <AlertDialogHeader>
+              <AlertDialogTitle>Delete this response?</AlertDialogTitle>
+              <AlertDialogDescription>
+                This removes both your question and this answer. This action
+                cannot be undone.
+              </AlertDialogDescription>
+            </AlertDialogHeader>
+            <AlertDialogFooter>
+              <AlertDialogCancel>Cancel</AlertDialogCancel>
+              <AlertDialogAction
+                onClick={e => {
+                  e.preventDefault()
+                  handleDelete()
+                }}
+                className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              >
+                Delete
+              </AlertDialogAction>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialog>
+      )}
     </>
   )
 }

@@ -1,13 +1,12 @@
 import type { Metadata, Viewport } from 'next'
-import { Inter as FontSans } from 'next/font/google'
 
 import { Analytics } from '@vercel/analytics/next'
 
 import { getCurrentUserId } from '@/lib/auth/get-current-user'
+import { ChatHeaderProvider } from '@/lib/contexts/chat-header-context'
 import { UserProvider } from '@/lib/contexts/user-context'
 import { hasSupabasePublicConfig } from '@/lib/supabase/keys'
 import { createClient } from '@/lib/supabase/server'
-import { cn } from '@/lib/utils'
 
 import { SidebarProvider } from '@/components/ui/sidebar'
 import { Toaster } from '@/components/ui/sonner'
@@ -21,11 +20,6 @@ import { PostHogProvider } from '@/components/posthog-provider'
 import { ThemeProvider } from '@/components/theme-provider'
 
 import './globals.css'
-
-const fontSans = FontSans({
-  subsets: ['latin'],
-  variable: '--font-sans'
-})
 
 const title = 'Ask'
 const description =
@@ -72,12 +66,7 @@ export default async function RootLayout({
 
   return (
     <html lang="en" suppressHydrationWarning>
-      <body
-        className={cn(
-          'fixed inset-0 flex flex-col font-sans antialiased overflow-hidden',
-          fontSans.variable
-        )}
-      >
+      <body className="fixed inset-0 flex flex-col font-sans antialiased overflow-hidden">
         <ThemeProvider
           attribute="class"
           defaultTheme="system"
@@ -86,16 +75,26 @@ export default async function RootLayout({
         >
           <PostHogProvider userId={user?.id ?? null}>
             <UserProvider hasUser={!!userId}>
-              <SidebarProvider defaultOpen={false}>
+              <SidebarProvider
+                defaultOpen={true}
+                style={
+                  {
+                    '--sidebar-width': '80px',
+                    '--sidebar-width-mobile': '220px'
+                  } as React.CSSProperties
+                }
+              >
                 <LibraryProvider>
                   {userId && <AppSidebar />}
                   <KeyboardShortcutHandler />
-                  <div className="flex flex-col flex-1 min-w-0">
-                    <Header user={user} />
-                    <main className="flex flex-1 min-h-0 min-w-0 overflow-hidden">
-                      <ArtifactRoot>{children}</ArtifactRoot>
-                    </main>
-                  </div>
+                  <ChatHeaderProvider>
+                    <div className="flex flex-col flex-1 min-w-0">
+                      <Header user={user} />
+                      <main className="flex flex-1 min-h-0 min-w-0 overflow-hidden">
+                        <ArtifactRoot>{children}</ArtifactRoot>
+                      </main>
+                    </div>
+                  </ChatHeaderProvider>
                 </LibraryProvider>
               </SidebarProvider>
             </UserProvider>

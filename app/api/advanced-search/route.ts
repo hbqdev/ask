@@ -8,11 +8,34 @@ import { JSDOM, VirtualConsole } from 'jsdom'
 import { createClient } from 'redis'
 
 import {
+  rerankByCrossEncoder,
+  rerankByEmbedding
+} from '@/lib/embeddings/rerank'
+import { intentToCategory, type SearchIntent } from '@/lib/tools/search/intent'
+import {
+  mergeDegoogIntoSearxngResults,
+  resolveDegoogUrl
+} from '@/lib/tools/search/providers/merge-degoog'
+import { mergeOllamaIntoSearxngResults } from '@/lib/tools/search/providers/merge-ollama'
+import {
+  DegoogResponse,
   SearchResultItem,
   SearXNGResponse,
   SearXNGResult,
   SearXNGSearchResults
 } from '@/lib/types'
+import { crawl4aiScrapeMany, isCrawl4aiConfigured } from '@/lib/utils/crawl4ai'
+import { isCrossEncoderConfigured } from '@/lib/utils/cross-encoder'
+import { fetchDegoogJson } from '@/lib/utils/degoog-client'
+import {
+  extractReadableContent,
+  MIN_CONTENT_LENGTH
+} from '@/lib/utils/extract-content'
+import {
+  fetchOllamaSearch,
+  type OllamaSearchResult
+} from '@/lib/utils/ollama-search-client'
+import { fetchSearxngJson } from '@/lib/utils/searxng-client'
 
 /**
  * Maximum number of results to fetch from SearXNG.
@@ -135,15 +158,30 @@ async function cleanupExpiredCache() {
 setInterval(cleanupExpiredCache, CACHE_EXPIRATION_CHECK_INTERVAL)
 
 export async function POST(request: Request) {
-  const { query, maxResults, searchDepth, includeDomains, excludeDomains } =
-    await request.json()
+  const {
+    query,
+    maxResults,
+    searchDepth,
+    includeDomains,
+    excludeDomains,
+    timeRange,
+    intent,
+    useOllama,
+    ollamaMaxResults
+  } = await request.json()
 
   const SEARXNG_DEFAULT_DEPTH = process.env.SEARXNG_DEFAULT_DEPTH || 'basic'
+  const VALID_TIME_RANGES = ['day', 'week', 'month', 'year']
+  const effectiveTimeRange = VALID_TIME_RANGES.includes(timeRange)
+    ? (timeRange as string)
+    : undefined
 
   try {
     const cacheKey = `search:${query}:${maxResults}:${searchDepth}:${
       Array.isArray(includeDomains) ? includeDomains.join(',') : ''
-    }:${Array.isArray(excludeDomains) ? excludeDomains.join(',') : ''}`
+    }:${Array.isArray(excludeDomains) ? excludeDomains.join(',') : ''}:${
+      effectiveTimeRange ?? ''
+    }:${typeof intent === 'string' ? intent : ''}:${useOllama ? `oll${typeof ollamaMaxResults === 'number' ? ollamaMaxResults : 5}` : ''}`
 
     // Try to get cached results
     const cachedResults = await getCachedResults(cacheKey)
@@ -157,7 +195,11 @@ export async function POST(request: Request) {
       Math.min(maxResults, SEARXNG_MAX_RESULTS),
       searchDepth || SEARXNG_DEFAULT_DEPTH,
       Array.isArray(includeDomains) ? includeDomains : [],
-      Array.isArray(excludeDomains) ? excludeDomains : []
+      Array.isArray(excludeDomains) ? excludeDomains : [],
+      effectiveTimeRange,
+      typeof intent === 'string' ? (intent as SearchIntent) : 'general',
+      Boolean(useOllama),
+      typeof ollamaMaxResults === 'number' ? ollamaMaxResults : 5
     )
 
     // Cache the results
@@ -185,10 +227,13 @@ async function advancedSearchXNGSearch(
   maxResults: number = 10,
   searchDepth: 'basic' | 'advanced' = 'advanced',
   includeDomains: string[] = [],
-  excludeDomains: string[] = []
+  excludeDomains: string[] = [],
+  timeRange?: string,
+  intent: SearchIntent = 'general',
+  useOllama = false,
+  ollamaMaxResults = 5
 ): Promise<SearXNGSearchResults> {
-  const apiUrl = process.env.SEARXNG_API_URL
-  if (!apiUrl) {
+  if (!process.env.SEARXNG_API_URL && !process.env.SEARXNG_FALLBACK_API_URL) {
     throw new Error('SEARXNG_API_URL is not set in the environment variables')
   }
 
@@ -202,36 +247,91 @@ async function advancedSearchXNGSearch(
   )
 
   try {
-    const url = new URL(`${apiUrl}/search`)
-    url.searchParams.append('q', query)
-    url.searchParams.append('format', 'json')
-    url.searchParams.append('categories', 'general,images')
-
-    // Add time_range if it's not 'None'
-    if (SEARXNG_TIME_RANGE !== 'None') {
-      url.searchParams.append('time_range', SEARXNG_TIME_RANGE)
-    }
-
-    url.searchParams.append('safesearch', SEARXNG_SAFESEARCH)
-    url.searchParams.append('engines', SEARXNG_ENGINES)
-
     const resultsPerPage = 10
     const pageno = Math.ceil(maxResults / resultsPerPage)
-    url.searchParams.append('pageno', String(pageno))
 
-    //console.log('SearXNG API URL:', url.toString()) // Log the full URL for debugging
+    // Fetches from SearXNG, automatically failing over to
+    // SEARXNG_FALLBACK_API_URL if the primary instance is unreachable.
+    const buildUrl = (baseUrl: string) => {
+      const url = new URL(`${baseUrl}/search`)
+      url.searchParams.append('q', query)
+      url.searchParams.append('format', 'json')
+      const intentCategory = intentToCategory(intent)
+      url.searchParams.append(
+        'categories',
+        intentCategory ? `general,images,${intentCategory}` : 'general,images'
+      )
+      // Per-turn recency preference (query classifier) beats the static
+      // env default.
+      if (timeRange) {
+        url.searchParams.append('time_range', timeRange)
+      } else if (SEARXNG_TIME_RANGE !== 'None') {
+        url.searchParams.append('time_range', SEARXNG_TIME_RANGE)
+      }
+      url.searchParams.append('safesearch', SEARXNG_SAFESEARCH)
+      url.searchParams.append('engines', SEARXNG_ENGINES)
+      url.searchParams.append('pageno', String(pageno))
+      return url.toString()
+    }
 
-    const data:
-      | SearXNGResponse
-      | { error: string; status: number; data: string } =
-      await fetchJsonWithRetry(url.toString(), 3)
+    // degoog is a complement, never a dependency: query it alongside SearXNG
+    // via Promise.allSettled so a degoog failure (or it being unconfigured)
+    // never fails the search — only a rejected SearXNG fetch does that.
+    const DEGOOG_MAX = Math.min(20, maxResults * 2)
+    const degoogUrl = (type: string) => (baseUrl: string) => {
+      const u = new URL(`${baseUrl}/api/search`)
+      u.searchParams.append('q', query)
+      u.searchParams.append('type', type)
+      u.searchParams.append('max_results', String(DEGOOG_MAX))
+      return u.toString()
+    }
 
-    if ('error' in data) {
-      console.error('Invalid response from SearXNG:', data)
-      throw new Error(
-        `Invalid response from SearXNG: ${data.error}. Status: ${data.status}. Data: ${data.data}`
+    const [
+      searxngSettled,
+      degoogWebSettled,
+      degoogNewsSettled,
+      degoogImgSettled,
+      ollamaSettled
+    ] = await Promise.allSettled([
+      fetchSearxngJson(buildUrl),
+      fetchDegoogJson(degoogUrl('web')),
+      intent === 'news'
+        ? fetchDegoogJson(degoogUrl('news'))
+        : Promise.resolve(null),
+      fetchDegoogJson(degoogUrl('images')),
+      useOllama
+        ? fetchOllamaSearch(query, ollamaMaxResults)
+        : Promise.resolve(null)
+    ])
+
+    if (searxngSettled.status === 'rejected') throw searxngSettled.reason
+    const { data: rawData, baseUrlUsed: apiUrl } = searxngSettled.value
+
+    const degoogOf = (
+      s: PromiseSettledResult<{ data: unknown } | null>
+    ): DegoogResponse['results'] => {
+      if (s.status !== 'fulfilled' || !s.value) return []
+      return (s.value.data as DegoogResponse).results ?? []
+    }
+    const degoogWeb = [
+      ...degoogOf(degoogWebSettled),
+      ...degoogOf(degoogNewsSettled)
+    ]
+    const degoogImages = degoogOf(degoogImgSettled)
+
+    const ollamaResults: OllamaSearchResult[] =
+      ollamaSettled.status === 'fulfilled' && ollamaSettled.value
+        ? (ollamaSettled.value as OllamaSearchResult[])
+        : []
+    if (ollamaSettled.status === 'rejected') {
+      console.warn(
+        '[ollama] advanced web search failed, continuing without it:',
+        ollamaSettled.reason
       )
     }
+    const prefetchedUrls = new Set(ollamaResults.map(r => r.url))
+
+    const data = rawData as SearXNGResponse
 
     if (!data || !Array.isArray(data.results)) {
       console.error('Invalid response structure from SearXNG:', data)
@@ -255,25 +355,181 @@ async function advancedSearchXNGSearch(
       })
     }
 
-    if (searchDepth === 'advanced') {
-      const crawledResults = await Promise.all(
-        generalResults
-          .slice(0, maxResults * SEARXNG_CRAWL_MULTIPLIER)
-          .map(result => crawlPage(result, query))
+    // degoog parity: fold degoog web results into the candidate pool BEFORE
+    // crawl+rerank so the advanced (deepest) search has the same source union
+    // as the basic path. Cap at the crawl candidate size so niche degoog
+    // results reach the crawler.
+    if (degoogWeb.length > 0) {
+      generalResults = mergeDegoogIntoSearxngResults(
+        generalResults,
+        degoogWeb,
+        maxResults * SEARXNG_CRAWL_MULTIPLIER
       )
+    }
+
+    // Ollama results carry full content already — merge them into the candidate
+    // pool so they're reranked alongside crawled searxng/degoog results. They
+    // are tagged (prefetchedUrls) so the crawl step below skips them.
+    if (ollamaResults.length > 0) {
+      generalResults = mergeOllamaIntoSearxngResults(
+        generalResults,
+        ollamaResults,
+        maxResults * SEARXNG_CRAWL_MULTIPLIER
+      )
+    }
+
+    if (searchDepth === 'advanced') {
+      const candidates = generalResults.slice(
+        0,
+        maxResults * SEARXNG_CRAWL_MULTIPLIER
+      )
+
+      // Full-content enrichment: the self-hosted Crawl4AI server renders
+      // every candidate in a real browser and returns clean markdown, in
+      // one batched call. This is the whole point of self-hosting a
+      // scraper — the legacy crawlPage path below is a raw HTTP GET plus
+      // DOM scraping, which silently yields nothing on JS-rendered pages,
+      // so the model ends up reasoning over snippets. Unmetered, so it
+      // runs on every advanced turn. Falls back to crawlPage per-result
+      // if Crawl4AI is unconfigured or unreachable.
+      // Bound the browser budget: SearXNG's results are already ranked, so
+      // spend it on the most promising ones. Anything past the cap — and
+      // anything Crawl4AI can't render — still gets crawled by the cheap
+      // legacy path, so no candidate is silently dropped.
+      const MAX_ENRICH_URLS = 16
+      const toEnrich = candidates
+        .filter(r => !prefetchedUrls.has(r.url))
+        .slice(0, MAX_ENRICH_URLS)
+      const beyondCap = candidates.length - toEnrich.length
+
+      // Chunked + never-throws, so a slow chunk degrades to "those URLs
+      // weren't enriched" instead of aborting the whole enrichment (an
+      // earlier all-or-nothing version turned one timeout into a 140s
+      // turn by re-crawling every candidate through the legacy path).
+      const scraped = await crawl4aiScrapeMany(
+        toEnrich.map(r => r.url),
+        // domcontentloaded, not networkidle: benchmarked 4.7s vs 26.4s on
+        // a 16-URL batch, with MORE usable results. See Crawl4aiWaitUntil.
+        { waitUntil: 'domcontentloaded', chunkSize: 8, chunkTimeoutMs: 60_000 }
+      )
+      const byUrl = new Map(scraped.map(s => [s.url, s]))
+
+      const crawledResults = await Promise.all(
+        candidates.map(async result => {
+          if (prefetchedUrls.has(result.url)) {
+            // Ollama already fetched this — keep its content, don't crawl.
+            return {
+              ...result,
+              content: highlightQueryTerms(
+                `${result.title}\n\n${result.content}`.substring(0, 10000),
+                query
+              )
+            }
+          }
+          const hit = byUrl.get(result.url)
+          if (!hit) return crawlPage(result, query)
+          return {
+            ...result,
+            content: highlightQueryTerms(
+              `${result.title}\n\n${hit.markdown}`.substring(0, 10000),
+              query
+            )
+          }
+        })
+      )
+
+      if (isCrawl4aiConfigured()) {
+        console.log(
+          `[advanced-search] crawl4ai enriched ${scraped.length}/${toEnrich.length}` +
+            (beyondCap > 0 ? `, ${beyondCap} beyond cap` : '') +
+            `; ${candidates.length - scraped.length} via legacy crawler`
+        )
+      }
+
       generalResults = crawledResults
         .filter(result => result !== null && isQualityContent(result.content))
         .map(result => result as SearXNGResult)
 
-      const MIN_RELEVANCE_SCORE = 10
-      generalResults = generalResults
-        .map(result => ({
-          ...result,
-          score: calculateRelevanceScore(result, query)
-        }))
-        .filter(result => result.score >= MIN_RELEVANCE_SCORE)
-        .sort((a, b) => b.score - a.score)
-        .slice(0, maxResults)
+      // Relevance reranking, best-available first:
+      //   cross-encoder service (jointly scores query+passage) →
+      //   bi-encoder cosine (local MiniLM) → keyword scorer.
+      // Each tier degrades to the next on failure, so a reranker outage is
+      // invisible. All three produce scores in [0,1] except the keyword
+      // scorer, which sorts on its own scale.
+      const docsForRerank = generalResults.map(result => ({
+        // Strip <mark> highlight tags before scoring — markup isn't content.
+        // The original (highlights intact for the UI) rides along.
+        content: result.content.replace(/<\/?mark>/g, ''),
+        original: result
+      }))
+
+      const applyReranked = (
+        reranked: { doc: { original: SearXNGResult }; score: number }[],
+        minScore: number
+      ) => {
+        generalResults = reranked
+          .filter(r => r.score >= minScore)
+          .map(r => r.doc.original)
+      }
+
+      let reranked = false
+      if (isCrossEncoderConfigured()) {
+        try {
+          const out = await rerankByCrossEncoder(
+            docsForRerank,
+            query,
+            maxResults
+          )
+          // Cross-encoder [0,1]; the floor only drops CLEAR junk (near-zero
+          // scores) — the answering model does the fine-grained judging.
+          // 0.1, not 0.3: with max_length=128 truncation, genuinely-relevant
+          // passages can score in the 0.1-0.4 range, and 0.3 over-filtered
+          // ~15-20% of real queries into the bi-encoder fallback (they lost
+          // the cross-encoder benefit). 0.1 keeps them while still dropping
+          // obvious off-topic pages.
+          applyReranked(out, 0.1)
+          // Guard: if the floor filtered EVERYTHING out, don't return an
+          // empty result set — fall through to the bi-encoder tier (which
+          // uses a looser 0.2 floor) rather than answering with no sources.
+          if (generalResults.length > 0) {
+            reranked = true
+            console.log(
+              `[advanced-search] cross-encoder reranked ${out.length}/${docsForRerank.length}`
+            )
+          } else {
+            console.log(
+              '[advanced-search] cross-encoder filtered all results below floor, falling back to bi-encoder'
+            )
+          }
+        } catch (error) {
+          console.error(
+            '[advanced-search] cross-encoder failed, falling back to bi-encoder:',
+            error
+          )
+        }
+      }
+
+      if (!reranked) {
+        try {
+          const out = await rerankByEmbedding(docsForRerank, query, maxResults)
+          applyReranked(out, 0.2)
+          reranked = true
+        } catch (error) {
+          console.error(
+            '[advanced-search] embedding rerank failed, using keyword scorer:',
+            error
+          )
+          const MIN_RELEVANCE_SCORE = 10
+          generalResults = generalResults
+            .map(result => ({
+              ...result,
+              score: calculateRelevanceScore(result, query)
+            }))
+            .filter(result => result.score >= MIN_RELEVANCE_SCORE)
+            .sort((a, b) => b.score - a.score)
+            .slice(0, maxResults)
+        }
+      }
     }
 
     generalResults = generalResults.slice(0, maxResults)
@@ -291,12 +547,24 @@ async function advancedSearchXNGSearch(
         })
       ),
       query: data.query || query,
-      images: imageResults
-        .map((result: SearXNGResult) => {
-          const imgSrc = result.img_src || ''
-          return imgSrc.startsWith('http') ? imgSrc : `${apiUrl}${imgSrc}`
-        })
-        .filter(Boolean),
+      images: Array.from(
+        new Set([
+          ...imageResults
+            .map((result: SearXNGResult) => {
+              const imgSrc = result.img_src || ''
+              return imgSrc.startsWith('http') ? imgSrc : `${apiUrl}${imgSrc}`
+            })
+            .filter(Boolean),
+          ...degoogImages
+            .map(r =>
+              resolveDegoogUrl(
+                r.imageUrl || r.thumbnail || '',
+                process.env.DEGOOG_API_URL ?? ''
+              )
+            )
+            .filter(Boolean)
+        ])
+      ).slice(0, maxResults),
       number_of_results: data.number_of_results || generalResults.length
     }
   } catch (error) {
@@ -316,6 +584,25 @@ async function crawlPage(
 ): Promise<SearXNGResult> {
   try {
     const html = await fetchHtmlWithTimeout(result.url, 20000)
+
+    // Readability first — cleaner article extraction than the manual DOM
+    // walk below (which stays as the fallback for pages where Readability
+    // finds no article node).
+    const readable = extractReadableContent(html, result.url)
+    if (readable && readable.text.length >= MIN_CONTENT_LENGTH) {
+      const combined = [result.title, readable.title, readable.text]
+        .filter(Boolean)
+        .join('\n\n')
+        .substring(0, 10000)
+      result.content = highlightQueryTerms(combined, query)
+      if (readable.publishedDate) {
+        const date = new Date(readable.publishedDate)
+        if (!isNaN(date.getTime())) {
+          result.publishedDate = date.toISOString()
+        }
+      }
+      return result
+    }
 
     // virtual console to suppress JSDOM warnings
     const virtualConsole = new VirtualConsole()
@@ -535,53 +822,6 @@ const httpsAgent = new https.Agent({
   rejectUnauthorized: true // change to false if you want to ignore SSL certificate errors
   //but use this with caution.
 })
-
-async function fetchJsonWithRetry(url: string, retries: number): Promise<any> {
-  for (let i = 0; i < retries; i++) {
-    try {
-      return await fetchJson(url)
-    } catch (error) {
-      if (i === retries - 1) throw error
-      await new Promise(resolve => setTimeout(resolve, 1000 * (i + 1)))
-    }
-  }
-}
-
-function fetchJson(url: string): Promise<any> {
-  return new Promise((resolve, reject) => {
-    const protocol = url.startsWith('https:') ? https : http
-    const agent = url.startsWith('https:') ? httpsAgent : httpAgent
-    const request = protocol.get(url, { agent }, res => {
-      let data = ''
-      res.on('data', chunk => {
-        data += chunk
-      })
-      res.on('end', () => {
-        try {
-          // Check if the response is JSON
-          if (res.headers['content-type']?.includes('application/json')) {
-            resolve(JSON.parse(data))
-          } else {
-            // If not JSON, return an object with the raw data and status
-            resolve({
-              error: 'Invalid JSON response',
-              status: res.statusCode,
-              data: data.substring(0, 200) // Include first 200 characters of the response
-            })
-          }
-        } catch (e) {
-          reject(e)
-        }
-      })
-    })
-    request.on('error', reject)
-    request.on('timeout', () => {
-      request.destroy()
-      reject(new Error('Request timed out'))
-    })
-    request.setTimeout(15000) // 15 second timeout
-  })
-}
 
 async function fetchHtmlWithTimeout(
   url: string,

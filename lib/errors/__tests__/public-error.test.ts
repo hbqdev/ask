@@ -68,22 +68,22 @@ describe('public error mapping', () => {
     const payload = toPublicErrorPayload(
       JSON.stringify({
         error:
-          'Daily limit for Adaptive mode reached. Please try again tomorrow, or continue in Quick mode.',
+          'Daily limit for Balanced mode reached. Please try again tomorrow, or continue in Speed mode.',
         remaining: 0,
         resetAt: 1767139200000,
         limit: 30,
-        mode: 'adaptive'
+        mode: 'balanced'
       })
     )
 
     expect(payload.type).toBe('rate-limit')
     expect(payload.code).toBe('rate_limit')
     expect(payload.error).toBe(
-      'Daily limit for Adaptive mode reached. Please try again tomorrow, or continue in Quick mode.'
+      'Daily limit for Balanced mode reached. Please try again tomorrow, or continue in Speed mode.'
     )
-    expect(payload.mode).toBe('adaptive')
+    expect(payload.mode).toBe('balanced')
     expect(getPublicRateLimitDetails(payload)).toBe(
-      'The limit resets at midnight UTC. You can continue using Quick mode without restrictions.'
+      'The limit resets at midnight UTC. You can continue using Speed mode without restrictions.'
     )
   })
 
@@ -142,6 +142,33 @@ describe('public error mapping', () => {
     expect(payload.error).toBe(
       'Sign in to use Adaptive mode. Quick mode remains available without an account.'
     )
+  })
+
+  it('maps unsupported image input errors to an actionable, non-retryable message', () => {
+    const payload = toPublicErrorPayload(
+      new Error(
+        'this model does not support image input (ref: e24d7e1b-8c98-48fa-b365-9b6ef8d3db69)'
+      )
+    )
+
+    expect(payload.code).toBe('unsupported_input')
+    expect(payload.type).toBe('general')
+    expect(payload.retryable).toBe(false)
+    expect(payload.error).toBe(
+      'The selected model does not support image input. Remove the attached image or switch to a vision-capable model, then try again.'
+    )
+  })
+
+  it('takes priority over the generic 400 bad-request classification', () => {
+    const error = new Error(
+      'this model does not support image input (ref: abc123)'
+    ) as Error & { status_code?: number }
+    error.status_code = 400
+
+    const payload = toPublicErrorPayload(error)
+
+    expect(payload.code).toBe('unsupported_input')
+    expect(payload.retryable).toBe(false)
   })
 
   it('maps context length errors to useful but sanitized copy', () => {

@@ -77,6 +77,13 @@ export interface SearXNGResult {
   img_src?: string
   publishedDate?: string
   score?: number
+  // Video-category fields (present when categories includes "videos")
+  category?: string
+  thumbnail?: string
+  length?: string
+  source?: string
+  engine?: string
+  author?: string
 }
 
 export interface SearXNGResponse {
@@ -92,6 +99,32 @@ export type SearXNGSearchResults = {
   results: SearchResultItem[]
   number_of_results?: number
   query: string
+}
+
+// degoog is a complementary metasearch aggregator merged into the SearXNG
+// provider's results (see lib/tools/search/providers/searxng.ts) — it
+// already merges/dedupes across its own configured engines and annotates
+// each result with which of them agreed on it. `thumbnail`/`imageUrl` are
+// paths on the degoog instance itself (e.g. `/api/proxy/image?...`) and
+// must be resolved to an absolute URL against the degoog base URL before
+// use — see resolveDegoogUrl in merge-degoog.ts.
+export interface DegoogResult {
+  title: string
+  url: string
+  snippet: string
+  source?: string
+  score?: number
+  sources?: string[]
+  thumbnail?: string
+  imageUrl?: string
+  duration?: string
+  insecure?: boolean
+  isGif?: boolean
+}
+
+export interface DegoogResponse {
+  query: string
+  results: DegoogResult[]
 }
 
 export type UploadedFile = {
