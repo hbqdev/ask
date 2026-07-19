@@ -1,7 +1,10 @@
 'use client'
 
+import { Check, Loader2, X } from 'lucide-react'
 import { useState } from 'react'
 import { toast } from 'sonner'
+
+import { cn } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
 import {
   Dialog,
@@ -17,6 +20,27 @@ type ApplyEvent = {
   detail?: string
 }
 type Backup = { path: string; ts: string }
+
+function DiffView({ diff }: { diff: string }) {
+  return (
+    <pre className="max-h-72 overflow-auto rounded-lg border bg-muted/40 p-3 text-xs leading-relaxed">
+      {diff.split('\n').map((line, i) => {
+        const cls = /^\s*\+/.test(line)
+          ? 'text-emerald-600 dark:text-emerald-400'
+          : /^\s*-/.test(line)
+            ? 'text-destructive'
+            : line.startsWith('~')
+              ? 'font-medium text-amber-600 dark:text-amber-400'
+              : 'text-muted-foreground'
+        return (
+          <div key={i} className={cn('whitespace-pre-wrap font-mono', cls)}>
+            {line || ' '}
+          </div>
+        )
+      })}
+    </pre>
+  )
+}
 
 export function ApplyBar({ edits }: { edits: Record<string, string> }) {
   const count = Object.keys(edits).length
@@ -156,16 +180,26 @@ export function ApplyBar({ edits }: { edits: Record<string, string> }) {
 
   return (
     <>
-      <div className="fixed inset-x-0 bottom-0 flex items-center justify-end gap-3 border-t bg-background/95 px-6 py-3">
-        <span className="text-sm text-muted-foreground">
-          {count} change{count === 1 ? '' : 's'}
-        </span>
-        <Button variant="outline" onClick={openBackups}>
-          Backups
-        </Button>
-        <Button onClick={review} disabled={count === 0}>
-          Review
-        </Button>
+      <div className="fixed inset-x-0 bottom-0 z-20 border-t bg-background/90 backdrop-blur">
+        <div className="mx-auto flex max-w-6xl items-center justify-between gap-3 px-4 py-3 sm:px-6">
+          <span className="text-sm">
+            {count === 0 ? (
+              <span className="text-muted-foreground">No pending changes</span>
+            ) : (
+              <span className="font-medium">
+                {count} pending change{count === 1 ? '' : 's'}
+              </span>
+            )}
+          </span>
+          <div className="flex items-center gap-2">
+            <Button variant="outline" size="sm" onClick={openBackups}>
+              Backups
+            </Button>
+            <Button size="sm" onClick={review} disabled={count === 0}>
+              Review changes{count > 0 ? ` (${count})` : ''}
+            </Button>
+          </div>
+        </div>
       </div>
 
       <Dialog open={open} onOpenChange={setOpen}>
@@ -173,25 +207,45 @@ export function ApplyBar({ edits }: { edits: Record<string, string> }) {
           <DialogHeader>
             <DialogTitle>Review changes</DialogTitle>
           </DialogHeader>
-          <pre className="max-h-72 overflow-auto rounded bg-muted p-3 text-xs whitespace-pre-wrap">
-            {diff}
-          </pre>
+          {diff ? (
+            <DiffView diff={diff} />
+          ) : (
+            <p className="text-sm text-muted-foreground">No changes.</p>
+          )}
           {events.length > 0 && (
-            <ul className="max-h-40 overflow-auto text-xs">
+            <ul className="max-h-40 space-y-1 overflow-auto rounded-lg border bg-muted/30 p-3 text-xs">
               {events.map((e, i) => (
-                <li
-                  key={i}
-                  className={e.status === 'fail' ? 'text-red-500' : ''}
-                >
-                  {e.step}: {e.status}
-                  {e.detail ? ` — ${e.detail}` : ''}
+                <li key={i} className="flex items-center gap-2">
+                  {e.status === 'ok' ? (
+                    <Check className="size-3.5 shrink-0 text-success" />
+                  ) : e.status === 'fail' ? (
+                    <X className="size-3.5 shrink-0 text-destructive" />
+                  ) : (
+                    <Loader2 className="size-3.5 shrink-0 animate-spin text-muted-foreground" />
+                  )}
+                  <span
+                    className={cn(
+                      'truncate font-mono',
+                      e.status === 'fail' && 'text-destructive'
+                    )}
+                  >
+                    {e.step}
+                    {e.detail ? ` — ${e.detail}` : ''}
+                  </span>
                 </li>
               ))}
             </ul>
           )}
           <DialogFooter>
             <Button onClick={apply} disabled={applying}>
-              {applying ? 'Applying…' : 'Save & Apply'}
+              {applying ? (
+                <>
+                  <Loader2 className="mr-2 size-4 animate-spin" />
+                  Applying…
+                </>
+              ) : (
+                'Save & Apply'
+              )}
             </Button>
           </DialogFooter>
         </DialogContent>
@@ -209,9 +263,11 @@ export function ApplyBar({ edits }: { edits: Record<string, string> }) {
               {backups.map(b => (
                 <li
                   key={b.path}
-                  className="flex items-center justify-between gap-2"
+                  className="flex items-center justify-between gap-2 rounded-md px-2 py-1.5 hover:bg-muted/50"
                 >
-                  <span className="truncate">{b.ts}</span>
+                  <span className="truncate font-mono text-xs text-muted-foreground">
+                    {b.ts}
+                  </span>
                   <Button
                     size="sm"
                     variant="outline"

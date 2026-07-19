@@ -11,6 +11,50 @@ export const CATEGORIES: Category[] = [
   'infra'
 ]
 
+export interface CategoryMeta {
+  label: string
+  description: string
+  icon: string // lucide-react icon name, resolved in the UI
+}
+
+export const CATEGORY_META: Record<Category, CategoryMeta> = {
+  models: {
+    label: 'Models',
+    description: 'Chat models, the classifier/expander, embeddings & reranker.',
+    icon: 'Cpu'
+  },
+  search: {
+    label: 'Search',
+    description: 'SearXNG, crawlers, and web-search providers.',
+    icon: 'Search'
+  },
+  database: {
+    label: 'Database',
+    description: 'Postgres connection strings & credentials.',
+    icon: 'Database'
+  },
+  auth: {
+    label: 'Auth',
+    description: 'Login via Supabase, and anonymous access.',
+    icon: 'ShieldCheck'
+  },
+  memory: {
+    label: 'Memory',
+    description: 'Long-term memory and conversation-recall tuning.',
+    icon: 'Brain'
+  },
+  storage: {
+    label: 'Storage',
+    description: 'File uploads and object storage (Cloudflare R2 / S3).',
+    icon: 'HardDrive'
+  },
+  infra: {
+    label: 'Infra',
+    description: 'Ports, base URLs, Redis, and deployment flags.',
+    icon: 'Server'
+  }
+}
+
 export type FieldType =
   'url' | 'model' | 'model-list' | 'secret' | 'bool' | 'int' | 'enum' | 'string'
 
@@ -630,12 +674,87 @@ export const REGISTRY: EnvVarSpec[] = [
     category: 'infra',
     label: 'Cloud deployment',
     type: 'bool',
-    validate: bool
-  }
+    validate: bool,
+    help: 'Set true only on Morphic Cloud. Self-hosted stays false.'
+  },
 
-  // NOTE: run the parity test; for any remaining key in the real .env
-  // (e.g. R2/S3 storage vars → category 'storage', PostHog/Langfuse →
-  // 'infra'), add an entry here of the correct type until the test passes.
+  // ---------- Storage: uploads (file attachments / RAG) ----------
+  {
+    key: 'UPLOADS_DIR',
+    category: 'storage',
+    group: 'Local uploads',
+    label: 'Uploads directory',
+    type: 'string',
+    help: 'Container path where uploaded files are stored when object storage (R2/S3) is not configured.'
+  },
+  {
+    key: 'UPLOAD_TTL_DAYS',
+    category: 'storage',
+    group: 'Local uploads',
+    label: 'Upload retention (days)',
+    type: 'int',
+    validate: int,
+    help: 'Uploaded files older than this many days are cleaned up automatically.'
+  },
+  {
+    key: 'R2_ACCOUNT_ID',
+    category: 'storage',
+    group: 'Cloudflare R2',
+    label: 'R2 account ID',
+    type: 'string',
+    help: 'Cloudflare account ID that owns the R2 bucket. Enables R2 object storage for uploads.'
+  },
+  {
+    key: 'R2_BUCKET_NAME',
+    category: 'storage',
+    group: 'Cloudflare R2',
+    label: 'R2 bucket name',
+    type: 'string',
+    help: 'Name of the R2 bucket used to store uploaded files.'
+  },
+  {
+    key: 'R2_ACCESS_KEY_ID',
+    category: 'storage',
+    group: 'Cloudflare R2',
+    label: 'R2 access key ID',
+    type: 'secret',
+    help: 'R2 API token access key ID.'
+  },
+  {
+    key: 'R2_SECRET_ACCESS_KEY',
+    category: 'storage',
+    group: 'Cloudflare R2',
+    label: 'R2 secret access key',
+    type: 'secret',
+    help: 'R2 API token secret. Treat as a credential.'
+  },
+  {
+    key: 'R2_PUBLIC_URL',
+    category: 'storage',
+    group: 'Cloudflare R2',
+    label: 'R2 public URL',
+    type: 'url',
+    validate: url,
+    help: 'Public base URL that serves objects from the bucket (e.g. a custom domain or r2.dev URL).'
+  },
+  {
+    key: 'R2_SIGNED_URL_EXPIRES_SECONDS',
+    category: 'storage',
+    group: 'Cloudflare R2',
+    label: 'Signed URL expiry (seconds)',
+    type: 'int',
+    validate: int,
+    help: 'How long a presigned download URL stays valid.'
+  },
+  {
+    key: 'S3_ENDPOINT',
+    category: 'storage',
+    group: 'S3-compatible',
+    label: 'S3 endpoint',
+    type: 'url',
+    validate: url,
+    help: 'Endpoint for an S3-compatible store (MinIO, Backblaze, etc.) instead of Cloudflare R2.'
+  }
 ]
 
 const byKey = new Map(REGISTRY.map(s => [s.key, s]))
