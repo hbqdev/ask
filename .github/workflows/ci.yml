@@ -16,3 +16,8 @@ jobs:
       - run: bun typecheck
       - run: bun format:check
       - run: bun run test
+      # The build only needs DATABASE_URL to exist (import-time check); it
+      # never connects. A placeholder keeps secrets out of CI.
+      - run: bun run build
+        env:
+          DATABASE_URL: postgresql://placeholder:placeholder@localhost:5432/placeholder
