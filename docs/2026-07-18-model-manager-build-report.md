@@ -14,6 +14,7 @@ A **standalone Next.js web app** (`selfhosted/model-manager/`) that manages Ask'
 Plus two small, behavior-preserving **enabling changes to Ask itself** so the UI can control model names that were previously hardcoded.
 
 **Design decisions (from the brainstorm), all captured in the spec:**
+
 - Apply model: **edit + one-click apply** (the tool writes `.env` and recreates the container itself).
 - Serenity model names (`granite4.1:8b`): made **env-driven** so the UI can change them.
 - Reranker: **full cross-host control** (SSH to nightfuryS to change `RERANKER_MODEL` + restart).
@@ -37,32 +38,32 @@ Every commit was made with **no AI-attribution trailer** (per your standing rule
 
 ## 3. Per-task execution and outcomes
 
-| Task | What | Commit(s) | Outcome |
-|---|---|---|---|
-| 1 | Ask: serenity model ids env-driven (`CLASSIFIER_/EXPANDER_/MEMORY_EXTRACTOR_MODEL_ID`, default `granite4.1:8b`) | `d9aa2b1` | review clean, 3/3 |
-| 2 | Reranker: `RERANKER_MODEL` moved compose→`.env` | `d9a409f` | review clean, 2/2 |
-| 3 | Scaffold standalone Next.js app | `0cb6346` | review clean; pinned Turbopack `root` to keep the build from pulling in Ask's files |
-| 4 | Tool runtime-config reader (`lib/config.ts`) | `f045879` | review clean, 3/3 |
-| 5 | Env-schema registry + `.env`-parity test | `b604752` | review clean; reviewer independently verified fixture == real `.env` keys (29/29) + zero secret leakage |
-| 6 | Lossless `.env` parser/serializer | `fec3785` + fix `27c4cc0` | **review caught a Critical** (see §4), fixed, re-reviewed clean, 11/11 |
-| 7 | Model-list codec | `ed42eec` | review clean, 4/4 |
-| 8 | Diff + secret masking | `16ce482` + `248bec9` | Important test-gap fixed (secret add/remove masking) |
-| 9 | Backup manager (timestamped + prune + restore) | `267f984` | review clean; sort/prune direction independently verified |
-| 10 | Command runner + apply orchestrator | `88ace91` + fix `7a6a892` | **review caught TWO Criticals** (see §4), fixed, re-reviewed clean, 11/11 |
-| 11 | Connection testers (ollama/reranker) | `890b3ce` | review clean, 4/4 |
-| 12 | Auth: fail-closed gate + signed session | `9477126` | review clean; fail-closed + constant-time independently verified |
-| 13 | Server routes + proxy auth guard | `01d0715` + fix `94f132d` | **Important fixed**: added server-side `validateEdits` (reject unknown keys/bad values before any write/restart) |
-| 14 | shadcn primitives (copied from Ask) + login page | `592ebae` | review clean; isolation grep-verified across every copied file |
-| — | Tooling fix: eslint/prettier config so lint+format work | `966fb19` | mechanical; all gates green |
-| 16 | Model-list editor component | `bfd0573` | review clean; sound deviation (boundary buttons omitted, not disabled) |
-| 17 | Apply bar (review diff → stream apply → backups) | `75e27fd` + fix `f87696d` | fixed a stale-state toast bug; **2 Important fixed**: streaming test coverage + fetch guards (no stuck spinner) |
-| 15 | Field renderers + categorized config form + `app/page.tsx` | `bad4d2d` | review clean; secret path traced (no plaintext to client) |
-| 18 | Connection-test buttons + model picker | `72efca3` | review clean; fetch guarded (no stuck spinner) |
-| 19 | Dockerfile, compose, README, `.env.example` | `4318b19` | **caught 3 real Dockerfile bugs** (see §4); verified via real `docker build` + live smoke test |
-| 20 | Live E2E vs a **copy** of `.env` | (verification only) | **12/12 PASS** (see §5) |
-| — | Final whole-branch review (opus) | — | **MERGE** verdict |
-| — | Final fix wave (2 Minors) | `9c9d0db` | apply/restore lock + unique temp name; honest model chips |
-| 21 | Remove Ask's Models tab | — | **GATED on your approval** (touches live Ask) |
+| Task | What                                                                                                            | Commit(s)                 | Outcome                                                                                                          |
+| ---- | --------------------------------------------------------------------------------------------------------------- | ------------------------- | ---------------------------------------------------------------------------------------------------------------- |
+| 1    | Ask: serenity model ids env-driven (`CLASSIFIER_/EXPANDER_/MEMORY_EXTRACTOR_MODEL_ID`, default `granite4.1:8b`) | `d9aa2b1`                 | review clean, 3/3                                                                                                |
+| 2    | Reranker: `RERANKER_MODEL` moved compose→`.env`                                                                 | `d9a409f`                 | review clean, 2/2                                                                                                |
+| 3    | Scaffold standalone Next.js app                                                                                 | `0cb6346`                 | review clean; pinned Turbopack `root` to keep the build from pulling in Ask's files                              |
+| 4    | Tool runtime-config reader (`lib/config.ts`)                                                                    | `f045879`                 | review clean, 3/3                                                                                                |
+| 5    | Env-schema registry + `.env`-parity test                                                                        | `b604752`                 | review clean; reviewer independently verified fixture == real `.env` keys (29/29) + zero secret leakage          |
+| 6    | Lossless `.env` parser/serializer                                                                               | `fec3785` + fix `27c4cc0` | **review caught a Critical** (see §4), fixed, re-reviewed clean, 11/11                                           |
+| 7    | Model-list codec                                                                                                | `ed42eec`                 | review clean, 4/4                                                                                                |
+| 8    | Diff + secret masking                                                                                           | `16ce482` + `248bec9`     | Important test-gap fixed (secret add/remove masking)                                                             |
+| 9    | Backup manager (timestamped + prune + restore)                                                                  | `267f984`                 | review clean; sort/prune direction independently verified                                                        |
+| 10   | Command runner + apply orchestrator                                                                             | `88ace91` + fix `7a6a892` | **review caught TWO Criticals** (see §4), fixed, re-reviewed clean, 11/11                                        |
+| 11   | Connection testers (ollama/reranker)                                                                            | `890b3ce`                 | review clean, 4/4                                                                                                |
+| 12   | Auth: fail-closed gate + signed session                                                                         | `9477126`                 | review clean; fail-closed + constant-time independently verified                                                 |
+| 13   | Server routes + proxy auth guard                                                                                | `01d0715` + fix `94f132d` | **Important fixed**: added server-side `validateEdits` (reject unknown keys/bad values before any write/restart) |
+| 14   | shadcn primitives (copied from Ask) + login page                                                                | `592ebae`                 | review clean; isolation grep-verified across every copied file                                                   |
+| —    | Tooling fix: eslint/prettier config so lint+format work                                                         | `966fb19`                 | mechanical; all gates green                                                                                      |
+| 16   | Model-list editor component                                                                                     | `bfd0573`                 | review clean; sound deviation (boundary buttons omitted, not disabled)                                           |
+| 17   | Apply bar (review diff → stream apply → backups)                                                                | `75e27fd` + fix `f87696d` | fixed a stale-state toast bug; **2 Important fixed**: streaming test coverage + fetch guards (no stuck spinner)  |
+| 15   | Field renderers + categorized config form + `app/page.tsx`                                                      | `bad4d2d`                 | review clean; secret path traced (no plaintext to client)                                                        |
+| 18   | Connection-test buttons + model picker                                                                          | `72efca3`                 | review clean; fetch guarded (no stuck spinner)                                                                   |
+| 19   | Dockerfile, compose, README, `.env.example`                                                                     | `4318b19`                 | **caught 3 real Dockerfile bugs** (see §4); verified via real `docker build` + live smoke test                   |
+| 20   | Live E2E vs a **copy** of `.env`                                                                                | (verification only)       | **12/12 PASS** (see §5)                                                                                          |
+| —    | Final whole-branch review (opus)                                                                                | —                         | **MERGE** verdict                                                                                                |
+| —    | Final fix wave (2 Minors)                                                                                       | `9c9d0db`                 | apply/restore lock + unique temp name; honest model chips                                                        |
+| 21   | Remove Ask's Models tab                                                                                         | —                         | **GATED on your approval** (touches live Ask)                                                                    |
 
 ---
 
@@ -92,6 +93,7 @@ Run against a **copy** of the real `.env` (never the real one; no container was 
 ## 6. Final whole-branch review — verdict: MERGE (no blockers)
 
 The opus reviewer confirmed cross-cutting: isolation holds (zero escapes + the Turbopack pin), the **secret-handling chain is airtight end-to-end** (no `console.*` anywhere; nothing leaks to client/log/event; apply-stream and rollback both redact), the apply orchestrator meets every invariant, the two Ask enabling changes are behavior-preserving, and types are coherent lib→routes→UI. 10 carried-forward Minors were triaged as safe-to-defer. Two NEW Minors were fixed in `9c9d0db`:
+
 1. The spec promised a concurrency lock but none existed (+ pid-only temp name) → added an in-process apply/restore mutex (`lib/lock.ts`) and a `randomUUID` temp name.
 2. The `/api/tags` model chips rendered as dead clickable buttons → now non-interactive info chips unless a picker handler is wired.
 
@@ -104,6 +106,7 @@ The opus reviewer confirmed cross-cutting: isolation holds (zero escapes + the T
 **Done and merge-approved** — all on branch `admin-feature`, **not pushed**, prod **untouched**.
 
 **Remaining, gated on your approval:**
+
 1. **Task 21 — remove Ask's read-only Models settings tab** (`components/settings-dialog.tsx`). This changes the live Ask app, so I paused per your rule. It's the payoff you described (the standalone UI supersedes it).
 2. **Ship it** — per your push-to-production workflow (merge `admin-feature`→`dev`, push, rebuild/redeploy). The model-manager also needs its own one-time deploy: build its image, set `MODEL_MANAGER_PASSWORD` + the `RERANKER_SSH_*` vars, mount the `.env` + docker socket + SSH key, `docker compose up -d`. And the reranker box's live `.env` needs `RERANKER_MODEL=BAAI/bge-reranker-v2-m3` added before its next recreate (so its model is unchanged).
 

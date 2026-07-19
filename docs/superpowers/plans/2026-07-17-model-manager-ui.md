@@ -22,20 +22,20 @@
 
 ### The model-manager's own runtime config (its `.env`, with defaults)
 
-| Var | Default | Meaning |
-|---|---|---|
-| `MODEL_MANAGER_PASSWORD` | *(required)* | Gate password; unset ⇒ app serves 503 |
-| `MODEL_MANAGER_SESSION_SECRET` | *(derived from password)* | HMAC key for the session cookie |
-| `MODEL_MANAGER_PORT` | `3939` | LAN port |
-| `ASK_ENV_PATH` | `/ask/.env` | Path to Ask's `.env` (bind-mounted) |
-| `ASK_COMPOSE_FILE` | `/ask/docker-compose.yaml` | Ask compose file (bind-mounted) |
-| `ASK_SERVICE` | `ask` | Compose service name to recreate |
-| `MODEL_MANAGER_BACKUP_KEEP` | `20` | How many `.env.bak.*` to retain |
-| `RERANKER_SSH_TARGET` | *(unset ⇒ reranker mgmt disabled)* | e.g. `user@192.168.50.160` |
-| `RERANKER_SSH_KEY` | `/keys/nightfurys` | Mounted private key path |
-| `RERANKER_REMOTE_DIR` | *(unset ⇒ reranker mgmt disabled)* | Reranker compose dir on nightfuryS |
-| `RERANKER_ENV_FILE` | `.env` | Reranker `.env` filename in that dir |
-| `RERANKER_SERVICE` | `reranker` | Remote compose service name |
+| Var                            | Default                            | Meaning                               |
+| ------------------------------ | ---------------------------------- | ------------------------------------- |
+| `MODEL_MANAGER_PASSWORD`       | _(required)_                       | Gate password; unset ⇒ app serves 503 |
+| `MODEL_MANAGER_SESSION_SECRET` | _(derived from password)_          | HMAC key for the session cookie       |
+| `MODEL_MANAGER_PORT`           | `3939`                             | LAN port                              |
+| `ASK_ENV_PATH`                 | `/ask/.env`                        | Path to Ask's `.env` (bind-mounted)   |
+| `ASK_COMPOSE_FILE`             | `/ask/docker-compose.yaml`         | Ask compose file (bind-mounted)       |
+| `ASK_SERVICE`                  | `ask`                              | Compose service name to recreate      |
+| `MODEL_MANAGER_BACKUP_KEEP`    | `20`                               | How many `.env.bak.*` to retain       |
+| `RERANKER_SSH_TARGET`          | _(unset ⇒ reranker mgmt disabled)_ | e.g. `user@192.168.50.160`            |
+| `RERANKER_SSH_KEY`             | `/keys/nightfurys`                 | Mounted private key path              |
+| `RERANKER_REMOTE_DIR`          | _(unset ⇒ reranker mgmt disabled)_ | Reranker compose dir on nightfuryS    |
+| `RERANKER_ENV_FILE`            | `.env`                             | Reranker `.env` filename in that dir  |
+| `RERANKER_SERVICE`             | `reranker`                         | Remote compose service name           |
 
 If `RERANKER_SSH_TARGET`/`RERANKER_REMOTE_DIR` are unset, the reranker-model field is shown read-only with a "cross-host management not configured" note; all other function is unaffected.
 
@@ -44,6 +44,7 @@ If `RERANKER_SSH_TARGET`/`RERANKER_REMOTE_DIR` are unset, the reranker-model fie
 ## File Structure
 
 **Enabling changes (Ask repo):**
+
 - `lib/agents/query-classifier.ts` — env fallback for `CLASSIFIER_MODEL_ID`
 - `lib/agents/query-expander.ts` — env fallback for `EXPANDER_MODEL_ID`
 - `lib/agents/memory-extractor.ts` — env fallback for `MEMORY_EXTRACTOR_MODEL_ID`
@@ -51,6 +52,7 @@ If `RERANKER_SSH_TARGET`/`RERANKER_REMOTE_DIR` are unset, the reranker-model fie
 - `components/settings-dialog.tsx` — remove `ModelsTab` (final, gated task)
 
 **Model-manager app (`selfhosted/model-manager/`):**
+
 - `package.json`, `tsconfig.json`, `next.config.mjs`, `postcss.config.mjs`, `eslint.config.mjs`, `prettier.config.js`, `vitest.config.mts`, `vitest.setup.ts`, `.gitignore`, `Dockerfile`, `docker-compose.yaml`, `README.md`, `.env.example`
 - `app/layout.tsx`, `app/globals.css`, `app/page.tsx`, `app/login/page.tsx`, `proxy.ts`
 - `app/api/health/route.ts`, `app/api/login/route.ts`, `app/api/logout/route.ts`, `app/api/config/route.ts`, `app/api/preview/route.ts`, `app/api/apply/route.ts`, `app/api/backups/route.ts`, `app/api/restore/route.ts`, `app/api/test/route.ts`
@@ -73,12 +75,14 @@ If `RERANKER_SSH_TARGET`/`RERANKER_REMOTE_DIR` are unset, the reranker-model fie
 ## Task 1: Ask — env-driven serenity model names
 
 **Files:**
+
 - Modify: `lib/agents/query-classifier.ts` (the `CLASSIFIER_MODEL_ID` constant)
 - Modify: `lib/agents/query-expander.ts` (the `EXPANDER_MODEL_ID` constant)
 - Modify: `lib/agents/memory-extractor.ts:8` (the `MODEL_ID` constant)
 - Test: `lib/agents/__tests__/model-id-env.test.ts`
 
 **Interfaces:**
+
 - Produces: env vars `CLASSIFIER_MODEL_ID`, `EXPANDER_MODEL_ID`, `MEMORY_EXTRACTOR_MODEL_ID` (all default `granite4.1:8b`), consumed by Ask and set by the model-manager registry (Task 5).
 
 - [ ] **Step 1: Write the failing test**
@@ -117,14 +121,19 @@ Expected: FAIL — the source files don't yet reference the env vars.
 - [ ] **Step 3: Apply the env fallback in all three files**
 
 In `lib/agents/query-classifier.ts`, change the hardcoded constant to:
+
 ```ts
 const CLASSIFIER_MODEL_ID = process.env.CLASSIFIER_MODEL_ID ?? 'granite4.1:8b'
 ```
+
 In `lib/agents/query-expander.ts`:
+
 ```ts
 const EXPANDER_MODEL_ID = process.env.EXPANDER_MODEL_ID ?? 'granite4.1:8b'
 ```
+
 In `lib/agents/memory-extractor.ts:8` (constant is named `MODEL_ID`):
+
 ```ts
 const MODEL_ID = process.env.MEMORY_EXTRACTOR_MODEL_ID ?? 'granite4.1:8b'
 ```
@@ -146,11 +155,13 @@ git commit -m "feat(agents): make serenity model ids env-driven (default granite
 ## Task 2: Reranker — move RERANKER_MODEL into its .env
 
 **Files:**
+
 - Modify: `selfhosted/reranker/docker-compose.yaml` (drop the `environment: RERANKER_MODEL` line)
 - Modify: `selfhosted/reranker/.env.example` (add `RERANKER_MODEL`)
 - Test: `selfhosted/reranker/__tests__/reranker-config.test.ts`
 
 **Interfaces:**
+
 - Produces: `RERANKER_MODEL` now lives in the reranker's `.env` (default `BAAI/bge-reranker-v2-m3`). `app.py` already reads `os.environ.get("RERANKER_MODEL", "BAAI/bge-reranker-v2-m3")`, so no Python change is needed. The model-manager writes this file over SSH (Task 10).
 
 - [ ] **Step 1: Write the failing test**
@@ -185,6 +196,7 @@ Expected: FAIL — compose still sets `RERANKER_MODEL:` and `.env.example` lacks
 In `selfhosted/reranker/docker-compose.yaml`, delete the `RERANKER_MODEL: BAAI/bge-reranker-v2-m3` line under `environment:`. (The service already has `env_file: .env`; leave that.) If `environment:` becomes empty, remove the empty key.
 
 In `selfhosted/reranker/.env.example`, add below the existing token line:
+
 ```bash
 # Cross-encoder model served by the reranker. Changing this re-downloads
 # weights on next start (slow). Managed by the model-manager UI over SSH.
@@ -210,12 +222,14 @@ git commit -m "refactor(reranker): move RERANKER_MODEL from compose into .env"
 ## Task 3: Scaffold the model-manager app
 
 **Files (all under `selfhosted/model-manager/`):**
+
 - Create: `package.json`, `tsconfig.json`, `next.config.mjs`, `postcss.config.mjs`, `prettier.config.js`, `eslint.config.mjs`, `vitest.config.mts`, `vitest.setup.ts`, `.gitignore`
 - Create: `app/layout.tsx`, `app/globals.css`, `app/api/health/route.ts`
 - Create: `lib/utils.ts`
 - Test: `app/api/health/__tests__/health.test.ts`
 
 **Interfaces:**
+
 - Produces: a runnable Next.js app; `cn()` from `lib/utils.ts`; the `bun run` gate scripts. All later tasks build on this.
 
 - [ ] **Step 1: Create `package.json`**
@@ -273,6 +287,7 @@ git commit -m "refactor(reranker): move RERANKER_MODEL from compose into .env"
 - [ ] **Step 2: Create the config files**
 
 `tsconfig.json`:
+
 ```json
 {
   "compilerOptions": {
@@ -298,6 +313,7 @@ git commit -m "refactor(reranker): move RERANKER_MODEL from compose into .env"
 ```
 
 `next.config.mjs`:
+
 ```js
 /** @type {import('next').NextConfig} */
 const nextConfig = { output: 'standalone' }
@@ -305,22 +321,26 @@ export default nextConfig
 ```
 
 `postcss.config.mjs`:
+
 ```js
 export default { plugins: { tailwindcss: {}, autoprefixer: {} } }
 ```
 
 `prettier.config.js`:
+
 ```js
 module.exports = { semi: false, singleQuote: true, trailingComma: 'none' }
 ```
 
 `eslint.config.mjs`:
+
 ```js
 import next from 'eslint-config-next'
 export default [...next()]
 ```
 
 `tailwind.config.ts`:
+
 ```ts
 import type { Config } from 'tailwindcss'
 export default {
@@ -331,6 +351,7 @@ export default {
 ```
 
 `vitest.config.mts`:
+
 ```ts
 import react from '@vitejs/plugin-react'
 import { defineConfig } from 'vitest/config'
@@ -338,18 +359,25 @@ import { fileURLToPath } from 'url'
 
 export default defineConfig({
   plugins: [react()],
-  test: { environment: 'jsdom', setupFiles: ['./vitest.setup.ts'], globals: true },
+  test: {
+    environment: 'jsdom',
+    setupFiles: ['./vitest.setup.ts'],
+    globals: true
+  },
   resolve: { alias: { '@': fileURLToPath(new URL('./', import.meta.url)) } }
 })
 ```
+
 (Add `@vitejs/plugin-react` to devDependencies.)
 
 `vitest.setup.ts`:
+
 ```ts
 import '@testing-library/jest-dom/vitest'
 ```
 
 `.gitignore`:
+
 ```
 node_modules
 .next
@@ -361,6 +389,7 @@ node_modules
 - [ ] **Step 3: Create `lib/utils.ts`, `app/globals.css`, `app/layout.tsx`**
 
 `lib/utils.ts` (copy Ask's):
+
 ```ts
 import { clsx, type ClassValue } from 'clsx'
 import { twMerge } from 'tailwind-merge'
@@ -370,6 +399,7 @@ export function cn(...inputs: ClassValue[]) {
 ```
 
 `app/globals.css`:
+
 ```css
 @tailwind base;
 @tailwind components;
@@ -377,13 +407,18 @@ export function cn(...inputs: ClassValue[]) {
 ```
 
 `app/layout.tsx`:
+
 ```tsx
 import './globals.css'
 import { Toaster } from 'sonner'
 
 export const metadata = { title: 'Ask Model Manager' }
 
-export default function RootLayout({ children }: { children: React.ReactNode }) {
+export default function RootLayout({
+  children
+}: {
+  children: React.ReactNode
+}) {
   return (
     <html lang="en">
       <body>
@@ -398,6 +433,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
 - [ ] **Step 4: Create the health route + its test**
 
 `app/api/health/route.ts`:
+
 ```ts
 export function GET() {
   return Response.json({ ok: true })
@@ -405,6 +441,7 @@ export function GET() {
 ```
 
 `app/api/health/__tests__/health.test.ts`:
+
 ```ts
 import { describe, expect, it } from 'vitest'
 import { GET } from '../route'
@@ -421,9 +458,11 @@ describe('health route', () => {
 - [ ] **Step 5: Install, run gates**
 
 Run:
+
 ```bash
 cd selfhosted/model-manager && bun install && bun run test && bun run typecheck && bun run build
 ```
+
 Expected: install succeeds; test PASSES; typecheck clean; build succeeds.
 
 - [ ] **Step 6: Commit**
@@ -438,10 +477,12 @@ git commit -m "chore(model-manager): scaffold standalone Next.js app"
 ## Task 4: The tool's own runtime config reader
 
 **Files:**
+
 - Create: `selfhosted/model-manager/lib/config.ts`
 - Test: `selfhosted/model-manager/lib/__tests__/config.test.ts`
 
 **Interfaces:**
+
 - Produces: `getToolConfig(env?): ToolConfig` returning `{ askEnvPath, askComposeFile, askService, backupKeep, reranker: RerankerConfig | null }` where `RerankerConfig = { sshTarget, sshKey, remoteDir, envFile, service }`. `reranker` is `null` when `RERANKER_SSH_TARGET` or `RERANKER_REMOTE_DIR` is unset.
 
 - [ ] **Step 1: Write the failing test**
@@ -502,7 +543,9 @@ export interface ToolConfig {
   reranker: RerankerConfig | null
 }
 
-export function getToolConfig(env: NodeJS.ProcessEnv = process.env): ToolConfig {
+export function getToolConfig(
+  env: NodeJS.ProcessEnv = process.env
+): ToolConfig {
   const sshTarget = env.RERANKER_SSH_TARGET
   const remoteDir = env.RERANKER_REMOTE_DIR
   const reranker =
@@ -543,16 +586,19 @@ git commit -m "feat(model-manager): runtime config reader with defaults"
 ## Task 5: Env-schema registry + types
 
 **Files:**
+
 - Create: `selfhosted/model-manager/lib/env-schema.ts`
 - Test: `selfhosted/model-manager/lib/__tests__/env-schema.test.ts`
 - Test data: `selfhosted/model-manager/lib/__tests__/fixtures/ask.env.sample`
 
 **Interfaces:**
+
 - Produces: `EnvVarSpec` (type), `REGISTRY: EnvVarSpec[]`, `CATEGORIES` (ordered list), `specByKey(key): EnvVarSpec | undefined`, `validators` used by the UI. Consumed by diff (Task 7), config route (Task 13), and the form (Task 15).
 
 - [ ] **Step 1: Write the failing tests (registry integrity + .env parity)**
 
 Create the fixture `lib/__tests__/fixtures/ask.env.sample` containing the **keys** of the real Ask `.env` (values dummied), e.g.:
+
 ```bash
 OLLAMA_BASE_URL=http://x:11434
 OLLAMA_MODELS=a:cloud, b:cloud
@@ -630,14 +676,33 @@ Define the type and helpers, then the registry. Fill the registry so the parity 
 
 ```ts
 export type Category =
-  | 'models' | 'search' | 'database' | 'auth' | 'memory' | 'storage' | 'infra'
+  | 'models'
+  | 'search'
+  | 'database'
+  | 'auth'
+  | 'memory'
+  | 'storage'
+  | 'infra'
 
 export const CATEGORIES: Category[] = [
-  'models', 'search', 'database', 'auth', 'memory', 'storage', 'infra'
+  'models',
+  'search',
+  'database',
+  'auth',
+  'memory',
+  'storage',
+  'infra'
 ]
 
 export type FieldType =
-  | 'url' | 'model' | 'model-list' | 'secret' | 'bool' | 'int' | 'enum' | 'string'
+  | 'url'
+  | 'model'
+  | 'model-list'
+  | 'secret'
+  | 'bool'
+  | 'int'
+  | 'enum'
+  | 'string'
 
 export interface EnvVarSpec {
   key: string
@@ -668,98 +733,595 @@ const nonEmpty = (v: string): string | null =>
 
 export const REGISTRY: EnvVarSpec[] = [
   // ---------- Models: Chat ----------
-  { key: 'OLLAMA_BASE_URL', category: 'models', group: 'Chat', label: 'Chat host', type: 'url', validate: url, testable: 'ollama', help: 'Main Ollama LLM host.' },
-  { key: 'NEXT_PUBLIC_OLLAMA_BASE_URL', category: 'models', group: 'Chat', label: 'Chat host (client)', type: 'url', validate: url, help: 'Client-exposed copy; usually mirrors OLLAMA_BASE_URL.' },
-  { key: 'OLLAMA_MODELS', category: 'models', group: 'Chat', label: 'Chat model list', type: 'model-list', help: 'Cloud models not shown by /api/tags. Add / remove / reorder.' },
-  { key: 'OLLAMA_EMBED_MODEL', category: 'models', group: 'Chat', label: 'Ollama embed model', type: 'model', help: 'Optional Ollama-side embedding model.' },
+  {
+    key: 'OLLAMA_BASE_URL',
+    category: 'models',
+    group: 'Chat',
+    label: 'Chat host',
+    type: 'url',
+    validate: url,
+    testable: 'ollama',
+    help: 'Main Ollama LLM host.'
+  },
+  {
+    key: 'NEXT_PUBLIC_OLLAMA_BASE_URL',
+    category: 'models',
+    group: 'Chat',
+    label: 'Chat host (client)',
+    type: 'url',
+    validate: url,
+    help: 'Client-exposed copy; usually mirrors OLLAMA_BASE_URL.'
+  },
+  {
+    key: 'OLLAMA_MODELS',
+    category: 'models',
+    group: 'Chat',
+    label: 'Chat model list',
+    type: 'model-list',
+    help: 'Cloud models not shown by /api/tags. Add / remove / reorder.'
+  },
+  {
+    key: 'OLLAMA_EMBED_MODEL',
+    category: 'models',
+    group: 'Chat',
+    label: 'Ollama embed model',
+    type: 'model',
+    help: 'Optional Ollama-side embedding model.'
+  },
   // ---------- Models: Cloud providers ----------
-  { key: 'OPENAI_API_KEY', category: 'models', group: 'Cloud providers', label: 'OpenAI API key', type: 'secret' },
-  { key: 'ANTHROPIC_API_KEY', category: 'models', group: 'Cloud providers', label: 'Anthropic API key', type: 'secret' },
-  { key: 'GOOGLE_GENERATIVE_AI_API_KEY', category: 'models', group: 'Cloud providers', label: 'Google GenAI API key', type: 'secret' },
-  { key: 'AI_GATEWAY_API_KEY', category: 'models', group: 'Cloud providers', label: 'AI Gateway key', type: 'secret' },
-  { key: 'OPENAI_COMPATIBLE_API_KEY', category: 'models', group: 'Cloud providers', label: 'OpenAI-compatible key', type: 'secret' },
-  { key: 'OPENAI_COMPATIBLE_API_BASE_URL', category: 'models', group: 'Cloud providers', label: 'OpenAI-compatible base URL', type: 'url', validate: url },
-  { key: 'OPENAI_COMPATIBLE_PROVIDER_NAME', category: 'models', group: 'Cloud providers', label: 'OpenAI-compatible label', type: 'string' },
-  { key: 'OPENAI_COMPATIBLE_MODELS', category: 'models', group: 'Cloud providers', label: 'OpenAI-compatible models', type: 'model-list' },
+  {
+    key: 'OPENAI_API_KEY',
+    category: 'models',
+    group: 'Cloud providers',
+    label: 'OpenAI API key',
+    type: 'secret'
+  },
+  {
+    key: 'ANTHROPIC_API_KEY',
+    category: 'models',
+    group: 'Cloud providers',
+    label: 'Anthropic API key',
+    type: 'secret'
+  },
+  {
+    key: 'GOOGLE_GENERATIVE_AI_API_KEY',
+    category: 'models',
+    group: 'Cloud providers',
+    label: 'Google GenAI API key',
+    type: 'secret'
+  },
+  {
+    key: 'AI_GATEWAY_API_KEY',
+    category: 'models',
+    group: 'Cloud providers',
+    label: 'AI Gateway key',
+    type: 'secret'
+  },
+  {
+    key: 'OPENAI_COMPATIBLE_API_KEY',
+    category: 'models',
+    group: 'Cloud providers',
+    label: 'OpenAI-compatible key',
+    type: 'secret'
+  },
+  {
+    key: 'OPENAI_COMPATIBLE_API_BASE_URL',
+    category: 'models',
+    group: 'Cloud providers',
+    label: 'OpenAI-compatible base URL',
+    type: 'url',
+    validate: url
+  },
+  {
+    key: 'OPENAI_COMPATIBLE_PROVIDER_NAME',
+    category: 'models',
+    group: 'Cloud providers',
+    label: 'OpenAI-compatible label',
+    type: 'string'
+  },
+  {
+    key: 'OPENAI_COMPATIBLE_MODELS',
+    category: 'models',
+    group: 'Cloud providers',
+    label: 'OpenAI-compatible models',
+    type: 'model-list'
+  },
   // ---------- Models: Serenity ----------
-  { key: 'CLASSIFIER_OLLAMA_BASE_URL', category: 'models', group: 'Serenity', label: 'Serenity host', type: 'url', validate: url, testable: 'ollama', help: 'Classifier/expander/extractor Ollama host (falls back to Chat host).' },
-  { key: 'CLASSIFIER_MODEL_ID', category: 'models', group: 'Serenity', label: 'Classifier model', type: 'model', default: 'granite4.1:8b' },
-  { key: 'EXPANDER_MODEL_ID', category: 'models', group: 'Serenity', label: 'Query-expander model', type: 'model', default: 'granite4.1:8b' },
-  { key: 'MEMORY_EXTRACTOR_MODEL_ID', category: 'models', group: 'Serenity', label: 'Memory-extractor model', type: 'model', default: 'granite4.1:8b' },
+  {
+    key: 'CLASSIFIER_OLLAMA_BASE_URL',
+    category: 'models',
+    group: 'Serenity',
+    label: 'Serenity host',
+    type: 'url',
+    validate: url,
+    testable: 'ollama',
+    help: 'Classifier/expander/extractor Ollama host (falls back to Chat host).'
+  },
+  {
+    key: 'CLASSIFIER_MODEL_ID',
+    category: 'models',
+    group: 'Serenity',
+    label: 'Classifier model',
+    type: 'model',
+    default: 'granite4.1:8b'
+  },
+  {
+    key: 'EXPANDER_MODEL_ID',
+    category: 'models',
+    group: 'Serenity',
+    label: 'Query-expander model',
+    type: 'model',
+    default: 'granite4.1:8b'
+  },
+  {
+    key: 'MEMORY_EXTRACTOR_MODEL_ID',
+    category: 'models',
+    group: 'Serenity',
+    label: 'Memory-extractor model',
+    type: 'model',
+    default: 'granite4.1:8b'
+  },
   // ---------- Models: Embeddings ----------
-  { key: 'EMBEDDING_MODEL', category: 'models', group: 'Embeddings', label: 'Embedding model', type: 'enum', enumValues: ['Xenova/all-MiniLM-L6-v2', 'mixedbread-ai/mxbai-embed-large-v1', 'Xenova/nomic-embed-text-v1'], help: 'Local ONNX embeddings. Changing dimension affects the memory/recall schema.' },
-  { key: 'MODEL_CACHE_DIR', category: 'models', group: 'Embeddings', label: 'Model cache dir', type: 'string' },
+  {
+    key: 'EMBEDDING_MODEL',
+    category: 'models',
+    group: 'Embeddings',
+    label: 'Embedding model',
+    type: 'enum',
+    enumValues: [
+      'Xenova/all-MiniLM-L6-v2',
+      'mixedbread-ai/mxbai-embed-large-v1',
+      'Xenova/nomic-embed-text-v1'
+    ],
+    help: 'Local ONNX embeddings. Changing dimension affects the memory/recall schema.'
+  },
+  {
+    key: 'MODEL_CACHE_DIR',
+    category: 'models',
+    group: 'Embeddings',
+    label: 'Model cache dir',
+    type: 'string'
+  },
   // ---------- Models: Reranker ----------
-  { key: 'RERANKER_URL', category: 'models', group: 'Reranker', label: 'Reranker URL (Ask → reranker)', type: 'url', validate: url, testable: 'reranker', target: 'ask' },
-  { key: 'RERANKER_API_TOKEN', category: 'models', group: 'Reranker', label: 'Reranker API token', type: 'secret', target: 'ask' },
-  { key: 'RERANKER_MODEL', category: 'models', group: 'Reranker', label: 'Reranker model (on nightfuryS)', type: 'model', default: 'BAAI/bge-reranker-v2-m3', target: 'reranker', help: 'Applied over SSH; a change re-downloads weights (slow).' },
+  {
+    key: 'RERANKER_URL',
+    category: 'models',
+    group: 'Reranker',
+    label: 'Reranker URL (Ask → reranker)',
+    type: 'url',
+    validate: url,
+    testable: 'reranker',
+    target: 'ask'
+  },
+  {
+    key: 'RERANKER_API_TOKEN',
+    category: 'models',
+    group: 'Reranker',
+    label: 'Reranker API token',
+    type: 'secret',
+    target: 'ask'
+  },
+  {
+    key: 'RERANKER_MODEL',
+    category: 'models',
+    group: 'Reranker',
+    label: 'Reranker model (on nightfuryS)',
+    type: 'model',
+    default: 'BAAI/bge-reranker-v2-m3',
+    target: 'reranker',
+    help: 'Applied over SSH; a change re-downloads weights (slow).'
+  },
 
   // ---------- Search ----------
-  { key: 'SEARCH_API', category: 'search', label: 'Search backend', type: 'enum', enumValues: ['searxng', 'tavily', 'exa', 'brave'] },
-  { key: 'SEARXNG_API_URL', category: 'search', group: 'SearXNG', label: 'SearXNG URL', type: 'url', validate: url },
-  { key: 'SEARXNG_FALLBACK_API_URL', category: 'search', group: 'SearXNG', label: 'SearXNG fallback URL', type: 'url', validate: url },
-  { key: 'NEXT_PUBLIC_SEARXNG_URL', category: 'search', group: 'SearXNG', label: 'SearXNG URL (client)', type: 'url', validate: url },
-  { key: 'SEARXNG_SECRET', category: 'search', group: 'SearXNG', label: 'SearXNG secret', type: 'secret' },
-  { key: 'SEARXNG_ENGINES', category: 'search', group: 'SearXNG', label: 'Engines', type: 'string' },
-  { key: 'SEARXNG_MAX_RESULTS', category: 'search', group: 'SearXNG', label: 'Max results', type: 'int', validate: int },
-  { key: 'SEARXNG_DEFAULT_DEPTH', category: 'search', group: 'SearXNG', label: 'Default depth', type: 'string' },
-  { key: 'SEARXNG_TIME_RANGE', category: 'search', group: 'SearXNG', label: 'Time range', type: 'string' },
-  { key: 'SEARXNG_SAFESEARCH', category: 'search', group: 'SearXNG', label: 'Safesearch', type: 'int', validate: int },
-  { key: 'SEARXNG_CRAWL_MULTIPLIER', category: 'search', group: 'SearXNG', label: 'Crawl multiplier', type: 'int', validate: int },
-  { key: 'CRAWL4AI_URL', category: 'search', group: 'Crawl', label: 'Crawl4AI URL', type: 'url', validate: url },
-  { key: 'CRAWL4AI_API_TOKEN', category: 'search', group: 'Crawl', label: 'Crawl4AI token', type: 'secret' },
-  { key: 'FLARESOLVERR_URL', category: 'search', group: 'Crawl', label: 'FlareSolverr URL', type: 'url', validate: url },
-  { key: 'FIRECRAWL_API_KEY', category: 'search', group: 'Crawl', label: 'Firecrawl key', type: 'secret' },
-  { key: 'DEGOOG_API_URL', category: 'search', group: 'Degoog', label: 'Degoog URL', type: 'url', validate: url },
-  { key: 'DEGOOG_API_KEY', category: 'search', group: 'Degoog', label: 'Degoog key', type: 'secret' },
-  { key: 'TAVILY_API_KEY', category: 'search', group: 'Providers', label: 'Tavily key', type: 'secret' },
-  { key: 'EXA_API_KEY', category: 'search', group: 'Providers', label: 'Exa key', type: 'secret' },
-  { key: 'BRAVE_SEARCH_API_KEY', category: 'search', group: 'Providers', label: 'Brave key', type: 'secret' },
-  { key: 'JINA_API_KEY', category: 'search', group: 'Providers', label: 'Jina key', type: 'secret' },
-  { key: 'OLLAMA_SEARCH_API_KEY', category: 'search', group: 'Ollama search', label: 'Ollama search key', type: 'secret' },
-  { key: 'OLLAMA_SEARCH_ENABLED', category: 'search', group: 'Ollama search', label: 'Ollama search enabled', type: 'bool', validate: bool },
-  { key: 'OLLAMA_SEARCH_MAX_RESULTS', category: 'search', group: 'Ollama search', label: 'Ollama search max results', type: 'int', validate: int },
-  { key: 'OLLAMA_SEARCH_TIMEOUT_MS', category: 'search', group: 'Ollama search', label: 'Ollama search timeout (ms)', type: 'int', validate: int },
+  {
+    key: 'SEARCH_API',
+    category: 'search',
+    label: 'Search backend',
+    type: 'enum',
+    enumValues: ['searxng', 'tavily', 'exa', 'brave']
+  },
+  {
+    key: 'SEARXNG_API_URL',
+    category: 'search',
+    group: 'SearXNG',
+    label: 'SearXNG URL',
+    type: 'url',
+    validate: url
+  },
+  {
+    key: 'SEARXNG_FALLBACK_API_URL',
+    category: 'search',
+    group: 'SearXNG',
+    label: 'SearXNG fallback URL',
+    type: 'url',
+    validate: url
+  },
+  {
+    key: 'NEXT_PUBLIC_SEARXNG_URL',
+    category: 'search',
+    group: 'SearXNG',
+    label: 'SearXNG URL (client)',
+    type: 'url',
+    validate: url
+  },
+  {
+    key: 'SEARXNG_SECRET',
+    category: 'search',
+    group: 'SearXNG',
+    label: 'SearXNG secret',
+    type: 'secret'
+  },
+  {
+    key: 'SEARXNG_ENGINES',
+    category: 'search',
+    group: 'SearXNG',
+    label: 'Engines',
+    type: 'string'
+  },
+  {
+    key: 'SEARXNG_MAX_RESULTS',
+    category: 'search',
+    group: 'SearXNG',
+    label: 'Max results',
+    type: 'int',
+    validate: int
+  },
+  {
+    key: 'SEARXNG_DEFAULT_DEPTH',
+    category: 'search',
+    group: 'SearXNG',
+    label: 'Default depth',
+    type: 'string'
+  },
+  {
+    key: 'SEARXNG_TIME_RANGE',
+    category: 'search',
+    group: 'SearXNG',
+    label: 'Time range',
+    type: 'string'
+  },
+  {
+    key: 'SEARXNG_SAFESEARCH',
+    category: 'search',
+    group: 'SearXNG',
+    label: 'Safesearch',
+    type: 'int',
+    validate: int
+  },
+  {
+    key: 'SEARXNG_CRAWL_MULTIPLIER',
+    category: 'search',
+    group: 'SearXNG',
+    label: 'Crawl multiplier',
+    type: 'int',
+    validate: int
+  },
+  {
+    key: 'CRAWL4AI_URL',
+    category: 'search',
+    group: 'Crawl',
+    label: 'Crawl4AI URL',
+    type: 'url',
+    validate: url
+  },
+  {
+    key: 'CRAWL4AI_API_TOKEN',
+    category: 'search',
+    group: 'Crawl',
+    label: 'Crawl4AI token',
+    type: 'secret'
+  },
+  {
+    key: 'FLARESOLVERR_URL',
+    category: 'search',
+    group: 'Crawl',
+    label: 'FlareSolverr URL',
+    type: 'url',
+    validate: url
+  },
+  {
+    key: 'FIRECRAWL_API_KEY',
+    category: 'search',
+    group: 'Crawl',
+    label: 'Firecrawl key',
+    type: 'secret'
+  },
+  {
+    key: 'DEGOOG_API_URL',
+    category: 'search',
+    group: 'Degoog',
+    label: 'Degoog URL',
+    type: 'url',
+    validate: url
+  },
+  {
+    key: 'DEGOOG_API_KEY',
+    category: 'search',
+    group: 'Degoog',
+    label: 'Degoog key',
+    type: 'secret'
+  },
+  {
+    key: 'TAVILY_API_KEY',
+    category: 'search',
+    group: 'Providers',
+    label: 'Tavily key',
+    type: 'secret'
+  },
+  {
+    key: 'EXA_API_KEY',
+    category: 'search',
+    group: 'Providers',
+    label: 'Exa key',
+    type: 'secret'
+  },
+  {
+    key: 'BRAVE_SEARCH_API_KEY',
+    category: 'search',
+    group: 'Providers',
+    label: 'Brave key',
+    type: 'secret'
+  },
+  {
+    key: 'JINA_API_KEY',
+    category: 'search',
+    group: 'Providers',
+    label: 'Jina key',
+    type: 'secret'
+  },
+  {
+    key: 'OLLAMA_SEARCH_API_KEY',
+    category: 'search',
+    group: 'Ollama search',
+    label: 'Ollama search key',
+    type: 'secret'
+  },
+  {
+    key: 'OLLAMA_SEARCH_ENABLED',
+    category: 'search',
+    group: 'Ollama search',
+    label: 'Ollama search enabled',
+    type: 'bool',
+    validate: bool
+  },
+  {
+    key: 'OLLAMA_SEARCH_MAX_RESULTS',
+    category: 'search',
+    group: 'Ollama search',
+    label: 'Ollama search max results',
+    type: 'int',
+    validate: int
+  },
+  {
+    key: 'OLLAMA_SEARCH_TIMEOUT_MS',
+    category: 'search',
+    group: 'Ollama search',
+    label: 'Ollama search timeout (ms)',
+    type: 'int',
+    validate: int
+  },
 
   // ---------- Database ----------
-  { key: 'DATABASE_URL', category: 'database', label: 'Database URL', type: 'secret', validate: nonEmpty },
-  { key: 'DATABASE_RESTRICTED_URL', category: 'database', label: 'Restricted DB URL', type: 'secret' },
-  { key: 'DATABASE_SSL_DISABLED', category: 'database', label: 'Disable DB SSL', type: 'bool', validate: bool },
-  { key: 'POSTGRES_USER', category: 'database', label: 'Postgres user', type: 'string' },
-  { key: 'POSTGRES_PASSWORD', category: 'database', label: 'Postgres password', type: 'secret' },
-  { key: 'POSTGRES_DB', category: 'database', label: 'Postgres db', type: 'string' },
+  {
+    key: 'DATABASE_URL',
+    category: 'database',
+    label: 'Database URL',
+    type: 'secret',
+    validate: nonEmpty
+  },
+  {
+    key: 'DATABASE_RESTRICTED_URL',
+    category: 'database',
+    label: 'Restricted DB URL',
+    type: 'secret'
+  },
+  {
+    key: 'DATABASE_SSL_DISABLED',
+    category: 'database',
+    label: 'Disable DB SSL',
+    type: 'bool',
+    validate: bool
+  },
+  {
+    key: 'POSTGRES_USER',
+    category: 'database',
+    label: 'Postgres user',
+    type: 'string'
+  },
+  {
+    key: 'POSTGRES_PASSWORD',
+    category: 'database',
+    label: 'Postgres password',
+    type: 'secret'
+  },
+  {
+    key: 'POSTGRES_DB',
+    category: 'database',
+    label: 'Postgres db',
+    type: 'string'
+  },
 
   // ---------- Auth ----------
-  { key: 'ENABLE_AUTH', category: 'auth', label: 'Enable auth', type: 'bool', validate: bool },
-  { key: 'ANONYMOUS_USER_ID', category: 'auth', label: 'Anonymous user id', type: 'string' },
-  { key: 'NEXT_PUBLIC_SUPABASE_URL', category: 'auth', label: 'Supabase URL', type: 'url', validate: url },
-  { key: 'NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY', category: 'auth', label: 'Supabase publishable key', type: 'string' },
-  { key: 'SUPABASE_SECRET_KEY', category: 'auth', label: 'Supabase secret key', type: 'secret' },
+  {
+    key: 'ENABLE_AUTH',
+    category: 'auth',
+    label: 'Enable auth',
+    type: 'bool',
+    validate: bool
+  },
+  {
+    key: 'ANONYMOUS_USER_ID',
+    category: 'auth',
+    label: 'Anonymous user id',
+    type: 'string'
+  },
+  {
+    key: 'NEXT_PUBLIC_SUPABASE_URL',
+    category: 'auth',
+    label: 'Supabase URL',
+    type: 'url',
+    validate: url
+  },
+  {
+    key: 'NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY',
+    category: 'auth',
+    label: 'Supabase publishable key',
+    type: 'string'
+  },
+  {
+    key: 'SUPABASE_SECRET_KEY',
+    category: 'auth',
+    label: 'Supabase secret key',
+    type: 'secret'
+  },
 
   // ---------- Memory / recall ----------
-  { key: 'MEMORY_ENABLED', category: 'memory', label: 'Memory enabled', type: 'bool', validate: bool },
-  { key: 'MEMORY_SIM_THRESHOLD', category: 'memory', label: 'Memory sim threshold', type: 'string', validate: num },
-  { key: 'MEMORY_GRADUATE_SIGHTINGS', category: 'memory', label: 'Graduate sightings', type: 'int', validate: int },
-  { key: 'MEMORY_MAX_PER_USER', category: 'memory', label: 'Max per user', type: 'int', validate: int },
-  { key: 'MEMORY_INJECT_TOP_K', category: 'memory', label: 'Inject top-K', type: 'int', validate: int },
-  { key: 'MEMORY_CRON_SECRET', category: 'memory', label: 'Memory cron secret', type: 'secret' },
-  { key: 'RECALL_ENABLED', category: 'memory', label: 'Recall enabled', type: 'bool', validate: bool },
-  { key: 'RECALL_INJECT_TOP_K', category: 'memory', label: 'Recall inject top-K', type: 'int', validate: int },
-  { key: 'RECALL_INJECT_MIN_SCORE', category: 'memory', label: 'Recall inject min score', type: 'string', validate: num },
-  { key: 'RECALL_SEARCH_MIN_SCORE', category: 'memory', label: 'Recall search min score', type: 'string', validate: num },
-  { key: 'RECALL_TOOL_TOP_K', category: 'memory', label: 'Recall tool top-K', type: 'int', validate: int },
-  { key: 'RECALL_CHUNK_TOKENS', category: 'memory', label: 'Recall chunk tokens', type: 'int', validate: int },
-  { key: 'RECALL_CHUNK_OVERLAP', category: 'memory', label: 'Recall chunk overlap', type: 'int', validate: int },
-  { key: 'RECALL_RERANK_POOL', category: 'memory', label: 'Recall rerank pool', type: 'int', validate: int },
+  {
+    key: 'MEMORY_ENABLED',
+    category: 'memory',
+    label: 'Memory enabled',
+    type: 'bool',
+    validate: bool
+  },
+  {
+    key: 'MEMORY_SIM_THRESHOLD',
+    category: 'memory',
+    label: 'Memory sim threshold',
+    type: 'string',
+    validate: num
+  },
+  {
+    key: 'MEMORY_GRADUATE_SIGHTINGS',
+    category: 'memory',
+    label: 'Graduate sightings',
+    type: 'int',
+    validate: int
+  },
+  {
+    key: 'MEMORY_MAX_PER_USER',
+    category: 'memory',
+    label: 'Max per user',
+    type: 'int',
+    validate: int
+  },
+  {
+    key: 'MEMORY_INJECT_TOP_K',
+    category: 'memory',
+    label: 'Inject top-K',
+    type: 'int',
+    validate: int
+  },
+  {
+    key: 'MEMORY_CRON_SECRET',
+    category: 'memory',
+    label: 'Memory cron secret',
+    type: 'secret'
+  },
+  {
+    key: 'RECALL_ENABLED',
+    category: 'memory',
+    label: 'Recall enabled',
+    type: 'bool',
+    validate: bool
+  },
+  {
+    key: 'RECALL_INJECT_TOP_K',
+    category: 'memory',
+    label: 'Recall inject top-K',
+    type: 'int',
+    validate: int
+  },
+  {
+    key: 'RECALL_INJECT_MIN_SCORE',
+    category: 'memory',
+    label: 'Recall inject min score',
+    type: 'string',
+    validate: num
+  },
+  {
+    key: 'RECALL_SEARCH_MIN_SCORE',
+    category: 'memory',
+    label: 'Recall search min score',
+    type: 'string',
+    validate: num
+  },
+  {
+    key: 'RECALL_TOOL_TOP_K',
+    category: 'memory',
+    label: 'Recall tool top-K',
+    type: 'int',
+    validate: int
+  },
+  {
+    key: 'RECALL_CHUNK_TOKENS',
+    category: 'memory',
+    label: 'Recall chunk tokens',
+    type: 'int',
+    validate: int
+  },
+  {
+    key: 'RECALL_CHUNK_OVERLAP',
+    category: 'memory',
+    label: 'Recall chunk overlap',
+    type: 'int',
+    validate: int
+  },
+  {
+    key: 'RECALL_RERANK_POOL',
+    category: 'memory',
+    label: 'Recall rerank pool',
+    type: 'int',
+    validate: int
+  },
 
   // ---------- Infra ----------
-  { key: 'HOST_PORT', category: 'infra', label: 'Ask host port', type: 'int', validate: int },
-  { key: 'BASE_URL', category: 'infra', label: 'Base URL', type: 'url', validate: url },
-  { key: 'NEXT_PUBLIC_BASE_URL', category: 'infra', label: 'Base URL (client)', type: 'url', validate: url },
-  { key: 'LOCAL_REDIS_URL', category: 'infra', label: 'Local Redis URL', type: 'string' },
-  { key: 'UPSTASH_REDIS_REST_URL', category: 'infra', label: 'Upstash Redis URL', type: 'url', validate: url },
-  { key: 'UPSTASH_REDIS_REST_TOKEN', category: 'infra', label: 'Upstash Redis token', type: 'secret' },
-  { key: 'MORPHIC_CLOUD_DEPLOYMENT', category: 'infra', label: 'Cloud deployment', type: 'bool', validate: bool }
+  {
+    key: 'HOST_PORT',
+    category: 'infra',
+    label: 'Ask host port',
+    type: 'int',
+    validate: int
+  },
+  {
+    key: 'BASE_URL',
+    category: 'infra',
+    label: 'Base URL',
+    type: 'url',
+    validate: url
+  },
+  {
+    key: 'NEXT_PUBLIC_BASE_URL',
+    category: 'infra',
+    label: 'Base URL (client)',
+    type: 'url',
+    validate: url
+  },
+  {
+    key: 'LOCAL_REDIS_URL',
+    category: 'infra',
+    label: 'Local Redis URL',
+    type: 'string'
+  },
+  {
+    key: 'UPSTASH_REDIS_REST_URL',
+    category: 'infra',
+    label: 'Upstash Redis URL',
+    type: 'url',
+    validate: url
+  },
+  {
+    key: 'UPSTASH_REDIS_REST_TOKEN',
+    category: 'infra',
+    label: 'Upstash Redis token',
+    type: 'secret'
+  },
+  {
+    key: 'MORPHIC_CLOUD_DEPLOYMENT',
+    category: 'infra',
+    label: 'Cloud deployment',
+    type: 'bool',
+    validate: bool
+  }
 
   // NOTE: run the parity test; for any remaining key in the real .env
   // (e.g. R2/S3 storage vars → category 'storage', PostHog/Langfuse →
@@ -789,10 +1351,12 @@ git commit -m "feat(model-manager): env-schema registry covering every .env var"
 ## Task 6: `.env` parser / serializer
 
 **Files:**
+
 - Create: `selfhosted/model-manager/lib/env-file.ts`
 - Test: `selfhosted/model-manager/lib/__tests__/env-file.test.ts`
 
 **Interfaces:**
+
 - Produces:
   - `parseEnv(text: string): EnvDoc`
   - `serializeEnv(doc: EnvDoc): string`
@@ -807,7 +1371,13 @@ git commit -m "feat(model-manager): env-schema registry covering every .env var"
 ```ts
 // lib/__tests__/env-file.test.ts
 import { describe, expect, it } from 'vitest'
-import { getValue, parseEnv, serializeEnv, setValue, toValueMap } from '../env-file'
+import {
+  getValue,
+  parseEnv,
+  serializeEnv,
+  setValue,
+  toValueMap
+} from '../env-file'
 
 const SAMPLE = `# comment
 OLLAMA_BASE_URL=http://192.168.50.231:11434
@@ -905,7 +1475,8 @@ export function serializeEnv(doc: EnvDoc): string {
 }
 
 export function getValue(doc: EnvDoc, key: string): string | undefined {
-  for (const l of doc.lines) if (l.kind === 'pair' && l.key === key) return l.value
+  for (const l of doc.lines)
+    if (l.kind === 'pair' && l.key === key) return l.value
   return undefined
 }
 
@@ -947,10 +1518,12 @@ git commit -m "feat(model-manager): lossless .env parser/serializer"
 ## Task 7: Model-list codec
 
 **Files:**
+
 - Create: `selfhosted/model-manager/lib/model-list.ts`
 - Test: `selfhosted/model-manager/lib/__tests__/model-list.test.ts`
 
 **Interfaces:**
+
 - Produces: `parseList(v: string): string[]`, `serializeList(items: string[]): string`, `addItem(items, item): string[]`, `removeAt(items, i): string[]`, `move(items, from, to): string[]`. Consumed by the model-list editor (Task 16).
 
 - [ ] **Step 1: Write the failing tests**
@@ -958,7 +1531,13 @@ git commit -m "feat(model-manager): lossless .env parser/serializer"
 ```ts
 // lib/__tests__/model-list.test.ts
 import { describe, expect, it } from 'vitest'
-import { addItem, move, parseList, removeAt, serializeList } from '../model-list'
+import {
+  addItem,
+  move,
+  parseList,
+  removeAt,
+  serializeList
+} from '../model-list'
 
 describe('model-list codec', () => {
   it('parses comma lists, trimming and dropping empties', () => {
@@ -989,7 +1568,10 @@ Expected: FAIL.
 
 ```ts
 export function parseList(v: string): string[] {
-  return v.split(',').map(s => s.trim()).filter(Boolean)
+  return v
+    .split(',')
+    .map(s => s.trim())
+    .filter(Boolean)
 }
 
 export function serializeList(items: string[]): string {
@@ -1007,7 +1589,13 @@ export function removeAt(items: string[], i: number): string[] {
 }
 
 export function move(items: string[], from: number, to: number): string[] {
-  if (from === to || from < 0 || to < 0 || from >= items.length || to >= items.length) {
+  if (
+    from === to ||
+    from < 0 ||
+    to < 0 ||
+    from >= items.length ||
+    to >= items.length
+  ) {
     return items
   }
   const next = [...items]
@@ -1034,10 +1622,12 @@ git commit -m "feat(model-manager): comma model-list codec"
 ## Task 8: Diff computation + secret masking
 
 **Files:**
+
 - Create: `selfhosted/model-manager/lib/diff.ts`
 - Test: `selfhosted/model-manager/lib/__tests__/diff.test.ts`
 
 **Interfaces:**
+
 - Produces:
   - type `Change = { key: string; kind: 'add' | 'change' | 'remove'; before?: string; after?: string; secret: boolean }`
   - `computeChanges(current: Record<string, string>, next: Record<string, string>): Change[]`
@@ -1066,7 +1656,10 @@ describe('diff', () => {
   })
   it('masks secret values in the rendered diff', () => {
     const out = renderDiff(
-      computeChanges({ RERANKER_API_TOKEN: 'old' }, { RERANKER_API_TOKEN: 'new' })
+      computeChanges(
+        { RERANKER_API_TOKEN: 'old' },
+        { RERANKER_API_TOKEN: 'new' }
+      )
     )
     expect(out).toContain(MASK)
     expect(out).not.toContain('old')
@@ -1074,7 +1667,10 @@ describe('diff', () => {
   })
   it('shows non-secret values in the rendered diff', () => {
     const out = renderDiff(
-      computeChanges({ OLLAMA_BASE_URL: 'http://a' }, { OLLAMA_BASE_URL: 'http://b' })
+      computeChanges(
+        { OLLAMA_BASE_URL: 'http://a' },
+        { OLLAMA_BASE_URL: 'http://b' }
+      )
     )
     expect(out).toContain('http://a')
     expect(out).toContain('http://b')
@@ -1118,7 +1714,8 @@ export function computeChanges(
     if (before === after) continue
     const secret = isSecret(key)
     if (before === undefined) changes.push({ key, kind: 'add', after, secret })
-    else if (after === undefined) changes.push({ key, kind: 'remove', before, secret })
+    else if (after === undefined)
+      changes.push({ key, kind: 'remove', before, secret })
     else changes.push({ key, kind: 'change', before, after, secret })
   }
   return changes.sort((a, b) => a.key.localeCompare(b.key))
@@ -1153,10 +1750,12 @@ git commit -m "feat(model-manager): change diff with secret masking"
 ## Task 9: Backup manager
 
 **Files:**
+
 - Create: `selfhosted/model-manager/lib/backups.ts`
 - Test: `selfhosted/model-manager/lib/__tests__/backups.test.ts`
 
 **Interfaces:**
+
 - Produces (all async):
   - `writeBackup(envPath: string, now: Date): Promise<string>` → backup path
   - `listBackups(envPath: string): Promise<{ path: string; ts: string }[]>` (newest first)
@@ -1172,7 +1771,12 @@ import { mkdtemp, readFile, writeFile } from 'fs/promises'
 import { tmpdir } from 'os'
 import { join } from 'path'
 import { describe, expect, it } from 'vitest'
-import { listBackups, pruneBackups, restoreBackup, writeBackup } from '../backups'
+import {
+  listBackups,
+  pruneBackups,
+  restoreBackup,
+  writeBackup
+} from '../backups'
 
 async function tmpEnv(): Promise<string> {
   const dir = await mkdtemp(join(tmpdir(), 'mm-'))
@@ -1244,7 +1848,10 @@ export async function listBackups(
     .sort((a, b) => (a.ts < b.ts ? 1 : -1))
 }
 
-export async function pruneBackups(envPath: string, keep: number): Promise<void> {
+export async function pruneBackups(
+  envPath: string,
+  keep: number
+): Promise<void> {
   const list = await listBackups(envPath)
   for (const b of list.slice(keep)) await unlink(b.path)
 }
@@ -1274,12 +1881,14 @@ git commit -m "feat(model-manager): timestamped .env backup/list/prune/restore"
 ## Task 10: Command runner + apply orchestrator
 
 **Files:**
+
 - Create: `selfhosted/model-manager/lib/exec.ts`
 - Create: `selfhosted/model-manager/lib/apply.ts`
 - Test: `selfhosted/model-manager/lib/__tests__/exec.test.ts`
 - Test: `selfhosted/model-manager/lib/__tests__/apply.test.ts`
 
 **Interfaces:**
+
 - Produces (`exec.ts`):
   - type `RunResult = { code: number; stdout: string; stderr: string }`
   - interface `Runner { run(cmd: string, args: string[], opts?: { cwd?: string; timeoutMs?: number; input?: string }): Promise<RunResult> }`
@@ -1454,16 +2063,26 @@ describe('applyPlan', () => {
   })
 
   it('reports failure independently — ask ok, reranker ssh fails', async () => {
-    const { d } = deps((cmd) => (cmd === 'ssh' ? { code: 255, stdout: '', stderr: 'no route' } : ok))
+    const { d } = deps(cmd =>
+      cmd === 'ssh' ? { code: 255, stdout: '', stderr: 'no route' } : ok
+    )
     const events: { step: string; status: string }[] = []
     const res = await applyPlan(
-      { askEnvText: 'A=1\n', touchedTargets: ['ask', 'reranker'], rerankerEnvText: 'x' },
+      {
+        askEnvText: 'A=1\n',
+        touchedTargets: ['ask', 'reranker'],
+        rerankerEnvText: 'x'
+      },
       d,
       e => events.push(e)
     )
     expect(res.ok).toBe(false)
-    expect(events.some(e => e.step.startsWith('ask') && e.status === 'ok')).toBe(true)
-    expect(events.some(e => e.step.startsWith('reranker') && e.status === 'fail')).toBe(true)
+    expect(
+      events.some(e => e.step.startsWith('ask') && e.status === 'ok')
+    ).toBe(true)
+    expect(
+      events.some(e => e.step.startsWith('reranker') && e.status === 'fail')
+    ).toBe(true)
   })
 })
 ```
@@ -1501,12 +2120,17 @@ export interface ApplyDeps {
   sleep(ms: number): Promise<void>
 }
 
-async function restartAsk(deps: ApplyDeps, emit: (e: ApplyEvent) => void): Promise<boolean> {
+async function restartAsk(
+  deps: ApplyDeps,
+  emit: (e: ApplyEvent) => void
+): Promise<boolean> {
   const { runner, config } = deps
   emit({ step: 'ask-restart', status: 'start' })
-  const r = await runner.run('docker', [
-    'compose', '-f', config.askComposeFile, 'up', '-d', config.askService
-  ], { timeoutMs: 180_000 })
+  const r = await runner.run(
+    'docker',
+    ['compose', '-f', config.askComposeFile, 'up', '-d', config.askService],
+    { timeoutMs: 180_000 }
+  )
   if (r.code !== 0) {
     emit({ step: 'ask-restart', status: 'fail', detail: r.stderr.slice(-2000) })
     return false
@@ -1523,18 +2147,32 @@ async function restartReranker(
   const { runner, config } = deps
   const rc = config.reranker
   if (!rc) {
-    emit({ step: 'reranker-restart', status: 'fail', detail: 'reranker SSH not configured' })
+    emit({
+      step: 'reranker-restart',
+      status: 'fail',
+      detail: 'reranker SSH not configured'
+    })
     return false
   }
   emit({ step: 'reranker-write', status: 'start' })
   const write = await runner.run(
     'ssh',
-    ['-i', rc.sshKey, '-o', 'StrictHostKeyChecking=accept-new', rc.sshTarget,
-     `cat > ${rc.remoteDir}/${rc.envFile}`],
+    [
+      '-i',
+      rc.sshKey,
+      '-o',
+      'StrictHostKeyChecking=accept-new',
+      rc.sshTarget,
+      `cat > ${rc.remoteDir}/${rc.envFile}`
+    ],
     { input: rerankerEnvText, timeoutMs: 30_000 }
   )
   if (write.code !== 0) {
-    emit({ step: 'reranker-write', status: 'fail', detail: write.stderr.slice(-2000) })
+    emit({
+      step: 'reranker-write',
+      status: 'fail',
+      detail: write.stderr.slice(-2000)
+    })
     return false
   }
   emit({ step: 'reranker-write', status: 'ok' })
@@ -1542,12 +2180,22 @@ async function restartReranker(
   emit({ step: 'reranker-restart', status: 'start' })
   const up = await runner.run(
     'ssh',
-    ['-i', rc.sshKey, '-o', 'StrictHostKeyChecking=accept-new', rc.sshTarget,
-     `cd ${rc.remoteDir} && docker compose up -d ${rc.service}`],
+    [
+      '-i',
+      rc.sshKey,
+      '-o',
+      'StrictHostKeyChecking=accept-new',
+      rc.sshTarget,
+      `cd ${rc.remoteDir} && docker compose up -d ${rc.service}`
+    ],
     { timeoutMs: 180_000 }
   )
   if (up.code !== 0) {
-    emit({ step: 'reranker-restart', status: 'fail', detail: up.stderr.slice(-2000) })
+    emit({
+      step: 'reranker-restart',
+      status: 'fail',
+      detail: up.stderr.slice(-2000)
+    })
     return false
   }
   emit({ step: 'reranker-restart', status: 'ok' })
@@ -1572,7 +2220,8 @@ export async function applyPlan(
     if (!(await restartAsk(deps, emit))) ok = false
   }
   if (plan.touchedTargets.includes('reranker')) {
-    if (!(await restartReranker(deps, plan.rerankerEnvText ?? '', emit))) ok = false
+    if (!(await restartReranker(deps, plan.rerankerEnvText ?? '', emit)))
+      ok = false
   }
   return { ok, backupPath }
 }
@@ -1607,10 +2256,12 @@ git commit -m "feat(model-manager): command runner + apply orchestrator (local +
 ## Task 11: Connection testers
 
 **Files:**
+
 - Create: `selfhosted/model-manager/lib/connection-tests.ts`
 - Test: `selfhosted/model-manager/lib/__tests__/connection-tests.test.ts`
 
 **Interfaces:**
+
 - Produces:
   - `testOllama(baseUrl: string, fetchFn?: typeof fetch): Promise<{ ok: boolean; models?: string[]; error?: string }>`
   - `testReranker(url: string, token: string, fetchFn?: typeof fetch): Promise<{ ok: boolean; error?: string }>`
@@ -1628,9 +2279,11 @@ const jsonRes = (body: unknown, status = 200) =>
 
 describe('connection tests', () => {
   it('lists ollama models from /api/tags', async () => {
-    const f = vi.fn().mockResolvedValue(
-      jsonRes({ models: [{ name: 'granite4.1:8b' }, { name: 'llama3' }] })
-    )
+    const f = vi
+      .fn()
+      .mockResolvedValue(
+        jsonRes({ models: [{ name: 'granite4.1:8b' }, { name: 'llama3' }] })
+      )
     const r = await testOllama('http://h:11434', f as unknown as typeof fetch)
     expect(r.ok).toBe(true)
     expect(r.models).toEqual(['granite4.1:8b', 'llama3'])
@@ -1644,14 +2297,24 @@ describe('connection tests', () => {
   })
   it('checks reranker /health with bearer', async () => {
     const f = vi.fn().mockResolvedValue(jsonRes({ status: 'ok' }))
-    const r = await testReranker('http://h:8787', 'tok', f as unknown as typeof fetch)
+    const r = await testReranker(
+      'http://h:8787',
+      'tok',
+      f as unknown as typeof fetch
+    )
     expect(r.ok).toBe(true)
     const [, init] = f.mock.calls[0]
-    expect((init as RequestInit).headers).toMatchObject({ Authorization: 'Bearer tok' })
+    expect((init as RequestInit).headers).toMatchObject({
+      Authorization: 'Bearer tok'
+    })
   })
   it('reports reranker non-200', async () => {
     const f = vi.fn().mockResolvedValue(jsonRes({}, 503))
-    const r = await testReranker('http://h:8787', 'tok', f as unknown as typeof fetch)
+    const r = await testReranker(
+      'http://h:8787',
+      'tok',
+      f as unknown as typeof fetch
+    )
     expect(r.ok).toBe(false)
   })
 })
@@ -1715,10 +2378,12 @@ git commit -m "feat(model-manager): ollama/reranker connection testers"
 ## Task 12: Auth — fail-closed password gate + session cookie
 
 **Files:**
+
 - Create: `selfhosted/model-manager/lib/auth.ts`
 - Test: `selfhosted/model-manager/lib/__tests__/auth.test.ts`
 
 **Interfaces:**
+
 - Produces:
   - `isConfigured(env?): boolean`
   - `verifyPassword(input: string, env?): boolean` (constant-time; false if unset)
@@ -1759,7 +2424,9 @@ describe('auth', () => {
   it('token from one secret fails under another', () => {
     const t = makeSessionToken(withPw)
     expect(
-      verifySessionToken(t, { MODEL_MANAGER_PASSWORD: 'other' } as NodeJS.ProcessEnv)
+      verifySessionToken(t, {
+        MODEL_MANAGER_PASSWORD: 'other'
+      } as NodeJS.ProcessEnv)
     ).toBe(false)
   })
 })
@@ -1795,7 +2462,9 @@ export function verifyPassword(
 }
 
 function secret(env: NodeJS.ProcessEnv): string {
-  return env.MODEL_MANAGER_SESSION_SECRET || `derived:${env.MODEL_MANAGER_PASSWORD}`
+  return (
+    env.MODEL_MANAGER_SESSION_SECRET || `derived:${env.MODEL_MANAGER_PASSWORD}`
+  )
 }
 
 export function makeSessionToken(env: NodeJS.ProcessEnv = process.env): string {
@@ -1833,6 +2502,7 @@ git commit -m "feat(model-manager): fail-closed password gate + signed session"
 ## Task 13: Server routes + auth guard (proxy)
 
 **Files:**
+
 - Create: `selfhosted/model-manager/proxy.ts`
 - Create: `selfhosted/model-manager/lib/env-io.ts` (fs read/atomic-write of the Ask `.env`)
 - Create: `selfhosted/model-manager/lib/plan-builder.ts` (form values → `ApplyPlan` + change list)
@@ -1841,6 +2511,7 @@ git commit -m "feat(model-manager): fail-closed password gate + signed session"
 - Test: `selfhosted/model-manager/proxy.test.ts`
 
 **Interfaces:**
+
 - Produces (`lib/env-io.ts`): `readAskEnv(path): Promise<string>`, `writeAskEnvAtomic(path, text): Promise<void>` (temp + rename).
 - Produces (`lib/plan-builder.ts`):
   - `buildPlan(currentText: string, edits: Record<string, string>): { plan: ApplyPlan; changes: Change[] }`
@@ -1868,14 +2539,22 @@ describe('buildPlan', () => {
     expect(plan.touchedTargets).toContain('ask')
     expect(plan.touchedTargets).not.toContain('reranker')
     expect(plan.askEnvText).toContain('CLASSIFIER_MODEL_ID=qwen3:8b')
-    expect(changes.find(c => c.key === 'CLASSIFIER_MODEL_ID')?.kind).toBe('change')
+    expect(changes.find(c => c.key === 'CLASSIFIER_MODEL_ID')?.kind).toBe(
+      'change'
+    )
   })
   it('marks reranker target and builds reranker env when RERANKER_MODEL changes', () => {
-    const { plan } = buildPlan(CURRENT, { RERANKER_MODEL: 'BAAI/bge-reranker-base' })
+    const { plan } = buildPlan(CURRENT, {
+      RERANKER_MODEL: 'BAAI/bge-reranker-base'
+    })
     expect(plan.touchedTargets).toContain('reranker')
-    expect(plan.rerankerEnvText).toContain('RERANKER_MODEL=BAAI/bge-reranker-base')
+    expect(plan.rerankerEnvText).toContain(
+      'RERANKER_MODEL=BAAI/bge-reranker-base'
+    )
     // reranker model must NOT be written into Ask's .env
-    expect(plan.askEnvText).not.toContain('RERANKER_MODEL=BAAI/bge-reranker-base')
+    expect(plan.askEnvText).not.toContain(
+      'RERANKER_MODEL=BAAI/bge-reranker-base'
+    )
   })
   it('no edits ⇒ no targets', () => {
     const { plan, changes } = buildPlan(CURRENT, {})
@@ -1893,6 +2572,7 @@ Expected: FAIL.
 - [ ] **Step 3: Implement `lib/env-io.ts` and `lib/plan-builder.ts`**
 
 `lib/env-io.ts`:
+
 ```ts
 import { readFile, rename, writeFile } from 'fs/promises'
 
@@ -1900,7 +2580,10 @@ export async function readAskEnv(path: string): Promise<string> {
   return readFile(path, 'utf8')
 }
 
-export async function writeAskEnvAtomic(path: string, text: string): Promise<void> {
+export async function writeAskEnvAtomic(
+  path: string,
+  text: string
+): Promise<void> {
   const tmp = `${path}.tmp.${process.pid}`
   await writeFile(tmp, text, 'utf8')
   await rename(tmp, path)
@@ -1908,6 +2591,7 @@ export async function writeAskEnvAtomic(path: string, text: string): Promise<voi
 ```
 
 `lib/plan-builder.ts`:
+
 ```ts
 import type { Change } from './diff'
 import { computeChanges } from './diff'
@@ -1948,7 +2632,9 @@ export function buildPlan(
     askEnvText: serializeEnv(askDoc),
     touchedTargets: [...targets],
     rerankerEnvText:
-      rerankerModel !== undefined ? `RERANKER_MODEL=${rerankerModel}\n` : undefined
+      rerankerModel !== undefined
+        ? `RERANKER_MODEL=${rerankerModel}\n`
+        : undefined
   }
   return { plan, changes }
 }
@@ -1962,6 +2648,7 @@ Expected: PASS.
 - [ ] **Step 5: Implement the auth guard `proxy.ts` + its test**
 
 `proxy.ts`:
+
 ```ts
 import { NextRequest, NextResponse } from 'next/server'
 import { isConfigured, SESSION_COOKIE, verifySessionToken } from '@/lib/auth'
@@ -1974,22 +2661,29 @@ export function proxy(req: NextRequest): NextResponse {
     return NextResponse.next()
   }
   if (!isConfigured()) {
-    return new NextResponse('Model manager is not configured (set MODEL_MANAGER_PASSWORD)', {
-      status: 503
-    })
+    return new NextResponse(
+      'Model manager is not configured (set MODEL_MANAGER_PASSWORD)',
+      {
+        status: 503
+      }
+    )
   }
   const token = req.cookies.get(SESSION_COOKIE)?.value
   if (!verifySessionToken(token)) {
-    if (pathname.startsWith('/api/')) return new NextResponse('Unauthorized', { status: 401 })
+    if (pathname.startsWith('/api/'))
+      return new NextResponse('Unauthorized', { status: 401 })
     return NextResponse.redirect(new URL('/login', req.url))
   }
   return NextResponse.next()
 }
 
-export const config = { matcher: ['/((?!_next/static|_next/image|favicon.ico).*)'] }
+export const config = {
+  matcher: ['/((?!_next/static|_next/image|favicon.ico).*)']
+}
 ```
 
 `proxy.test.ts`:
+
 ```ts
 import { NextRequest } from 'next/server'
 import { describe, expect, it } from 'vitest'
@@ -2038,6 +2732,7 @@ Expected: PASS.
 - [ ] **Step 7: Implement the route handlers**
 
 `app/api/login/route.ts`:
+
 ```ts
 import { SESSION_COOKIE, makeSessionToken, verifyPassword } from '@/lib/auth'
 
@@ -2056,16 +2751,21 @@ export async function POST(req: Request) {
 ```
 
 `app/api/logout/route.ts`:
+
 ```ts
 import { SESSION_COOKIE } from '@/lib/auth'
 export async function POST() {
   const res = Response.json({ ok: true })
-  res.headers.append('Set-Cookie', `${SESSION_COOKIE}=; HttpOnly; Path=/; Max-Age=0`)
+  res.headers.append(
+    'Set-Cookie',
+    `${SESSION_COOKIE}=; HttpOnly; Path=/; Max-Age=0`
+  )
   return res
 }
 ```
 
 `app/api/config/route.ts` — return current values, masking secrets (never send a secret's plaintext to the browser; send `isSet` instead):
+
 ```ts
 import { toValueMap, parseEnv } from '@/lib/env-file'
 import { REGISTRY, specByKey } from '@/lib/env-schema'
@@ -2095,6 +2795,7 @@ export async function GET() {
 ```
 
 `app/api/preview/route.ts`:
+
 ```ts
 import { buildPlan } from '@/lib/plan-builder'
 import { renderDiff } from '@/lib/diff'
@@ -2106,11 +2807,15 @@ export async function POST(req: Request) {
   const cfg = getToolConfig()
   const current = await readAskEnv(cfg.askEnvPath)
   const { changes, plan } = buildPlan(current, edits)
-  return Response.json({ diff: renderDiff(changes), targets: plan.touchedTargets })
+  return Response.json({
+    diff: renderDiff(changes),
+    targets: plan.touchedTargets
+  })
 }
 ```
 
 `app/api/apply/route.ts` — streams NDJSON `ApplyEvent`s:
+
 ```ts
 import { applyPlan, type ApplyEvent, type ApplyDeps } from '@/lib/apply'
 import { buildPlan } from '@/lib/plan-builder'
@@ -2143,19 +2848,30 @@ export async function POST(req: Request) {
       }
       try {
         const res = await applyPlan(plan, deps, emit)
-        emit({ step: 'done', status: res.ok ? 'ok' : 'fail', detail: res.backupPath })
+        emit({
+          step: 'done',
+          status: res.ok ? 'ok' : 'fail',
+          detail: res.backupPath
+        })
       } catch (e) {
-        emit({ step: 'done', status: 'fail', detail: e instanceof Error ? e.message : String(e) })
+        emit({
+          step: 'done',
+          status: 'fail',
+          detail: e instanceof Error ? e.message : String(e)
+        })
       } finally {
         controller.close()
       }
     }
   })
-  return new Response(stream, { headers: { 'Content-Type': 'application/x-ndjson' } })
+  return new Response(stream, {
+    headers: { 'Content-Type': 'application/x-ndjson' }
+  })
 }
 ```
 
 `app/api/backups/route.ts`:
+
 ```ts
 import { listBackups } from '@/lib/backups'
 import { getToolConfig } from '@/lib/config'
@@ -2167,6 +2883,7 @@ export async function GET() {
 ```
 
 `app/api/restore/route.ts`:
+
 ```ts
 import { restoreBackup } from '@/lib/backups'
 import { rollback, type ApplyDeps } from '@/lib/apply'
@@ -2194,6 +2911,7 @@ export async function POST(req: Request) {
 ```
 
 `app/api/test/route.ts` — runs a connection test against **pending** values from the request body:
+
 ```ts
 import { testOllama, testReranker } from '@/lib/connection-tests'
 
@@ -2201,7 +2919,8 @@ export async function POST(req: Request) {
   const body = (await req.json()) as
     | { kind: 'ollama'; baseUrl: string }
     | { kind: 'reranker'; url: string; token: string }
-  if (body.kind === 'ollama') return Response.json(await testOllama(body.baseUrl))
+  if (body.kind === 'ollama')
+    return Response.json(await testOllama(body.baseUrl))
   return Response.json(await testReranker(body.url, body.token))
 }
 ```
@@ -2223,11 +2942,13 @@ git commit -m "feat(model-manager): auth guard + config/preview/apply/backups/re
 ## Task 14: shadcn primitives + login page
 
 **Files:**
+
 - Create: `selfhosted/model-manager/components/ui/{button,input,label,switch,select,dialog,card,tabs,alert-dialog}.tsx` (copied from Ask)
 - Create: `app/login/page.tsx`
 - Test: `selfhosted/model-manager/app/login/__tests__/login.test.tsx`
 
 **Interfaces:**
+
 - Produces: the UI primitives used by all later components; a working login page that POSTs `/api/login` and redirects to `/` on success.
 
 - [ ] **Step 1: Copy the shadcn primitives from Ask**
@@ -2255,14 +2976,22 @@ vi.mock('next/navigation', () => ({ useRouter: () => ({ push }) }))
 describe('login page', () => {
   beforeEach(() => {
     push.mockReset()
-    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response('{}', { status: 200 })))
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue(new Response('{}', { status: 200 }))
+    )
   })
   it('submits password and redirects home on success', async () => {
     render(<LoginPage />)
-    fireEvent.change(screen.getByLabelText(/password/i), { target: { value: 'pw' } })
+    fireEvent.change(screen.getByLabelText(/password/i), {
+      target: { value: 'pw' }
+    })
     fireEvent.click(screen.getByRole('button', { name: /sign in/i }))
     await waitFor(() => expect(push).toHaveBeenCalledWith('/'))
-    expect(fetch).toHaveBeenCalledWith('/api/login', expect.objectContaining({ method: 'POST' }))
+    expect(fetch).toHaveBeenCalledWith(
+      '/api/login',
+      expect.objectContaining({ method: 'POST' })
+    )
   })
 })
 ```
@@ -2314,7 +3043,9 @@ export default function LoginPage() {
           />
         </div>
         {error && <p className="text-sm text-red-500">{error}</p>}
-        <Button type="submit" className="w-full">Sign in</Button>
+        <Button type="submit" className="w-full">
+          Sign in
+        </Button>
       </form>
     </div>
   )
@@ -2338,12 +3069,14 @@ git commit -m "feat(model-manager): shadcn primitives + login page"
 ## Task 15: Field renderers + category form shell
 
 **Files:**
+
 - Create: `selfhosted/model-manager/components/field.tsx`
 - Create: `selfhosted/model-manager/components/config-form.tsx`
 - Create: `app/page.tsx` (loads `/api/config`, renders the form)
 - Test: `selfhosted/model-manager/components/__tests__/field.test.tsx`
 
 **Interfaces:**
+
 - Produces:
   - `<Field spec value onChange secretSet />` renders the right control per `spec.type` and shows inline validation.
   - `<ConfigForm initial />` groups `REGISTRY` by category/group with a left nav; holds the edit state; exposes changed edits.
@@ -2362,26 +3095,48 @@ describe('Field', () => {
   it('renders a url input and reports changes', () => {
     const onChange = vi.fn()
     render(
-      <Field spec={specByKey('OLLAMA_BASE_URL')!} value="http://a" onChange={onChange} isSecretSet={false} />
+      <Field
+        spec={specByKey('OLLAMA_BASE_URL')!}
+        value="http://a"
+        onChange={onChange}
+        isSecretSet={false}
+      />
     )
-    fireEvent.change(screen.getByRole('textbox'), { target: { value: 'http://b' } })
+    fireEvent.change(screen.getByRole('textbox'), {
+      target: { value: 'http://b' }
+    })
     expect(onChange).toHaveBeenCalledWith('http://b')
   })
   it('shows a validation error for bad url', () => {
     render(
-      <Field spec={specByKey('OLLAMA_BASE_URL')!} value="nope" onChange={() => {}} isSecretSet={false} />
+      <Field
+        spec={specByKey('OLLAMA_BASE_URL')!}
+        value="nope"
+        onChange={() => {}}
+        isSecretSet={false}
+      />
     )
     expect(screen.getByText(/must be an http/i)).toBeInTheDocument()
   })
   it('renders an enum as a listbox with the allowed options', () => {
     render(
-      <Field spec={specByKey('EMBEDDING_MODEL')!} value="" onChange={() => {}} isSecretSet={false} />
+      <Field
+        spec={specByKey('EMBEDDING_MODEL')!}
+        value=""
+        onChange={() => {}}
+        isSecretSet={false}
+      />
     )
     expect(screen.getByText(/embedding model/i)).toBeInTheDocument()
   })
   it('masks a secret that is set', () => {
     render(
-      <Field spec={specByKey('RERANKER_API_TOKEN')!} value="" onChange={() => {}} isSecretSet />
+      <Field
+        spec={specByKey('RERANKER_API_TOKEN')!}
+        value=""
+        onChange={() => {}}
+        isSecretSet
+      />
     )
     expect(screen.getByPlaceholderText(/unchanged/i)).toBeInTheDocument()
   })
@@ -2421,7 +3176,9 @@ export function Field({
     <div className="space-y-1.5 py-2">
       <Label htmlFor={spec.key} className="text-sm font-medium">
         {spec.label}{' '}
-        <span className="text-xs font-normal text-muted-foreground">{spec.key}</span>
+        <span className="text-xs font-normal text-muted-foreground">
+          {spec.key}
+        </span>
       </Label>
 
       {spec.type === 'bool' ? (
@@ -2438,7 +3195,9 @@ export function Field({
         >
           <option value="">—</option>
           {spec.enumValues!.map(o => (
-            <option key={o} value={o}>{o}</option>
+            <option key={o} value={o}>
+              {o}
+            </option>
           ))}
         </select>
       ) : spec.type === 'model-list' ? (
@@ -2457,7 +3216,9 @@ export function Field({
         />
       )}
 
-      {spec.help && <p className="text-xs text-muted-foreground">{spec.help}</p>}
+      {spec.help && (
+        <p className="text-xs text-muted-foreground">{spec.help}</p>
+      )}
       {error && <p className="text-xs text-red-500">{error}</p>}
     </div>
   )
@@ -2467,6 +3228,7 @@ export function Field({
 - [ ] **Step 4: Implement `components/config-form.tsx` and `app/page.tsx`**
 
 `components/config-form.tsx`:
+
 ```tsx
 'use client'
 
@@ -2491,7 +3253,9 @@ export function ConfigForm({ initial }: { initial: ConfigData }) {
   const changed = useMemo(
     () =>
       Object.fromEntries(
-        Object.entries(edits).filter(([k, v]) => v !== (initial.values[k] ?? ''))
+        Object.entries(edits).filter(
+          ([k, v]) => v !== (initial.values[k] ?? '')
+        )
       ),
     [edits, initial.values]
   )
@@ -2518,7 +3282,11 @@ export function ConfigForm({ initial }: { initial: ConfigData }) {
       <main className="flex-1 p-6 pb-24 max-w-3xl">
         {groups.map(g => (
           <section key={g} className="mb-6">
-            {g && <h2 className="mb-2 text-sm font-semibold text-muted-foreground">{g}</h2>}
+            {g && (
+              <h2 className="mb-2 text-sm font-semibold text-muted-foreground">
+                {g}
+              </h2>
+            )}
             {specs
               .filter(s => (s.group ?? '') === g)
               .map(s => (
@@ -2541,6 +3309,7 @@ export function ConfigForm({ initial }: { initial: ConfigData }) {
 ```
 
 `app/page.tsx`:
+
 ```tsx
 import { ConfigForm, ConfigData } from '@/components/config-form'
 import { getToolConfig } from '@/lib/config'
@@ -2561,7 +3330,11 @@ export default async function Home() {
       values[s.key] = ''
     } else values[s.key] = map[s.key] ?? ''
   }
-  const initial: ConfigData = { values, secretSet, rerankerManaged: !!cfg.reranker }
+  const initial: ConfigData = {
+    values,
+    secretSet,
+    rerankerManaged: !!cfg.reranker
+  }
   return <ConfigForm initial={initial} />
 }
 ```
@@ -2585,10 +3358,12 @@ git commit -m "feat(model-manager): field renderers + categorized config form"
 ## Task 16: Model-list editor
 
 **Files:**
+
 - Create: `selfhosted/model-manager/components/model-list-editor.tsx`
 - Test: `selfhosted/model-manager/components/__tests__/model-list-editor.test.tsx`
 
 **Interfaces:**
+
 - Produces: `<ModelListEditor value: string onChange: (v: string) => void />` — renders each model as a row with up/down/remove, plus an add input; emits the serialized comma list. Uses `parseList/serializeList/addItem/removeAt/move` (Task 7).
 
 > Reorder is implemented with up/down buttons (reliable + testable). Drag can be layered on later without changing the interface.
@@ -2638,7 +3413,13 @@ Expected: FAIL.
 
 import { ChevronDown, ChevronUp, Plus, X } from 'lucide-react'
 import { useState } from 'react'
-import { addItem, move, parseList, removeAt, serializeList } from '@/lib/model-list'
+import {
+  addItem,
+  move,
+  parseList,
+  removeAt,
+  serializeList
+} from '@/lib/model-list'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 
@@ -2657,25 +3438,55 @@ export function ModelListEditor({
     <div className="space-y-1.5">
       {items.map((item, i) => (
         <div key={`${item}-${i}`} className="flex items-center gap-1">
-          <span className="flex-1 truncate rounded bg-muted px-2 py-1 text-sm">{item}</span>
-          <Button type="button" size="icon" variant="ghost" aria-label="move up"
-            disabled={i === 0} onClick={() => emit(move(items, i, i - 1))}>
+          <span className="flex-1 truncate rounded bg-muted px-2 py-1 text-sm">
+            {item}
+          </span>
+          <Button
+            type="button"
+            size="icon"
+            variant="ghost"
+            aria-label="move up"
+            disabled={i === 0}
+            onClick={() => emit(move(items, i, i - 1))}
+          >
             <ChevronUp className="size-4" />
           </Button>
-          <Button type="button" size="icon" variant="ghost" aria-label="move down"
-            disabled={i === items.length - 1} onClick={() => emit(move(items, i, i + 1))}>
+          <Button
+            type="button"
+            size="icon"
+            variant="ghost"
+            aria-label="move down"
+            disabled={i === items.length - 1}
+            onClick={() => emit(move(items, i, i + 1))}
+          >
             <ChevronDown className="size-4" />
           </Button>
-          <Button type="button" size="icon" variant="ghost" aria-label="remove"
-            onClick={() => emit(removeAt(items, i))}>
+          <Button
+            type="button"
+            size="icon"
+            variant="ghost"
+            aria-label="remove"
+            onClick={() => emit(removeAt(items, i))}
+          >
             <X className="size-4" />
           </Button>
         </div>
       ))}
       <div className="flex items-center gap-1">
-        <Input placeholder="Add model…" value={draft} onChange={e => setDraft(e.target.value)} />
-        <Button type="button" size="icon" aria-label="add"
-          onClick={() => { emit(addItem(items, draft)); setDraft('') }}>
+        <Input
+          placeholder="Add model…"
+          value={draft}
+          onChange={e => setDraft(e.target.value)}
+        />
+        <Button
+          type="button"
+          size="icon"
+          aria-label="add"
+          onClick={() => {
+            emit(addItem(items, draft))
+            setDraft('')
+          }}
+        >
           <Plus className="size-4" />
         </Button>
       </div>
@@ -2701,10 +3512,12 @@ git commit -m "feat(model-manager): model-list editor (add/remove/reorder)"
 ## Task 17: Apply bar — review diff, apply with live status, backups
 
 **Files:**
+
 - Create: `selfhosted/model-manager/components/apply-bar.tsx`
 - Test: `selfhosted/model-manager/components/__tests__/apply-bar.test.tsx`
 
 **Interfaces:**
+
 - Produces: `<ApplyBar edits: Record<string, string> />` — a sticky footer showing the change count; **Review** opens a dialog that fetches `/api/preview` (masked diff); **Apply** streams `/api/apply` and shows each `ApplyEvent`; a **Backups** button lists `/api/backups` and restores via `/api/restore`.
 - Consumes: the routes from Task 13.
 
@@ -2721,9 +3534,12 @@ describe('ApplyBar', () => {
     vi.stubGlobal(
       'fetch',
       vi.fn().mockResolvedValue(
-        new Response(JSON.stringify({ diff: '~ OLLAMA_BASE_URL', targets: ['ask'] }), {
-          status: 200
-        })
+        new Response(
+          JSON.stringify({ diff: '~ OLLAMA_BASE_URL', targets: ['ask'] }),
+          {
+            status: 200
+          }
+        )
       )
     )
   })
@@ -2735,7 +3551,10 @@ describe('ApplyBar', () => {
     render(<ApplyBar edits={{ OLLAMA_BASE_URL: 'http://b' }} />)
     fireEvent.click(screen.getByRole('button', { name: /review/i }))
     await waitFor(() =>
-      expect(fetch).toHaveBeenCalledWith('/api/preview', expect.objectContaining({ method: 'POST' }))
+      expect(fetch).toHaveBeenCalledWith(
+        '/api/preview',
+        expect.objectContaining({ method: 'POST' })
+      )
     )
     expect(await screen.findByText(/OLLAMA_BASE_URL/)).toBeInTheDocument()
   })
@@ -2760,10 +3579,18 @@ import { useState } from 'react'
 import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
 import {
-  Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogFooter
 } from '@/components/ui/dialog'
 
-type ApplyEvent = { step: string; status: 'start' | 'ok' | 'fail'; detail?: string }
+type ApplyEvent = {
+  step: string
+  status: 'start' | 'ok' | 'fail'
+  detail?: string
+}
 
 export function ApplyBar({ edits }: { edits: Record<string, string> }) {
   const count = Object.keys(edits).length
@@ -2801,11 +3628,14 @@ export function ApplyBar({ edits }: { edits: Record<string, string> }) {
       buf += dec.decode(value, { stream: true })
       const lines = buf.split('\n')
       buf = lines.pop() ?? ''
-      for (const l of lines.filter(Boolean)) setEvents(e => [...e, JSON.parse(l)])
+      for (const l of lines.filter(Boolean))
+        setEvents(e => [...e, JSON.parse(l)])
     }
     setApplying(false)
     const failed = events.some(e => e.status === 'fail')
-    toast[failed ? 'error' : 'success'](failed ? 'Apply finished with errors' : 'Applied')
+    toast[failed ? 'error' : 'success'](
+      failed ? 'Apply finished with errors' : 'Applied'
+    )
   }
 
   return (
@@ -2814,20 +3644,28 @@ export function ApplyBar({ edits }: { edits: Record<string, string> }) {
         <span className="text-sm text-muted-foreground">
           {count} change{count === 1 ? '' : 's'}
         </span>
-        <Button onClick={review} disabled={count === 0}>Review</Button>
+        <Button onClick={review} disabled={count === 0}>
+          Review
+        </Button>
       </div>
 
       <Dialog open={open} onOpenChange={setOpen}>
         <DialogContent>
-          <DialogHeader><DialogTitle>Review changes</DialogTitle></DialogHeader>
+          <DialogHeader>
+            <DialogTitle>Review changes</DialogTitle>
+          </DialogHeader>
           <pre className="max-h-72 overflow-auto rounded bg-muted p-3 text-xs whitespace-pre-wrap">
             {diff}
           </pre>
           {events.length > 0 && (
             <ul className="max-h-40 overflow-auto text-xs">
               {events.map((e, i) => (
-                <li key={i} className={e.status === 'fail' ? 'text-red-500' : ''}>
-                  {e.step}: {e.status}{e.detail ? ` — ${e.detail}` : ''}
+                <li
+                  key={i}
+                  className={e.status === 'fail' ? 'text-red-500' : ''}
+                >
+                  {e.step}: {e.status}
+                  {e.detail ? ` — ${e.detail}` : ''}
                 </li>
               ))}
             </ul>
@@ -2871,11 +3709,13 @@ git commit -m "feat(model-manager): review/apply bar with live status + backups"
 ## Task 18: Connection-test buttons + /api/tags picker
 
 **Files:**
+
 - Modify: `selfhosted/model-manager/components/field.tsx` (add a Test button + model picker for testable fields)
 - Create: `selfhosted/model-manager/components/test-button.tsx`
 - Test: `selfhosted/model-manager/components/__tests__/test-button.test.tsx`
 
 **Interfaces:**
+
 - Produces: `<TestButton spec value tokenValue />` — for `spec.testable === 'ollama'` POSTs `/api/test` `{kind:'ollama', baseUrl}` and, on success, shows the returned model list (which the user can click to fill a nearby model field via an `onPick` callback); for `'reranker'` POSTs `{kind:'reranker', url, token}` and shows ok/error.
 
 - [ ] **Step 1: Write the failing test**
@@ -2891,15 +3731,24 @@ describe('TestButton', () => {
   beforeEach(() => {
     vi.stubGlobal(
       'fetch',
-      vi.fn().mockResolvedValue(
-        new Response(JSON.stringify({ ok: true, models: ['granite4.1:8b'] }), { status: 200 })
-      )
+      vi
+        .fn()
+        .mockResolvedValue(
+          new Response(
+            JSON.stringify({ ok: true, models: ['granite4.1:8b'] }),
+            { status: 200 }
+          )
+        )
     )
   })
   it('tests an ollama host and lists models', async () => {
-    render(<TestButton spec={specByKey('OLLAMA_BASE_URL')!} value="http://h:11434" />)
+    render(
+      <TestButton spec={specByKey('OLLAMA_BASE_URL')!} value="http://h:11434" />
+    )
     fireEvent.click(screen.getByRole('button', { name: /test/i }))
-    await waitFor(() => expect(fetch).toHaveBeenCalledWith('/api/test', expect.anything()))
+    await waitFor(() =>
+      expect(fetch).toHaveBeenCalledWith('/api/test', expect.anything())
+    )
     expect(await screen.findByText('granite4.1:8b')).toBeInTheDocument()
   })
 })
@@ -2947,7 +3796,11 @@ export function TestButton({
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(body)
     })
-    const r = (await res.json()) as { ok: boolean; models?: string[]; error?: string }
+    const r = (await res.json()) as {
+      ok: boolean
+      models?: string[]
+      error?: string
+    }
     setState(r.ok ? 'ok' : 'fail')
     if (r.models) setModels(r.models)
     if (r.error) setError(r.error)
@@ -2955,7 +3808,13 @@ export function TestButton({
 
   return (
     <div className="space-y-1">
-      <Button type="button" size="sm" variant="outline" onClick={run} disabled={!value}>
+      <Button
+        type="button"
+        size="sm"
+        variant="outline"
+        onClick={run}
+        disabled={!value}
+      >
         {state === 'testing' ? 'Testing…' : 'Test'}
         {state === 'ok' && ' ✓'}
         {state === 'fail' && ' ✗'}
@@ -2999,12 +3858,14 @@ git commit -m "feat(model-manager): connection-test buttons + model picker"
 ## Task 19: Dockerfile, compose, README, .env.example
 
 **Files:**
+
 - Create: `selfhosted/model-manager/Dockerfile`
 - Create: `selfhosted/model-manager/docker-compose.yaml`
 - Create: `selfhosted/model-manager/.env.example`
 - Create: `selfhosted/model-manager/README.md`
 
 **Interfaces:**
+
 - Produces: a runnable container that mounts Ask's `.env`, compose file, the Docker socket, and the SSH key.
 
 - [ ] **Step 1: Create the Dockerfile (standalone Next output + docker CLI + ssh)**
@@ -3081,6 +3942,7 @@ RERANKER_SERVICE=reranker
 - [ ] **Step 4: Create `README.md`**
 
 Write a README that states, prominently:
+
 - **Purpose:** manage Ask's `.env` from a UI; write + backup + restart.
 - **⚠️ Privilege warning:** this container has read-write access to Ask's
   `.env`, the host Docker socket, and an SSH key to nightfuryS — together
@@ -3113,6 +3975,7 @@ cp /home/nightfury/selfhosted/ask/.env /tmp/ask.env.copy
 cd selfhosted/model-manager
 MODEL_MANAGER_PASSWORD=test ASK_ENV_PATH=/tmp/ask.env.copy bun run dev
 ```
+
 Open `http://localhost:3939`. Expected: redirected to `/login`; wrong password rejected; `test` logs in.
 
 - [ ] **Step 2: Verify read + validate + diff (safe — copy file, no restart)**
@@ -3137,6 +4000,7 @@ lists+restores the backup.
 cd selfhosted/model-manager && bun run build && (MODEL_MANAGER_PASSWORD= bun run start &) ; sleep 3
 curl -s -o /dev/null -w '%{http_code}\n' http://localhost:3939/
 ```
+
 Expected: `503`.
 
 - [ ] **Step 5: Report results**
@@ -3152,10 +4016,12 @@ is a separate, user-approved step.
 **Do this only after Task 20 verifies the tool works and the user approves.**
 
 **Files:**
+
 - Modify: `components/settings-dialog.tsx` (remove `ModelsTab` and its nav entry)
 - Modify: `components/__tests__/settings-dialog.test.tsx` (drop 'Models' from the reachable-tabs list)
 
 **Interfaces:**
+
 - Consumes: nothing new. Removes the read-only Models tab now that the standalone tool owns model config.
 
 - [ ] **Step 1: Update the reachability test to no longer expect a Models tab**
@@ -3191,6 +4057,7 @@ git commit -m "feat(settings): remove read-only Models tab (superseded by model-
 ## Self-Review (completed during authoring)
 
 **Spec coverage:**
+
 - Standalone Next.js app, isolated, sibling location → Tasks 3, 19. ✓
 - Env-schema registry (every var) → Task 5 (parity test enforces completeness). ✓
 - `.env` engine: preserve comments/order/unknown, atomic write, backup, masked diff → Tasks 6, 8, 9 (backup), 13 (atomic write), 8 (diff). ✓

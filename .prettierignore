@@ -42,3 +42,6 @@ temp/
 # path, kept only so an older checkout stays ignored; it no longer exists.)
 drizzle/
 lib/db/migrations/
+
+# Local agent scratch (gitignored)
+.superpowers/
