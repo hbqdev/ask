@@ -294,9 +294,9 @@ export const REGISTRY: EnvVarSpec[] = [
     group: 'Reranker',
     label: 'Reranker model (on nightfuryX)',
     type: 'model',
-    default: 'Qwen/Qwen3-Reranker-4B',
+    default: 'Qwen/Qwen3-Reranker-8B',
     target: 'reranker',
-    help: 'Applied over SSH to the 2080 Ti box; a change re-downloads weights (slow). 8B fits but is ~1.7x slower.'
+    help: 'Applied over SSH to the 2080 Ti box. 8B (current) is max quality; 4B is ~1.7x faster if search latency matters. Both weight sets are cached on the box.'
   },
 
   // ---------- Search ----------
