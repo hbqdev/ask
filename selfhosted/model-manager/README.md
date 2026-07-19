@@ -45,16 +45,23 @@ tool without setting a password.
 
 ## Setup
 
-1. Copy the example env file and fill it in:
+1. Copy the example files:
 
    ```bash
    cd selfhosted/model-manager
    cp .env.example .env
+   cp secrets.env.example secrets.env
    ```
 
-2. Set a strong `MODEL_MANAGER_PASSWORD` in `.env` (required — see
-   **Fail-closed** above). Optionally set `MODEL_MANAGER_SESSION_SECRET`;
-   if left unset it is derived from the password.
+2. Set a strong `MODEL_MANAGER_PASSWORD` in **`secrets.env`** (required — see
+   **Fail-closed** above), NOT in `.env`. The password lives in `secrets.env`
+   because Docker Compose interpolates `$` in the project `.env`, which would
+   mangle a password containing `$`. **If your password contains a `$`, double
+   it (`$$`) in `secrets.env`** — Compose turns each `$$` back into one `$`, so
+   you log in with the real password (e.g. store `G0d$$peed1522!` to use the
+   password `G0d$peed1522!`). A password without `$` needs no escaping.
+   Optionally set `MODEL_MANAGER_SESSION_SECRET` in `secrets.env` too; if left
+   unset it is derived from the password.
 
 3. If you want cross-host reranker management, set `RERANKER_SSH_TARGET`,
    `RERANKER_REMOTE_DIR`, and (if needed) override `RERANKER_SSH_KEY`,
