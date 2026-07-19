@@ -26,5 +26,7 @@ export function proxy(req: NextRequest): NextResponse {
 }
 
 export const config = {
-  matcher: ['/((?!_next/static|_next/image|favicon.ico).*)']
+  // Static app assets (icon) bypass the auth guard so the tab icon loads on
+  // the login page before authentication.
+  matcher: ['/((?!_next/static|_next/image|favicon.ico|icon.svg).*)']
 }
