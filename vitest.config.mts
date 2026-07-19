@@ -26,6 +26,10 @@ export default defineConfig({
     // selfhosted/model-manager is a fully separate app with its own vitest
     // config, aliases, and deps — its tests must not be picked up (and broken)
     // by Ask's root suite.
-    exclude: [...defaultExclude, '**/.claude/**', '**/selfhosted/model-manager/**']
+    exclude: [
+      ...defaultExclude,
+      '**/.claude/**',
+      '**/selfhosted/model-manager/**'
+    ]
   }
 })
