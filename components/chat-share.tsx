@@ -37,7 +37,15 @@ export function ChatShare({ chatId, className }: ChatShareProps) {
       setOpen(true)
     })
 
-    const sharedChatObject = await shareChat(chatId)
+    // A rejected action (network failure, or a tab from before a redeploy
+    // calling a stale server action) must surface, not die silently.
+    let sharedChatObject: Awaited<ReturnType<typeof shareChat>>
+    try {
+      sharedChatObject = await shareChat(chatId)
+    } catch {
+      toast.error('Failed to share — refresh the page and try again.')
+      return
+    }
     if (!sharedChatObject) {
       toast.error(
         'Failed to make chat public. You may need to be logged in or own the chat.'

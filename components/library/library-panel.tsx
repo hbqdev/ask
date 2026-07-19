@@ -193,41 +193,57 @@ export function LibraryPanel() {
 
     const loadReason = !hasCache ? 'cold' : isRefreshStale ? 'refresh' : 'ttl'
     let cancelled = false
-    listNotes({ limit: LIBRARY_PAGE_SIZE }).then(result => {
-      if (cancelled) return
+    listNotes({ limit: LIBRARY_PAGE_SIZE })
+      .then(result => {
+        if (cancelled) return
 
-      setHasLoadAttempted(true)
+        setHasLoadAttempted(true)
 
-      if (!result.success) {
+        if (!result.success) {
+          captureClient('library_list_load_failed', {
+            source: 'network',
+            reason: loadReason,
+            error: result.error ?? 'unknown'
+          })
+          toast.error(result.error ?? 'Failed to load library')
+          return
+        }
+
+        const nextNotes = result.notes ?? []
+        captureClient('library_list_loaded', {
+          source: 'network',
+          reason: loadReason,
+          noteCount: nextNotes.length,
+          hasMore: Boolean(result.hasMore),
+          isEmpty: nextNotes.length === 0
+        })
+        replaceNotesCache({
+          notes: nextNotes,
+          nextCursor: result.nextCursor ?? null,
+          hasMore: Boolean(result.hasMore)
+        })
+        lastFetchedRefreshKeyRef.current = refreshKey
+        setSelectedNote(current => {
+          if (!current) return current
+
+          return nextNotes.find(note => note.id === current.id) ?? current
+        })
+      })
+      // A rejected action (e.g. a tab from before a redeploy calling stale
+      // server actions) must not strand the panel on its loading state
+      // with no explanation.
+      .catch((error: unknown) => {
+        if (cancelled) return
+        setHasLoadAttempted(true)
         captureClient('library_list_load_failed', {
           source: 'network',
           reason: loadReason,
-          error: result.error ?? 'unknown'
+          error: error instanceof Error ? error.message : 'rejected'
         })
-        toast.error(result.error ?? 'Failed to load library')
-        return
-      }
-
-      const nextNotes = result.notes ?? []
-      captureClient('library_list_loaded', {
-        source: 'network',
-        reason: loadReason,
-        noteCount: nextNotes.length,
-        hasMore: Boolean(result.hasMore),
-        isEmpty: nextNotes.length === 0
+        toast.error(
+          "Couldn't load the library — refresh the page if the app was just updated"
+        )
       })
-      replaceNotesCache({
-        notes: nextNotes,
-        nextCursor: result.nextCursor ?? null,
-        hasMore: Boolean(result.hasMore)
-      })
-      lastFetchedRefreshKeyRef.current = refreshKey
-      setSelectedNote(current => {
-        if (!current) return current
-
-        return nextNotes.find(note => note.id === current.id) ?? current
-      })
-    })
 
     return () => {
       cancelled = true

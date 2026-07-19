@@ -95,7 +95,15 @@ export function ChatMenuItem({ chat }: ChatMenuItemProps) {
     setIsMenuOpen(false)
 
     startTransition(async () => {
-      const result = await deleteChat(chat.id)
+      // A rejected action (network failure, stale server action after a
+      // redeploy) must surface, not die silently.
+      let result: Awaited<ReturnType<typeof deleteChat>> | null = null
+      try {
+        result = await deleteChat(chat.id)
+      } catch {
+        toast.error('Failed to delete — refresh the page and try again.')
+        return
+      }
 
       if (result?.success) {
         toast.success('Chat deleted')
