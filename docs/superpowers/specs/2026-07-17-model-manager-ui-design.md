@@ -19,13 +19,13 @@ container start, so any change requires an `ask` restart. There are three
 independent model "planes," each wired differently:
 
 1. **Chat / answer models.** `OLLAMA_BASE_URL` (`http://192.168.50.231:11434`)
-   + `OLLAMA_MODELS` (a static comma-separated list of cloud models that do
-   not appear in `/api/tags`). The selectable list is built live by
-   `lib/models/fetch-models.ts`; the *chosen* model is a `selectedModel`
-   cookie. Cloud provider keys (`OPENAI_API_KEY`, `ANTHROPIC_API_KEY`,
-   `GOOGLE_GENERATIVE_AI_API_KEY`, `AI_GATEWAY_API_KEY`,
-   `OPENAI_COMPATIBLE_*`) live in `lib/utils/registry.ts` — presence of a key
-   toggles that provider.
+   - `OLLAMA_MODELS` (a static comma-separated list of cloud models that do
+     not appear in `/api/tags`). The selectable list is built live by
+     `lib/models/fetch-models.ts`; the _chosen_ model is a `selectedModel`
+     cookie. Cloud provider keys (`OPENAI_API_KEY`, `ANTHROPIC_API_KEY`,
+     `GOOGLE_GENERATIVE_AI_API_KEY`, `AI_GATEWAY_API_KEY`,
+     `OPENAI_COMPATIBLE_*`) live in `lib/utils/registry.ts` — presence of a key
+     toggles that provider.
 2. **Auxiliary models on serenity** (`192.168.50.171`). Host is env-driven
    (`CLASSIFIER_OLLAMA_BASE_URL`, falling back to `OLLAMA_BASE_URL`), consumed
    by `lib/agents/query-classifier.ts`, `query-expander.ts`, and
@@ -47,7 +47,7 @@ The long tail of `.env` (Search: `SEARXNG_*`, `CRAWL4AI_*`, `FLARESOLVERR_URL`,
 `ENABLE_AUTH`, `SUPABASE_*`, `ANONYMOUS_USER_ID`; Memory/recall tuning:
 `MEMORY_*`, `RECALL_*`; Storage: R2/S3; Infra: `HOST_PORT`, `BASE_URL`,
 Redis, PostHog, Langfuse, `MEMORY_CRON_SECRET`, `MODEL_CACHE_DIR`) is also in
-scope, because the tool manages *every* var, not just model ones.
+scope, because the tool manages _every_ var, not just model ones.
 
 Three facts drive the whole design:
 
@@ -102,8 +102,9 @@ defaults so nothing changes until the UI edits them:
 1. **Ask source** — replace the hardcoded model-id constants with env
    fallbacks:
    ```ts
-   const CLASSIFIER_MODEL_ID = process.env.CLASSIFIER_MODEL_ID ?? 'granite4.1:8b'
-   const EXPANDER_MODEL_ID   = process.env.EXPANDER_MODEL_ID   ?? 'granite4.1:8b'
+   const CLASSIFIER_MODEL_ID =
+     process.env.CLASSIFIER_MODEL_ID ?? 'granite4.1:8b'
+   const EXPANDER_MODEL_ID = process.env.EXPANDER_MODEL_ID ?? 'granite4.1:8b'
    const MEMORY_EXTRACTOR_MODEL_ID =
      process.env.MEMORY_EXTRACTOR_MODEL_ID ?? 'granite4.1:8b'
    ```
@@ -121,18 +122,33 @@ get a Test button. Adding a var later is one array entry.
 
 ```ts
 interface EnvVarSpec {
-  key: string            // 'OLLAMA_BASE_URL'
-  category: 'models' | 'search' | 'database' | 'auth' | 'memory' | 'storage' | 'infra'
-  group?: string         // sub-group, e.g. 'Chat', 'Serenity', 'Embeddings', 'Reranker'
-  label: string          // 'Chat host'
-  type: 'url' | 'model' | 'model-list' | 'secret' | 'bool' | 'int' | 'enum' | 'string'
+  key: string // 'OLLAMA_BASE_URL'
+  category:
+    | 'models'
+    | 'search'
+    | 'database'
+    | 'auth'
+    | 'memory'
+    | 'storage'
+    | 'infra'
+  group?: string // sub-group, e.g. 'Chat', 'Serenity', 'Embeddings', 'Reranker'
+  label: string // 'Chat host'
+  type:
+    | 'url'
+    | 'model'
+    | 'model-list'
+    | 'secret'
+    | 'bool'
+    | 'int'
+    | 'enum'
+    | 'string'
   help?: string
-  default?: string       // shown as a hint
+  default?: string // shown as a hint
   required?: boolean
-  enumValues?: string[]  // e.g. EMBEDDING_MODEL's 3-model allowlist, SEARCH_API
-  validate?: (v: string) => string | null   // returns error message or null
-  target?: 'ask' | 'reranker'   // which host/file — defaults to 'ask'
-  testable?: 'ollama' | 'reranker' | 'http'  // enables a Test button
+  enumValues?: string[] // e.g. EMBEDDING_MODEL's 3-model allowlist, SEARCH_API
+  validate?: (v: string) => string | null // returns error message or null
+  target?: 'ask' | 'reranker' // which host/file — defaults to 'ask'
+  testable?: 'ollama' | 'reranker' | 'http' // enables a Test button
 }
 ```
 
@@ -257,7 +273,7 @@ committed:
   is a plausible later affordance but is not built now; the tool validates
   presence and warns, it does not fetch models.
 - No changes to Ask's runtime behavior beyond the three env fallbacks; the
-  chat-model *selection* mechanism (the `selectedModel` cookie / search-bar
+  chat-model _selection_ mechanism (the `selectedModel` cookie / search-bar
   selector) is unchanged.
 
 ## Open items to settle at plan time
