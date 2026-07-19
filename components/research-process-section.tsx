@@ -74,6 +74,15 @@ type Props = {
   getIsOpen: (id: string, partType?: string, hasNextPart?: boolean) => boolean
   onOpenChange: (id: string, open: boolean) => void
   status?: UseChatHelpers<UIMessage<unknown, UIDataTypes, UITools>>['status']
+  /**
+   * Whether this is the latest assistant message — the only one that can
+   * actually be streaming. `status` is the single global chat status, so it
+   * cannot by itself distinguish the message being generated from earlier,
+   * finished ones. Without this gate, every prior turn's process section
+   * would show "Working on it" whenever a new turn runs (the "double search"
+   * UI bug).
+   */
+  isLatestMessage?: boolean
   addToolResult?: (params: { toolCallId: string; result: any }) => void
   parts?: MessagePart[]
   hasSubsequentText?: boolean
@@ -305,6 +314,7 @@ export function ResearchProcessSection({
   getIsOpen,
   onOpenChange,
   status,
+  isLatestMessage = false,
   addToolResult,
   parts: partsOverride,
   hasSubsequentText = false
@@ -335,11 +345,16 @@ export function ResearchProcessSection({
     Record<string, boolean>
   >({})
 
-  // Still actively researching: no text has followed this segment yet, and
-  // the message hasn't finished streaming. Matches Perplexity's live status
-  // line before the answer starts.
+  // Still actively researching: this is the message currently being
+  // generated, no text has followed this segment yet, and the chat hasn't
+  // finished streaming. Matches Perplexity's live status line before the
+  // answer starts. `isLatestMessage` is essential — `status` alone is the
+  // global chat status and would mark every earlier turn as in-progress
+  // whenever a new turn runs.
   const isInProgress =
-    !hasSubsequentText && (status === 'streaming' || status === 'submitted')
+    isLatestMessage &&
+    !hasSubsequentText &&
+    (status === 'streaming' || status === 'submitted')
 
   // Peek open for a couple seconds when research starts so the user sees
   // it's doing something, then auto-collapse to just the pulsing summary

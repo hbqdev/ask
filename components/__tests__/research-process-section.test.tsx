@@ -255,6 +255,7 @@ describe('ResearchProcessSection', () => {
           getIsOpen={mockGetIsOpen}
           onOpenChange={mockOnOpenChange}
           status="streaming"
+          isLatestMessage={true}
           hasSubsequentText={false}
         />
       )
@@ -262,6 +263,40 @@ describe('ResearchProcessSection', () => {
       expect(
         screen.getByText('Working on it — 1 step so far')
       ).toBeInTheDocument()
+    })
+
+    test('does not show in-progress for a non-latest message while the chat is streaming', () => {
+      // Regression for the "double search" UI bug. `status` is the single
+      // global chat status, so it is "streaming" for every rendered message
+      // while any turn generates. A previous, completed turn
+      // (isLatestMessage=false) must stay "Completed N steps" — only the
+      // message actually being streamed may show the in-progress label.
+      const singlePart = [
+        { type: 'reasoning', text: 'Old reasoning' } as ReasoningPart
+      ]
+
+      const message = {
+        id: 'old-message',
+        role: 'assistant' as const,
+        parts: singlePart
+      }
+
+      render(
+        <ResearchProcessSection
+          message={message}
+          messageId="test-7b-old"
+          getIsOpen={mockGetIsOpen}
+          onOpenChange={mockOnOpenChange}
+          status="streaming"
+          hasSubsequentText={false}
+          isLatestMessage={false}
+        />
+      )
+
+      expect(screen.getByText('Completed 1 step')).toBeInTheDocument()
+      expect(
+        screen.queryByText('Working on it — 1 step so far')
+      ).not.toBeInTheDocument()
     })
 
     test('switches to "Completed N steps" once subsequent text exists', () => {
@@ -282,6 +317,7 @@ describe('ResearchProcessSection', () => {
           getIsOpen={mockGetIsOpen}
           onOpenChange={mockOnOpenChange}
           status="streaming"
+          isLatestMessage={true}
           hasSubsequentText={true}
         />
       )
@@ -309,6 +345,7 @@ describe('ResearchProcessSection', () => {
           getIsOpen={mockGetIsOpen}
           onOpenChange={mockOnOpenChange}
           status="streaming"
+          isLatestMessage={true}
           hasSubsequentText={false}
         />
       )

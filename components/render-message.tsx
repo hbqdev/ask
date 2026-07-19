@@ -131,6 +131,7 @@ export function RenderMessage({
         getIsOpen={getIsOpen}
         onOpenChange={onOpenChange}
         status={status}
+        isLatestMessage={isLatestMessage}
         addToolResult={addToolResult}
         hasSubsequentText={hasSubsequentText}
       />
@@ -138,7 +139,17 @@ export function RenderMessage({
     buffer = []
   }
 
-  const isStreamingComplete = status !== 'streaming' && status !== 'submitted'
+  // Only the latest assistant message can actually be streaming. Keying this
+  // off the GLOBAL chat status instead would make every earlier, already-
+  // finished message re-enter "still streaming" rendering whenever a NEW turn
+  // runs — the first-token heading gate below would then suppress any prior
+  // answer that doesn't start with a heading, and its research process would
+  // light up as "Working on it" (the "double search" UI bug). Scope it to
+  // this specific message.
+  const isThisMessageStreaming =
+    Boolean(isLatestMessage) &&
+    (status === 'streaming' || status === 'submitted')
+  const isStreamingComplete = !isThisMessageStreaming
 
   message.parts?.forEach((part: any, index: number) => {
     if (part.type === 'text') {
