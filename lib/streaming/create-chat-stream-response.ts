@@ -224,7 +224,8 @@ export async function createChatStreamResponse(
         }
 
         const messagesForModel = await transformFileParts(messagesToConvert, {
-          modelHasVision: modelSupportsVision(model)
+          modelHasVision: modelSupportsVision(model),
+          userId
         })
 
         if (attachmentCount > 0) {
