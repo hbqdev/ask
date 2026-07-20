@@ -15,7 +15,11 @@ const VISION_ID_PATTERNS: RegExp[] = [
   /gpt-4o/,
   /gpt-4\.1/,
   /gpt-5/,
-  /^o[134](\b|-)/, // OpenAI o1/o3/o4 reasoning models accept images
+  // OpenAI o1/o3/o4 reasoning models accept images — but the text-only `-mini`
+  // variants (o1-mini, o3-mini, …) do NOT, and inferring vision for them would
+  // break the turn. The negative lookahead excludes any `-mini` o-series id
+  // (an explicit `vision:true` still wins via modelSupportsVision).
+  /^o[134](?!-mini\b)(\b|-)/,
   /claude-3/,
   /claude-(sonnet|opus|haiku)-[0-9]/, // Claude 4+ naming
   /-vl\b/, // qwen-vl and similar
