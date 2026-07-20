@@ -21,6 +21,7 @@ describe('modelSupportsVision', () => {
       'gpt-4o',
       'gpt-4.1-mini',
       'gpt-5',
+      'o1',
       'o3',
       'claude-3-5-sonnet',
       'claude-sonnet-4-5',
@@ -30,6 +31,16 @@ describe('modelSupportsVision', () => {
     ]) {
       expect(modelSupportsVision({ id })).toBe(true)
     }
+  })
+
+  it('does NOT infer vision for text-only o-series -mini models (o1-mini/o3-mini accept no images)', () => {
+    for (const id of ['o1-mini', 'o3-mini', 'o4-mini', 'o3-mini-2025-01-31']) {
+      expect(modelSupportsVision({ id })).toBe(false)
+    }
+  })
+
+  it('still honors an explicit vision:true even for an o-series -mini id', () => {
+    expect(modelSupportsVision({ id: 'o3-mini', vision: true })).toBe(true)
   })
 
   it('treats unknown / text-only models as non-vision (safe fallback)', () => {
