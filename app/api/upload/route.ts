@@ -186,8 +186,14 @@ export async function POST(req: NextRequest) {
     let id: string
     try {
       ;({ id } = await createFileRecord({
+        // files.chat_id is a FK to chats.id, but a file is commonly attached
+        // on the home screen BEFORE the first message creates the chat row —
+        // referencing a not-yet-persisted chat would violate the FK. The
+        // chat association is carried by the message's file part (and the
+        // chatId is preserved in objectKey's path), and no ingestion code
+        // reads files.chat_id, so store null here.
         userId,
-        chatId,
+        chatId: null,
         filename,
         url: publicUrl,
         objectKey,

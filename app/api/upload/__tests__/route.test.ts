@@ -139,7 +139,9 @@ describe('POST /api/upload', () => {
     expect(createFileRecord).toHaveBeenCalledWith(
       expect.objectContaining({
         userId: 'u1',
-        chatId: 'c1',
+        // chatId is stored null (the chat row may not exist yet at upload
+        // time); the chatId still appears in the objectKey path below.
+        chatId: null,
         filename: 'notes.txt',
         objectKey: json.file.objectKey,
         mediaType: 'text/plain',
@@ -147,6 +149,9 @@ describe('POST /api/upload', () => {
         status: 'pending'
       })
     )
+    // The chat association is preserved in the object key path even though
+    // the FK column is null.
+    expect(json.file.objectKey).toContain('/chats/c1/')
 
     const written = await readFile(
       path.join(uploadsDir, json.file.objectKey),
