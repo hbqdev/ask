@@ -138,4 +138,6 @@ export type UploadedFile = {
   id?: string
   objectKey?: string
   ingestStatus?: 'pending' | 'processing' | 'ready' | 'failed'
+  ingestStage?: string | null
+  ingestError?: string | null
 }
