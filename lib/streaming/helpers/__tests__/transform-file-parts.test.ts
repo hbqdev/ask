@@ -208,6 +208,38 @@ describe('transformFileParts', () => {
     ])
   })
 
+  it('a rejected findFileByObjectKey degrades to the ready path instead of failing the turn', async () => {
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    vi.mocked(findFileByObjectKey).mockRejectedValue(
+      new Error('connection terminated unexpectedly')
+    )
+    vi.mocked(queryFileChunks).mockResolvedValue({
+      filename: 'report.docx',
+      chunks: ['Q1 revenue grew 12%.']
+    })
+    const objectKey = 'u1/chats/c1/db-down.docx'
+    await writeUploadFile(objectKey, 'irrelevant on-disk bytes')
+
+    const result = await run([
+      filePart(objectKey, {
+        mediaType:
+          'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+        filename: 'db-down.docx'
+      })
+    ])
+
+    // Renders via the same ready/excerpts path as a genuine no-row upload —
+    // the DB error never propagates and never 500s the turn.
+    expect(result).toEqual([
+      {
+        type: 'text',
+        text: '[Attached document: db-down.docx]\n\nRelevant excerpts:\n\nQ1 revenue grew 12%.'
+      }
+    ])
+    expect(warnSpy).toHaveBeenCalledTimes(1)
+    warnSpy.mockRestore()
+  })
+
   // ── ready image ───────────────────────────────────────────────────────────
 
   it('ready image with chunks yields extracted-content text plus the base64 file part', async () => {
