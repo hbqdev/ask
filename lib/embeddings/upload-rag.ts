@@ -54,28 +54,69 @@ async function extractPdfText(filePath: string): Promise<string> {
 
 // ── Upload-time processing ───────────────────────────────────────────────────
 
+// Extensions treated as plain text for the local fast path (code files
+// often arrive as application/octet-stream, so extension matters too).
+const TEXT_EXTENSIONS = new Set([
+  'txt',
+  'md',
+  'csv',
+  'html',
+  'htm',
+  'json',
+  'yaml',
+  'yml',
+  'toml',
+  'ts',
+  'js',
+  'tsx',
+  'jsx',
+  'py',
+  'go',
+  'rs',
+  'java',
+  'c',
+  'cpp',
+  'h',
+  'sh'
+])
+
+export function isTextFamily(mediaType: string, filename: string): boolean {
+  if (mediaType === 'application/pdf') return true
+  if (mediaType.startsWith('text/')) return true
+  if (mediaType === 'application/json') return true
+  const ext = filename.split('.').pop()?.toLowerCase() ?? ''
+  return TEXT_EXTENSIONS.has(ext)
+}
+
+const MIN_MEANINGFUL_CHARS = 200
+
+// Local fast-path ingestion. Returns true iff a chunks file was written —
+// the upload route uses that to mark the file `ready` without the worker.
 export async function processFileForRAG(
   filePath: string,
   mediaType: string,
   filename: string
-): Promise<void> {
+): Promise<boolean> {
   let text = ''
 
   if (mediaType === 'application/pdf') {
     text = await extractPdfText(filePath)
-  } else if (mediaType === 'text/plain') {
-    text = await fs.readFile(filePath, 'utf-8')
+  } else if (isTextFamily(mediaType, filename)) {
+    try {
+      text = await fs.readFile(filePath, 'utf-8')
+    } catch {
+      return false
+    }
   } else {
-    // Images and other types don't get RAG processing
-    return
+    return false // media and office formats belong to the worker
   }
 
   const trimmed = text.trim()
-  if (trimmed.length < 50) return // too short to be useful
+  if (trimmed.length <= MIN_MEANINGFUL_CHARS) return false
 
   const model = getConfiguredModel()
   const chunks = splitText(trimmed, 512, 128)
-  if (chunks.length === 0) return
+  if (chunks.length === 0) return false
 
   const embeddings = await embedTexts(chunks, model)
 
@@ -85,6 +126,31 @@ export async function processFileForRAG(
     chunks: chunks.map((content, i) => ({ content, embedding: embeddings[i] }))
   }
 
+  await fs.writeFile(chunksFilePath(filePath), JSON.stringify(stored))
+  return true
+}
+
+// Embed worker-extracted chunk texts and store them in the standard
+// chunks-file format. Oversized entries are re-split defensively so a
+// worker bug can't produce chunks beyond what the embedder handles well.
+export async function storeExtractedChunks(
+  filePath: string,
+  filename: string,
+  chunkTexts: string[]
+): Promise<void> {
+  const normalized = chunkTexts.flatMap(t =>
+    t.length > 4000 ? splitText(t, 512, 128) : [t]
+  )
+  const model = getConfiguredModel()
+  const embeddings = await embedTexts(normalized, model)
+  const stored: ChunksFile = {
+    model,
+    filename,
+    chunks: normalized.map((content, i) => ({
+      content,
+      embedding: embeddings[i]
+    }))
+  }
   await fs.writeFile(chunksFilePath(filePath), JSON.stringify(stored))
 }
 
