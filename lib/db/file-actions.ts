@@ -17,6 +17,16 @@ export type FileRow = InferSelectModel<typeof files>
 const MAX_ATTEMPTS = 3
 const STALE_CLAIM_MINUTES = 30
 
+// `db.execute()` returns driver-shaped results. This project uses
+// postgres-js, whose result IS the array of rows (`result[0]`); node-postgres
+// returns `{ rows: [...] }`. Read both shapes so a driver swap can't silently
+// break the ingestion queue.
+function execRows(result: unknown): any[] {
+  if (Array.isArray(result)) return result
+  const maybe = (result as { rows?: unknown }).rows
+  return Array.isArray(maybe) ? maybe : []
+}
+
 export async function createFileRecord(input: {
   userId: string
   chatId: string | null
@@ -93,7 +103,7 @@ export async function claimNextIngestJob(): Promise<{
     )
     RETURNING id, filename, media_type, size, object_key
   `)
-  const row = (result as any).rows?.[0]
+  const row = execRows(result)[0]
   if (!row) return null
   return {
     id: row.id,
@@ -113,7 +123,7 @@ export async function updateIngestProgress(
     WHERE id = ${id} AND status = 'processing'
     RETURNING id
   `)
-  return Boolean((result as any).rows?.[0])
+  return Boolean(execRows(result)[0])
 }
 
 export async function completeIngestFailure(
@@ -124,7 +134,7 @@ export async function completeIngestFailure(
   const current = await db.execute(
     sql`SELECT attempts FROM files WHERE id = ${id}`
   )
-  const attempts = Number((current as any).rows?.[0]?.attempts ?? MAX_ATTEMPTS)
+  const attempts = Number(execRows(current)[0]?.attempts ?? MAX_ATTEMPTS)
   const next: 'pending' | 'failed' =
     retryable && attempts < MAX_ATTEMPTS ? 'pending' : 'failed'
   await db.execute(sql`

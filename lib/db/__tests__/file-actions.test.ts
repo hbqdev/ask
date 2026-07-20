@@ -21,22 +21,20 @@ describe('file-actions ingest state', () => {
   beforeEach(() => vi.clearAllMocks())
 
   it('claimNextIngestJob returns null on an empty queue', async () => {
-    execute.mockResolvedValueOnce({ rows: [] })
+    execute.mockResolvedValueOnce([])
     expect(await claimNextIngestJob()).toBeNull()
   })
 
   it('claimNextIngestJob returns the claimed row', async () => {
-    execute.mockResolvedValueOnce({
-      rows: [
-        {
-          id: 'f1',
-          filename: 'a.mp3',
-          media_type: 'audio/mpeg',
-          size: 123,
-          object_key: 'u1/chats/c1/1-a.mp3'
-        }
-      ]
-    })
+    execute.mockResolvedValueOnce([
+      {
+        id: 'f1',
+        filename: 'a.mp3',
+        media_type: 'audio/mpeg',
+        size: 123,
+        object_key: 'u1/chats/c1/1-a.mp3'
+      }
+    ])
     expect(await claimNextIngestJob()).toEqual({
       id: 'f1',
       filename: 'a.mp3',
@@ -65,8 +63,8 @@ describe('file-actions ingest state', () => {
   }
 
   it('completeIngestFailure requeues retryable failures with attempts left', async () => {
-    execute.mockResolvedValueOnce({ rows: [{ attempts: 1 }] }) // current row
-    execute.mockResolvedValueOnce({ rows: [] }) // update
+    execute.mockResolvedValueOnce([{ attempts: 1 }]) // current row
+    execute.mockResolvedValueOnce([]) // update
     expect(await completeIngestFailure('f1', 'ollama down', true)).toBe(
       'pending'
     )
@@ -74,8 +72,8 @@ describe('file-actions ingest state', () => {
   })
 
   it('completeIngestFailure fails permanently when attempts are exhausted', async () => {
-    execute.mockResolvedValueOnce({ rows: [{ attempts: 3 }] })
-    execute.mockResolvedValueOnce({ rows: [] })
+    execute.mockResolvedValueOnce([{ attempts: 3 }])
+    execute.mockResolvedValueOnce([])
     expect(await completeIngestFailure('f1', 'ollama down', true)).toBe(
       'failed'
     )
@@ -83,8 +81,8 @@ describe('file-actions ingest state', () => {
   })
 
   it('completeIngestFailure fails immediately on non-retryable errors', async () => {
-    execute.mockResolvedValueOnce({ rows: [{ attempts: 0 }] })
-    execute.mockResolvedValueOnce({ rows: [] })
+    execute.mockResolvedValueOnce([{ attempts: 0 }])
+    execute.mockResolvedValueOnce([])
     expect(await completeIngestFailure('f1', 'corrupt file', false)).toBe(
       'failed'
     )
