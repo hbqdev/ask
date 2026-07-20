@@ -7,7 +7,12 @@ import { queryFileChunks } from '@/lib/embeddings/upload-rag'
 
 const UPLOADS_DIR = process.env.UPLOADS_DIR || '/app/uploads'
 
-function urlToLocalPath(url: string): string | null {
+// Single `new URL` parse shared by both derived values — localPath (for disk
+// I/O) and objectKey (for the DB lookup) always agree because they come from
+// the same parse, and a malformed/non-upload URL yields both as null.
+function resolveUploadUrl(
+  url: string
+): { localPath: string; objectKey: string } | null {
   try {
     const parsed = new URL(url)
     if (!parsed.pathname.startsWith('/uploads/')) return null
@@ -18,17 +23,7 @@ function urlToLocalPath(url: string): string | null {
       resolved !== UPLOADS_DIR
     )
       return null
-    return resolved
-  } catch {
-    return null
-  }
-}
-
-function objectKeyFromUrl(url: string): string | null {
-  try {
-    const parsed = new URL(url)
-    if (!parsed.pathname.startsWith('/uploads/')) return null
-    return decodeURIComponent(parsed.pathname.slice('/uploads/'.length))
+    return { localPath: resolved, objectKey: decodeURIComponent(relative) }
   } catch {
     return null
   }
@@ -56,13 +51,26 @@ function extractUserQuery(parts: any[]): string {
 async function transformPart(part: any, userQuery: string): Promise<any[]> {
   if (part.type !== 'file') return [part]
 
-  const localPath = urlToLocalPath(part.url)
-  const objectKey = objectKeyFromUrl(part.url)
-  if (!localPath || !objectKey) return [part]
+  const resolved = resolveUploadUrl(part.url)
+  if (!resolved) return [part]
+  const { localPath, objectKey } = resolved
   const filename = part.filename || path.basename(localPath)
 
-  const row = await findFileByObjectKey(objectKey)
-  const status = row?.status ?? 'ready' // pre-feature files have no row
+  // A transient DB error here must not fail the whole turn — every other
+  // I/O step in this function already degrades gracefully (fileExists,
+  // queryFileChunks, the base64 read, pdftotext all swallow their errors).
+  // Falling back to "ready, no row" means the attachment still renders from
+  // disk/chunks instead of 500ing every past message that has a file part.
+  let row: Awaited<ReturnType<typeof findFileByObjectKey>> = null
+  try {
+    row = await findFileByObjectKey(objectKey)
+  } catch (err) {
+    console.warn(
+      '[transform-file-parts] findFileByObjectKey failed, treating as ready:',
+      err
+    )
+  }
+  const status = row?.status ?? 'ready' // pre-feature files (or a lookup error) have no row
 
   if (status === 'pending' || status === 'processing') {
     const stage = row?.ingestStage || 'queued'
