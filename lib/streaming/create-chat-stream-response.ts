@@ -9,6 +9,7 @@ import { randomUUID } from 'crypto'
 import { Langfuse } from 'langfuse'
 
 import { researcher } from '@/lib/agents/researcher'
+import { modelSupportsVision } from '@/lib/config/model-vision'
 import {
   createPublicErrorResponse,
   serializePublicError
@@ -222,7 +223,9 @@ export async function createChatStreamResponse(
           })
         }
 
-        const messagesForModel = await transformFileParts(messagesToConvert)
+        const messagesForModel = await transformFileParts(messagesToConvert, {
+          modelHasVision: modelSupportsVision(model)
+        })
 
         if (attachmentCount > 0) {
           // Same part id — replaces the 'running' entry in place.
