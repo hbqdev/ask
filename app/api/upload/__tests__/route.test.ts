@@ -1,6 +1,6 @@
 import { NextRequest } from 'next/server'
 
-import { mkdtemp, readFile, rm } from 'node:fs/promises'
+import { mkdtemp, readFile, realpath, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import {
@@ -193,5 +193,60 @@ describe('POST /api/upload', () => {
     await new Promise(resolve => setTimeout(resolve, 10))
     expect(processFileForRAG).not.toHaveBeenCalled()
     expect(markFileReady).not.toHaveBeenCalled()
+  })
+
+  it('unlinks the written file and returns 500 when createFileRecord fails', async () => {
+    vi.mocked(createFileRecord).mockRejectedValue(new Error('db down'))
+
+    const req = makeRequest('hello world', {
+      'content-type': 'text/plain',
+      'x-filename': encodeURIComponent('notes.txt'),
+      'x-chat-id': 'c1'
+    })
+
+    const res = await POST(req)
+
+    expect(res.status).toBe(500)
+    expect(createFileRecord).toHaveBeenCalledTimes(1)
+
+    // The route must not leave an orphaned (up to 2GB) file behind when the
+    // DB write fails — recover the objectKey it attempted to persist and
+    // confirm the file no longer exists on disk.
+    const { objectKey } = vi.mocked(createFileRecord).mock.calls[0][0]
+    await expect(
+      readFile(path.join(uploadsDir, objectKey))
+    ).rejects.toMatchObject({ code: 'ENOENT' })
+  })
+
+  it('sanitizes a path-traversal x-chat-id so the write stays under UPLOADS_DIR', async () => {
+    const content = 'hello world'
+    const req = makeRequest(content, {
+      'content-type': 'text/plain',
+      'x-filename': encodeURIComponent('notes.txt'),
+      'x-chat-id': '../../../../evil'
+    })
+
+    const res = await POST(req)
+    const json = await res.json()
+
+    expect(res.status).toBe(200)
+    expect(json.file.objectKey).not.toContain('..')
+    // Exactly userId/chats/<sanitized-chat-id>/<file> — no extra separators
+    // smuggled in via the header.
+    expect(json.file.objectKey.split('/')).toHaveLength(4)
+
+    expect(createFileRecord).toHaveBeenCalledWith(
+      expect.objectContaining({
+        chatId: expect.not.stringContaining('..')
+      })
+    )
+
+    const absPath = path.join(uploadsDir, json.file.objectKey)
+    const uploadsDirReal = await realpath(uploadsDir)
+    const absPathReal = await realpath(absPath)
+    expect(absPathReal.startsWith(uploadsDirReal + path.sep)).toBe(true)
+
+    const written = await readFile(absPath, 'utf-8')
+    expect(written).toBe(content)
   })
 })

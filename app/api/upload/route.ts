@@ -87,6 +87,15 @@ function sanitizeFilename(filename: string) {
   return filename.replace(/[^a-z0-9.\-_]/gi, '_').toLowerCase()
 }
 
+// chatId comes straight from a client-controlled header and is joined
+// directly into the on-disk path below — without this, something like
+// `x-chat-id: ../../../../etc` would escape UPLOADS_DIR. No dots allowed
+// (unlike sanitizeFilename) since a chat id never needs one and disallowing
+// it removes any ambiguity around "..".
+function sanitizeChatId(chatId: string) {
+  return chatId.replace(/[^a-z0-9\-_]/gi, '_')
+}
+
 // Build the public URL the LLM and the browser will use to fetch the file.
 // Prefer the Host the request came in on so the URL works regardless of
 // whether the user is hitting the LAN IP, the public domain, or a tunnel.
@@ -110,7 +119,8 @@ export async function POST(req: NextRequest) {
     }
 
     const filename = decodeURIComponent(req.headers.get('x-filename') ?? '')
-    const chatId = req.headers.get('x-chat-id') || null
+    const rawChatId = req.headers.get('x-chat-id') || null
+    const chatId = rawChatId ? sanitizeChatId(rawChatId) : null
     const mediaType =
       req.headers.get('content-type') || 'application/octet-stream'
     if (!filename || !req.body) {
@@ -173,16 +183,24 @@ export async function POST(req: NextRequest) {
     const eligibleForFastPath =
       isTextFamily(mediaType, filename) && written <= FAST_PATH_MAX_BYTES
 
-    const { id } = await createFileRecord({
-      userId,
-      chatId,
-      filename,
-      url: publicUrl,
-      objectKey,
-      mediaType,
-      size: written,
-      status: 'pending'
-    })
+    let id: string
+    try {
+      ;({ id } = await createFileRecord({
+        userId,
+        chatId,
+        filename,
+        url: publicUrl,
+        objectKey,
+        mediaType,
+        size: written,
+        status: 'pending'
+      }))
+    } catch (e) {
+      // Don't leave an orphaned (up to 2GB) file on disk when the row never
+      // makes it into the DB.
+      await fs.unlink(absPath).catch(() => {})
+      throw e
+    }
 
     if (eligibleForFastPath) {
       // Fire-and-forget like today's chunking; typically done in seconds.
