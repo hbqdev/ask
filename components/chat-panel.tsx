@@ -288,13 +288,16 @@ export function ChatPanel({
       setUploadedFiles(prev => [...prev, ...newFiles])
       await Promise.all(
         newFiles.map(async uf => {
-          const formData = new FormData()
-          formData.append('file', uf.file!)
-          formData.append('chatId', chatId)
+          const file = uf.file!
           try {
             const res = await fetch('/api/upload', {
               method: 'POST',
-              body: formData
+              headers: {
+                'content-type': file.type || 'application/octet-stream',
+                'x-filename': encodeURIComponent(file.name),
+                'x-chat-id': chatId ?? ''
+              },
+              body: file
             })
 
             if (!res.ok) {
@@ -317,8 +320,10 @@ export function ChatPanel({
                       status: 'uploaded',
                       url: uploaded.url,
                       name: uploaded.filename,
-                      key: uploaded.key,
-                      mediaType: uploaded.mediaType
+                      mediaType: uploaded.mediaType,
+                      id: uploaded.id,
+                      objectKey: uploaded.objectKey,
+                      ingestStatus: uploaded.status
                     }
                   : f
               )

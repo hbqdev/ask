@@ -4,15 +4,84 @@ import { promises as fs } from 'node:fs'
 import path from 'node:path'
 
 import { getCurrentUserId } from '@/lib/auth/get-current-user'
-import { processFileForRAG } from '@/lib/embeddings/upload-rag'
+import { createFileRecord, markFileReady } from '@/lib/db/file-actions'
+import { isTextFamily, processFileForRAG } from '@/lib/embeddings/upload-rag'
 
 // Local-only upload store. Self-hosted deploys don't depend on any cloud
 // storage — files live in /app/uploads inside the container (ephemeral;
 // recreated on `docker compose up -d --force-recreate morphic`).
 
-const MAX_FILE_SIZE = 10 * 1024 * 1024 // 10MB
-const ALLOWED_TYPES = ['image/jpeg', 'image/png', 'application/pdf']
+const MAX_FILE_SIZE = 2 * 1024 * 1024 * 1024 // 2GB
 const UPLOADS_DIR = process.env.UPLOADS_DIR || '/app/uploads'
+// Files at or under this size get RAG-indexed inline (fast path) instead of
+// waiting on the async ingestion worker — most uploads are small enough
+// that the extra round trip through the job queue would only add latency.
+const FAST_PATH_MAX_BYTES = 20 * 1024 * 1024 // 20MB
+
+// Broad allowlist: office docs, media, code, and text formats. Extension is
+// checked in addition to media type because browsers/clients frequently
+// send generic or incorrect content-types (e.g. `application/octet-stream`
+// for code files) — requiring both keeps this from being a wildcard filter.
+const ALLOWED_MEDIA_PREFIXES = ['image/', 'audio/', 'video/', 'text/']
+const ALLOWED_EXACT = new Set([
+  'application/pdf',
+  'application/json',
+  'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+  'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+  'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+  'application/epub+zip',
+  'application/octet-stream' // code files; gated by extension below
+])
+const ALLOWED_EXTENSIONS = new Set([
+  'pdf',
+  'docx',
+  'xlsx',
+  'pptx',
+  'csv',
+  'txt',
+  'md',
+  'html',
+  'epub',
+  'jpg',
+  'jpeg',
+  'png',
+  'webp',
+  'gif',
+  'mp3',
+  'm4a',
+  'wav',
+  'ogg',
+  'flac',
+  'mp4',
+  'mkv',
+  'webm',
+  'mov',
+  'ts',
+  'js',
+  'tsx',
+  'jsx',
+  'py',
+  'go',
+  'rs',
+  'java',
+  'c',
+  'cpp',
+  'h',
+  'sh',
+  'json',
+  'yaml',
+  'yml',
+  'toml'
+])
+
+function isAllowed(mediaType: string, filename: string): boolean {
+  const ext = filename.split('.').pop()?.toLowerCase() ?? ''
+  if (!ALLOWED_EXTENSIONS.has(ext)) return false
+  return (
+    ALLOWED_EXACT.has(mediaType) ||
+    ALLOWED_MEDIA_PREFIXES.some(p => mediaType.startsWith(p))
+  )
+}
 
 function sanitizeFilename(filename: string) {
   return filename.replace(/[^a-z0-9.\-_]/gi, '_').toLowerCase()
@@ -40,61 +109,98 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
     }
 
-    const contentType = req.headers.get('content-type') || ''
-    if (!contentType.includes('multipart/form-data')) {
-      return NextResponse.json(
-        { error: 'Invalid content type' },
-        { status: 400 }
-      )
-    }
-
-    const formData = await req.formData()
-    const file = formData.get('file') as File
-    const chatId = formData.get('chatId') as string
-    if (!file) {
+    const filename = decodeURIComponent(req.headers.get('x-filename') ?? '')
+    const chatId = req.headers.get('x-chat-id') || null
+    const mediaType =
+      req.headers.get('content-type') || 'application/octet-stream'
+    if (!filename || !req.body) {
       return NextResponse.json({ error: 'File is required' }, { status: 400 })
     }
-
-    if (file.size > MAX_FILE_SIZE) {
-      return NextResponse.json(
-        { error: 'File too large (max 10MB)' },
-        { status: 400 }
-      )
-    }
-
-    if (!ALLOWED_TYPES.includes(file.type)) {
+    if (!isAllowed(mediaType, filename)) {
       return NextResponse.json(
         { error: 'Unsupported file type' },
         { status: 400 }
       )
     }
 
-    // Layout: <UPLOADS_DIR>/<userId>/<chatId>/<timestamp>-<sanitized-name>
+    const declaredSize = Number(req.headers.get('content-length') ?? 0)
+    if (declaredSize > MAX_FILE_SIZE) {
+      return NextResponse.json(
+        { error: 'File too large (max 2GB)' },
+        { status: 400 }
+      )
+    }
+
+    // Layout: <UPLOADS_DIR>/<userId>/chats/<chatId>/<timestamp>-<sanitized-name>
     // userId-scoped so a user can only access their own files (the static
     // route also checks this). chatId-scoped for easy per-thread debugging.
-    const sanitizedName = sanitizeFilename(file.name)
-    const relativePath = `${userId}/chats/${chatId}/${Date.now()}-${sanitizedName}`
-    const absDir = path.join(UPLOADS_DIR, userId, 'chats', chatId)
-    const absPath = path.join(UPLOADS_DIR, relativePath)
+    const sanitizedName = sanitizeFilename(filename)
+    const objectKey = `${userId}/chats/${chatId ?? 'none'}/${Date.now()}-${sanitizedName}`
+    const absPath = path.join(UPLOADS_DIR, objectKey)
+    await fs.mkdir(path.dirname(absPath), { recursive: true })
 
-    await fs.mkdir(absDir, { recursive: true })
-    const buffer = Buffer.from(await file.arrayBuffer())
-    await fs.writeFile(absPath, buffer)
+    // Stream the body to disk, enforcing the cap as bytes arrive — a 2GB
+    // upload must never be buffered in process memory.
+    const { createWriteStream } = await import('node:fs')
+    const { Readable, Transform } = await import('node:stream')
+    const { pipeline } = await import('node:stream/promises')
+    let written = 0
+    const guard = new Transform({
+      transform(chunk, _enc, cb) {
+        written += chunk.length
+        if (written > MAX_FILE_SIZE) cb(new Error('too-large'))
+        else cb(null, chunk)
+      }
+    })
+    try {
+      await pipeline(
+        Readable.fromWeb(req.body as any),
+        guard,
+        createWriteStream(absPath)
+      )
+    } catch (e) {
+      await fs.unlink(absPath).catch(() => {})
+      if ((e as Error).message === 'too-large') {
+        return NextResponse.json(
+          { error: 'File too large (max 2GB)' },
+          { status: 400 }
+        )
+      }
+      throw e
+    }
 
-    // Build RAG index (chunks + embeddings) for text-based files.
-    // Runs async — errors are logged but don't fail the upload response.
-    processFileForRAG(absPath, file.type, file.name).catch(err =>
-      console.error('[upload] RAG processing failed:', err)
-    )
+    const publicUrl = publicUrlFor(req, `/uploads/${objectKey}`)
+    const eligibleForFastPath =
+      isTextFamily(mediaType, filename) && written <= FAST_PATH_MAX_BYTES
 
-    const publicUrl = publicUrlFor(req, `/uploads/${relativePath}`)
+    const { id } = await createFileRecord({
+      userId,
+      chatId,
+      filename,
+      url: publicUrl,
+      objectKey,
+      mediaType,
+      size: written,
+      status: 'pending'
+    })
+
+    if (eligibleForFastPath) {
+      // Fire-and-forget like today's chunking; typically done in seconds.
+      processFileForRAG(absPath, mediaType, filename)
+        .then(ok => (ok ? markFileReady(id) : undefined))
+        .catch(err => console.error('[upload] fast path failed:', err))
+    }
+
     return NextResponse.json(
       {
         success: true,
         file: {
-          filename: file.name,
+          id,
+          filename,
           url: publicUrl,
-          mediaType: file.type,
+          mediaType,
+          objectKey,
+          status: 'pending',
           type: 'file'
         }
       },
