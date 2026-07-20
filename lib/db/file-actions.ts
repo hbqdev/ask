@@ -71,11 +71,31 @@ export async function markFileReady(id: string): Promise<void> {
     .where(eq(files.id, id))
 }
 
+// Finalize jobs that reached the attempt cap via silent worker death: the
+// worker claimed them (attempts++ to MAX_ATTEMPTS) but never reported back, so
+// they sit status='processing' — excluded from the attempts<MAX requeue
+// selector below, and thus stuck forever. Spec is "max 3 attempts → failed
+// with reason", so sweep them to 'failed' once their claim goes stale. Runs at
+// the start of every claim poll, so a stuck row is finalized within one stale
+// window.
+async function finalizeStuckJobs(): Promise<void> {
+  await db.execute(sql`
+    UPDATE files SET
+      status = 'failed',
+      ingest_error = 'retries exhausted',
+      ingest_stage = NULL,
+      claimed_at = NULL
+    WHERE status = 'processing'
+      AND attempts >= ${MAX_ATTEMPTS}
+      AND claimed_at < now() - interval '${sql.raw(String(STALE_CLAIM_MINUTES))} minutes'
+  `)
+}
+
 // Atomic claim: oldest pending job, or a stale processing job (worker
 // crashed / box slept mid-run). FOR UPDATE SKIP LOCKED makes concurrent
 // claims safe. Jobs at the attempt cap are finalized to failed by the
-// same statement family (see completeIngestFailure); the claim query
-// simply never selects rows with attempts >= MAX_ATTEMPTS.
+// finalizeStuckJobs sweep run first (below) and by completeIngestFailure;
+// the claim query itself never selects rows with attempts >= MAX_ATTEMPTS.
 export async function claimNextIngestJob(): Promise<{
   id: string
   filename: string
@@ -83,6 +103,8 @@ export async function claimNextIngestJob(): Promise<{
   size: number | null
   objectKey: string
 } | null> {
+  // Sweep stuck-at-cap rows to failed before claiming so they don't linger.
+  await finalizeStuckJobs()
   const result = await db.execute(sql`
     UPDATE files SET
       status = 'processing',

@@ -21,11 +21,13 @@ describe('file-actions ingest state', () => {
   beforeEach(() => vi.clearAllMocks())
 
   it('claimNextIngestJob returns null on an empty queue', async () => {
-    execute.mockResolvedValueOnce([])
+    execute.mockResolvedValueOnce([]) // finalize-stuck sweep
+    execute.mockResolvedValueOnce([]) // claim UPDATE
     expect(await claimNextIngestJob()).toBeNull()
   })
 
   it('claimNextIngestJob returns the claimed row', async () => {
+    execute.mockResolvedValueOnce([]) // finalize-stuck sweep
     execute.mockResolvedValueOnce([
       {
         id: 'f1',
@@ -42,6 +44,32 @@ describe('file-actions ingest state', () => {
       size: 123,
       objectKey: 'u1/chats/c1/1-a.mp3'
     })
+  })
+
+  // Spec: a job that reaches attempts=MAX via silent worker death (never
+  // reports) is left status='processing', is excluded from the attempts<MAX
+  // requeue selector, and would otherwise be stuck forever. Every claim poll
+  // must first finalize such rows to 'failed' with a reason so they leave the
+  // queue within one stale window.
+  it('finalizes stuck processing rows (attempts>=MAX, stale claim) to failed before claiming', async () => {
+    execute.mockResolvedValueOnce([]) // finalize-stuck sweep
+    execute.mockResolvedValueOnce([]) // claim UPDATE (empty queue)
+
+    await claimNextIngestJob()
+
+    expect(execute).toHaveBeenCalledTimes(2)
+    const sweepCall = execute.mock.calls[0][0]
+    const { sql: compiled, params } = new PgDialect().sqlToQuery(sweepCall)
+    expect(compiled).toMatch(/status\s*=\s*'failed'/i)
+    expect(compiled).toMatch(/ingest_error\s*=\s*'retries exhausted'/i)
+    expect(compiled).toMatch(/ingest_stage\s*=\s*NULL/i)
+    expect(compiled).toMatch(/claimed_at\s*=\s*NULL/i)
+    // Only sweeps rows that are still 'processing', at/over the attempt cap,
+    // and stale — never a healthy in-flight job.
+    expect(compiled).toMatch(/status\s*=\s*'processing'/i)
+    expect(compiled).toMatch(/attempts\s*>=\s*\$/)
+    expect(compiled).toMatch(/claimed_at\s*<\s*now\(\)/i)
+    expect(params).toContain(3) // MAX_ATTEMPTS
   })
 
   // Compiles the SQL object actually handed to db.execute (2nd call = the
