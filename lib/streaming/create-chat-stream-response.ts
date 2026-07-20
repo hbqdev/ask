@@ -223,8 +223,13 @@ export async function createChatStreamResponse(
           })
         }
 
+        // Only resolve vision capability when there's actually an attachment
+        // to transform — otherwise this would hit Ollama's /api/show on every
+        // plain chat turn for nothing.
+        const modelHasVision =
+          attachmentCount > 0 ? await modelSupportsVision(model) : false
         const messagesForModel = await transformFileParts(messagesToConvert, {
-          modelHasVision: modelSupportsVision(model),
+          modelHasVision,
           userId
         })
 

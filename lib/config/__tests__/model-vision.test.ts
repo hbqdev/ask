@@ -1,57 +1,102 @@
-import { describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+
+// Mock the Ollama client so vision detection is driven by a controllable
+// `/api/show` capabilities response rather than a live Ollama instance.
+const { getModelCapabilities } = vi.hoisted(() => ({
+  getModelCapabilities: vi.fn()
+}))
+vi.mock('@/lib/ollama/client', () => ({
+  OllamaClient: class {
+    getModelCapabilities = getModelCapabilities
+  }
+}))
 
 import { modelSupportsVision } from '../model-vision'
 
+function caps(list: string[]) {
+  return { name: 'm', capabilities: list, contextWindow: 0, parameters: {} }
+}
+
+const ORIGINAL_BASE_URL = process.env.OLLAMA_BASE_URL
+
 describe('modelSupportsVision', () => {
-  it('honors an explicit vision flag over inference', () => {
-    // Explicit false wins even for an id that would otherwise infer true.
-    expect(modelSupportsVision({ id: 'gemini-3-flash', vision: false })).toBe(
-      false
-    )
-    // Explicit true wins even for an id that would otherwise infer false.
-    expect(modelSupportsVision({ id: 'deepseek-v4-flash', vision: true })).toBe(
-      true
-    )
+  beforeEach(() => {
+    getModelCapabilities.mockReset()
+    process.env.OLLAMA_BASE_URL = 'http://ollama.test'
   })
 
-  it('infers vision for known multimodal families', () => {
-    for (const id of [
-      'gemini-3-flash-preview',
-      'gemini-3.1-flash-lite',
-      'gpt-4o',
-      'gpt-4.1-mini',
-      'gpt-5',
-      'o1',
-      'o3',
-      'claude-3-5-sonnet',
-      'claude-sonnet-4-5',
-      'qwen3-vl',
-      'pixtral-12b',
-      'llava-1.6'
-    ]) {
-      expect(modelSupportsVision({ id })).toBe(true)
-    }
+  afterEach(() => {
+    process.env.OLLAMA_BASE_URL = ORIGINAL_BASE_URL
   })
 
-  it('does NOT infer vision for text-only o-series -mini models (o1-mini/o3-mini accept no images)', () => {
-    for (const id of ['o1-mini', 'o3-mini', 'o4-mini', 'o3-mini-2025-01-31']) {
-      expect(modelSupportsVision({ id })).toBe(false)
-    }
+  it('honors an explicit vision flag without any Ollama lookup', async () => {
+    // Explicit true wins even for an Ollama model that reports no vision.
+    expect(
+      await modelSupportsVision({
+        id: 'explicit-true',
+        providerId: 'ollama',
+        vision: true
+      })
+    ).toBe(true)
+    // Explicit false wins even for an Ollama model that reports vision.
+    expect(
+      await modelSupportsVision({
+        id: 'explicit-false',
+        providerId: 'ollama',
+        vision: false
+      })
+    ).toBe(false)
+    expect(getModelCapabilities).not.toHaveBeenCalled()
   })
 
-  it('still honors an explicit vision:true even for an o-series -mini id', () => {
-    expect(modelSupportsVision({ id: 'o3-mini', vision: true })).toBe(true)
+  it('reports vision when Ollama /api/show lists the "vision" capability', async () => {
+    getModelCapabilities.mockResolvedValue(caps(['completion', 'vision']))
+    expect(
+      await modelSupportsVision({ id: 'qwen3-vl:4b', providerId: 'ollama' })
+    ).toBe(true)
+    expect(getModelCapabilities).toHaveBeenCalledWith('qwen3-vl:4b')
   })
 
-  it('treats unknown / text-only models as non-vision (safe fallback)', () => {
-    for (const id of [
-      'deepseek-v4-flash',
-      'kimi-k2.6',
-      'granite4.1:8b',
-      'minimax-m3',
-      'mistral-large'
-    ]) {
-      expect(modelSupportsVision({ id })).toBe(false)
-    }
+  it('reports no vision when Ollama capabilities lack "vision"', async () => {
+    getModelCapabilities.mockResolvedValue(caps(['completion', 'tools']))
+    expect(
+      await modelSupportsVision({ id: 'qwen3:8b', providerId: 'ollama' })
+    ).toBe(false)
+  })
+
+  it('falls back to text-only when Ollama is unreachable (safe direction)', async () => {
+    getModelCapabilities.mockRejectedValue(new Error('ECONNREFUSED'))
+    expect(
+      await modelSupportsVision({
+        id: 'unreachable-model',
+        providerId: 'ollama'
+      })
+    ).toBe(false)
+  })
+
+  it('does not query Ollama for a non-Ollama model without an explicit flag', async () => {
+    expect(
+      await modelSupportsVision({
+        id: 'some-cloud-model',
+        providerId: 'openai'
+      })
+    ).toBe(false)
+    expect(getModelCapabilities).not.toHaveBeenCalled()
+  })
+
+  it('returns text-only (and skips the lookup) when OLLAMA_BASE_URL is unset', async () => {
+    delete process.env.OLLAMA_BASE_URL
+    expect(
+      await modelSupportsVision({ id: 'no-base-url', providerId: 'ollama' })
+    ).toBe(false)
+    expect(getModelCapabilities).not.toHaveBeenCalled()
+  })
+
+  it('caches the resolved capability so repeated turns hit Ollama only once', async () => {
+    getModelCapabilities.mockResolvedValue(caps(['vision']))
+    const model = { id: 'cached-vl:latest', providerId: 'ollama' }
+    expect(await modelSupportsVision(model)).toBe(true)
+    expect(await modelSupportsVision(model)).toBe(true)
+    expect(getModelCapabilities).toHaveBeenCalledTimes(1)
   })
 })
