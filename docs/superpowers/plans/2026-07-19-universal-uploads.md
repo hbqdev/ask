@@ -70,12 +70,14 @@ selfhosted/ingestor/                      (NEW service — lives OUTSIDE the ask
 ### Task 1: `files` ingestion columns, migration, and `file-actions`
 
 **Files:**
+
 - Modify: `lib/db/schema.ts` (files table, after `size`)
 - Create: `drizzle/0018_files_ingest_status.sql`
 - Create: `lib/db/file-actions.ts`
 - Test: `lib/db/__tests__/file-actions.test.ts`
 
 **Interfaces:**
+
 - Produces (used by Tasks 2–6):
   - `createFileRecord(input: { userId: string; chatId: string | null; filename: string; url: string; objectKey: string; mediaType: string; size: number; status?: 'pending' | 'ready' }): Promise<{ id: string }>`
   - `findFileByObjectKey(objectKey: string): Promise<FileRow | null>`
@@ -129,10 +131,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 const execute = vi.fn()
 vi.mock('@/lib/db', () => ({ db: { execute } }))
 
-import {
-  claimNextIngestJob,
-  completeIngestFailure
-} from '../file-actions'
+import { claimNextIngestJob, completeIngestFailure } from '../file-actions'
 
 describe('file-actions ingest state', () => {
   beforeEach(() => vi.clearAllMocks())
@@ -367,10 +366,12 @@ export async function getFileStatusesForUser(
 ### Task 2: Fast-path extraction in `upload-rag`
 
 **Files:**
+
 - Modify: `lib/embeddings/upload-rag.ts`
 - Test: `lib/embeddings/__tests__/upload-rag-fastpath.test.ts`
 
 **Interfaces:**
+
 - Produces: `processFileForRAG(filePath, mediaType, filename): Promise<boolean>` — CHANGED return type: `true` if a chunks file was written (fast path succeeded), `false` otherwise. Text-family support widened.
 - Produces: `TEXT_FAMILY_TYPES: Set<string>` and `isTextFamily(mediaType: string, filename: string): boolean` — exported for the upload route's fast-path eligibility check (Task 3).
 - Consumes: nothing new.
@@ -437,8 +438,27 @@ describe('fast-path extraction', () => {
 // Extensions treated as plain text for the local fast path (code files
 // often arrive as application/octet-stream, so extension matters too).
 const TEXT_EXTENSIONS = new Set([
-  'txt', 'md', 'csv', 'html', 'htm', 'json', 'yaml', 'yml', 'toml',
-  'ts', 'js', 'tsx', 'jsx', 'py', 'go', 'rs', 'java', 'c', 'cpp', 'h', 'sh'
+  'txt',
+  'md',
+  'csv',
+  'html',
+  'htm',
+  'json',
+  'yaml',
+  'yml',
+  'toml',
+  'ts',
+  'js',
+  'tsx',
+  'jsx',
+  'py',
+  'go',
+  'rs',
+  'java',
+  'c',
+  'cpp',
+  'h',
+  'sh'
 ])
 
 export function isTextFamily(mediaType: string, filename: string): boolean {
@@ -529,12 +549,14 @@ export async function storeExtractedChunks(
 ### Task 3: Upload route — streaming writes, 2GB cap, allowlist, file row, fast path
 
 **Files:**
+
 - Modify: `app/api/upload/route.ts` (full rewrite of POST)
 - Modify: `lib/types/index.ts` (`UploadedFile` gains `id?: string`, `objectKey?: string`, `ingestStatus?: 'pending' | 'processing' | 'ready' | 'failed'`)
 - Modify: `components/chat-panel.tsx` (upload fetch: send raw streamed body with metadata headers; store returned `file.id`/`objectKey`/`status` into the `UploadedFile`)
 - Test: `app/api/upload/__tests__/route.test.ts`
 
 **Interfaces:**
+
 - Consumes: `createFileRecord`, `markFileReady` (Task 1); `processFileForRAG`, `isTextFamily` (Task 2).
 - Produces: upload response shape `{ success: true, file: { id, filename, url, mediaType, objectKey, status, type: 'file' } }` — the client and Task 6 chip rely on `id`, `objectKey`, `status`.
 
@@ -570,12 +592,45 @@ const ALLOWED_EXACT = new Set([
   'application/octet-stream' // code files; gated by extension below
 ])
 const ALLOWED_EXTENSIONS = new Set([
-  'pdf', 'docx', 'xlsx', 'pptx', 'csv', 'txt', 'md', 'html', 'epub',
-  'jpg', 'jpeg', 'png', 'webp', 'gif',
-  'mp3', 'm4a', 'wav', 'ogg', 'flac',
-  'mp4', 'mkv', 'webm', 'mov',
-  'ts', 'js', 'tsx', 'jsx', 'py', 'go', 'rs', 'java', 'c', 'cpp', 'h',
-  'sh', 'json', 'yaml', 'yml', 'toml'
+  'pdf',
+  'docx',
+  'xlsx',
+  'pptx',
+  'csv',
+  'txt',
+  'md',
+  'html',
+  'epub',
+  'jpg',
+  'jpeg',
+  'png',
+  'webp',
+  'gif',
+  'mp3',
+  'm4a',
+  'wav',
+  'ogg',
+  'flac',
+  'mp4',
+  'mkv',
+  'webm',
+  'mov',
+  'ts',
+  'js',
+  'tsx',
+  'jsx',
+  'py',
+  'go',
+  'rs',
+  'java',
+  'c',
+  'cpp',
+  'h',
+  'sh',
+  'json',
+  'yaml',
+  'yml',
+  'toml'
 ])
 
 function isAllowed(mediaType: string, filename: string): boolean {
@@ -595,15 +650,22 @@ export async function POST(req: NextRequest) {
 
     const filename = decodeURIComponent(req.headers.get('x-filename') ?? '')
     const chatId = req.headers.get('x-chat-id') || null
-    const mediaType = req.headers.get('content-type') || 'application/octet-stream'
+    const mediaType =
+      req.headers.get('content-type') || 'application/octet-stream'
     if (!filename || !req.body)
       return NextResponse.json({ error: 'File is required' }, { status: 400 })
     if (!isAllowed(mediaType, filename))
-      return NextResponse.json({ error: 'Unsupported file type' }, { status: 400 })
+      return NextResponse.json(
+        { error: 'Unsupported file type' },
+        { status: 400 }
+      )
 
     const declaredSize = Number(req.headers.get('content-length') ?? 0)
     if (declaredSize > MAX_FILE_SIZE)
-      return NextResponse.json({ error: 'File too large (max 2GB)' }, { status: 400 })
+      return NextResponse.json(
+        { error: 'File too large (max 2GB)' },
+        { status: 400 }
+      )
 
     const sanitizedName = sanitizeFilename(filename)
     const objectKey = `${userId}/chats/${chatId ?? 'none'}/${Date.now()}-${sanitizedName}`
@@ -632,7 +694,10 @@ export async function POST(req: NextRequest) {
     } catch (e) {
       await fs.unlink(absPath).catch(() => {})
       if ((e as Error).message === 'too-large')
-        return NextResponse.json({ error: 'File too large (max 2GB)' }, { status: 400 })
+        return NextResponse.json(
+          { error: 'File too large (max 2GB)' },
+          { status: 400 }
+        )
       throw e
     }
 
@@ -694,11 +759,13 @@ export async function POST(req: NextRequest) {
 ### Task 4: Token-authed ingest job API
 
 **Files:**
+
 - Create: `lib/utils/ingest-auth.ts`
 - Create: `app/api/ingest/claim/route.ts`, `app/api/ingest/file/[id]/route.ts`, `app/api/ingest/progress/route.ts`, `app/api/ingest/complete/route.ts`
 - Test: `app/api/ingest/__tests__/routes.test.ts`
 
 **Interfaces:**
+
 - Consumes: all Task 1 actions; `storeExtractedChunks` (Task 2); `chunksFilePath` unused here.
 - Produces (worker contract, Tasks 8–10):
   - `POST /api/ingest/claim` → `200 { fileId, filename, mediaType, size }` | `204`
@@ -849,7 +916,11 @@ export async function POST(req: NextRequest) {
   if (typeof fileId !== 'string')
     return NextResponse.json({ error: 'bad request' }, { status: 400 })
 
-  const rows = await db.select().from(files).where(eq(files.id, fileId)).limit(1)
+  const rows = await db
+    .select()
+    .from(files)
+    .where(eq(files.id, fileId))
+    .limit(1)
   const row = rows[0]
   if (!row?.objectKey)
     return NextResponse.json({ error: 'unknown file' }, { status: 404 })
@@ -891,10 +962,12 @@ export async function POST(req: NextRequest) {
 ### Task 5: Status-aware `transform-file-parts`
 
 **Files:**
+
 - Modify: `lib/streaming/helpers/transform-file-parts.ts`
 - Test: `lib/streaming/helpers/__tests__/transform-file-parts.test.ts` (new)
 
 **Interfaces:**
+
 - Consumes: `findFileByObjectKey` (Task 1); existing `queryFileChunks`.
 - Behavior contract (verbatim strings used by tests):
   - pending/processing → `[Attached file: NAME — still being processed (STAGE). Its content is not available yet; tell the user to ask again shortly.]` where STAGE falls back to `queued`.
@@ -1007,12 +1080,14 @@ async function transformPart(part: any, userQuery: string): Promise<any[]> {
 ### Task 6: Status polling API + attachment chip UI
 
 **Files:**
+
 - Create: `app/api/files/status/route.ts`
 - Modify: `components/uploaded-file-list.tsx` (status affordance + polling)
 - Modify: `components/chat-panel.tsx` (thread `ingestStatus`/`id`/`objectKey` through `UploadedFile` state; poll only while any file is pending/processing)
 - Test: `app/api/files/__tests__/status.test.ts`, extend `components/__tests__/chat-panel.test.tsx` if the chip logic lands there
 
 **Interfaces:**
+
 - Consumes: `getFileStatusesForUser` (Task 1).
 - Produces: `GET /api/files/status?keys=<comma-separated objectKeys>` (session-authed) → `{ statuses: Array<{ objectKey, status, ingestStage, ingestError }> }`.
 
@@ -1051,6 +1126,7 @@ Chip behavior in `uploaded-file-list.tsx`: each entry renders its filename plus 
 ### Task 7: model-manager registry + env plumbing
 
 **Files:**
+
 - Modify: `selfhosted/model-manager/lib/env-schema.ts` (new `Ingestion` group in `models`)
 - Modify: `.env` (staging/prod add `INGEST_API_TOKEN=<openssl rand -hex 32>` — value generated at deploy time, not committed)
 
@@ -1079,11 +1155,13 @@ Chip behavior in `uploaded-file-list.tsx`: each entry renders its filename plus 
 ### Task 8: Worker scaffold — config, Ask client, chunking, VLM client, poll loop
 
 **Files (all NEW, under `/home/nightfury/selfhosted/ingestor/` — not in the ask repo):**
+
 - `Dockerfile`, `docker-compose.yaml`, `.env.example`, `requirements.txt`
 - `app/config.py`, `app/ask_client.py`, `app/chunking.py`, `app/vlm.py`, `app/worker.py`
 - `tests/test_chunking.py`, `tests/test_dispatch.py`
 
 **Interfaces:**
+
 - Consumes: the Task 4 HTTP contract verbatim.
 - Produces (used by Task 9 extractors): `config.settings` (env-driven), `ask_client.AskClient` with `claim() -> dict | None`, `download(file_id, dest_path)`, `progress(file_id, stage)`, `complete_success(file_id, chunks: list[str])` (retries on 503 with 30s backoff, heartbeating between tries), `complete_failure(file_id, error: str, retryable: bool)`; `chunking.timestamp_prefix(start_s: float, end_s: float) -> str` (returns `[HH:MM:SS–HH:MM:SS] `), `chunking.merge_timed_segments(segments: list[tuple[float, float, str]], window_s=120) -> list[str]`; `vlm.describe_image(png_path: str, prompt: str) -> str` (serialized by a global `threading.Lock`, temperature 0, calls `OLLAMA_URL /api/chat` with the base64 image); `worker.EXTRACTORS: dict[str, callable]` dispatch registry keyed by family (`document|image|audio|video|pdf`), `worker.family_for(media_type: str, filename: str) -> str`.
 
@@ -1122,7 +1200,7 @@ services:
     container_name: ingestor
     env_file: .env
     extra_hosts:
-      - "host.docker.internal:host-gateway"
+      - 'host.docker.internal:host-gateway'
     volumes:
       - whisper-cache:/root/.cache/huggingface
     restart: unless-stopped
@@ -1296,10 +1374,12 @@ def describe_image(png_path, prompt: str) -> str:
 ### Task 9: Worker extractors (documents, pdf-OCR, image, audio, video)
 
 **Files:**
+
 - Create: `app/extractors/__init__.py`, `documents.py`, `image_ocr.py`, `audio.py`, `video.py`
 - Test: extend `tests/test_dispatch.py` with per-extractor unit tests (subprocess + VLM + whisper mocked via monkeypatch)
 
 **Interfaces:**
+
 - Every extractor: `extract(path: Path, job: dict, client: AskClient) -> list[str]` (raises `RetryableError` for transient causes, any other exception = permanent). `documents.extract_pdf` same signature.
 - Consumes: `vlm.describe_image`, `chunking.*`, `client.progress`.
 

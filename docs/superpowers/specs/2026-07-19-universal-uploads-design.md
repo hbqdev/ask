@@ -42,12 +42,12 @@ when it returns.
 
 ## Hardware and model allocation (validated 2026-07-19)
 
-| Resource | Role | Validation |
-|---|---|---|
-| NightFuryX Threadripper 3970X (32c/64t, 117GB RAM in WSL) | all CPU ingestion stages | — |
-| GTX 1070 8GB (`GPU-ef45ddca-…`) | `qwen3-vl:4b` via the box's ollama, pinned by UUID via `CUDA_VISIBLE_DEVICES` | invoice/chart extraction correct on Pascal; ~16–45s per image warm; ~5.4GB resident |
-| RTX 2080 Ti (`GPU-1eed568b-…`) | production reranker ONLY (untouched by this feature) | compose pinned by UUID |
-| Quadro P2200 | unused (per standing decision) | — |
+| Resource                                                  | Role                                                                          | Validation                                                                          |
+| --------------------------------------------------------- | ----------------------------------------------------------------------------- | ----------------------------------------------------------------------------------- |
+| NightFuryX Threadripper 3970X (32c/64t, 117GB RAM in WSL) | all CPU ingestion stages                                                      | —                                                                                   |
+| GTX 1070 8GB (`GPU-ef45ddca-…`)                           | `qwen3-vl:4b` via the box's ollama, pinned by UUID via `CUDA_VISIBLE_DEVICES` | invoice/chart extraction correct on Pascal; ~16–45s per image warm; ~5.4GB resident |
+| RTX 2080 Ti (`GPU-1eed568b-…`)                            | production reranker ONLY (untouched by this feature)                          | compose pinned by UUID                                                              |
+| Quadro P2200                                              | unused (per standing decision)                                                | —                                                                                   |
 
 Ollama on NightFuryX runs with `OLLAMA_CONTEXT_LENGTH=8192` and is
 LAN-reachable at `http://192.168.50.169:11434` (the worker uses
@@ -109,9 +109,9 @@ New routes under `/api/ingest/*`, authenticated with bearer
 
 - `POST /api/ingest/claim` — atomically claims the oldest eligible job:
   a single `UPDATE … SET status='processing', claimedAt=now(),
-  attempts=attempts+1 WHERE id = (SELECT … WHERE status='pending' OR
-  (status='processing' AND claimedAt < now() - interval '30 minutes')
-  ORDER BY createdAt LIMIT 1 FOR UPDATE SKIP LOCKED) RETURNING …`.
+attempts=attempts+1 WHERE id = (SELECT … WHERE status='pending' OR
+(status='processing' AND claimedAt < now() - interval '30 minutes')
+ORDER BY createdAt LIMIT 1 FOR UPDATE SKIP LOCKED) RETURNING …`.
   Response: `{ fileId, filename, mediaType, size }` or `204 No Content`
   when the queue is empty. Jobs whose `attempts` exceed **3** are set
   `failed` (`ingestError='retries exhausted'`) instead of being claimable.
@@ -120,7 +120,7 @@ New routes under `/api/ingest/*`, authenticated with bearer
   and refreshes `claimedAt` (acts as the heartbeat that prevents stale
   requeue of long jobs like video).
 - `POST /api/ingest/complete` — `{ fileId, chunks: string[], error?:
-  string, retryable?: boolean }`. On success Ask embeds the chunks
+string, retryable?: boolean }`. On success Ask embeds the chunks
   (existing `embedTexts`, document kind, configured model), writes
   `chunks.json`, sets `ready`/`ingestedAt`. On `error` with
   `retryable: true` (transient causes: ollama down, out of disk) the job
@@ -179,8 +179,8 @@ with `error` and moves on.
 - Look up the file row by URL/objectKey to make the injection
   **status-aware**:
   - `pending`/`processing` → inject `[Attached file: NAME — still being
-    processed (STAGE). Its content is not available yet; tell the user to
-    ask again shortly.]`
+processed (STAGE). Its content is not available yet; tell the user to
+ask again shortly.]`
   - `failed` → inject `[Attached file: NAME — processing failed: REASON.]`
 - Images: keep today's base64 pass-through **in addition to** injected
   excerpts once ready — vision-capable answering models still see pixels;
@@ -210,14 +210,14 @@ group): `INGEST_API_TOKEN` (secret). Worker env (`selfhosted/ingestor/
 
 ## Failure handling summary
 
-| Failure | Behavior |
-|---|---|
-| Worker down / box asleep | jobs sit `pending`; chips show queued; text docs unaffected (fast path) |
-| Worker dies mid-job | heartbeat stops → 30-min stale requeue, max 3 attempts → `failed` with reason |
-| VLM unavailable (ollama down) | affected job reports `complete` with error → retried on next claim cycle (counts toward attempts) |
-| Embedder down at `complete` | Ask returns 503 to `complete`; worker retries completion with backoff, job stays claimed (heartbeat keeps it) |
-| Oversized/corrupt file | extraction error → `failed` + reason in chip tooltip and answer injection |
-| Send before ready | honest "still processing" answer; retry later works |
+| Failure                       | Behavior                                                                                                      |
+| ----------------------------- | ------------------------------------------------------------------------------------------------------------- |
+| Worker down / box asleep      | jobs sit `pending`; chips show queued; text docs unaffected (fast path)                                       |
+| Worker dies mid-job           | heartbeat stops → 30-min stale requeue, max 3 attempts → `failed` with reason                                 |
+| VLM unavailable (ollama down) | affected job reports `complete` with error → retried on next claim cycle (counts toward attempts)             |
+| Embedder down at `complete`   | Ask returns 503 to `complete`; worker retries completion with backoff, job stays claimed (heartbeat keeps it) |
+| Oversized/corrupt file        | extraction error → `failed` + reason in chip tooltip and answer injection                                     |
+| Send before ready             | honest "still processing" answer; retry later works                                                           |
 
 ## Testing
 
