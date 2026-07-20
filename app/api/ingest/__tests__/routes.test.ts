@@ -393,6 +393,27 @@ describe('POST /api/ingest/complete', () => {
     )
   })
 
+  it('rejects an objectKey that resolves outside UPLOADS_DIR with 400 (defense-in-depth)', async () => {
+    mockDbSelect([
+      {
+        id: 'f1',
+        objectKey: '../../../../../../../../etc/passwd',
+        filename: 'passwd'
+      }
+    ])
+
+    const res = await completePOST(
+      postReq('http://x/api/ingest/complete', AUTH, {
+        fileId: 'f1',
+        chunks: ['a']
+      })
+    )
+
+    expect(res.status).toBe(400)
+    expect(storeExtractedChunks).not.toHaveBeenCalled()
+    expect(markFileReady).not.toHaveBeenCalled()
+  })
+
   it('rejects non-string chunk entries with 400', async () => {
     mockDbSelect([{ id: 'f1', objectKey: 'u1/f1.pdf', filename: 'a.pdf' }])
 

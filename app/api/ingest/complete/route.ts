@@ -59,8 +59,15 @@ export async function POST(req: NextRequest) {
       { status: 400 }
     )
 
+  const abs = path.join(UPLOADS_DIR, row.objectKey)
+  // Defense-in-depth: objectKey is DB-sourced (written by the upload route,
+  // which sanitizes it) so it can't currently escape, but mirror the download
+  // route's containment guard so a future write path can't turn this into a
+  // path-traversal write.
+  if (!abs.startsWith(UPLOADS_DIR + path.sep))
+    return NextResponse.json({ error: 'invalid object key' }, { status: 400 })
+
   try {
-    const abs = path.join(UPLOADS_DIR, row.objectKey)
     await storeExtractedChunks(abs, row.filename, chunks)
   } catch (e) {
     // Embedder down — tell the worker to retry completion later; the job
