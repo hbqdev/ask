@@ -16,10 +16,16 @@ export async function POST(req: NextRequest) {
   const auth = checkIngestAuth(req.headers.get('authorization'))
   if (!auth.ok) return new NextResponse(null, { status: auth.status })
 
-  const body = await req.json()
+  let body: unknown
+  try {
+    body = await req.json()
+  } catch {
+    return NextResponse.json({ error: 'invalid JSON body' }, { status: 400 })
+  }
+
   const { fileId, chunks, error, retryable } = body as {
     fileId?: string
-    chunks?: string[]
+    chunks?: unknown[]
     error?: string
     retryable?: boolean
   }
@@ -46,6 +52,12 @@ export async function POST(req: NextRequest) {
 
   if (chunks.length > MAX_CHUNKS)
     return NextResponse.json({ error: 'too many chunks' }, { status: 400 })
+
+  if (!chunks.every((c): c is string => typeof c === 'string'))
+    return NextResponse.json(
+      { error: 'chunks must be strings' },
+      { status: 400 }
+    )
 
   try {
     const abs = path.join(UPLOADS_DIR, row.objectKey)
