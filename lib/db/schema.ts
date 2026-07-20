@@ -335,6 +335,20 @@ export const libraryFiles = pgTable(
     objectKey: text('object_key'),
     mediaType: varchar('media_type', { length: VARCHAR_LENGTH }).notNull(),
     size: integer('size'),
+    // Ingestion job state (universal uploads). pending → processing →
+    // ready | failed. Rows that predate the feature are backfilled to
+    // 'ready' by the migration.
+    status: varchar('status', {
+      length: VARCHAR_LENGTH,
+      enum: ['pending', 'processing', 'ready', 'failed']
+    })
+      .notNull()
+      .default('pending'),
+    ingestStage: varchar('ingest_stage', { length: VARCHAR_LENGTH }),
+    attempts: integer('attempts').notNull().default(0),
+    claimedAt: timestamp('claimed_at'),
+    ingestError: text('ingest_error'),
+    ingestedAt: timestamp('ingested_at'),
     createdAt: timestamp('created_at').notNull().defaultNow(),
     updatedAt: timestamp('updated_at').notNull().defaultNow()
   },
