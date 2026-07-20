@@ -2,6 +2,7 @@ import type { UIMessage } from 'ai'
 import { promises as fs } from 'node:fs'
 import path from 'node:path'
 
+import { findFileByObjectKey } from '@/lib/db/file-actions'
 import { queryFileChunks } from '@/lib/embeddings/upload-rag'
 
 const UPLOADS_DIR = process.env.UPLOADS_DIR || '/app/uploads'
@@ -18,6 +19,16 @@ function urlToLocalPath(url: string): string | null {
     )
       return null
     return resolved
+  } catch {
+    return null
+  }
+}
+
+function objectKeyFromUrl(url: string): string | null {
+  try {
+    const parsed = new URL(url)
+    if (!parsed.pathname.startsWith('/uploads/')) return null
+    return decodeURIComponent(parsed.pathname.slice('/uploads/'.length))
   } catch {
     return null
   }
@@ -46,29 +57,77 @@ async function transformPart(part: any, userQuery: string): Promise<any[]> {
   if (part.type !== 'file') return [part]
 
   const localPath = urlToLocalPath(part.url)
-  if (!localPath) return [part]
-  if (!(await fileExists(localPath))) return [] // dropped silently
-
+  const objectKey = objectKeyFromUrl(part.url)
+  if (!localPath || !objectKey) return [part]
   const filename = part.filename || path.basename(localPath)
 
-  // ── PDF — RAG retrieval ───────────────────────────────────────────────────
-  if (part.mediaType === 'application/pdf') {
-    const query = userQuery || filename
+  const row = await findFileByObjectKey(objectKey)
+  const status = row?.status ?? 'ready' // pre-feature files have no row
 
-    // Try RAG first (chunks.json produced at upload time)
-    const result = await queryFileChunks(localPath, query, 10)
+  if (status === 'pending' || status === 'processing') {
+    const stage = row?.ingestStage || 'queued'
+    return [
+      {
+        type: 'text',
+        text: `[Attached file: ${filename} — still being processed (${stage}). Its content is not available yet; tell the user to ask again shortly.]`
+      }
+    ]
+  }
+  if (status === 'failed') {
+    return [
+      {
+        type: 'text',
+        text: `[Attached file: ${filename} — processing failed: ${row?.ingestError ?? 'unknown error'}.]`
+      }
+    ]
+  }
+
+  if (!(await fileExists(localPath)))
+    return [
+      {
+        type: 'text',
+        text: `[Attached file: ${filename} — file is no longer available.]`
+      }
+    ]
+
+  const query = userQuery || filename
+  const result = await queryFileChunks(localPath, query, 10)
+
+  // ── Image — extracted text (if any) plus base64 pass-through ──────────────
+  if (part.mediaType?.startsWith('image/')) {
+    const out: any[] = []
     if (result) {
-      const context = result.chunks.join('\n\n---\n\n')
-      return [
-        {
-          type: 'text',
-          text: `[Attached document: ${filename}]\n\nRelevant excerpts:\n\n${context}`
-        }
-      ]
+      out.push({
+        type: 'text',
+        text: `[Attached image: ${filename}]\n\nExtracted content:\n\n${result.chunks.join('\n\n---\n\n')}`
+      })
     }
+    try {
+      const buf = await fs.readFile(localPath)
+      out.push({
+        ...part,
+        url: `data:${part.mediaType};base64,${buf.toString('base64')}`
+      })
+    } catch {
+      /* keep whatever text we already have */
+    }
+    return out
+  }
 
-    // Fallback: extract full text (handles files uploaded before RAG was added,
-    // or if chunking/embedding hasn't finished yet)
+  if (result) {
+    const context = result.chunks.join('\n\n---\n\n')
+    return [
+      {
+        type: 'text',
+        text: `[Attached document: ${filename}]\n\nRelevant excerpts:\n\n${context}`
+      }
+    ]
+  }
+
+  // Ready but no chunks (pre-feature upload, or chunking failed). PDFs get
+  // the pdftotext full-text fallback that predates the RAG pipeline; every
+  // other type gets an honest note instead of the old silent drop.
+  if (part.mediaType === 'application/pdf') {
     try {
       const { execFile } = await import('node:child_process')
       const { promisify } = await import('node:util')
@@ -96,22 +155,12 @@ async function transformPart(part: any, userQuery: string): Promise<any[]> {
     ]
   }
 
-  // ── Image — base64 encode ────────────────────────────────────────────────
-  if (part.mediaType?.startsWith('image/')) {
-    try {
-      const buf = await fs.readFile(localPath)
-      return [
-        {
-          ...part,
-          url: `data:${part.mediaType};base64,${buf.toString('base64')}`
-        }
-      ]
-    } catch {
-      return []
+  return [
+    {
+      type: 'text',
+      text: `[Attached file: ${filename}]\n\n(Could not extract content.)`
     }
-  }
-
-  return [] // unsupported type
+  ]
 }
 
 export async function transformFileParts(
