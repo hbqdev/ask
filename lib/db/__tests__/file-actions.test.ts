@@ -46,12 +46,31 @@ describe('file-actions ingest state', () => {
     })
   })
 
+  // Compiles the SQL object actually handed to db.execute (2nd call = the
+  // UPDATE) via PgDialect, so we assert on the real payload — not just the
+  // returned status — per the brief: "both branches assert the UPDATE
+  // payload." Without this, a regression that hardcodes status, drops
+  // ingest_error, or forgets to clear ingest_stage/claimed_at would still
+  // pass.
+  function assertUpdatePayload(
+    expectedStatus: 'pending' | 'failed',
+    expectedError: string,
+    expectedId: string
+  ) {
+    const updateCall = execute.mock.calls[1][0]
+    const { sql: compiled, params } = new PgDialect().sqlToQuery(updateCall)
+    expect(params).toEqual([expectedStatus, expectedError, expectedId])
+    expect(compiled).toMatch(/ingest_stage\s*=\s*NULL/i)
+    expect(compiled).toMatch(/claimed_at\s*=\s*NULL/i)
+  }
+
   it('completeIngestFailure requeues retryable failures with attempts left', async () => {
     execute.mockResolvedValueOnce({ rows: [{ attempts: 1 }] }) // current row
     execute.mockResolvedValueOnce({ rows: [] }) // update
     expect(await completeIngestFailure('f1', 'ollama down', true)).toBe(
       'pending'
     )
+    assertUpdatePayload('pending', 'ollama down', 'f1')
   })
 
   it('completeIngestFailure fails permanently when attempts are exhausted', async () => {
@@ -60,6 +79,7 @@ describe('file-actions ingest state', () => {
     expect(await completeIngestFailure('f1', 'ollama down', true)).toBe(
       'failed'
     )
+    assertUpdatePayload('failed', 'ollama down', 'f1')
   })
 
   it('completeIngestFailure fails immediately on non-retryable errors', async () => {
@@ -68,19 +88,18 @@ describe('file-actions ingest state', () => {
     expect(await completeIngestFailure('f1', 'corrupt file', false)).toBe(
       'failed'
     )
+    assertUpdatePayload('failed', 'corrupt file', 'f1')
   })
 
   it('getFileStatusesForUser filters by userId AND inArray(objectKey)', async () => {
-    const where = vi
-      .fn()
-      .mockResolvedValue([
-        {
-          objectKey: 'k1',
-          status: 'ready',
-          ingestStage: null,
-          ingestError: null
-        }
-      ])
+    const where = vi.fn().mockResolvedValue([
+      {
+        objectKey: 'k1',
+        status: 'ready',
+        ingestStage: null,
+        ingestError: null
+      }
+    ])
     const from = vi.fn().mockReturnValue({ where })
     select.mockReturnValue({ from })
 
