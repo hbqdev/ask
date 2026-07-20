@@ -5,73 +5,17 @@ import { useRef, useState } from 'react'
 import { IconPaperclip as Paperclip } from '@tabler/icons-react'
 import { toast } from 'sonner'
 
+import {
+  ACCEPT_ATTRIBUTE,
+  isAllowedUpload
+} from '@/lib/config/upload-allowlist'
 import { cn } from '@/lib/utils'
 
 import { Button } from './ui/button'
 
-// Client-side gate — must stay in sync with the /api/upload allowlist. A
-// file passes if its media type is in an allowed family/exact set OR its
-// extension is allowed (code/text files often arrive as octet-stream).
-const ALLOWED_MEDIA_PREFIXES = ['image/', 'audio/', 'video/', 'text/']
-const ALLOWED_EXACT_TYPES = new Set([
-  'application/pdf',
-  'application/json',
-  'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
-  'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-  'application/vnd.openxmlformats-officedocument.presentationml.presentation',
-  'application/epub+zip',
-  'application/octet-stream'
-])
-const ALLOWED_EXTENSIONS = new Set([
-  'pdf',
-  'docx',
-  'xlsx',
-  'pptx',
-  'csv',
-  'txt',
-  'md',
-  'html',
-  'epub',
-  'jpg',
-  'jpeg',
-  'png',
-  'webp',
-  'gif',
-  'mp3',
-  'm4a',
-  'wav',
-  'ogg',
-  'flac',
-  'mp4',
-  'mkv',
-  'webm',
-  'mov',
-  'ts',
-  'js',
-  'tsx',
-  'jsx',
-  'py',
-  'go',
-  'rs',
-  'java',
-  'c',
-  'cpp',
-  'h',
-  'sh',
-  'json',
-  'yaml',
-  'yml',
-  'toml'
-])
-
-const isAllowedFileType = (file: File) => {
-  const ext = file.name.split('.').pop()?.toLowerCase() ?? ''
-  if (!ALLOWED_EXTENSIONS.has(ext)) return false
-  return (
-    ALLOWED_EXACT_TYPES.has(file.type) ||
-    ALLOWED_MEDIA_PREFIXES.some(p => file.type.startsWith(p))
-  )
-}
+// Client-side gate — shares the single /api/upload allowlist so the two can
+// never drift.
+const isAllowedFileType = (file: File) => isAllowedUpload(file.type, file.name)
 
 export function FileUploadButton({
   onFileSelect
@@ -124,7 +68,7 @@ export function FileUploadButton({
       <input
         ref={inputRef}
         type="file"
-        accept=".pdf,.docx,.xlsx,.pptx,.csv,.txt,.md,.html,.epub,.jpg,.jpeg,.png,.webp,.gif,.mp3,.m4a,.wav,.ogg,.flac,.mp4,.mkv,.webm,.mov,.ts,.js,.tsx,.jsx,.py,.go,.rs,.java,.c,.cpp,.h,.sh,.json,.yaml,.yml,.toml"
+        accept={ACCEPT_ATTRIBUTE}
         hidden
         multiple
         onChange={e => {
