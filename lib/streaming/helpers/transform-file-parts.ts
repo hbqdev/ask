@@ -48,7 +48,11 @@ function extractUserQuery(parts: any[]): string {
     .trim()
 }
 
-async function transformPart(part: any, userQuery: string): Promise<any[]> {
+async function transformPart(
+  part: any,
+  userQuery: string,
+  modelHasVision: boolean
+): Promise<any[]> {
   if (part.type !== 'file') return [part]
 
   const resolved = resolveUploadUrl(part.url)
@@ -101,7 +105,11 @@ async function transformPart(part: any, userQuery: string): Promise<any[]> {
   const query = userQuery || filename
   const result = await queryFileChunks(localPath, query, 10)
 
-  // ── Image — extracted text (if any) plus base64 pass-through ──────────────
+  // ── Image ─────────────────────────────────────────────────────────────────
+  // Vision-capable models get the raw image (their own vision, preferred);
+  // every other model gets ONLY the VLM-extracted text. Sending the base64
+  // to a text-only model makes the provider reject the whole turn, so it is
+  // strictly gated on modelHasVision.
   if (part.mediaType?.startsWith('image/')) {
     const out: any[] = []
     if (result) {
@@ -110,14 +118,26 @@ async function transformPart(part: any, userQuery: string): Promise<any[]> {
         text: `[Attached image: ${filename}]\n\nExtracted content:\n\n${result.chunks.join('\n\n---\n\n')}`
       })
     }
-    try {
-      const buf = await fs.readFile(localPath)
-      out.push({
-        ...part,
-        url: `data:${part.mediaType};base64,${buf.toString('base64')}`
-      })
-    } catch {
-      /* keep whatever text we already have */
+    if (modelHasVision) {
+      try {
+        const buf = await fs.readFile(localPath)
+        out.push({
+          ...part,
+          url: `data:${part.mediaType};base64,${buf.toString('base64')}`
+        })
+      } catch {
+        /* keep whatever text we already have */
+      }
+    }
+    if (out.length === 0) {
+      // Non-vision model with no extracted text (VLM chunking failed / not
+      // ready): an honest note beats silently dropping the attachment.
+      return [
+        {
+          type: 'text',
+          text: `[Attached image: ${filename} — no extractable text is available and the selected model cannot view images.]`
+        }
+      ]
     }
     return out
   }
@@ -172,8 +192,10 @@ async function transformPart(part: any, userQuery: string): Promise<any[]> {
 }
 
 export async function transformFileParts(
-  messages: UIMessage[]
+  messages: UIMessage[],
+  opts?: { modelHasVision?: boolean }
 ): Promise<UIMessage[]> {
+  const modelHasVision = opts?.modelHasVision ?? false
   return Promise.all(
     messages.map(async msg => {
       if (msg.role !== 'user') return msg
@@ -183,7 +205,7 @@ export async function transformFileParts(
 
       const userQuery = extractUserQuery(parts)
       const transformed = await Promise.all(
-        parts.map(p => transformPart(p, userQuery))
+        parts.map(p => transformPart(p, userQuery, modelHasVision))
       )
       const flat = transformed.flat()
 

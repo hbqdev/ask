@@ -91,9 +91,12 @@ function filePart(objectKey: string, over: Partial<any> = {}) {
   }
 }
 
-async function run(parts: any[]): Promise<any[]> {
+async function run(
+  parts: any[],
+  opts?: { modelHasVision?: boolean }
+): Promise<any[]> {
   const msg = { id: 'm1', role: 'user', parts } as unknown as UIMessage
-  const [result] = await transformFileParts([msg])
+  const [result] = await transformFileParts([msg], opts)
   return ((result as any).parts ?? []) as any[]
 }
 
@@ -242,7 +245,7 @@ describe('transformFileParts', () => {
 
   // ── ready image ───────────────────────────────────────────────────────────
 
-  it('ready image with chunks yields extracted-content text plus the base64 file part', async () => {
+  it('vision model: ready image with chunks yields extracted text plus the base64 file part', async () => {
     vi.mocked(findFileByObjectKey).mockResolvedValue({ status: 'ready' } as any)
     vi.mocked(queryFileChunks).mockResolvedValue({
       filename: 'photo.png',
@@ -252,9 +255,10 @@ describe('transformFileParts', () => {
     const bytes = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x01, 0x02, 0x03])
     await writeUploadFile(objectKey, bytes)
 
-    const result = await run([
-      filePart(objectKey, { mediaType: 'image/png', filename: 'photo.png' })
-    ])
+    const result = await run(
+      [filePart(objectKey, { mediaType: 'image/png', filename: 'photo.png' })],
+      { modelHasVision: true }
+    )
 
     expect(result).toEqual([
       {
@@ -270,16 +274,43 @@ describe('transformFileParts', () => {
     ])
   })
 
-  it('ready image without chunks yields only the base64 file part (no text part)', async () => {
+  it('non-vision model: ready image with chunks yields ONLY the extracted text, never the base64', async () => {
+    vi.mocked(findFileByObjectKey).mockResolvedValue({ status: 'ready' } as any)
+    vi.mocked(queryFileChunks).mockResolvedValue({
+      filename: 'photo.png',
+      chunks: ['a cat on a mat']
+    })
+    const objectKey = 'u1/chats/c1/photo-nv.png'
+    await writeUploadFile(
+      objectKey,
+      Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x01])
+    )
+
+    const result = await run(
+      [filePart(objectKey, { mediaType: 'image/png', filename: 'photo.png' })],
+      { modelHasVision: false }
+    )
+
+    expect(result).toEqual([
+      {
+        type: 'text',
+        text: '[Attached image: photo.png]\n\nExtracted content:\n\na cat on a mat'
+      }
+    ])
+    expect(result.some(p => typeof p.url === 'string')).toBe(false)
+  })
+
+  it('vision model: ready image without chunks yields only the base64 file part', async () => {
     vi.mocked(findFileByObjectKey).mockResolvedValue({ status: 'ready' } as any)
     vi.mocked(queryFileChunks).mockResolvedValue(null)
     const objectKey = 'u1/chats/c1/photo2.png'
     const bytes = Buffer.from('not-really-a-png')
     await writeUploadFile(objectKey, bytes)
 
-    const result = await run([
-      filePart(objectKey, { mediaType: 'image/png', filename: 'photo2.png' })
-    ])
+    const result = await run(
+      [filePart(objectKey, { mediaType: 'image/png', filename: 'photo2.png' })],
+      { modelHasVision: true }
+    )
 
     expect(result).toEqual([
       {
@@ -287,6 +318,25 @@ describe('transformFileParts', () => {
         url: `data:image/png;base64,${bytes.toString('base64')}`,
         filename: 'photo2.png',
         mediaType: 'image/png'
+      }
+    ])
+  })
+
+  it('non-vision model: ready image without chunks yields an honest note (no base64, no silent drop)', async () => {
+    vi.mocked(findFileByObjectKey).mockResolvedValue({ status: 'ready' } as any)
+    vi.mocked(queryFileChunks).mockResolvedValue(null)
+    const objectKey = 'u1/chats/c1/photo2-nv.png'
+    await writeUploadFile(objectKey, Buffer.from('not-really-a-png'))
+
+    const result = await run(
+      [filePart(objectKey, { mediaType: 'image/png', filename: 'photo2.png' })],
+      { modelHasVision: false }
+    )
+
+    expect(result).toEqual([
+      {
+        type: 'text',
+        text: '[Attached image: photo2.png — no extractable text is available and the selected model cannot view images.]'
       }
     ])
   })
@@ -303,9 +353,10 @@ describe('transformFileParts', () => {
     // exercise the "exists but unreadable" race without mocking node:fs.
     await makeUploadDir(objectKey)
 
-    const result = await run([
-      filePart(objectKey, { mediaType: 'image/png', filename: 'photo3.png' })
-    ])
+    const result = await run(
+      [filePart(objectKey, { mediaType: 'image/png', filename: 'photo3.png' })],
+      { modelHasVision: true }
+    )
 
     expect(result).toEqual([
       {
