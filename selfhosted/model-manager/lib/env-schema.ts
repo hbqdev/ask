@@ -298,6 +298,16 @@ export const REGISTRY: EnvVarSpec[] = [
     target: 'reranker',
     help: 'Applied over SSH to the 2080 Ti box. 8B (current) is max quality; 4B is ~1.7x faster if search latency matters. Both weight sets are cached on the box.'
   },
+  // ---------- Models: Ingestion ----------
+  {
+    key: 'INGEST_API_TOKEN',
+    category: 'models',
+    group: 'Ingestion',
+    label: 'Ingestion worker token',
+    type: 'secret',
+    target: 'ask',
+    help: 'Bearer token the uploads-ingestion worker uses against /api/ingest/*. Unset disables worker ingestion (uploads queue as pending; text documents still fast-path locally).'
+  },
 
   // ---------- Search ----------
   {
