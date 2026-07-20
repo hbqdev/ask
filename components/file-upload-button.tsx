@@ -66,7 +66,7 @@ export function FileUploadButton({
       <input
         ref={inputRef}
         type="file"
-        accept="image/png,image/jpeg,application/pdf"
+        accept=".pdf,.docx,.xlsx,.pptx,.csv,.txt,.md,.html,.epub,.jpg,.jpeg,.png,.webp,.gif,.mp3,.m4a,.wav,.ogg,.flac,.mp4,.mkv,.webm,.mov,.ts,.js,.tsx,.jsx,.py,.go,.rs,.java,.c,.cpp,.h,.sh,.json,.yaml,.yml,.toml"
         hidden
         multiple
         onChange={e => {
