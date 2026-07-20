@@ -95,6 +95,21 @@ describe('POST /api/upload', () => {
     expect(createFileRecord).not.toHaveBeenCalled()
   })
 
+  it('accepts a .htm file (regression: was missing from the extension allowlist)', async () => {
+    const req = makeRequest('<html>hi</html>', {
+      'content-type': 'text/html',
+      'x-filename': encodeURIComponent('page.htm'),
+      'x-chat-id': 'c1'
+    })
+
+    const res = await POST(req)
+    const json = await res.json()
+
+    expect(res.status).toBe(200)
+    expect(json.file.filename).toBe('page.htm')
+    expect(createFileRecord).toHaveBeenCalledTimes(1)
+  })
+
   it('rejects a body over the 2GB cap using the content-length header', async () => {
     const req = makeRequest('tiny body, huge declared size', {
       'content-type': 'text/plain',

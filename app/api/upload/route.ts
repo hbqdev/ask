@@ -4,6 +4,7 @@ import { promises as fs } from 'node:fs'
 import path from 'node:path'
 
 import { getCurrentUserId } from '@/lib/auth/get-current-user'
+import { isAllowedUpload } from '@/lib/config/upload-allowlist'
 import { createFileRecord, markFileReady } from '@/lib/db/file-actions'
 import { isTextFamily, processFileForRAG } from '@/lib/embeddings/upload-rag'
 
@@ -17,71 +18,6 @@ const UPLOADS_DIR = process.env.UPLOADS_DIR || '/app/uploads'
 // waiting on the async ingestion worker — most uploads are small enough
 // that the extra round trip through the job queue would only add latency.
 const FAST_PATH_MAX_BYTES = 20 * 1024 * 1024 // 20MB
-
-// Broad allowlist: office docs, media, code, and text formats. Extension is
-// checked in addition to media type because browsers/clients frequently
-// send generic or incorrect content-types (e.g. `application/octet-stream`
-// for code files) — requiring both keeps this from being a wildcard filter.
-const ALLOWED_MEDIA_PREFIXES = ['image/', 'audio/', 'video/', 'text/']
-const ALLOWED_EXACT = new Set([
-  'application/pdf',
-  'application/json',
-  'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
-  'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-  'application/vnd.openxmlformats-officedocument.presentationml.presentation',
-  'application/epub+zip',
-  'application/octet-stream' // code files; gated by extension below
-])
-const ALLOWED_EXTENSIONS = new Set([
-  'pdf',
-  'docx',
-  'xlsx',
-  'pptx',
-  'csv',
-  'txt',
-  'md',
-  'html',
-  'epub',
-  'jpg',
-  'jpeg',
-  'png',
-  'webp',
-  'gif',
-  'mp3',
-  'm4a',
-  'wav',
-  'ogg',
-  'flac',
-  'mp4',
-  'mkv',
-  'webm',
-  'mov',
-  'ts',
-  'js',
-  'tsx',
-  'jsx',
-  'py',
-  'go',
-  'rs',
-  'java',
-  'c',
-  'cpp',
-  'h',
-  'sh',
-  'json',
-  'yaml',
-  'yml',
-  'toml'
-])
-
-function isAllowed(mediaType: string, filename: string): boolean {
-  const ext = filename.split('.').pop()?.toLowerCase() ?? ''
-  if (!ALLOWED_EXTENSIONS.has(ext)) return false
-  return (
-    ALLOWED_EXACT.has(mediaType) ||
-    ALLOWED_MEDIA_PREFIXES.some(p => mediaType.startsWith(p))
-  )
-}
 
 function sanitizeFilename(filename: string) {
   return filename.replace(/[^a-z0-9.\-_]/gi, '_').toLowerCase()
@@ -126,7 +62,7 @@ export async function POST(req: NextRequest) {
     if (!filename || !req.body) {
       return NextResponse.json({ error: 'File is required' }, { status: 400 })
     }
-    if (!isAllowed(mediaType, filename)) {
+    if (!isAllowedUpload(mediaType, filename)) {
       return NextResponse.json(
         { error: 'Unsupported file type' },
         { status: 400 }
