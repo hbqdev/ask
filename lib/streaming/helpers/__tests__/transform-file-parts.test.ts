@@ -93,10 +93,13 @@ function filePart(objectKey: string, over: Partial<any> = {}) {
 
 async function run(
   parts: any[],
-  opts?: { modelHasVision?: boolean }
+  opts?: { modelHasVision?: boolean; userId?: string }
 ): Promise<any[]> {
   const msg = { id: 'm1', role: 'user', parts } as unknown as UIMessage
-  const [result] = await transformFileParts([msg], opts)
+  // Default the requester to the fixtures' owner ('u1') so the user-scope
+  // guard (objectKey's first segment must equal userId) is a no-op unless a
+  // test deliberately passes a mismatching userId.
+  const [result] = await transformFileParts([msg], { userId: 'u1', ...opts })
   return ((result as any).parts ?? []) as any[]
 }
 
@@ -111,6 +114,45 @@ describe('transformFileParts', () => {
 
     expect(result).toEqual([textPart, foreignFilePart])
     expect(findFileByObjectKey).not.toHaveBeenCalled()
+  })
+
+  // ── user-scope guard (security) ────────────────────────────────────────────
+
+  it('rejects a file part whose objectKey userId does not match the requester, without reading the DB or RAG', async () => {
+    // Victim's key referenced by attacker u1 — must never resolve.
+    const result = await run(
+      [filePart('u2/chats/c9/1-secret.txt', { filename: 'secret.txt' })],
+      { userId: 'u1' }
+    )
+
+    expect(result).toEqual([
+      { type: 'text', text: '[Attached file: secret.txt — not accessible.]' }
+    ])
+    // The whole point of the guard: never touch the victim's file/chunks.
+    expect(findFileByObjectKey).not.toHaveBeenCalled()
+    expect(queryFileChunks).not.toHaveBeenCalled()
+  })
+
+  it('resolves a file part whose objectKey userId matches the requester (guard is a no-op)', async () => {
+    vi.mocked(findFileByObjectKey).mockResolvedValue({ status: 'ready' } as any)
+    vi.mocked(queryFileChunks).mockResolvedValue({
+      filename: 'mine.txt',
+      chunks: ['my own content']
+    })
+    const objectKey = 'u1/chats/c1/1-mine.txt'
+    await writeUploadFile(objectKey, 'on-disk bytes')
+
+    const result = await run([filePart(objectKey, { filename: 'mine.txt' })], {
+      userId: 'u1'
+    })
+
+    expect(result).toEqual([
+      {
+        type: 'text',
+        text: '[Attached document: mine.txt]\n\nRelevant excerpts:\n\nmy own content'
+      }
+    ])
+    expect(findFileByObjectKey).toHaveBeenCalledTimes(1)
   })
 
   // ── pending / processing ──────────────────────────────────────────────────
@@ -241,6 +283,125 @@ describe('transformFileParts', () => {
     ])
     expect(warnSpy).toHaveBeenCalledTimes(1)
     warnSpy.mockRestore()
+  })
+
+  // ── pending / failed image, vision fast path ────────────────────────────────
+
+  it('vision model: pending image attaches the base64 immediately (no still-processing note)', async () => {
+    vi.mocked(findFileByObjectKey).mockResolvedValue({
+      status: 'pending',
+      ingestStage: 'queued'
+    } as any)
+    // Chunks not ready yet while pending — no text augmentation, just pixels.
+    vi.mocked(queryFileChunks).mockResolvedValue(null)
+    const objectKey = 'u1/chats/c1/pending-photo.png'
+    const bytes = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x11, 0x22])
+    await writeUploadFile(objectKey, bytes)
+
+    const result = await run(
+      [
+        filePart(objectKey, {
+          mediaType: 'image/png',
+          filename: 'pending-photo.png'
+        })
+      ],
+      { modelHasVision: true }
+    )
+
+    expect(result).toEqual([
+      {
+        type: 'file',
+        url: `data:image/png;base64,${bytes.toString('base64')}`,
+        filename: 'pending-photo.png',
+        mediaType: 'image/png'
+      }
+    ])
+    expect(result.some(p => typeof p.text === 'string')).toBe(false)
+  })
+
+  it('non-vision model: pending image still yields the still-processing note (needs the VLM text)', async () => {
+    vi.mocked(findFileByObjectKey).mockResolvedValue({
+      status: 'pending',
+      ingestStage: 'queued'
+    } as any)
+    const objectKey = 'u1/chats/c1/pending-photo-nv.png'
+    await writeUploadFile(objectKey, Buffer.from([0x89, 0x50]))
+
+    const result = await run(
+      [
+        filePart(objectKey, {
+          mediaType: 'image/png',
+          filename: 'pending-photo-nv.png'
+        })
+      ],
+      { modelHasVision: false }
+    )
+
+    expect(result).toEqual([
+      {
+        type: 'text',
+        text: '[Attached file: pending-photo-nv.png — still being processed (queued). Its content is not available yet; tell the user to ask again shortly.]'
+      }
+    ])
+    // Short-circuits on the status gate: never queries chunks.
+    expect(queryFileChunks).not.toHaveBeenCalled()
+  })
+
+  it('vision model: failed image still attaches the base64 (pixels work regardless of extraction failure)', async () => {
+    vi.mocked(findFileByObjectKey).mockResolvedValue({
+      status: 'failed',
+      ingestError: 'VLM timeout'
+    } as any)
+    vi.mocked(queryFileChunks).mockResolvedValue(null)
+    const objectKey = 'u1/chats/c1/failed-photo.png'
+    const bytes = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x33])
+    await writeUploadFile(objectKey, bytes)
+
+    const result = await run(
+      [
+        filePart(objectKey, {
+          mediaType: 'image/png',
+          filename: 'failed-photo.png'
+        })
+      ],
+      { modelHasVision: true }
+    )
+
+    expect(result).toEqual([
+      {
+        type: 'file',
+        url: `data:image/png;base64,${bytes.toString('base64')}`,
+        filename: 'failed-photo.png',
+        mediaType: 'image/png'
+      }
+    ])
+  })
+
+  it('non-vision model: failed image still yields the failure note', async () => {
+    vi.mocked(findFileByObjectKey).mockResolvedValue({
+      status: 'failed',
+      ingestError: 'VLM timeout'
+    } as any)
+    const objectKey = 'u1/chats/c1/failed-photo-nv.png'
+    await writeUploadFile(objectKey, Buffer.from([0x89]))
+
+    const result = await run(
+      [
+        filePart(objectKey, {
+          mediaType: 'image/png',
+          filename: 'failed-photo-nv.png'
+        })
+      ],
+      { modelHasVision: false }
+    )
+
+    expect(result).toEqual([
+      {
+        type: 'text',
+        text: '[Attached file: failed-photo-nv.png — processing failed: VLM timeout.]'
+      }
+    ])
+    expect(queryFileChunks).not.toHaveBeenCalled()
   })
 
   // ── ready image ───────────────────────────────────────────────────────────

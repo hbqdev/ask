@@ -51,7 +51,8 @@ function extractUserQuery(parts: any[]): string {
 async function transformPart(
   part: any,
   userQuery: string,
-  modelHasVision: boolean
+  modelHasVision: boolean,
+  userId?: string
 ): Promise<any[]> {
   if (part.type !== 'file') return [part]
 
@@ -59,6 +60,18 @@ async function transformPart(
   if (!resolved) return [part]
   const { localPath, objectKey } = resolved
   const filename = part.filename || path.basename(localPath)
+
+  // User-scope guard (security). Object keys are
+  // `<userId>/chats/<chatId>/<ts>-<name>`, so the first path segment is the
+  // owning user. `url` is client-supplied, so without this an attacker could
+  // reference `/uploads/<victimUserId>/…` and get the victim's extracted text
+  // injected. Reject a foreign objectKey up front — do NOT read the file or DB
+  // for a key that isn't the requester's.
+  if (userId && objectKey.split('/')[0] !== userId) {
+    return [
+      { type: 'text', text: `[Attached file: ${filename} — not accessible.]` }
+    ]
+  }
 
   // A transient DB error here must not fail the whole turn — every other
   // I/O step in this function already degrades gracefully (fileExists,
@@ -76,22 +89,33 @@ async function transformPart(
   }
   const status = row?.status ?? 'ready' // pre-feature files (or a lookup error) have no row
 
-  if (status === 'pending' || status === 'processing') {
-    const stage = row?.ingestStage || 'queued'
-    return [
-      {
-        type: 'text',
-        text: `[Attached file: ${filename} — still being processed (${stage}). Its content is not available yet; tell the user to ask again shortly.]`
-      }
-    ]
-  }
-  if (status === 'failed') {
-    return [
-      {
-        type: 'text',
-        text: `[Attached file: ${filename} — processing failed: ${row?.ingestError ?? 'unknown error'}.]`
-      }
-    ]
+  // A vision-capable model can render an image's pixels immediately — the
+  // base64 needs no ingestion — so the pending/processing/failed gates below
+  // (which exist to avoid handing back not-yet-extracted, or unextractable,
+  // TEXT) must NOT short-circuit it. Extracted-text augmentation is still only
+  // added once chunks are ready (see the image branch). Non-vision models need
+  // the VLM text, so they keep the gates.
+  const isImage = !!part.mediaType?.startsWith('image/')
+  const visionImage = isImage && modelHasVision
+
+  if (!visionImage) {
+    if (status === 'pending' || status === 'processing') {
+      const stage = row?.ingestStage || 'queued'
+      return [
+        {
+          type: 'text',
+          text: `[Attached file: ${filename} — still being processed (${stage}). Its content is not available yet; tell the user to ask again shortly.]`
+        }
+      ]
+    }
+    if (status === 'failed') {
+      return [
+        {
+          type: 'text',
+          text: `[Attached file: ${filename} — processing failed: ${row?.ingestError ?? 'unknown error'}.]`
+        }
+      ]
+    }
   }
 
   if (!(await fileExists(localPath)))
@@ -110,7 +134,7 @@ async function transformPart(
   // every other model gets ONLY the VLM-extracted text. Sending the base64
   // to a text-only model makes the provider reject the whole turn, so it is
   // strictly gated on modelHasVision.
-  if (part.mediaType?.startsWith('image/')) {
+  if (isImage) {
     const out: any[] = []
     if (result) {
       out.push({
@@ -193,9 +217,10 @@ async function transformPart(
 
 export async function transformFileParts(
   messages: UIMessage[],
-  opts?: { modelHasVision?: boolean }
+  opts?: { modelHasVision?: boolean; userId?: string }
 ): Promise<UIMessage[]> {
   const modelHasVision = opts?.modelHasVision ?? false
+  const userId = opts?.userId
   return Promise.all(
     messages.map(async msg => {
       if (msg.role !== 'user') return msg
@@ -205,7 +230,7 @@ export async function transformFileParts(
 
       const userQuery = extractUserQuery(parts)
       const transformed = await Promise.all(
-        parts.map(p => transformPart(p, userQuery, modelHasVision))
+        parts.map(p => transformPart(p, userQuery, modelHasVision, userId))
       )
       const flat = transformed.flat()
 
