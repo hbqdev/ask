@@ -23,8 +23,8 @@ import { getTextFromParts } from '../utils/message-utils'
 // (AI_NoObjectGeneratedError, silently falls back to always-search); with
 // thinking enabled it's far too slow for a per-turn gate (didn't finish 3
 // calls in 6+ minutes). Running the 8b variant (also 8/8) rather than 3b
-// now that serenity's Quadro P5000 is GPU-accelerating it (was CPU-only
-// due to a stale Windows NVIDIA driver, since fixed) — warm latency on
+// now that the classifier host is GPU-accelerating it (was CPU-only
+// due to a stale GPU driver, since fixed) — warm latency on
 // GPU is back down in the sub-second range that made 3b viable on CPU.
 const CLASSIFIER_MODEL_ID = process.env.CLASSIFIER_MODEL_ID ?? 'granite4.1:8b'
 
@@ -39,7 +39,7 @@ const CLASSIFIER_TIMEOUT_MS = 10_000
 // answerable-from-context (skipSearch=true) rather than triggering a
 // needless search — 20 messages ≈ ten prior Q&A pairs.
 //
-// This does NOT cost extra VRAM: serenity loads the model at 16384 context
+// This does NOT cost extra VRAM: the classifier host loads the model at 16384 context
 // regardless, and 20 × MAX_HISTORY_CHARS_PER_MESSAGE + the system prompt
 // stays inside that budget — widening the window just fills more of the
 // context already allocated, at a small per-turn prefill cost. Beyond ~10
@@ -59,7 +59,7 @@ const HISTORY_WINDOW = 20
 // both topics at once (reproduced against the live model on the real
 // conversation that surfaced this).
 //
-// serenity runs the classifier model at OLLAMA_CONTEXT_LENGTH=16384, so the
+// the classifier host runs the model at OLLAMA_CONTEXT_LENGTH=16384, so the
 // budget is generous: the worst case (HISTORY_WINDOW messages all at this
 // cap) + the system prompt is ~13k tokens, staying inside 16k with ~3k to
 // spare. 2,500 chars keeps most of a real Q&A turn intact — enough for the
@@ -177,7 +177,7 @@ export async function classifyQuery({
     intent: 'general'
   }
 
-  // Runs on a dedicated Ollama host (serenity, GPU-backed) instead of
+  // Runs on a dedicated GPU-backed Ollama host instead of
   // OLLAMA_BASE_URL so this classification never competes with the main
   // app's Ollama traffic/model loads. Falls back to OLLAMA_BASE_URL if
   // unset so local dev without a second host still works. Read fresh on

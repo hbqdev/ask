@@ -63,7 +63,7 @@ async function getPipeline(modelId: EmbeddingModelId) {
   return pipe
 }
 
-// Remote GPU embedding service (selfhosted/embedder, on the P4000 at
+// Remote GPU embedding service (selfhosted/embedder, at
 // EMBEDDING_SERVICE_URL). Replicates this file's exact semantics (mean
 // pooling + L2 normalize) on GPU, so its vectors are interchangeable with
 // everything already stored. Any failure falls back to the local CPU path
