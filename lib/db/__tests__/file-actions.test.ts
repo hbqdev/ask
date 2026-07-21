@@ -309,6 +309,23 @@ describe('gcOrphanUploads', () => {
     process.env.UPLOADS_DIR = OLD_DIR
   })
 
+  // Defense-in-depth: this is the most destructive function in the codebase.
+  // With days <= 0 (or NaN) the age cutoff collapses to "now", which would reap
+  // every orphan regardless of age. The sole caller gates via expireIdleUploads'
+  // days===0 early return, but the function must be safe on its own — a bad
+  // `days` must do NOTHING: no live-keys query, no disk scan.
+  it('is a no-op (no query, no scan) when days is 0 or negative', async () => {
+    execute.mockResolvedValue([])
+    readdir.mockResolvedValue([])
+
+    expect(await gcOrphanUploads(0)).toBe(0)
+    expect(await gcOrphanUploads(-5)).toBe(0)
+    expect(await gcOrphanUploads(Number.NaN)).toBe(0)
+
+    expect(execute).not.toHaveBeenCalled()
+    expect(readdir).not.toHaveBeenCalled()
+  })
+
   // Brief case (b): a stray on-disk file whose object_key matches no row and is
   // older than the TTL → unlinked, along with its .chunks.json sidecar.
   it('unlinks an orphan file (and its sidecar) older than the TTL', async () => {
