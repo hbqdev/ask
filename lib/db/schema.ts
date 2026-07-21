@@ -337,10 +337,14 @@ export const libraryFiles = pgTable(
     size: integer('size'),
     // Ingestion job state (universal uploads). pending → processing →
     // ready | failed. Rows that predate the feature are backfilled to
-    // 'ready' by the migration.
+    // 'ready' by the migration. 'expired' is a terminal tombstone set by the
+    // Upload TTL sweep (expireIdleUploads) once a chat has been idle past
+    // UPLOAD_TTL_DAYS — the on-disk bytes are gone but the row is kept so the
+    // answer path + UI can say "expired — re-upload". Plain varchar + TS enum,
+    // so widening this array is a type-only change with no migration.
     status: varchar('status', {
       length: VARCHAR_LENGTH,
-      enum: ['pending', 'processing', 'ready', 'failed']
+      enum: ['pending', 'processing', 'ready', 'failed', 'expired']
     })
       .notNull()
       .default('pending'),

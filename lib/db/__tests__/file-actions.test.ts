@@ -1,5 +1,5 @@
 import { PgDialect } from 'drizzle-orm/pg-core'
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 // vi.mock factories are hoisted above top-level const declarations, so the
 // outer `execute`/`select` must be created via vi.hoisted (same pattern as
@@ -11,9 +11,21 @@ const { execute, select } = vi.hoisted(() => ({
 }))
 vi.mock('@/lib/db', () => ({ db: { execute, select } }))
 
+const { stat, unlink } = vi.hoisted(() => ({ stat: vi.fn(), unlink: vi.fn() }))
+// Vitest 4's ESM interop for a mocked Node builtin also reads a `default`, so
+// expose the same shape both ways (file-actions imports `{ promises as fs }`).
+vi.mock('node:fs', () => ({
+  default: { promises: { stat, unlink } },
+  promises: { stat, unlink }
+}))
+vi.mock('@/lib/embeddings/upload-rag', () => ({
+  chunksFilePath: (p: string) => p + '.chunks.json'
+}))
+
 import {
   claimNextIngestJob,
   completeIngestFailure,
+  expireIdleUploads,
   getFileStatusesForUser
 } from '../file-actions'
 
@@ -143,5 +155,87 @@ describe('file-actions ingest state', () => {
     const { sql: compiled } = new PgDialect().sqlToQuery(whereClause.getSQL())
     expect(compiled).toMatch(/"user_id" = \$/)
     expect(compiled.toLowerCase()).toMatch(/"object_key" in \(\$/)
+  })
+})
+
+describe('expireIdleUploads', () => {
+  const OLD = process.env.UPLOAD_TTL_DAYS
+  const OLD_DIR = process.env.UPLOADS_DIR
+  beforeEach(() => {
+    vi.clearAllMocks()
+    process.env.UPLOADS_DIR = '/app/uploads'
+    process.env.UPLOAD_TTL_DAYS = '14'
+  })
+  afterEach(() => {
+    process.env.UPLOAD_TTL_DAYS = OLD
+    process.env.UPLOADS_DIR = OLD_DIR
+  })
+
+  it('is a no-op when UPLOAD_TTL_DAYS is 0', async () => {
+    process.env.UPLOAD_TTL_DAYS = '0'
+    expect(await expireIdleUploads()).toEqual({
+      expired: 0,
+      bytesFreed: 0,
+      scanned: 0
+    })
+    expect(execute).not.toHaveBeenCalled()
+  })
+
+  // Safety default: the sweep is DESTRUCTIVE, so an unset var must disable it
+  // (operators opt in with a positive value; prod sets 14 explicitly). Guards
+  // the `?? 0` default in uploadTtlDays — a `?? 14` regression would run the
+  // sweep here and call execute.
+  it('is a no-op when UPLOAD_TTL_DAYS is unset', async () => {
+    delete process.env.UPLOAD_TTL_DAYS
+    expect(await expireIdleUploads()).toEqual({
+      expired: 0,
+      bytesFreed: 0,
+      scanned: 0
+    })
+    expect(execute).not.toHaveBeenCalled()
+  })
+
+  it('unlinks bytes + sidecar and tombstones each returned row', async () => {
+    execute.mockResolvedValueOnce([
+      { id: 'f1', object_key: 'u1/chats/c1/1-a.png', size: 100 }
+    ]) // the SELECT
+    execute.mockResolvedValueOnce([]) // the UPDATE tombstone
+    stat.mockResolvedValueOnce({ size: 100 }) // bytes
+    stat.mockResolvedValueOnce({ size: 20 }) // sidecar
+    unlink.mockResolvedValue(undefined)
+
+    const summary = await expireIdleUploads()
+
+    expect(unlink).toHaveBeenCalledWith('/app/uploads/u1/chats/c1/1-a.png')
+    expect(unlink).toHaveBeenCalledWith(
+      '/app/uploads/u1/chats/c1/1-a.png.chunks.json'
+    )
+    // UPDATE ... status='expired' for the row. Compile the SQL object the way
+    // the ingest-state tests above do (a drizzle SQL object stringifies to
+    // "[object Object]", so assert on the rendered query instead).
+    const updateSql = execute.mock.calls[1][0]
+    const { sql: compiledUpdate } = new PgDialect().sqlToQuery(updateSql)
+    expect(compiledUpdate).toMatch(/status/i)
+    expect(summary).toEqual({ expired: 1, bytesFreed: 120, scanned: 1 })
+  })
+
+  it('skips object keys that would escape the uploads root', async () => {
+    execute.mockResolvedValueOnce([
+      { id: 'evil', object_key: '../../etc/passwd', size: 0 }
+    ])
+    await expireIdleUploads()
+    expect(unlink).not.toHaveBeenCalled()
+    // no tombstone UPDATE for a skipped row
+    expect(execute).toHaveBeenCalledTimes(1)
+  })
+
+  it('ignores a missing file (already gone) but still tombstones', async () => {
+    execute.mockResolvedValueOnce([
+      { id: 'f2', object_key: 'u1/chats/c1/2-b.pdf', size: 0 }
+    ])
+    execute.mockResolvedValueOnce([]) // UPDATE
+    stat.mockRejectedValue(Object.assign(new Error('nope'), { code: 'ENOENT' }))
+    const summary = await expireIdleUploads()
+    expect(summary).toEqual({ expired: 1, bytesFreed: 0, scanned: 1 })
   })
 })
