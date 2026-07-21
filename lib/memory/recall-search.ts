@@ -29,7 +29,7 @@ const KEYWORD_RESERVE = 5
 /**
  * Choose which candidates the cross-encoder actually scores.
  *
- * Rerank cost scales with pool size (measured on the live P4000: 3 passages
+ * Rerank cost scales with pool size (measured on the live reranker: 3 passages
  * 489ms, 15 976ms, 30 3.4s, 60 7.6s). The two arms return up to `pool` rows
  * EACH, so an uncapped union reranks up to ~60 and spends ~7.6s against a
  * 10s timeout — 2.4s from failing closed, on every turn.

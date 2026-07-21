@@ -36,7 +36,7 @@ export function buildRecallBlock(hits: RecallHit[]): string {
  * cross-encoder separates the same query/passages by ~10,000x (0.169 vs
  * 0.0000164), so it is worth a network hop to make the gate real.
  *
- * Cost, measured on the live reranker (P4000), scales with the candidate
+ * Cost, measured on the live reranker, scales with the candidate
  * pool: 3 passages 489ms, 15 976ms, 30 3.4s, 60 7.6s. Both arms return up to
  * `max(topK*3, 30)` rows, so an uncapped union reranked ~60 and spent ~7.6s
  * against a 10s timeout — 2.4s from failing closed on every turn. recallSearch

@@ -4,10 +4,10 @@ import { z } from 'zod'
 
 import { createTimeoutFetch } from '../utils/fetch-with-timeout'
 
-// Same model as the classifier (serenity GPU): one model, not two. The
+// Same model as the classifier (same GPU host): one model, not two. The
 // expander previously ran on the smaller 3b for latency (~3.4s vs 8b's
 // ~10s), but keeping a second model resident is not worth the VRAM or the
-// operational split — serenity now serves granite4.1:8b only. 8b is
+// operational split — the host now serves granite4.1:8b only. 8b is
 // slower here, so the search-side merge window (lib/tools/search.ts) is
 // widened to let expansion still land; if it doesn't, expansion is simply
 // skipped and the turn does a single-query search — exactly today's
