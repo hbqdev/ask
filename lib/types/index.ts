@@ -137,7 +137,7 @@ export type UploadedFile = {
   libraryFileId?: string
   id?: string
   objectKey?: string
-  ingestStatus?: 'pending' | 'processing' | 'ready' | 'failed'
+  ingestStatus?: 'pending' | 'processing' | 'ready' | 'failed' | 'expired'
   ingestStage?: string | null
   ingestError?: string | null
 }

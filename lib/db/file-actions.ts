@@ -5,17 +5,24 @@
 // user-facing reader and filters by userId explicitly.
 import type { InferSelectModel } from 'drizzle-orm'
 import { and, eq, inArray, sql } from 'drizzle-orm'
+import { promises as fs } from 'node:fs'
+import path from 'node:path'
 
 import { db } from '@/lib/db'
 // The `files` table is exported as `libraryFiles` in schema.ts (its SQL
 // table name is still "files"); alias on import so this module reads the
 // way the rest of the codebase — and the ingestion plan — refers to it.
 import { libraryFiles as files } from '@/lib/db/schema'
+import { chunksFilePath } from '@/lib/embeddings/upload-rag'
 
 export type FileRow = InferSelectModel<typeof files>
 
 const MAX_ATTEMPTS = 3
 const STALE_CLAIM_MINUTES = 30
+// Root under which every upload's bytes + its .chunks.json sidecar live; an
+// object_key is joined onto this. Matches the ingestion worker + the RAG
+// pipeline (both default to '/app/uploads' in the container).
+const UPLOADS_DIR = process.env.UPLOADS_DIR || '/app/uploads'
 
 // `db.execute()` returns driver-shaped results. This project uses
 // postgres-js, whose result IS the array of rows (`result[0]`); node-postgres
@@ -192,4 +199,73 @@ export async function getFileStatusesForUser(
     .from(files)
     .where(and(eq(files.userId, userId), inArray(files.objectKey, objectKeys)))
   return rows.map(r => ({ ...r, objectKey: r.objectKey ?? '' }))
+}
+
+export interface ExpireSummary {
+  expired: number
+  bytesFreed: number
+  scanned: number
+}
+
+function uploadTtlDays(): number {
+  // Default 0 = disabled: the sweep is destructive, so operators must opt in
+  // with a positive UPLOAD_TTL_DAYS (prod sets 14 explicitly). An unset,
+  // zero, non-numeric, or non-positive value is a no-op.
+  const n = Number(process.env.UPLOAD_TTL_DAYS ?? 0)
+  return Number.isFinite(n) && n > 0 ? Math.floor(n) : 0
+}
+
+async function unlinkQuietly(p: string): Promise<number> {
+  try {
+    const st = await fs.stat(p)
+    await fs.unlink(p)
+    return st.size
+  } catch {
+    return 0 // already gone
+  }
+}
+
+// Delete uploads whose chat has been idle past UPLOAD_TTL_DAYS. Idle activity is
+// GREATEST(chat.last_viewed_at, chat.created_at, last message); a file whose chat
+// is gone/'none' falls back to the file's own created_at. Bytes + the
+// .chunks.json sidecar are unlinked and the row is tombstoned status='expired'
+// (kept so the answer path + UI can say "expired — re-upload"). Skips in-flight
+// ingests. Disabled by default: an unset, zero, or non-positive
+// UPLOAD_TTL_DAYS is a no-op — operators opt in with a positive value.
+export async function expireIdleUploads(): Promise<ExpireSummary> {
+  const days = uploadTtlDays()
+  if (days === 0) return { expired: 0, bytesFreed: 0, scanned: 0 }
+
+  const result = await db.execute(sql`
+    SELECT f.id, f.object_key, f.size
+    FROM files f
+    LEFT JOIN chats c ON c.id = split_part(f.object_key, '/', 3)
+    LEFT JOIN (
+      SELECT chat_id, max(created_at) AS last_msg FROM messages GROUP BY chat_id
+    ) m ON m.chat_id = c.id
+    WHERE f.status <> 'expired'
+      AND f.object_key IS NOT NULL
+      AND NOT (f.status = 'processing'
+               AND f.claimed_at > now() - interval '${sql.raw(String(STALE_CLAIM_MINUTES))} minutes')
+      AND COALESCE(GREATEST(c.last_viewed_at, c.created_at, m.last_msg), f.created_at)
+          < now() - (${days}::int * interval '1 day')
+  `)
+  const rows = execRows(result)
+
+  let expired = 0
+  let bytesFreed = 0
+  for (const row of rows) {
+    const abs = path.join(UPLOADS_DIR, row.object_key)
+    // Never unlink outside the uploads root (defense-in-depth; object_key is
+    // ours, but a malformed key must not delete arbitrary files).
+    if (abs !== UPLOADS_DIR && !abs.startsWith(UPLOADS_DIR + path.sep)) continue
+    bytesFreed += await unlinkQuietly(abs)
+    bytesFreed += await unlinkQuietly(chunksFilePath(abs))
+    await db.execute(sql`
+      UPDATE files SET status = 'expired', ingest_stage = NULL, updated_at = now()
+      WHERE id = ${row.id}
+    `)
+    expired++
+  }
+  return { expired, bytesFreed, scanned: rows.length }
 }
