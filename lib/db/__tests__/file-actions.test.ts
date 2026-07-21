@@ -11,12 +11,16 @@ const { execute, select } = vi.hoisted(() => ({
 }))
 vi.mock('@/lib/db', () => ({ db: { execute, select } }))
 
-const { stat, unlink } = vi.hoisted(() => ({ stat: vi.fn(), unlink: vi.fn() }))
+const { stat, unlink, readdir } = vi.hoisted(() => ({
+  stat: vi.fn(),
+  unlink: vi.fn(),
+  readdir: vi.fn()
+}))
 // Vitest 4's ESM interop for a mocked Node builtin also reads a `default`, so
 // expose the same shape both ways (file-actions imports `{ promises as fs }`).
 vi.mock('node:fs', () => ({
-  default: { promises: { stat, unlink } },
-  promises: { stat, unlink }
+  default: { promises: { stat, unlink, readdir } },
+  promises: { stat, unlink, readdir }
 }))
 vi.mock('@/lib/embeddings/upload-rag', () => ({
   chunksFilePath: (p: string) => p + '.chunks.json'
@@ -26,8 +30,20 @@ import {
   claimNextIngestJob,
   completeIngestFailure,
   expireIdleUploads,
+  gcOrphanUploads,
   getFileStatusesForUser
 } from '../file-actions'
+
+// Minimal fs.Dirent stand-in for the withFileTypes:true walk gcOrphanUploads
+// does. Only the three members the walker touches are implemented.
+function dirent(name: string, kind: 'file' | 'dir' = 'file') {
+  return {
+    name,
+    isDirectory: () => kind === 'dir',
+    isFile: () => kind === 'file'
+  }
+}
+const DAY_MS = 24 * 60 * 60 * 1000
 
 describe('file-actions ingest state', () => {
   beforeEach(() => vi.clearAllMocks())
@@ -176,9 +192,12 @@ describe('expireIdleUploads', () => {
     expect(await expireIdleUploads()).toEqual({
       expired: 0,
       bytesFreed: 0,
-      scanned: 0
+      scanned: 0,
+      orphansRemoved: 0
     })
     expect(execute).not.toHaveBeenCalled()
+    // The GC pass must ALSO be gated by the disable — no disk scan when off.
+    expect(readdir).not.toHaveBeenCalled()
   })
 
   // Safety default: the sweep is DESTRUCTIVE, so an unset var must disable it
@@ -190,9 +209,11 @@ describe('expireIdleUploads', () => {
     expect(await expireIdleUploads()).toEqual({
       expired: 0,
       bytesFreed: 0,
-      scanned: 0
+      scanned: 0,
+      orphansRemoved: 0
     })
     expect(execute).not.toHaveBeenCalled()
+    expect(readdir).not.toHaveBeenCalled()
   })
 
   it('unlinks bytes + sidecar and tombstones each returned row', async () => {
@@ -200,6 +221,8 @@ describe('expireIdleUploads', () => {
       { id: 'f1', object_key: 'u1/chats/c1/1-a.png', size: 100 }
     ]) // the SELECT
     execute.mockResolvedValueOnce([]) // the UPDATE tombstone
+    execute.mockResolvedValueOnce([]) // the GC live-keys SELECT (no rows)
+    readdir.mockResolvedValueOnce([]) // GC: empty uploads dir → no orphans
     stat.mockResolvedValueOnce({ size: 100 }) // bytes
     stat.mockResolvedValueOnce({ size: 20 }) // sidecar
     unlink.mockResolvedValue(undefined)
@@ -216,26 +239,163 @@ describe('expireIdleUploads', () => {
     const updateSql = execute.mock.calls[1][0]
     const { sql: compiledUpdate } = new PgDialect().sqlToQuery(updateSql)
     expect(compiledUpdate).toMatch(/status/i)
-    expect(summary).toEqual({ expired: 1, bytesFreed: 120, scanned: 1 })
+    expect(summary).toEqual({
+      expired: 1,
+      bytesFreed: 120,
+      scanned: 1,
+      orphansRemoved: 0
+    })
   })
 
   it('skips object keys that would escape the uploads root', async () => {
     execute.mockResolvedValueOnce([
       { id: 'evil', object_key: '../../etc/passwd', size: 0 }
     ])
+    execute.mockResolvedValueOnce([]) // the GC live-keys SELECT
+    readdir.mockResolvedValueOnce([]) // GC: empty uploads dir
     await expireIdleUploads()
     expect(unlink).not.toHaveBeenCalled()
-    // no tombstone UPDATE for a skipped row
-    expect(execute).toHaveBeenCalledTimes(1)
+    // Two SELECTs (main sweep + GC live-keys), but NO tombstone UPDATE for the
+    // escaping row — the UPDATE would be a third execute call.
+    expect(execute).toHaveBeenCalledTimes(2)
   })
 
+  // Brief case (a): a row whose bytes are already gone (stat → ENOENT) is still
+  // counted as expired (DB-side tombstone) with bytesFreed 0.
   it('ignores a missing file (already gone) but still tombstones', async () => {
     execute.mockResolvedValueOnce([
       { id: 'f2', object_key: 'u1/chats/c1/2-b.pdf', size: 0 }
     ])
     execute.mockResolvedValueOnce([]) // UPDATE
+    execute.mockResolvedValueOnce([]) // GC live-keys SELECT
+    readdir.mockResolvedValueOnce([]) // GC: empty uploads dir
     stat.mockRejectedValue(Object.assign(new Error('nope'), { code: 'ENOENT' }))
     const summary = await expireIdleUploads()
-    expect(summary).toEqual({ expired: 1, bytesFreed: 0, scanned: 1 })
+    expect(summary).toEqual({
+      expired: 1,
+      bytesFreed: 0,
+      scanned: 1,
+      orphansRemoved: 0
+    })
+  })
+
+  // Brief: gcOrphanUploads' count is folded into the summary's orphansRemoved.
+  it('folds the GC orphan count into orphansRemoved', async () => {
+    execute.mockResolvedValueOnce([]) // main sweep SELECT: no idle rows
+    execute.mockResolvedValueOnce([]) // GC live-keys SELECT: nothing live
+    readdir.mockResolvedValueOnce([dirent('1-orphan.png')])
+    stat.mockResolvedValue({ mtimeMs: Date.now() - 30 * DAY_MS, size: 7 })
+    unlink.mockResolvedValue(undefined)
+
+    const summary = await expireIdleUploads()
+
+    expect(summary).toEqual({
+      expired: 0,
+      bytesFreed: 0,
+      scanned: 0,
+      orphansRemoved: 1
+    })
+    expect(unlink).toHaveBeenCalledWith('/app/uploads/1-orphan.png')
+  })
+})
+
+describe('gcOrphanUploads', () => {
+  const OLD_DIR = process.env.UPLOADS_DIR
+  beforeEach(() => {
+    vi.clearAllMocks()
+    process.env.UPLOADS_DIR = '/app/uploads'
+  })
+  afterEach(() => {
+    process.env.UPLOADS_DIR = OLD_DIR
+  })
+
+  // Brief case (b): a stray on-disk file whose object_key matches no row and is
+  // older than the TTL → unlinked, along with its .chunks.json sidecar.
+  it('unlinks an orphan file (and its sidecar) older than the TTL', async () => {
+    execute.mockResolvedValueOnce([{ object_key: 'u1/chats/live/keep.png' }])
+    readdir.mockResolvedValueOnce([dirent('1-orphan.png')])
+    stat.mockResolvedValue({ mtimeMs: Date.now() - 30 * DAY_MS, size: 42 })
+    unlink.mockResolvedValue(undefined)
+
+    const removed = await gcOrphanUploads(14)
+
+    expect(removed).toBe(1)
+    expect(unlink).toHaveBeenCalledWith('/app/uploads/1-orphan.png')
+    expect(unlink).toHaveBeenCalledWith('/app/uploads/1-orphan.png.chunks.json')
+  })
+
+  // Brief case (c): a stray file that DOES match a live row is left untouched —
+  // and, being a live match, is never even statted.
+  it('leaves a file that matches a live row untouched', async () => {
+    execute.mockResolvedValueOnce([{ object_key: '1-a.png' }])
+    readdir.mockResolvedValueOnce([dirent('1-a.png')])
+
+    const removed = await gcOrphanUploads(14)
+
+    expect(removed).toBe(0)
+    expect(unlink).not.toHaveBeenCalled()
+    expect(stat).not.toHaveBeenCalled()
+  })
+
+  // An orphan whose mtime is still within the TTL window (e.g. a just-uploaded
+  // file whose row hasn't committed yet) must NOT be reaped.
+  it('leaves an orphan whose mtime is newer than the TTL', async () => {
+    execute.mockResolvedValueOnce([]) // nothing live
+    readdir.mockResolvedValueOnce([dirent('fresh.png')])
+    stat.mockResolvedValue({ mtimeMs: Date.now() - 1 * DAY_MS, size: 9 })
+
+    const removed = await gcOrphanUploads(14)
+
+    expect(removed).toBe(0)
+    expect(unlink).not.toHaveBeenCalled()
+  })
+
+  // Recurses into subdirectories, derives object_key relative to UPLOADS_DIR,
+  // and skips a bare .chunks.json entry (the sidecar is only removed alongside
+  // its parent bytes — never treated as its own orphan).
+  it('recurses into subdirs, derives object_key, and skips bare sidecars', async () => {
+    execute.mockResolvedValueOnce([]) // nothing live
+    readdir
+      .mockResolvedValueOnce([dirent('u1', 'dir')]) // UPLOADS_DIR
+      .mockResolvedValueOnce([dirent('chats', 'dir')]) // u1
+      .mockResolvedValueOnce([dirent('c1', 'dir')]) // u1/chats
+      .mockResolvedValueOnce([
+        dirent('9-deep.pdf'),
+        dirent('9-deep.pdf.chunks.json')
+      ]) // u1/chats/c1
+    stat.mockResolvedValue({ mtimeMs: Date.now() - 30 * DAY_MS, size: 5 })
+    unlink.mockResolvedValue(undefined)
+
+    const removed = await gcOrphanUploads(14)
+
+    expect(removed).toBe(1) // only the pdf, not the sidecar entry
+    expect(unlink).toHaveBeenCalledWith('/app/uploads/u1/chats/c1/9-deep.pdf')
+    expect(unlink).toHaveBeenCalledWith(
+      '/app/uploads/u1/chats/c1/9-deep.pdf.chunks.json'
+    )
+    // The bare sidecar entry was skipped in the walk — never processed as its
+    // own file (which would try to unlink a doubled .chunks.json.chunks.json).
+    expect(unlink).not.toHaveBeenCalledWith(
+      '/app/uploads/u1/chats/c1/9-deep.pdf.chunks.json.chunks.json'
+    )
+  })
+
+  // Caps deletions per run so one tick can't become an unbounded delete storm;
+  // hitting the cap is logged, never silently truncated.
+  it('caps deletions per run and warns when the cap is hit', async () => {
+    execute.mockResolvedValueOnce([]) // nothing live
+    const entries = Array.from({ length: 501 }, (_, i) =>
+      dirent(`orphan-${i}.png`)
+    )
+    readdir.mockResolvedValueOnce(entries)
+    stat.mockResolvedValue({ mtimeMs: Date.now() - 30 * DAY_MS, size: 1 })
+    unlink.mockResolvedValue(undefined)
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+
+    const removed = await gcOrphanUploads(14)
+
+    expect(removed).toBe(500)
+    expect(warn).toHaveBeenCalled()
+    warn.mockRestore()
   })
 })
