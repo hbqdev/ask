@@ -91,6 +91,8 @@ const url = (v: string): string | null =>
   /^https?:\/\/.+/.test(v.trim()) ? null : 'Must be an http(s) URL'
 const int = (v: string): string | null =>
   /^-?\d+$/.test(v.trim()) ? null : 'Must be an integer'
+const nonNegInt = (v: string): string | null =>
+  /^\d+$/.test(v.trim()) ? null : 'Must be a non-negative integer'
 const num = (v: string): string | null =>
   /^-?\d+(\.\d+)?$/.test(v.trim()) ? null : 'Must be a number'
 const bool = (v: string): string | null =>
@@ -743,11 +745,11 @@ export const REGISTRY: EnvVarSpec[] = [
     key: 'UPLOAD_TTL_DAYS',
     category: 'storage',
     group: 'Local uploads',
-    label: 'Upload retention (days)',
+    label: 'Upload TTL (days)',
     type: 'int',
-    validate: int,
-    default: '3',
-    help: 'Uploaded files older than this many days are cleaned up automatically.'
+    validate: nonNegInt,
+    default: '14',
+    help: 'Delete uploaded files this many days after their chat goes idle. 0 (or unset) disables expiry.'
   },
   {
     key: 'R2_ACCOUNT_ID',
