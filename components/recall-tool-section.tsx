@@ -83,9 +83,10 @@ export function RecallToolSection({
                 {r.date}
               </span>
             </div>
-            <p className="mt-1 line-clamp-2 text-xs text-muted-foreground">
-              {r.content}
-            </p>
+            {/* The recalled snippet text is intentionally NOT shown here: it
+                still goes to the model (in the tool result) to answer with,
+                but the process step surfaces only which past chats matched,
+                not their raw content. */}
           </Link>
         ))}
       </div>
