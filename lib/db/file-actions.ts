@@ -205,7 +205,13 @@ export interface ExpireSummary {
   expired: number
   bytesFreed: number
   scanned: number
+  orphansRemoved: number
 }
+
+// Cap orphan deletions per sweep so a mis-derived key space or a large backlog
+// can't turn one cron tick into an unbounded delete storm — the remainder is
+// reclaimed on the next run. Hitting the cap is logged, never silently dropped.
+const GC_DELETE_CAP = 500
 
 function uploadTtlDays(): number {
   // Default 0 = disabled: the sweep is destructive, so operators must opt in
@@ -234,7 +240,8 @@ async function unlinkQuietly(p: string): Promise<number> {
 // UPLOAD_TTL_DAYS is a no-op — operators opt in with a positive value.
 export async function expireIdleUploads(): Promise<ExpireSummary> {
   const days = uploadTtlDays()
-  if (days === 0) return { expired: 0, bytesFreed: 0, scanned: 0 }
+  if (days === 0)
+    return { expired: 0, bytesFreed: 0, scanned: 0, orphansRemoved: 0 }
 
   const result = await db.execute(sql`
     SELECT f.id, f.object_key, f.size
@@ -267,5 +274,75 @@ export async function expireIdleUploads(): Promise<ExpireSummary> {
     `)
     expired++
   }
-  return { expired, bytesFreed, scanned: rows.length }
+
+  // Second pass: reclaim bytes the row-driven sweep can't reach (rows already
+  // hard-deleted, leaving their bytes behind). Only runs because days > 0 here,
+  // so an un-opted-in operator never triggers a disk scan.
+  const orphansRemoved = await gcOrphanUploads(days)
+
+  return { expired, bytesFreed, scanned: rows.length, orphansRemoved }
+}
+
+// Reclaims on-disk bytes with no live `files` row — e.g. a chat was
+// hard-deleted (row and all), orphaning its uploaded file + .chunks.json
+// sidecar under UPLOADS_DIR. Walks the tree, derives each file's object_key
+// relative to UPLOADS_DIR, and unlinks any file that (a) is older than the TTL
+// AND (b) matches NO live row. Matching is STRICT on object_key: a file backing
+// a live row is never touched, even if old. `.chunks.json` sidecars are skipped
+// in the walk and only removed alongside their parent bytes. Deletions are
+// capped per run (GC_DELETE_CAP) with a warning on truncation. Callers gate
+// this behind days > 0 (see expireIdleUploads) so an unset UPLOAD_TTL_DAYS does
+// nothing. Returns the number of files reaped.
+export async function gcOrphanUploads(days: number): Promise<number> {
+  const cutoff = Date.now() - days * 24 * 60 * 60 * 1000
+  // One query, then O(1) membership — avoids a DB round-trip per on-disk file.
+  const result = await db.execute(
+    sql`SELECT object_key FROM files WHERE object_key IS NOT NULL`
+  )
+  const live = new Set<string>(execRows(result).map(r => String(r.object_key)))
+
+  let removed = 0
+  let capHit = false
+
+  async function walk(dir: string): Promise<void> {
+    if (capHit) return
+    const entries = await fs
+      .readdir(dir, { withFileTypes: true })
+      .catch(() => null)
+    if (!entries) return // dir missing / unreadable — nothing to reclaim
+    for (const entry of entries) {
+      if (capHit) return
+      const abs = path.join(dir, entry.name)
+      if (entry.isDirectory()) {
+        await walk(abs)
+        continue
+      }
+      if (!entry.isFile()) continue
+      // Sidecars are unlinked with their parent bytes, never on their own.
+      if (entry.name.endsWith('.chunks.json')) continue
+      const objectKey = path.relative(UPLOADS_DIR, abs)
+      // Backs a live row — leave it, even if old. Checked before stat so a live
+      // file is never even touched.
+      if (live.has(objectKey)) continue
+      const st = await fs.stat(abs).catch(() => null)
+      if (!st) continue // vanished mid-walk
+      if (st.mtimeMs >= cutoff) continue // still within the TTL window
+      if (removed >= GC_DELETE_CAP) {
+        capHit = true
+        return
+      }
+      await unlinkQuietly(abs)
+      await unlinkQuietly(chunksFilePath(abs))
+      removed++
+    }
+  }
+
+  await walk(UPLOADS_DIR)
+  if (capHit) {
+    console.warn(
+      `[gcOrphanUploads] hit per-run deletion cap (${GC_DELETE_CAP}); ` +
+        'remaining orphans will be reclaimed on the next sweep'
+    )
+  }
+  return removed
 }
