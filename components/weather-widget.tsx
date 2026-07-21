@@ -132,6 +132,207 @@ interface WeatherData {
   forecast: ForecastDay[]
 }
 
+type WeatherScene =
+  | 'clear-day'
+  | 'clear-night'
+  | 'clouds'
+  | 'fog'
+  | 'rain'
+  | 'snow'
+  | 'storm'
+
+// Collapse the ~25 WMO codes into the handful of visual moods the ambient
+// layer animates. Clear splits on day/night; drizzle/rain/showers all read as
+// "rain"; the 45/48 fog pair gets its own drifting-mist look.
+function sceneForWeather(code: number, isDay: boolean): WeatherScene {
+  if (code === 0 || code === 1) return isDay ? 'clear-day' : 'clear-night'
+  if (code === 2 || code === 3) return 'clouds'
+  if (code === 45 || code === 48) return 'fog'
+  if (code === 71 || code === 73 || code === 75) return 'snow'
+  if (code === 95 || code === 96 || code === 99) return 'storm'
+  if ((code >= 51 && code <= 65) || (code >= 80 && code <= 82)) return 'rain'
+  return 'clouds'
+}
+
+interface AmbientParticle {
+  key: number
+  left?: string
+  top?: string
+  size?: string
+  width?: string
+  height?: string
+  duration: number
+  delay: number
+}
+
+// Kept out of render — React purity forbids Math.random during render, so the
+// component calls this from an effect after mount and stores the result.
+function buildAmbientParticles(scene: WeatherScene): AmbientParticle[] {
+  const rand = (min: number, max: number) => min + Math.random() * (max - min)
+
+  if (scene === 'rain' || scene === 'storm') {
+    return Array.from({ length: 16 }, (_, i) => ({
+      key: i,
+      left: `${rand(0, 100)}%`,
+      height: `${rand(10, 20)}px`,
+      duration: rand(0.6, 1.1),
+      delay: rand(0, 1.4)
+    }))
+  }
+  if (scene === 'snow') {
+    return Array.from({ length: 14 }, (_, i) => {
+      const s = rand(3, 6)
+      return {
+        key: i,
+        left: `${rand(0, 100)}%`,
+        size: `${s}px`,
+        duration: rand(3.5, 6.5),
+        delay: rand(0, 5)
+      }
+    })
+  }
+  if (scene === 'clear-night') {
+    return Array.from({ length: 14 }, (_, i) => {
+      const s = rand(1.5, 2.8)
+      return {
+        key: i,
+        left: `${rand(2, 98)}%`,
+        top: `${rand(4, 72)}%`,
+        size: `${s}px`,
+        duration: rand(2, 4.5),
+        delay: rand(0, 3)
+      }
+    })
+  }
+  if (scene === 'clouds' || scene === 'fog') {
+    return Array.from({ length: 3 }, (_, i) => ({
+      key: i,
+      top: `${rand(6, 46)}%`,
+      width: `${rand(70, 130)}px`,
+      height: `${rand(24, 40)}px`,
+      duration: rand(26, 46),
+      delay: -rand(0, 30)
+    }))
+  }
+  return []
+}
+
+// Decorative, condition-aware motion behind the readout. Particles are built
+// once per scene in an effect (so Math.random never runs during render and
+// nothing renders during SSR). Purely visual: pointer-events-none, aria-hidden,
+// and hidden entirely under prefers-reduced-motion (see globals.css).
+function WeatherAmbient({ scene }: { scene: WeatherScene }) {
+  const [particles, setParticles] = useState<AmbientParticle[]>([])
+
+  useEffect(() => {
+    setParticles(buildAmbientParticles(scene))
+  }, [scene])
+
+  return (
+    <div
+      className="weather-ambient pointer-events-none absolute inset-0 overflow-hidden"
+      aria-hidden="true"
+    >
+      {scene === 'clear-day' && (
+        <>
+          <div
+            className="absolute -left-8 -top-8 size-36 rounded-full"
+            style={{
+              background:
+                'radial-gradient(circle, rgba(251,191,36,0.5), rgba(251,191,36,0) 70%)',
+              animation:
+                'weather-sun-pulse 5s var(--motion-ease-in-out) infinite'
+            }}
+          />
+          <div
+            className="absolute -left-8 -top-8 size-36 opacity-40"
+            style={{
+              background:
+                'repeating-conic-gradient(from 0deg at 50% 50%, rgba(251,191,36,0.3) 0deg 6deg, transparent 6deg 26deg)',
+              maskImage: 'radial-gradient(circle, #000 28%, transparent 62%)',
+              WebkitMaskImage:
+                'radial-gradient(circle, #000 28%, transparent 62%)',
+              animation: 'weather-sun-rays 44s linear infinite'
+            }}
+          />
+        </>
+      )}
+
+      {scene === 'clear-night' &&
+        particles.map(p => (
+          <span
+            key={p.key}
+            className="absolute rounded-full bg-slate-400/70 dark:bg-white"
+            style={{
+              left: p.left,
+              top: p.top,
+              width: p.size,
+              height: p.size,
+              animation: `weather-twinkle ${p.duration}s var(--motion-ease-in-out) ${p.delay}s infinite`
+            }}
+          />
+        ))}
+
+      {(scene === 'clouds' || scene === 'fog') &&
+        particles.map(p => (
+          <span
+            key={p.key}
+            className={cn(
+              'absolute rounded-full bg-slate-400/15 dark:bg-white/10',
+              scene === 'fog' ? 'blur-md' : 'blur-xl'
+            )}
+            style={{
+              top: p.top,
+              left: scene === 'fog' ? '-25%' : undefined,
+              width: scene === 'fog' ? '150%' : p.width,
+              height: p.height,
+              animation:
+                scene === 'fog'
+                  ? `weather-fog ${p.duration / 2}s var(--motion-ease-in-out) ${p.delay}s infinite`
+                  : `weather-cloud ${p.duration}s linear ${p.delay}s infinite`
+            }}
+          />
+        ))}
+
+      {(scene === 'rain' || scene === 'storm') &&
+        particles.map(p => (
+          <span
+            key={p.key}
+            className="absolute top-[-12%] w-[2px] rounded-full bg-gradient-to-b from-transparent via-sky-400/50 to-transparent dark:via-sky-300/50"
+            style={{
+              left: p.left,
+              height: p.height,
+              animation: `weather-rain ${p.duration}s linear ${p.delay}s infinite`
+            }}
+          />
+        ))}
+
+      {scene === 'snow' &&
+        particles.map(p => (
+          <span
+            key={p.key}
+            className="absolute top-[-8%] rounded-full bg-slate-400/50 dark:bg-white/70"
+            style={{
+              left: p.left,
+              width: p.size,
+              height: p.size,
+              animation: `weather-snow ${p.duration}s linear ${p.delay}s infinite`
+            }}
+          />
+        ))}
+
+      {scene === 'storm' && (
+        <div
+          className="absolute inset-0 bg-white"
+          style={{
+            animation: 'weather-flash 7s var(--motion-ease-out) infinite'
+          }}
+        />
+      )}
+    </div>
+  )
+}
+
 export function WeatherWidget({ className }: { className?: string }) {
   const [weather, setWeather] = useState<WeatherData | null>(null)
   const [loading, setLoading] = useState(true)
@@ -275,6 +476,7 @@ export function WeatherWidget({ className }: { className?: string }) {
     !weather.isDay && NIGHT_ICON_OVERRIDES[weather.code]
       ? NIGHT_ICON_OVERRIDES[weather.code]
       : condition.icon
+  const scene = sceneForWeather(weather.code, weather.isDay)
   const uvBand = getUvBand(weather.uvIndex)
   const showGusts = weather.windGusts - weather.windSpeed >= 10
   const showPrecip = weather.precipProbability > 0
@@ -303,96 +505,118 @@ export function WeatherWidget({ className }: { className?: string }) {
   return (
     <div
       className={cn(
-        'rounded-2xl border border-border/50 bg-card/80 backdrop-blur-sm px-4 py-3 select-none w-full h-64 flex flex-col justify-between gap-2',
+        'weather-motion relative overflow-hidden rounded-2xl border border-border/50 bg-card/80 backdrop-blur-sm select-none w-full h-64',
         className
       )}
+      style={{ animation: 'weather-enter 420ms var(--motion-ease-out) both' }}
     >
-      <div className="flex flex-row items-center gap-4">
-        <div className="flex flex-col items-center gap-1 shrink-0">
-          <span className="text-4xl leading-none">{icon}</span>
-          <span className="text-xl font-semibold leading-none whitespace-nowrap">
-            {heroTemp.primary}°{heroTemp.primaryUnit} / {heroTemp.secondary}°
-            {heroTemp.secondaryUnit}
+      <WeatherAmbient scene={scene} />
+      <div className="relative z-10 flex h-full flex-col justify-between gap-2 px-4 py-3">
+        <div className="flex flex-row items-center gap-4">
+          <div className="flex flex-col items-center gap-1 shrink-0">
+            <span
+              className="text-4xl leading-none"
+              style={{
+                animation:
+                  'weather-icon-bob 4s var(--motion-ease-in-out) infinite'
+              }}
+            >
+              {icon}
+            </span>
+            <span className="text-xl font-semibold leading-none whitespace-nowrap">
+              {heroTemp.primary}°{heroTemp.primaryUnit} / {heroTemp.secondary}°
+              {heroTemp.secondaryUnit}
+            </span>
+          </div>
+          <div className="flex flex-col gap-0.5 min-w-0 flex-1">
+            <div className="text-sm font-medium truncate">{weather.city}</div>
+            <div className="text-xs text-muted-foreground">
+              {condition.label}
+            </div>
+          </div>
+          {sparklinePoints && (
+            <svg
+              width="80"
+              height="28"
+              viewBox="0 0 80 28"
+              className="shrink-0 text-muted-foreground/70"
+            >
+              <polyline
+                points={sparklinePoints}
+                pathLength={1}
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                style={{
+                  strokeDasharray: 1,
+                  animation:
+                    'weather-sparkline-draw 900ms var(--motion-ease-out) both'
+                }}
+              />
+            </svg>
+          )}
+        </div>
+
+        <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted-foreground">
+          <span>
+            🌡️ Feels like {feelsLikeTemp.primary}°{feelsLikeTemp.primaryUnit} ·{' '}
+            {feelsLikeTemp.secondary}°{feelsLikeTemp.secondaryUnit}
           </span>
+          <span>💧 {weather.humidity}%</span>
+          <span>
+            💨 {displayWindSpeed} {speedUnit}
+            {showGusts && `, gusts ${displayWindGusts}`}
+          </span>
+          <span className={uvBand.color}>
+            ☀️ UV {weather.uvIndex.toFixed(0)} {uvBand.label}
+          </span>
+          {showPrecip && (
+            <span>🌧️ {Math.round(weather.precipProbability)}%</span>
+          )}
         </div>
-        <div className="flex flex-col gap-0.5 min-w-0 flex-1">
-          <div className="text-sm font-medium truncate">{weather.city}</div>
-          <div className="text-xs text-muted-foreground">{condition.label}</div>
-        </div>
-        {sparklinePoints && (
-          <svg
-            width="80"
-            height="28"
-            viewBox="0 0 80 28"
-            className="shrink-0 text-muted-foreground/70"
-          >
-            <polyline
-              points={sparklinePoints}
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="2"
-              strokeLinecap="round"
-              strokeLinejoin="round"
-            />
-          </svg>
+
+        {(weather.sunrise || weather.sunset) && (
+          <div className="text-[11px] text-muted-foreground/80">
+            {weather.sunrise && `🌅 ${formatClockTime(weather.sunrise)}`}
+            {weather.sunrise && weather.sunset && '  '}
+            {weather.sunset && `🌇 ${formatClockTime(weather.sunset)}`}
+          </div>
+        )}
+
+        {weather.forecast.length > 0 && (
+          <div className="grid grid-cols-5 gap-1 border-t border-border/50 pt-2">
+            {weather.forecast.map(day => {
+              const dayCondition = WMO_CONDITIONS[day.code] ?? {
+                label: 'Unknown',
+                icon: '🌡️'
+              }
+              const high = formatDualTemp(day.tempMax, isImperial)
+              const low = formatDualTemp(day.tempMin, isImperial)
+              return (
+                <div
+                  key={day.date}
+                  className="flex flex-col items-center gap-1 text-center"
+                >
+                  <span className="text-[10px] text-muted-foreground">
+                    {getWeekdayLabel(day.date)}
+                  </span>
+                  <span className="flex items-center justify-center size-9 rounded-full bg-gradient-to-b from-muted/70 to-muted/30 text-2xl leading-none drop-shadow-sm">
+                    {dayCondition.icon}
+                  </span>
+                  <span className="text-[11px] font-medium leading-none whitespace-nowrap mt-0.5">
+                    {high.primary}/{low.primary}°{high.primaryUnit}
+                  </span>
+                  <span className="text-[11px] font-medium leading-none mt-1 whitespace-nowrap">
+                    {high.secondary}/{low.secondary}°{high.secondaryUnit}
+                  </span>
+                </div>
+              )
+            })}
+          </div>
         )}
       </div>
-
-      <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted-foreground">
-        <span>
-          🌡️ Feels like {feelsLikeTemp.primary}°{feelsLikeTemp.primaryUnit} ·{' '}
-          {feelsLikeTemp.secondary}°{feelsLikeTemp.secondaryUnit}
-        </span>
-        <span>💧 {weather.humidity}%</span>
-        <span>
-          💨 {displayWindSpeed} {speedUnit}
-          {showGusts && `, gusts ${displayWindGusts}`}
-        </span>
-        <span className={uvBand.color}>
-          ☀️ UV {weather.uvIndex.toFixed(0)} {uvBand.label}
-        </span>
-        {showPrecip && <span>🌧️ {Math.round(weather.precipProbability)}%</span>}
-      </div>
-
-      {(weather.sunrise || weather.sunset) && (
-        <div className="text-[11px] text-muted-foreground/80">
-          {weather.sunrise && `🌅 ${formatClockTime(weather.sunrise)}`}
-          {weather.sunrise && weather.sunset && '  '}
-          {weather.sunset && `🌇 ${formatClockTime(weather.sunset)}`}
-        </div>
-      )}
-
-      {weather.forecast.length > 0 && (
-        <div className="grid grid-cols-5 gap-1 border-t border-border/50 pt-2">
-          {weather.forecast.map(day => {
-            const dayCondition = WMO_CONDITIONS[day.code] ?? {
-              label: 'Unknown',
-              icon: '🌡️'
-            }
-            const high = formatDualTemp(day.tempMax, isImperial)
-            const low = formatDualTemp(day.tempMin, isImperial)
-            return (
-              <div
-                key={day.date}
-                className="flex flex-col items-center gap-1 text-center"
-              >
-                <span className="text-[10px] text-muted-foreground">
-                  {getWeekdayLabel(day.date)}
-                </span>
-                <span className="flex items-center justify-center size-9 rounded-full bg-gradient-to-b from-muted/70 to-muted/30 text-2xl leading-none drop-shadow-sm">
-                  {dayCondition.icon}
-                </span>
-                <span className="text-[11px] font-medium leading-none whitespace-nowrap mt-0.5">
-                  {high.primary}/{low.primary}°{high.primaryUnit}
-                </span>
-                <span className="text-[11px] font-medium leading-none mt-1 whitespace-nowrap">
-                  {high.secondary}/{low.secondary}°{high.secondaryUnit}
-                </span>
-              </div>
-            )
-          })}
-        </div>
-      )}
     </div>
   )
 }

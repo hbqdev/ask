@@ -1,6 +1,7 @@
 import { resolveDegoogUrl } from '@/lib/tools/search/providers/merge-degoog'
 import type { DegoogResponse } from '@/lib/types'
 import { fetchDegoogJson } from '@/lib/utils/degoog-client'
+import { dedupeByUrl, isDisplayable, shuffle } from '@/lib/utils/discover-mix'
 
 const websitesForTopic = {
   tech: {
@@ -157,6 +158,27 @@ const websitesForTopic = {
 
 type Topic = keyof typeof websitesForTopic
 
+// Human-facing label per topic, shown as a small category tag on the home
+// news widget's mixed feed so the variety is legible at a glance. Keys must
+// stay in sync with websitesForTopic.
+const TOPIC_LABELS: Record<Topic, string> = {
+  tech: 'Tech',
+  science: 'Science',
+  finance: 'Finance',
+  art: 'Art & Culture',
+  sports: 'Sports',
+  entertainment: 'Entertainment',
+  world: 'World',
+  gaming: 'Gaming',
+  health: 'Health'
+}
+
+// The mixed feed samples this many distinct categories (one preview query
+// each) and keeps at most one displayable article per category. Sampling more
+// than the three rows the widget shows leaves headroom for categories whose
+// single preview query happens to return nothing usable.
+const MIX_SAMPLE_CATEGORIES = 5
+
 // Each topic now has 10 sites, but a single page still only queries a
 // rotating handful of them — crossing all 10 with every query on every
 // request would multiply the fan-out to SearXNG/degoog (and the real
@@ -180,6 +202,9 @@ interface DiscoverItem {
   content: string
   url: string
   thumbnail: string
+  // Set only on the mixed feed (topic=mix), so the home widget can tag each
+  // row with the category it came from.
+  category?: string
 }
 
 async function searchSearxng(
@@ -248,12 +273,57 @@ async function searchDegoogNews(
   }
 }
 
+// The home news widget's mixed feed: one displayable, category-tagged article
+// from each of a few randomly chosen categories. Distinct categories by
+// construction (at most one article kept per category); dedupeByUrl then guards
+// the rare cross-category duplicate (same syndicated wire story). Each category
+// runs a single preview query (one site, one search term) so the total fan-out
+// stays comparable to the old single-topic preview.
+async function fetchMixedPreview(): Promise<DiscoverItem[]> {
+  const topics = shuffle(Object.keys(websitesForTopic) as Topic[]).slice(
+    0,
+    MIX_SAMPLE_CATEGORIES
+  )
+
+  const perCategory = await Promise.all(
+    topics.map(async (topic): Promise<DiscoverItem | null> => {
+      const selected = websitesForTopic[topic]
+      const q = `site:${selected.links[0]} ${selected.query[0]}`
+      const [searxngResults, degoogResults] = await Promise.all([
+        searchSearxng(q, {
+          engines: ['bing news'],
+          pageno: 1,
+          language: 'en'
+        }).then(r => r.results),
+        searchDegoogNews(q, 1)
+      ])
+      const article = [...searxngResults, ...degoogResults].find(isDisplayable)
+      return article ? { ...article, category: TOPIC_LABELS[topic] } : null
+    })
+  )
+
+  return shuffle(
+    dedupeByUrl(perCategory.filter((a): a is DiscoverItem => a !== null))
+  )
+}
+
 export const GET = async (req: Request) => {
   try {
     const params = new URL(req.url).searchParams
-    const topic: Topic = (params.get('topic') as Topic) || 'tech'
+    const rawTopic = params.get('topic') || 'tech'
     const isPreview = params.get('mode') === 'preview'
     const page = Math.max(1, Number(params.get('page')) || 1)
+
+    // Mixed multi-category feed for the home news widget. Kept as its own path
+    // so the Discover page's per-topic behavior below is untouched.
+    if (rawTopic === 'mix') {
+      return Response.json(
+        { blogs: await fetchMixedPreview() },
+        { status: 200 }
+      )
+    }
+
+    const topic = rawTopic as Topic
     const selectedTopic = websitesForTopic[topic] ?? websitesForTopic.tech
 
     // Preview mode: hit just one link + one query for speed (used by the home news widget)
