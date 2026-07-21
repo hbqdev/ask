@@ -398,6 +398,136 @@
   }
 }
 
+/* Weather widget — ambient, condition-aware motion (components/weather-widget.tsx).
+   Plain global keyframes so each particle can drive its own duration/delay via
+   an inline `animation` shorthand. Reduced motion is honored below: all weather
+   motion is stripped and the decorative ambient layer is hidden outright so no
+   particle is left frozen mid-fall. */
+@keyframes weather-enter {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+@keyframes weather-icon-bob {
+  0%,
+  100% {
+    transform: translateY(0);
+  }
+  50% {
+    transform: translateY(-3px);
+  }
+}
+@keyframes weather-sparkline-draw {
+  from {
+    stroke-dashoffset: 1;
+  }
+  to {
+    stroke-dashoffset: 0;
+  }
+}
+@keyframes weather-rain {
+  0% {
+    transform: translateY(-20%);
+    opacity: 0;
+  }
+  10% {
+    opacity: 1;
+  }
+  100% {
+    transform: translateY(320%);
+    opacity: 0;
+  }
+}
+@keyframes weather-snow {
+  0% {
+    transform: translateY(-15%) translateX(-4px);
+    opacity: 0;
+  }
+  15% {
+    opacity: 1;
+  }
+  100% {
+    transform: translateY(340%) translateX(4px);
+    opacity: 0;
+  }
+}
+@keyframes weather-cloud {
+  from {
+    transform: translateX(-120%);
+  }
+  to {
+    transform: translateX(520%);
+  }
+}
+@keyframes weather-fog {
+  0%,
+  100% {
+    transform: translateX(-8%);
+    opacity: 0.4;
+  }
+  50% {
+    transform: translateX(8%);
+    opacity: 0.7;
+  }
+}
+@keyframes weather-sun-pulse {
+  0%,
+  100% {
+    transform: scale(1);
+    opacity: 0.4;
+  }
+  50% {
+    transform: scale(1.12);
+    opacity: 0.65;
+  }
+}
+@keyframes weather-sun-rays {
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
+  }
+}
+@keyframes weather-twinkle {
+  0%,
+  100% {
+    opacity: 0.2;
+  }
+  50% {
+    opacity: 0.9;
+  }
+}
+@keyframes weather-flash {
+  0%,
+  88%,
+  100% {
+    opacity: 0;
+  }
+  90%,
+  94% {
+    opacity: 0.45;
+  }
+  92% {
+    opacity: 0.1;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .weather-motion,
+  .weather-motion * {
+    animation: none !important;
+  }
+  .weather-ambient {
+    display: none !important;
+  }
+}
+
 @utility container {
   margin-inline: auto;
   padding-inline: 2rem;
