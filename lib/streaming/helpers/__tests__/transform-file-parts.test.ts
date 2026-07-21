@@ -223,6 +223,66 @@ describe('transformFileParts', () => {
     ])
   })
 
+  // ── expired (TTL sweep tombstone) ───────────────────────────────────────
+
+  it('expired status yields the re-upload note and never queries chunks or reads bytes', async () => {
+    const prev = process.env.UPLOAD_TTL_DAYS
+    process.env.UPLOAD_TTL_DAYS = '14'
+    try {
+      vi.mocked(findFileByObjectKey).mockResolvedValue({
+        status: 'expired'
+      } as any)
+      // Deliberately write NO file to disk: a tombstoned upload has no bytes,
+      // and the branch must return before any fileExists/readFile touch.
+
+      const result = await run([filePart('u1/chats/c1/expired-notxt.txt')])
+
+      expect(result).toEqual([
+        {
+          type: 'text',
+          text: '[Attached file: expired-notxt.txt — this upload expired after 14 days of chat inactivity and is no longer available. Tell the user to re-upload it to ask about it again.]'
+        }
+      ])
+      // Bytes and chunks are gone; neither disk nor RAG is touched.
+      expect(queryFileChunks).not.toHaveBeenCalled()
+    } finally {
+      process.env.UPLOAD_TTL_DAYS = prev
+    }
+  })
+
+  it('vision model: expired image still yields the re-upload note, never the base64 (bytes are gone)', async () => {
+    const prev = process.env.UPLOAD_TTL_DAYS
+    process.env.UPLOAD_TTL_DAYS = '14'
+    try {
+      vi.mocked(findFileByObjectKey).mockResolvedValue({
+        status: 'expired'
+      } as any)
+      // No file on disk — the tombstoned upload's pixels are gone too.
+
+      const result = await run(
+        [
+          filePart('u1/chats/c1/expired-photo.png', {
+            mediaType: 'image/png',
+            filename: 'expired-photo.png'
+          })
+        ],
+        { modelHasVision: true }
+      )
+
+      expect(result).toEqual([
+        {
+          type: 'text',
+          text: '[Attached file: expired-photo.png — this upload expired after 14 days of chat inactivity and is no longer available. Tell the user to re-upload it to ask about it again.]'
+        }
+      ])
+      // Even for a vision model, no base64 attachment: the bytes no longer exist.
+      expect(result.some(p => typeof p.url === 'string')).toBe(false)
+      expect(queryFileChunks).not.toHaveBeenCalled()
+    } finally {
+      process.env.UPLOAD_TTL_DAYS = prev
+    }
+  })
+
   // ── ready, but missing on disk ───────────────────────────────────────────
 
   it('ready status with file missing on disk yields a no-longer-available note (not a silent drop)', async () => {

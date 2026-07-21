@@ -89,6 +89,20 @@ async function transformPart(
   }
   const status = row?.status ?? 'ready' // pre-feature files (or a lookup error) have no row
 
+  // An expired file has been tombstoned by the TTL sweep: its bytes and chunks
+  // are gone from disk, so there is nothing to render for ANY model (vision
+  // included). Return the re-upload note here, before the vision/base64 and
+  // pending/failed gates, so we never read the (missing) file or query chunks.
+  if (status === 'expired') {
+    const days = Number(process.env.UPLOAD_TTL_DAYS ?? 14)
+    return [
+      {
+        type: 'text',
+        text: `[Attached file: ${filename} — this upload expired after ${days} days of chat inactivity and is no longer available. Tell the user to re-upload it to ask about it again.]`
+      }
+    ]
+  }
+
   // A vision-capable model can render an image's pixels immediately — the
   // base64 needs no ingestion — so the pending/processing/failed gates below
   // (which exist to avoid handing back not-yet-extracted, or unextractable,
