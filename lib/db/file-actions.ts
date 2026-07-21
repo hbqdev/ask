@@ -294,6 +294,12 @@ export async function expireIdleUploads(): Promise<ExpireSummary> {
 // this behind days > 0 (see expireIdleUploads) so an unset UPLOAD_TTL_DAYS does
 // nothing. Returns the number of files reaped.
 export async function gcOrphanUploads(days: number): Promise<number> {
+  // Defense-in-depth: this is the most destructive function here. With days <= 0
+  // (or NaN) the age cutoff would collapse to "now" and reap every orphan
+  // regardless of age. The only caller already gates on days > 0, but guard
+  // internally so a future caller can't turn a bad `days` into a delete storm —
+  // no query, no disk scan.
+  if (!(days > 0)) return 0
   const cutoff = Date.now() - days * 24 * 60 * 60 * 1000
   // One query, then O(1) membership — avoids a DB round-trip per on-disk file.
   const result = await db.execute(
