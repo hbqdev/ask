@@ -59,6 +59,19 @@ describe('UploadedFileList status chips', () => {
     expect(screen.getByTitle('unsupported encoding')).toBeInTheDocument()
   })
 
+  it('shows an expired affordance when the upload has expired', () => {
+    render(
+      <UploadedFileList
+        files={[makeFile({ ingestStatus: 'expired' })]}
+        onRemove={vi.fn()}
+      />
+    )
+
+    expect(
+      screen.getByTitle('Expired — re-upload to use again')
+    ).toBeInTheDocument()
+  })
+
   it('shows no ingest affordance once the file is ready', () => {
     render(
       <UploadedFileList

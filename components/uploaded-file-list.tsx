@@ -3,7 +3,11 @@
 import React from 'react'
 import Image from 'next/image'
 
-import { IconLoader2 as Loader2, IconX as X } from '@tabler/icons-react'
+import {
+  IconClockX as ClockX,
+  IconLoader2 as Loader2,
+  IconX as X
+} from '@tabler/icons-react'
 
 import { UploadedFile } from '@/lib/types'
 
@@ -79,6 +83,15 @@ export const UploadedFileList = React.memo(function UploadedFileList({
                       className="text-red-500"
                       size={20}
                       title={it.ingestError ?? 'Processing failed'}
+                    />
+                  </div>
+                )}
+                {it.ingestStatus === 'expired' && (
+                  <div className="absolute inset-0 bg-black/40 flex items-center justify-center z-10">
+                    <ClockX
+                      className="text-amber-400"
+                      size={20}
+                      title="Expired — re-upload to use again"
                     />
                   </div>
                 )}
