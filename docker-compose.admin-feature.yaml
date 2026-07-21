@@ -3,6 +3,11 @@ name: ask-stack-admin-feature
 services:
   ask:
     container_name: ask-admin-feature
+    # Enable the chat-idle upload TTL on staging only (prod uses the base
+    # compose alone and stays opt-in via its own .env at deploy time). Merges
+    # with the base service's environment block.
+    environment:
+      UPLOAD_TTL_DAYS: '14'
     ports: !override
       - '${ADMIN_FEATURE_HOST_PORT:-3739}:3000'
     volumes: !override
