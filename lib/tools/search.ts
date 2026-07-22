@@ -24,6 +24,7 @@ import type {
   SearchContentType,
   SearchModeOption
 } from './search/providers/base'
+import { mergeGeneralSearchResults } from './search/providers/merge-general'
 
 export type SearchToolOptions = {
   // Per-turn recency preference from the query classifier (needsRecent).
@@ -355,32 +356,26 @@ export function createSearchTool(
           const searchProvider = createSearchProvider(searchAPI)
 
           if (searchAPI === 'brave') {
-            searchResult = await searchProvider.search(
-              filledQuery,
-              effectiveMaxResults,
-              effectiveSearchDepthForAPI,
-              include_domains,
-              exclude_domains,
-              {
-                type: type as 'general' | 'optimized',
-                content_types: content_types as SearchContentType[]
-              }
-            )
-            // Brave runs on free credits and its provider SWALLOWS API errors
-            // (quota exhausted, rate limit) — returning empty rather than
-            // throwing. So an all-empty Brave result can mean "credits ran out",
-            // not "nothing found". Fall back to SearXNG (also general-capable
-            // via categories) so general searches keep returning sources instead
-            // of silently going blank once the free tier is spent.
-            const braveEmpty =
-              !searchResult.results?.length &&
-              !searchResult.images?.length &&
-              !searchResult.videos?.length
-            if (braveEmpty) {
-              console.warn(
-                '[search] Brave general returned no results, falling back to SearXNG'
-              )
-              searchResult = await createSearchProvider('searxng').search(
+            // Brave (block-immune general API) and SearXNG (which merges
+            // degoog + Ollama internally) run in PARALLEL and merge, so
+            // general searches keep the full self-hosted source union
+            // alongside Brave instead of losing it to a single provider.
+            // This also covers Brave's free credits running out: its provider
+            // swallows API errors and returns empty, and the merge then
+            // degrades to SearXNG's results alone.
+            const [braveSettled, searxngSettled] = await Promise.allSettled([
+              searchProvider.search(
+                filledQuery,
+                effectiveMaxResults,
+                effectiveSearchDepthForAPI,
+                include_domains,
+                exclude_domains,
+                {
+                  type: type as 'general' | 'optimized',
+                  content_types: content_types as SearchContentType[]
+                }
+              ),
+              createSearchProvider('searxng').search(
                 filledQuery,
                 effectiveMaxResults,
                 effectiveSearchDepthForAPI,
@@ -395,7 +390,33 @@ export function createSearchTool(
                   ollamaMaxResults
                 }
               )
+            ])
+            const braveResult =
+              braveSettled.status === 'fulfilled' ? braveSettled.value : null
+            const searxngResult =
+              searxngSettled.status === 'fulfilled' ? searxngSettled.value : null
+            if (braveSettled.status === 'rejected') {
+              console.warn(
+                '[search] Brave general failed, continuing with SearXNG:',
+                braveSettled.reason
+              )
             }
+            if (searxngSettled.status === 'rejected') {
+              console.warn(
+                '[search] SearXNG general failed, continuing with Brave:',
+                searxngSettled.reason
+              )
+            }
+            if (!braveResult && !searxngResult) {
+              throw braveSettled.status === 'rejected'
+                ? braveSettled.reason
+                : new Error('Both general search providers failed')
+            }
+            searchResult = mergeGeneralSearchResults(
+              braveResult,
+              searxngResult,
+              filledQuery
+            )
           } else if (searchAPI === 'searxng') {
             searchResult = await searchProvider.search(
               filledQuery,
