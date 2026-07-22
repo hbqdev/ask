@@ -35,6 +35,34 @@ interface RenderMessageProps {
   onQuoteContext?: (text: string) => void
 }
 
+// True while the message's parts end in research activity — the same parts
+// the segmentation below buffers into ResearchProcessSection — with no final
+// answer text after them, i.e. exactly while that section's live indicator is
+// showing. Narration (non-heading text) doesn't end the phase, matching the
+// First-token rule used during streaming. chat-messages uses this to keep a
+// single Wild Breath mark animated at a time: the footer glyph yields to the
+// indicator instead of spinning right below it.
+export function endsInActiveResearch(message: UIMessage): boolean {
+  let live = false
+  for (const part of (message.parts as any[] | undefined) ?? []) {
+    if (
+      part.type === 'reasoning' ||
+      part.type === 'data-classifier' ||
+      part.type === 'data-attachments' ||
+      part.type?.startsWith?.('tool-')
+    ) {
+      live = true
+    } else if (
+      part.type === 'text' &&
+      typeof part.text === 'string' &&
+      /^#{1,6}\s/.test(part.text.trimStart())
+    ) {
+      live = false
+    }
+  }
+  return live
+}
+
 export function RenderMessage({
   message,
   messageId,
@@ -105,19 +133,42 @@ export function RenderMessage({
   const elements: React.ReactNode[] = []
   let buffer: any[] = []
 
+  // Only the latest assistant message can actually be streaming. Keying this
+  // off the GLOBAL chat status instead would make every earlier, already-
+  // finished message re-enter "still streaming" rendering whenever a NEW turn
+  // runs — the first-token heading gate below would then suppress any prior
+  // answer that doesn't start with a heading, and its research process would
+  // light up as "Working on it" (the "double search" UI bug). Scope it to
+  // this specific message.
+  const isThisMessageStreaming =
+    Boolean(isLatestMessage) &&
+    (status === 'streaming' || status === 'submitted')
+  const isStreamingComplete = !isThisMessageStreaming
+
   // Recall attribution renders ABOVE the research process, not inside it.
   // The point of the chips is to make an auto-injected memory inspectable
   // rather than spooky — "this answer was shaped by these past chats" — and
   // that fails if it is only discoverable by expanding a section that is
   // collapsed by default. It cannot simply be flushed in place either: the
   // part arrives right after the classifier, so flushing there would split
-  // the research process into two accordions around it.
+  // the research process into two accordions around it. While the live
+  // research indicator runs, though, the chips wait — the indicator is the
+  // turn's only visible activity, and attribution belongs with the answer
+  // it shaped.
   const recallPart = (message.parts as any[] | undefined)?.find(
     (part: any) => part.type === 'data-recall'
   )
-  if (recallPart?.data?.chats?.length) {
+  if (
+    recallPart?.data?.chats?.length &&
+    !(isThisMessageStreaming && endsInActiveResearch(message))
+  ) {
     elements.push(
-      <RecallSection key={`${messageId}-recall`} data={recallPart.data} />
+      <div
+        key={`${messageId}-recall`}
+        className={isThisMessageStreaming ? 'wb-summary-in' : undefined}
+      >
+        <RecallSection data={recallPart.data} />
+      </div>
     )
   }
   const flushBuffer = (keySuffix: string, hasSubsequentText = false) => {
@@ -138,18 +189,6 @@ export function RenderMessage({
     )
     buffer = []
   }
-
-  // Only the latest assistant message can actually be streaming. Keying this
-  // off the GLOBAL chat status instead would make every earlier, already-
-  // finished message re-enter "still streaming" rendering whenever a NEW turn
-  // runs — the first-token heading gate below would then suppress any prior
-  // answer that doesn't start with a heading, and its research process would
-  // light up as "Working on it" (the "double search" UI bug). Scope it to
-  // this specific message.
-  const isThisMessageStreaming =
-    Boolean(isLatestMessage) &&
-    (status === 'streaming' || status === 'submitted')
-  const isStreamingComplete = !isThisMessageStreaming
 
   message.parts?.forEach((part: any, index: number) => {
     if (part.type === 'text') {

@@ -5,7 +5,7 @@ import { describe, expect, test, vi } from 'vitest'
 
 import type { UIMessage } from '@/lib/types/ai'
 
-import { RenderMessage } from '../render-message'
+import { endsInActiveResearch, RenderMessage } from '../render-message'
 
 vi.mock('../answer-section', () => ({
   AnswerSection: ({ content }: { content: string }) => (
@@ -94,6 +94,57 @@ describe('RenderMessage', () => {
       'research-process',
       'answer-section'
     ])
+  })
+
+  test('hides recall chips while research is still in progress', () => {
+    // While the live indicator runs it should be the only visible activity
+    // for the turn — the chips appear together with the answer, where the
+    // attribution actually matters.
+    const researching: UIMessage = {
+      id: 'assistant-msg',
+      role: 'assistant',
+      parts: [
+        recallPart,
+        { type: 'data-classifier', data: { state: 'done' } } as any,
+        {
+          type: 'tool-search',
+          toolCallId: 't1',
+          state: 'input-available'
+        } as any
+      ]
+    } as UIMessage
+
+    const { rerender } = render(
+      <RenderMessage
+        message={researching}
+        messageId={researching.id}
+        getIsOpen={() => true}
+        onOpenChange={() => {}}
+        status="streaming"
+        isLatestMessage={true}
+      />
+    )
+    expect(screen.queryByText('Recalled from:')).not.toBeInTheDocument()
+
+    // The answer begins: attribution appears with it.
+    const answering = {
+      ...researching,
+      parts: [
+        ...(researching.parts as any[]),
+        { type: 'text', text: '## Answer' }
+      ]
+    } as UIMessage
+    rerender(
+      <RenderMessage
+        message={answering}
+        messageId={answering.id}
+        getIsOpen={() => true}
+        onOpenChange={() => {}}
+        status="streaming"
+        isLatestMessage={true}
+      />
+    )
+    expect(screen.getByText('Recalled from:')).toBeInTheDocument()
   })
 
   test('renders no recall chips when recall injected nothing', () => {
@@ -329,6 +380,68 @@ describe('RenderMessage', () => {
 
     expect(screen.getByTestId('answer-section')).toHaveTextContent(
       'Port 22 appears free right now.'
+    )
+  })
+})
+
+describe('endsInActiveResearch', () => {
+  // Only one Wild Breath mark may animate at a time: while the research
+  // indicator is live in the process-section header, the big footer glyph
+  // must yield. These cases mirror the segmentation rules in RenderMessage.
+  const msg = (parts: any[]): UIMessage =>
+    ({ id: 'm', role: 'assistant', parts }) as UIMessage
+
+  test('true while parts end in research activity with no answer yet', () => {
+    expect(
+      endsInActiveResearch(
+        msg([
+          { type: 'data-classifier', data: {} },
+          { type: 'tool-search', toolCallId: 't1', state: 'input-available' }
+        ])
+      )
+    ).toBe(true)
+  })
+
+  test('interim narration does not end the research phase', () => {
+    // Non-heading text is process chatter (First-token rule): the research
+    // section stays in progress through it, so the footer glyph stays hidden.
+    expect(
+      endsInActiveResearch(
+        msg([
+          { type: 'tool-search', toolCallId: 't1', state: 'output-available' },
+          { type: 'text', text: 'Let me dig deeper...' }
+        ])
+      )
+    ).toBe(true)
+  })
+
+  test('false once the final answer (heading text) streams', () => {
+    expect(
+      endsInActiveResearch(
+        msg([
+          { type: 'tool-search', toolCallId: 't1', state: 'output-available' },
+          { type: 'text', text: '## James Webb updates' }
+        ])
+      )
+    ).toBe(false)
+  })
+
+  test('true again when a new research round follows an answer', () => {
+    expect(
+      endsInActiveResearch(
+        msg([
+          { type: 'tool-search', toolCallId: 't1', state: 'output-available' },
+          { type: 'text', text: '## First answer' },
+          { type: 'tool-search', toolCallId: 't2', state: 'input-available' }
+        ])
+      )
+    ).toBe(true)
+  })
+
+  test('false with no parts or with a direct text-only answer', () => {
+    expect(endsInActiveResearch(msg([]))).toBe(false)
+    expect(endsInActiveResearch(msg([{ type: 'text', text: 'Hi!' }]))).toBe(
+      false
     )
   })
 })
