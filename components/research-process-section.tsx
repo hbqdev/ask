@@ -486,7 +486,7 @@ export function ResearchProcessSection({
                   title={summaryVisible ? 'Hide status' : 'Show status'}
                   className="flex items-center gap-2 px-1 py-1 rounded-full cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                 >
-                  <WildBreathGlyph className="size-4 shrink-0" spin />
+                  <WildBreathGlyph className="size-6 shrink-0" spin />
                   {!summaryVisible && (
                     <span className="wb-rail" aria-hidden="true" />
                   )}
