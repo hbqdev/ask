@@ -15,6 +15,7 @@ import {
   CollapsibleContent,
   CollapsibleTrigger
 } from './ui/collapsible'
+import { WildBreathGlyph } from './ui/wild-breath-logo'
 import { type AttachmentsPart, AttachmentsSection } from './attachments-section'
 import { type ClassifierPart, ClassifierSection } from './classifier-section'
 import { ReasoningSection } from './reasoning-section'
@@ -345,6 +346,15 @@ export function ResearchProcessSection({
     Record<string, boolean>
   >({})
 
+  // While research runs, the summary text ("Working on it — N steps so far")
+  // is hidden behind the animated Wild Breath indicator: clicking the
+  // indicator reveals the summary, clicking the summary opens the steps.
+  // Completed segments always show their summary (old chats render as
+  // before).
+  const [summaryShownStates, setSummaryShownStates] = useState<
+    Record<string, boolean>
+  >({})
+
   // Still actively researching: this is the message currently being
   // generated, no text has followed this segment yet, and the chat hasn't
   // finished streaming. Matches Perplexity's live status line before the
@@ -427,6 +437,16 @@ export function ResearchProcessSection({
 
         // Always summarize behind a single "Completed N steps" line —
         // never render the step list unwrapped, regardless of count.
+        //
+        // While in progress the summary hides behind the animated Wild
+        // Breath indicator (spinning glyph + comet rail). Progressive
+        // disclosure: indicator → summary text → step list. The steps are
+        // never open without their summary row anchoring them, so the
+        // initial 2s peek shows summary+steps, then both retreat to the
+        // indicator alone.
+        const summaryShown = summaryShownStates[parentId] ?? false
+        const summaryVisible = !isInProgress || summaryShown || isParentOpen
+
         return (
           <Collapsible
             key={`${messageId}-seg-${sidx}`}
@@ -435,29 +455,67 @@ export function ResearchProcessSection({
               setParentOpenStates(prev => ({ ...prev, [parentId]: open }))
             }}
           >
-            <CollapsibleTrigger asChild>
-              <button
-                type="button"
-                className="flex items-center px-1 py-0.5 gap-2 text-sm rounded-lg group"
-              >
-                <span
-                  className={cn(
-                    'font-medium text-muted-foreground group-hover:text-muted-foreground/70',
-                    isInProgress && 'animate-pulse'
-                  )}
+            <div className="flex items-center gap-1">
+              {isInProgress && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (summaryVisible) {
+                      // Full retreat: hide the summary and close the steps.
+                      setSummaryShownStates(prev => ({
+                        ...prev,
+                        [parentId]: false
+                      }))
+                      setParentOpenStates(prev => ({
+                        ...prev,
+                        [parentId]: false
+                      }))
+                    } else {
+                      setSummaryShownStates(prev => ({
+                        ...prev,
+                        [parentId]: true
+                      }))
+                    }
+                  }}
+                  aria-expanded={summaryVisible}
+                  aria-label={
+                    summaryVisible
+                      ? 'Hide research status'
+                      : 'Show research status'
+                  }
+                  title={summaryVisible ? 'Hide status' : 'Show status'}
+                  className="flex items-center gap-2 px-1 py-1 rounded-full cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                 >
-                  {isInProgress
-                    ? `Working on it — ${totalParts} step${totalParts === 1 ? '' : 's'} so far`
-                    : `Completed ${totalParts} step${totalParts === 1 ? '' : 's'}`}
-                </span>
-                <ChevronDown
-                  className={cn(
-                    'size-4 text-muted-foreground group-hover:text-muted-foreground/70 transition-transform duration-200',
-                    isParentOpen && 'rotate-180'
+                  <WildBreathGlyph className="size-4 shrink-0" spin />
+                  {!summaryVisible && (
+                    <span className="wb-rail" aria-hidden="true" />
                   )}
-                />
-              </button>
-            </CollapsibleTrigger>
+                </button>
+              )}
+              {summaryVisible && (
+                <CollapsibleTrigger asChild>
+                  <button
+                    type="button"
+                    className={cn(
+                      'flex items-center px-1 py-0.5 gap-2 text-sm rounded-lg group',
+                      isInProgress && 'wb-summary-in'
+                    )}
+                  >
+                    <span className="font-medium text-muted-foreground group-hover:text-muted-foreground/70">
+                      {isInProgress
+                        ? `Working on it — ${totalParts} step${totalParts === 1 ? '' : 's'} so far`
+                        : `Completed ${totalParts} step${totalParts === 1 ? '' : 's'}`}
+                    </span>
+                    <ChevronDown
+                      className={cn(
+                        'size-4 text-muted-foreground group-hover:text-muted-foreground/70 transition-transform duration-200',
+                        isParentOpen && 'rotate-180'
+                      )}
+                    />
+                  </button>
+                </CollapsibleTrigger>
+              )}
+            </div>
             <CollapsibleContent className="data-[state=closed]:animate-collapse-up data-[state=open]:animate-collapse-down">
               <div className="pt-2">{segmentContent}</div>
             </CollapsibleContent>

@@ -359,11 +359,28 @@ describe('ResearchProcessSection', () => {
 
       // Auto-collapsed after the peek window — inner content unmounts
       // (Radix Collapsible unmounts its content by default when closed),
-      // while the summary trigger itself remains.
+      // and the summary text retreats behind the animated indicator.
       expect(screen.queryByTestId('reasoning-section')).not.toBeInTheDocument()
+      expect(
+        screen.queryByText('Working on it — 1 step so far')
+      ).not.toBeInTheDocument()
+
+      // Clicking the indicator reveals the summary text again.
+      fireEvent.click(
+        screen.getByRole('button', { name: 'Show research status' })
+      )
       expect(
         screen.getByText('Working on it — 1 step so far')
       ).toBeInTheDocument()
+
+      // Clicking it again fully retreats: summary hidden, steps closed.
+      fireEvent.click(
+        screen.getByRole('button', { name: 'Hide research status' })
+      )
+      expect(
+        screen.queryByText('Working on it — 1 step so far')
+      ).not.toBeInTheDocument()
+      expect(screen.queryByTestId('reasoning-section')).not.toBeInTheDocument()
 
       vi.useRealTimers()
     })
