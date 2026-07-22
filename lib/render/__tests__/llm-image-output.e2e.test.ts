@@ -14,6 +14,7 @@ import { describe, expect, test } from 'vitest'
 import { z } from 'zod'
 
 import { getAdaptiveModePrompt } from '@/lib/agents/prompts/search-mode-prompts'
+import { createSearchTool } from '@/lib/tools/search'
 import { getModel } from '@/lib/utils/registry'
 
 import { parseSpecBlock } from '../parse-spec-block'
@@ -63,7 +64,12 @@ function createMockSearchTool() {
         number_of_results: FIXTURE_RESULTS.length,
         toolCallId: 'mock-search-1'
       }
-    }
+    },
+    // Route the mock output through the real search tool's model-view filter
+    // (toModelOutput) so the test exercises exactly what the model sees in
+    // production. Without this the mock fed images straight to the model and
+    // hid the regression where toModelOutput stripped them.
+    toModelOutput: createSearchTool(MODEL).toModelOutput as never
   })
 }
 
