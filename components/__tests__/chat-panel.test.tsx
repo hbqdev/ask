@@ -44,10 +44,10 @@ vi.mock('../news-article-widget', () => ({
   NewsArticleWidget: () => null
 }))
 
-vi.mock('../ui/icons', () => ({
-  IconBlinkingLogo: () => <div data-testid="logo" />,
-  IconLogoOutline: ({ className }: { className?: string }) => (
-    <span className={className} data-testid="adaptive-icon" />
+vi.mock('../ui/wild-breath-logo', () => ({
+  WildBreathLogo: () => <div data-testid="logo" />,
+  WildBreathGlyph: ({ className }: { className?: string }) => (
+    <span className={className} data-testid="glyph" />
   )
 }))
 

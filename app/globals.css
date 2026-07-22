@@ -528,6 +528,42 @@
   }
 }
 
+/* Wild Breath mark — the static three-sun glyph cycles hue so the brand
+   colour keeps breathing even where the live simulation can't run. */
+@keyframes wb-hue {
+  to {
+    filter: hue-rotate(360deg);
+  }
+}
+@keyframes wb-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+.wb-glyph {
+  animation: wb-hue 14s linear infinite;
+}
+.wb-glyph .wb-g1 {
+  fill: hsl(210 88% 58%);
+}
+.wb-glyph .wb-g2 {
+  fill: hsl(266 82% 62%);
+}
+.wb-glyph .wb-g3 {
+  fill: hsl(28 90% 56%);
+}
+.wb-glyph-spin {
+  animation:
+    wb-hue 14s linear infinite,
+    wb-spin 3.2s linear infinite;
+}
+@media (prefers-reduced-motion: reduce) {
+  .wb-glyph,
+  .wb-glyph-spin {
+    animation: none !important;
+  }
+}
+
 @utility container {
   margin-inline: auto;
   padding-inline: 2rem;

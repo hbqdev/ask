@@ -23,7 +23,7 @@ import {
   SidebarRail
 } from '@/components/ui/sidebar'
 
-import { IconLogo } from './ui/icons'
+import { WildBreathGlyph } from './ui/wild-breath-logo'
 import { SettingsDialog } from './settings-dialog'
 
 const NAV_ITEMS = [
@@ -56,7 +56,7 @@ export default function AppSidebar() {
           href="/"
           className="flex items-center justify-center size-9 rounded-lg hover:bg-muted/50 transition-colors duration-150"
         >
-          <IconLogo className="size-5" />
+          <WildBreathGlyph className="size-6" />
         </Link>
 
         <Link
