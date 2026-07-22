@@ -17,6 +17,7 @@ import {
   resolveDegoogUrl
 } from '@/lib/tools/search/providers/merge-degoog'
 import { mergeOllamaIntoSearxngResults } from '@/lib/tools/search/providers/merge-ollama'
+import { mergeTavilyIntoSearxngResults } from '@/lib/tools/search/providers/merge-tavily'
 import {
   DegoogResponse,
   SearchResultItem,
@@ -36,6 +37,10 @@ import {
   type OllamaSearchResult
 } from '@/lib/utils/ollama-search-client'
 import { fetchSearxngJson } from '@/lib/utils/searxng-client'
+import {
+  fetchTavilySearch,
+  type TavilySearchResult
+} from '@/lib/utils/tavily-search-client'
 
 /**
  * Maximum number of results to fetch from SearXNG.
@@ -156,6 +161,79 @@ async function cleanupExpiredCache() {
 
 // Set up periodic cache cleanup
 setInterval(cleanupExpiredCache, CACHE_EXPIRATION_CHECK_INTERVAL)
+
+// --- Tavily merge budget ---------------------------------------------------
+// Tavily is a metered, block-immune source folded into the advanced path
+// (balanced/quality modes). Unlike Ollama/degoog it costs credits (free tier
+// ~1000 searches/mo), so gate it behind a monthly budget tracked in the same
+// Redis. When the budget is spent the advanced search silently falls back to
+// searxng+degoog+ollama — no error, just fewer sources.
+const TAVILY_MONTHLY_BUDGET = Math.max(
+  0,
+  parseInt(process.env.TAVILY_MONTHLY_BUDGET || '1000', 10)
+)
+const TAVILY_MERGE_MAX_RESULTS = Math.max(
+  1,
+  parseInt(process.env.TAVILY_MERGE_MAX_RESULTS || '5', 10)
+)
+
+function isTavilyMergeEnabled(): boolean {
+  return (
+    Boolean(process.env.TAVILY_API_KEY) &&
+    process.env.TAVILY_MERGE_ENABLED !== 'off' &&
+    TAVILY_MONTHLY_BUDGET > 0
+  )
+}
+
+function currentTavilyBudgetKey(): string {
+  const d = new Date()
+  const month = `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, '0')}`
+  return `tavily:budget:${month}`
+}
+
+/**
+ * Fetch Tavily for this advanced search IF enabled and under the monthly
+ * budget. The counter is incremented only on a SUCCESSFUL Tavily call (a Tavily
+ * outage must not burn the month's quota), so this reads the count, fetches,
+ * then increments. The read→incr race is harmless for a soft budget with 1h
+ * result caching. Never throws for budget/Redis reasons (returns null); a real
+ * Tavily fetch error propagates so the caller's allSettled logs it and
+ * continues without Tavily. Fails CLOSED (skips Tavily) when Redis is
+ * unavailable so a cache outage can't blow the free-tier quota.
+ */
+async function maybeFetchTavily(
+  query: string
+): Promise<TavilySearchResult[] | null> {
+  if (!isTavilyMergeEnabled()) return null
+  const rawClient = await initializeRedisClient()
+  if (!rawClient) return null
+  const client = rawClient as unknown as {
+    get(key: string): Promise<unknown>
+    incr(key: string): Promise<number>
+    expire(key: string, seconds: number): Promise<unknown>
+  }
+
+  const key = currentTavilyBudgetKey()
+  let spent = 0
+  try {
+    spent = Number(await client.get(key)) || 0
+  } catch (error) {
+    console.warn('[tavily] budget read failed, skipping Tavily:', error)
+    return null
+  }
+  if (spent >= TAVILY_MONTHLY_BUDGET) return null
+
+  const results = await fetchTavilySearch(query, TAVILY_MERGE_MAX_RESULTS)
+
+  try {
+    const n = await client.incr(key)
+    // Expire ~35 days out so the counter resets each calendar month.
+    if (n === 1) await client.expire(key, 60 * 60 * 24 * 35)
+  } catch (error) {
+    console.warn('[tavily] budget increment failed:', error)
+  }
+  return results
+}
 
 export async function POST(request: Request) {
   const {
@@ -291,7 +369,8 @@ async function advancedSearchXNGSearch(
       degoogWebSettled,
       degoogNewsSettled,
       degoogImgSettled,
-      ollamaSettled
+      ollamaSettled,
+      tavilySettled
     ] = await Promise.allSettled([
       fetchSearxngJson(buildUrl),
       fetchDegoogJson(degoogUrl('web')),
@@ -301,6 +380,10 @@ async function advancedSearchXNGSearch(
       fetchDegoogJson(degoogUrl('images')),
       useOllama
         ? fetchOllamaSearch(query, ollamaMaxResults)
+        : Promise.resolve(null),
+      // Tavily only on the advanced path (balanced/quality modes), budget-gated.
+      searchDepth === 'advanced'
+        ? maybeFetchTavily(query)
         : Promise.resolve(null)
     ])
 
@@ -329,6 +412,18 @@ async function advancedSearchXNGSearch(
         ollamaSettled.reason
       )
     }
+
+    const tavilyResults: TavilySearchResult[] =
+      tavilySettled.status === 'fulfilled' && tavilySettled.value
+        ? (tavilySettled.value as TavilySearchResult[])
+        : []
+    if (tavilySettled.status === 'rejected') {
+      console.warn(
+        '[tavily] advanced web search failed, continuing without it:',
+        tavilySettled.reason
+      )
+    }
+
     const prefetchedUrls = new Set(ollamaResults.map(r => r.url))
 
     const data = rawData as SearXNGResponse
@@ -363,6 +458,19 @@ async function advancedSearchXNGSearch(
       generalResults = mergeDegoogIntoSearxngResults(
         generalResults,
         degoogWeb,
+        maxResults * SEARXNG_CRAWL_MULTIPLIER
+      )
+    }
+
+    // Tavily is block-immune (runs on Tavily's own IPs), so fold it into the
+    // candidate pool before crawl+rerank to recover the Google/Bing-tier
+    // sources our IP-blocked SearXNG scrapers miss. Snippet-only, so — unlike
+    // Ollama — these URLs are NOT marked prefetched and get crawled for full
+    // content by the step below.
+    if (tavilyResults.length > 0) {
+      generalResults = mergeTavilyIntoSearxngResults(
+        generalResults,
+        tavilyResults,
         maxResults * SEARXNG_CRAWL_MULTIPLIER
       )
     }
