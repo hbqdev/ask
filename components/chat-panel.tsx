@@ -279,6 +279,65 @@ export function ChatPanel({
     [setUploadedFiles]
   )
 
+  // Poll the ingest status of any uploaded file still being processed by
+  // the background worker. Kept to a ref so the interval tick always reads
+  // the latest attachment list without having to restart the timer on
+  // every state update.
+  const uploadedFilesRef = useRef(uploadedFiles)
+  useEffect(() => {
+    uploadedFilesRef.current = uploadedFiles
+  }, [uploadedFiles])
+
+  const hasPendingIngest = uploadedFiles.some(
+    file =>
+      file.ingestStatus === 'pending' || file.ingestStatus === 'processing'
+  )
+
+  useEffect(() => {
+    if (!hasPendingIngest) return
+
+    const poll = async () => {
+      const keys = uploadedFilesRef.current
+        .filter(
+          file =>
+            file.ingestStatus === 'pending' ||
+            file.ingestStatus === 'processing'
+        )
+        .map(file => file.objectKey)
+        .filter((key): key is string => Boolean(key))
+      if (keys.length === 0) return
+
+      try {
+        const query = keys.map(key => encodeURIComponent(key)).join(',')
+        const res = await fetch(`/api/files/status?keys=${query}`)
+        if (!res.ok) return
+        const { statuses } = await res.json()
+        setUploadedFiles(prev =>
+          prev.map(file => {
+            const match =
+              file.objectKey &&
+              statuses.find((s: any) => s.objectKey === file.objectKey)
+            return match
+              ? {
+                  ...file,
+                  ingestStatus: match.status,
+                  ingestStage: match.ingestStage,
+                  ingestError: match.ingestError
+                }
+              : file
+          })
+        )
+      } catch (e) {
+        // A blip in the poll must not take down the composer or spam the
+        // user — just try again on the next tick.
+        console.warn('Failed to poll file ingest status:', e)
+      }
+    }
+
+    const intervalId = setInterval(poll, 5000)
+    return () => clearInterval(intervalId)
+  }, [hasPendingIngest, setUploadedFiles])
+
   const handleFiles = useCallback(
     async (files: File[]) => {
       const newFiles: UploadedFile[] = files.map(file => ({
@@ -288,13 +347,16 @@ export function ChatPanel({
       setUploadedFiles(prev => [...prev, ...newFiles])
       await Promise.all(
         newFiles.map(async uf => {
-          const formData = new FormData()
-          formData.append('file', uf.file!)
-          formData.append('chatId', chatId)
+          const file = uf.file!
           try {
             const res = await fetch('/api/upload', {
               method: 'POST',
-              body: formData
+              headers: {
+                'content-type': file.type || 'application/octet-stream',
+                'x-filename': encodeURIComponent(file.name),
+                'x-chat-id': chatId ?? ''
+              },
+              body: file
             })
 
             if (!res.ok) {
@@ -317,8 +379,10 @@ export function ChatPanel({
                       status: 'uploaded',
                       url: uploaded.url,
                       name: uploaded.filename,
-                      key: uploaded.key,
-                      mediaType: uploaded.mediaType
+                      mediaType: uploaded.mediaType,
+                      id: uploaded.id,
+                      objectKey: uploaded.objectKey,
+                      ingestStatus: uploaded.status
                     }
                   : f
               )
@@ -372,12 +436,12 @@ export function ChatPanel({
       {messages.length === 0 && (showWeatherWidget || showNewsWidget) && (
         <div className="max-w-full md:max-w-3xl w-full mx-auto mb-3 hidden sm:flex flex-row gap-3">
           {showWeatherWidget && (
-            <div className="flex-1">
+            <div className="flex-1 min-w-0">
               <WeatherWidget />
             </div>
           )}
           {showNewsWidget && (
-            <div className="flex-1">
+            <div className="flex-1 min-w-0">
               <NewsArticleWidget />
             </div>
           )}

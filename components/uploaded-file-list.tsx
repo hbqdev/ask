@@ -3,9 +3,15 @@
 import React from 'react'
 import Image from 'next/image'
 
-import { IconLoader2 as Loader2, IconX as X } from '@tabler/icons-react'
+import {
+  IconClockX as ClockX,
+  IconLoader2 as Loader2,
+  IconX as X
+} from '@tabler/icons-react'
 
 import { UploadedFile } from '@/lib/types'
+
+import { Spinner } from './ui/spinner'
 
 interface UploadedFileListProps {
   files: UploadedFile[]
@@ -55,6 +61,38 @@ export const UploadedFileList = React.memo(function UploadedFileList({
                 {it.status === 'uploading' && (
                   <div className="absolute inset-0 bg-black/40 flex items-center justify-center z-10">
                     <Loader2 className="animate-spin text-white" size={20} />
+                  </div>
+                )}
+
+                {/* Ingest status affordance, once the upload itself has
+                    completed: a spinner while the ingestion worker is
+                    still processing the file, or a red X once it's given
+                    up. A 'ready' file gets no extra affordance. */}
+                {(it.ingestStatus === 'pending' ||
+                  it.ingestStatus === 'processing') && (
+                  <div
+                    className="absolute inset-0 bg-black/40 flex items-center justify-center z-10"
+                    title={it.ingestStage ?? 'queued'}
+                  >
+                    <Spinner className="size-5 text-white stroke-white" />
+                  </div>
+                )}
+                {it.ingestStatus === 'failed' && (
+                  <div className="absolute inset-0 bg-black/40 flex items-center justify-center z-10">
+                    <X
+                      className="text-red-500"
+                      size={20}
+                      title={it.ingestError ?? 'Processing failed'}
+                    />
+                  </div>
+                )}
+                {it.ingestStatus === 'expired' && (
+                  <div className="absolute inset-0 bg-black/40 flex items-center justify-center z-10">
+                    <ClockX
+                      className="text-amber-400"
+                      size={20}
+                      title="Expired — re-upload to use again"
+                    />
                   </div>
                 )}
 

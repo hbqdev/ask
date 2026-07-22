@@ -1,6 +1,6 @@
 /**
  * Client for the self-hosted cross-encoder reranker service
- * (selfhosted/reranker, running on the P4000 at RERANKER_URL). The service
+ * (selfhosted/reranker, at RERANKER_URL). The service
  * scores each (query, passage) pair jointly — a stronger relevance signal
  * than comparing separately-embedded vectors. Reached over the LAN with a
  * bearer token (the service is LAN-published, unlike the same-host

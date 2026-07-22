@@ -5,15 +5,17 @@ import { useRef, useState } from 'react'
 import { IconPaperclip as Paperclip } from '@tabler/icons-react'
 import { toast } from 'sonner'
 
+import {
+  ACCEPT_ATTRIBUTE,
+  isAllowedUpload
+} from '@/lib/config/upload-allowlist'
 import { cn } from '@/lib/utils'
 
 import { Button } from './ui/button'
 
-const allowedImageTypes = ['image/png', 'image/jpeg']
-const allowedOtherTypes = ['application/pdf']
-
-const isAllowedFileType = (file: File) =>
-  allowedImageTypes.includes(file.type) || allowedOtherTypes.includes(file.type)
+// Client-side gate — shares the single /api/upload allowlist so the two can
+// never drift.
+const isAllowedFileType = (file: File) => isAllowedUpload(file.type, file.name)
 
 export function FileUploadButton({
   onFileSelect
@@ -66,7 +68,7 @@ export function FileUploadButton({
       <input
         ref={inputRef}
         type="file"
-        accept="image/png,image/jpeg,application/pdf"
+        accept={ACCEPT_ATTRIBUTE}
         hidden
         multiple
         onChange={e => {

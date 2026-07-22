@@ -27,6 +27,24 @@ describe('registry integrity', () => {
   })
 })
 
+describe('UPLOAD_TTL_DAYS', () => {
+  const spec = specByKey('UPLOAD_TTL_DAYS')
+  it('is registered as an optional integer in the storage category', () => {
+    expect(spec).toBeDefined()
+    expect(spec!.category).toBe('storage')
+    expect(spec!.type).toBe('int')
+    expect(spec!.required).toBeFalsy()
+    expect(spec!.default).toBe('14')
+  })
+  it('validates as a non-negative integer (0 disables, negatives rejected)', () => {
+    expect(spec!.validate!('14')).toBeNull()
+    expect(spec!.validate!('0')).toBeNull()
+    expect(typeof spec!.validate!('-1')).toBe('string')
+    expect(typeof spec!.validate!('3.5')).toBe('string')
+    expect(typeof spec!.validate!('abc')).toBe('string')
+  })
+})
+
 describe('.env parity — every key in Ask .env has a spec', () => {
   it('covers all keys', () => {
     const sample = readFileSync(

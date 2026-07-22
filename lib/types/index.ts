@@ -135,4 +135,9 @@ export type UploadedFile = {
   key?: string
   mediaType?: string
   libraryFileId?: string
+  id?: string
+  objectKey?: string
+  ingestStatus?: 'pending' | 'processing' | 'ready' | 'failed' | 'expired'
+  ingestStage?: string | null
+  ingestError?: string | null
 }

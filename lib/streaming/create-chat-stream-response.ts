@@ -9,6 +9,7 @@ import { randomUUID } from 'crypto'
 import { Langfuse } from 'langfuse'
 
 import { researcher } from '@/lib/agents/researcher'
+import { modelSupportsVision } from '@/lib/config/model-vision'
 import {
   createPublicErrorResponse,
   serializePublicError
@@ -222,7 +223,15 @@ export async function createChatStreamResponse(
           })
         }
 
-        const messagesForModel = await transformFileParts(messagesToConvert)
+        // Only resolve vision capability when there's actually an attachment
+        // to transform — otherwise this would hit Ollama's /api/show on every
+        // plain chat turn for nothing.
+        const modelHasVision =
+          attachmentCount > 0 ? await modelSupportsVision(model) : false
+        const messagesForModel = await transformFileParts(messagesToConvert, {
+          modelHasVision,
+          userId
+        })
 
         if (attachmentCount > 0) {
           // Same part id — replaces the 'running' entry in place.

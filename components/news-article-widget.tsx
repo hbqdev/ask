@@ -12,6 +12,7 @@ interface Article {
   content: string
   url: string
   thumbnail: string
+  category?: string
 }
 
 function thumbUrl(raw: string) {
@@ -36,19 +37,18 @@ export function NewsArticleWidget({ className }: { className?: string }) {
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
-    fetch('/api/discover?topic=tech&mode=preview')
+    // The mix endpoint returns at most one article per category, already in
+    // random order, so the three rows are guaranteed to span different topics.
+    fetch('/api/discover?topic=mix&mode=preview')
       .then(r => r.json())
       .then(data => {
         const all: Article[] = data.blogs || []
         const withThumbnail = all.filter(a => a.thumbnail)
         if (withThumbnail.length === 0) return
 
-        const heroArticle =
-          withThumbnail[Math.floor(Math.random() * withThumbnail.length)]
-        setHero(heroArticle)
-        setMore(
-          withThumbnail.filter(a => a.url !== heroArticle.url).slice(0, 2)
-        )
+        const picks = withThumbnail.slice(0, 3)
+        setHero(picks[0])
+        setMore(picks.slice(1, 3))
       })
       .catch(() => {})
       .finally(() => setLoading(false))
@@ -98,9 +98,16 @@ export function NewsArticleWidget({ className }: { className?: string }) {
               <p className="text-sm font-semibold leading-snug line-clamp-2 group-hover:text-cyan-600 dark:group-hover:text-cyan-400 transition-colors duration-200">
                 {article.title}
               </p>
-              <p className="text-xs text-muted-foreground leading-snug line-clamp-1 mt-0.5">
-                {article.content}
-              </p>
+              <div className="mt-0.5 flex items-center gap-1.5 min-w-0">
+                {article.category && (
+                  <span className="shrink-0 rounded bg-cyan-500/10 px-1 py-px text-[9px] font-semibold uppercase tracking-wide text-cyan-700 dark:text-cyan-300">
+                    {article.category}
+                  </span>
+                )}
+                <span className="truncate text-xs text-muted-foreground leading-snug">
+                  {article.content}
+                </span>
+              </div>
             </div>
           </a>
           <a
