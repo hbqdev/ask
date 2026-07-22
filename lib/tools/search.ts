@@ -366,6 +366,36 @@ export function createSearchTool(
                 content_types: content_types as SearchContentType[]
               }
             )
+            // Brave runs on free credits and its provider SWALLOWS API errors
+            // (quota exhausted, rate limit) — returning empty rather than
+            // throwing. So an all-empty Brave result can mean "credits ran out",
+            // not "nothing found". Fall back to SearXNG (also general-capable
+            // via categories) so general searches keep returning sources instead
+            // of silently going blank once the free tier is spent.
+            const braveEmpty =
+              !searchResult.results?.length &&
+              !searchResult.images?.length &&
+              !searchResult.videos?.length
+            if (braveEmpty) {
+              console.warn(
+                '[search] Brave general returned no results, falling back to SearXNG'
+              )
+              searchResult = await createSearchProvider('searxng').search(
+                filledQuery,
+                effectiveMaxResults,
+                effectiveSearchDepthForAPI,
+                include_domains,
+                exclude_domains,
+                {
+                  searchMode: search_mode as SearchModeOption,
+                  content_types: content_types as SearchContentType[],
+                  time_range: toolOptions?.timeRange,
+                  intent: toolOptions?.intent,
+                  useOllama,
+                  ollamaMaxResults
+                }
+              )
+            }
           } else if (searchAPI === 'searxng') {
             searchResult = await searchProvider.search(
               filledQuery,
