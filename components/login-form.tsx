@@ -15,9 +15,9 @@ import {
   CardHeader,
   CardTitle
 } from '@/components/ui/card'
-import { IconLogo } from '@/components/ui/icons'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
+import { WildBreathGlyph } from '@/components/ui/wild-breath-logo'
 
 import { PasswordInput } from './ui/password-input'
 
@@ -83,7 +83,7 @@ export function LoginForm({
       <Card className="w-full max-w-sm">
         <CardHeader className="text-center">
           <CardTitle className="text-2xl flex flex-col items-center justify-center gap-4">
-            <IconLogo className="size-12" />
+            <WildBreathGlyph className="size-12" />
             Welcome back
           </CardTitle>
           <CardDescription>Sign in to your account</CardDescription>

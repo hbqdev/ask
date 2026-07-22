@@ -48,13 +48,13 @@ import { useClientSettingEnabled } from '@/hooks/use-client-setting'
 
 import { useArtifact } from './artifact/artifact-context'
 import { Button } from './ui/button'
-import { IconBlinkingLogo } from './ui/icons'
 import {
   Tooltip,
   TooltipContent,
   TooltipProvider,
   TooltipTrigger
 } from './ui/tooltip'
+import { WildBreathLogo } from './ui/wild-breath-logo'
 import { ActionButtons } from './action-buttons'
 import { FileUploadButton } from './file-upload-button'
 import { MessageNavigationDots } from './message-navigation-dots'
@@ -426,7 +426,7 @@ export function ChatPanel({
     >
       {messages.length === 0 && (
         <div className="mb-6 md:mb-10 flex flex-col items-center gap-2 md:gap-4">
-          <IconBlinkingLogo className="size-12" />
+          <WildBreathLogo className="size-16 md:size-20" />
           <h1 className="text-xl md:text-2xl font-medium text-foreground">
             What would you like to know?
           </h1>
