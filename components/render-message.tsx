@@ -11,7 +11,6 @@ import type { DynamicToolPart } from '@/lib/types/dynamic-tools'
 
 import { AnswerSection } from './answer-section'
 import { DynamicToolDisplay } from './dynamic-tool-display'
-import { RecallSection } from './recall-section'
 import ResearchProcessSection from './research-process-section'
 import { UserFileSection } from './user-file-section'
 import { UserTextSection } from './user-text-section'
@@ -49,6 +48,7 @@ export function endsInActiveResearch(message: UIMessage): boolean {
       part.type === 'reasoning' ||
       part.type === 'data-classifier' ||
       part.type === 'data-attachments' ||
+      (part.type === 'data-recall' && part.data?.chats?.length) ||
       part.type?.startsWith?.('tool-')
     ) {
       live = true
@@ -145,32 +145,6 @@ export function RenderMessage({
     (status === 'streaming' || status === 'submitted')
   const isStreamingComplete = !isThisMessageStreaming
 
-  // Recall attribution renders ABOVE the research process, not inside it.
-  // The point of the chips is to make an auto-injected memory inspectable
-  // rather than spooky — "this answer was shaped by these past chats" — and
-  // that fails if it is only discoverable by expanding a section that is
-  // collapsed by default. It cannot simply be flushed in place either: the
-  // part arrives right after the classifier, so flushing there would split
-  // the research process into two accordions around it. While the live
-  // research indicator runs, though, the chips wait — the indicator is the
-  // turn's only visible activity, and attribution belongs with the answer
-  // it shaped.
-  const recallPart = (message.parts as any[] | undefined)?.find(
-    (part: any) => part.type === 'data-recall'
-  )
-  if (
-    recallPart?.data?.chats?.length &&
-    !(isThisMessageStreaming && endsInActiveResearch(message))
-  ) {
-    elements.push(
-      <div
-        key={`${messageId}-recall`}
-        className={isThisMessageStreaming ? 'wb-summary-in' : undefined}
-      >
-        <RecallSection data={recallPart.data} />
-      </div>
-    )
-  }
   const flushBuffer = (keySuffix: string, hasSubsequentText = false) => {
     if (buffer.length === 0) return
     elements.push(
@@ -259,6 +233,11 @@ export function RenderMessage({
       part.type === 'reasoning' ||
       part.type === 'data-classifier' ||
       part.type === 'data-attachments' ||
+      // Recall attribution rides inside the research process as one of its
+      // steps (user preference: the answer view stays clean; the past-chat
+      // links are found under "Completed N steps"). Empty recall parts are
+      // dropped so they can't render a blank step.
+      (part.type === 'data-recall' && part.data?.chats?.length) ||
       part.type?.startsWith?.('tool-')
     ) {
       buffer.push(part)

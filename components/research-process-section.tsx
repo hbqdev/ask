@@ -19,6 +19,7 @@ import { WildBreathGlyph } from './ui/wild-breath-logo'
 import { type AttachmentsPart, AttachmentsSection } from './attachments-section'
 import { type ClassifierPart, ClassifierSection } from './classifier-section'
 import { ReasoningSection } from './reasoning-section'
+import { type RecallPart, RecallSection } from './recall-section'
 import { ToolSection } from './tool-section'
 
 // Message part types
@@ -34,6 +35,7 @@ type MessagePart =
   | DynamicToolPart
   | ClassifierPart
   | AttachmentsPart
+  | RecallPart
 
 // Type guards
 function isReasoningPart(part: MessagePart): part is ReasoningPart {
@@ -46,6 +48,10 @@ function isClassifierPart(part: MessagePart): part is ClassifierPart {
 
 function isAttachmentsPart(part: MessagePart): part is AttachmentsPart {
   return part.type === 'data-attachments'
+}
+
+function isRecallPart(part: MessagePart): part is RecallPart {
+  return part.type === 'data-recall'
 }
 
 function isToolPart(part: MessagePart): part is ToolPart {
@@ -230,6 +236,15 @@ function RenderPart({
 
   if (isAttachmentsPart(part)) {
     return <AttachmentsSection part={part} />
+  }
+
+  if (isRecallPart(part)) {
+    // Padding matches the classifier/attachments status rows.
+    return (
+      <div className="px-3 py-2">
+        <RecallSection data={part.data} />
+      </div>
+    )
   }
 
   if (isReasoningPart(part)) {
