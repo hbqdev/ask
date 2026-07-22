@@ -394,7 +394,9 @@ export function createSearchTool(
             const braveResult =
               braveSettled.status === 'fulfilled' ? braveSettled.value : null
             const searxngResult =
-              searxngSettled.status === 'fulfilled' ? searxngSettled.value : null
+              searxngSettled.status === 'fulfilled'
+                ? searxngSettled.value
+                : null
             if (braveSettled.status === 'rejected') {
               console.warn(
                 '[search] Brave general failed, continuing with SearXNG:',
