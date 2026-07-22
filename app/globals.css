@@ -557,10 +557,70 @@
     wb-hue 14s linear infinite,
     wb-spin 3.2s linear infinite;
 }
+
+/* Wild Breath progress indicator — a comet streaks along a slim rail while
+   research runs (echoes the Long Comets mark). Pairs with the spinning glyph
+   as the collapsed status light in research-process-section. */
+@keyframes wb-comet {
+  0% {
+    transform: translateX(-110%);
+  }
+  100% {
+    transform: translateX(285%);
+  }
+}
+.wb-rail {
+  position: relative;
+  display: inline-block;
+  width: 72px;
+  height: 3px;
+  border-radius: 3px;
+  background: var(--border);
+  overflow: hidden;
+}
+.wb-rail::before {
+  content: '';
+  position: absolute;
+  inset: 0 auto 0 0;
+  width: 46%;
+  border-radius: 3px;
+  background: linear-gradient(
+    90deg,
+    transparent,
+    hsl(210 88% 58%),
+    hsl(266 82% 62%)
+  );
+  animation:
+    wb-comet 1.5s cubic-bezier(0.45, 0, 0.55, 1) infinite,
+    wb-hue 14s linear infinite;
+}
+/* Summary text sliding in when the indicator is clicked open. */
+@keyframes wb-summary-in {
+  from {
+    opacity: 0;
+    transform: translateX(-6px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+.wb-summary-in {
+  animation: wb-summary-in 180ms var(--motion-ease-out, ease-out) both;
+}
 @media (prefers-reduced-motion: reduce) {
   .wb-glyph,
   .wb-glyph-spin {
     animation: none !important;
+  }
+  .wb-rail::before {
+    animation: none;
+    width: 100%;
+    background: var(--muted-foreground);
+    opacity: 0.35;
+  }
+  .wb-summary-in {
+    animation: none;
   }
 }
 
