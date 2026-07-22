@@ -41,12 +41,11 @@ describe('RenderMessage', () => {
     data: { chats: [{ chatId: 'past-1', title: 'Tokio vs async-std' }] }
   } as any
 
-  test('renders recall chips above the research process, not inside it', () => {
-    // The chips exist to make auto-injected memory inspectable rather than
-    // spooky. Buffering them into the research process buried them in an
-    // accordion that is collapsed by default, so attribution was invisible
-    // unless the user expanded it. They must render as their own element,
-    // ahead of the process section and the answer.
+  test('buffers recall into the research process, in stream order', () => {
+    // The chips used to render standalone above the process, but that put an
+    // extra row between the research indicator and the answer. They now ride
+    // inside the process section as one of its steps — attribution stays
+    // findable under "Completed N steps" without cluttering the answer view.
     const message: UIMessage = {
       id: 'assistant-msg',
       role: 'assistant',
@@ -58,7 +57,7 @@ describe('RenderMessage', () => {
       ]
     } as UIMessage
 
-    const { container } = render(
+    render(
       <RenderMessage
         message={message}
         messageId={message.id}
@@ -67,87 +66,14 @@ describe('RenderMessage', () => {
       />
     )
 
-    // Not swallowed by the collapsed process section.
     expect(screen.getByTestId('research-process')).toHaveTextContent(
-      'data-classifier,reasoning'
+      'data-classifier,data-recall,reasoning'
     )
-    expect(screen.getByTestId('research-process')).not.toHaveTextContent(
-      'data-recall'
-    )
-
-    // Visible on its own, above everything.
-    expect(screen.getByText('Recalled from:')).toBeInTheDocument()
-    const link = screen.getByRole('link', { name: 'Tokio vs async-std' })
-    expect(link).toHaveAttribute('href', '/search/past-1')
-
-    const order = Array.from(
-      container.querySelectorAll(
-        'a[href^="/search/"], [data-testid="research-process"], [data-testid="answer-section"]'
-      )
-    ).map(
-      node =>
-        node.getAttribute('data-testid') ??
-        `recall-link:${node.getAttribute('href')}`
-    )
-    expect(order).toEqual([
-      'recall-link:/search/past-1',
-      'research-process',
-      'answer-section'
-    ])
-  })
-
-  test('hides recall chips while research is still in progress', () => {
-    // While the live indicator runs it should be the only visible activity
-    // for the turn — the chips appear together with the answer, where the
-    // attribution actually matters.
-    const researching: UIMessage = {
-      id: 'assistant-msg',
-      role: 'assistant',
-      parts: [
-        recallPart,
-        { type: 'data-classifier', data: { state: 'done' } } as any,
-        {
-          type: 'tool-search',
-          toolCallId: 't1',
-          state: 'input-available'
-        } as any
-      ]
-    } as UIMessage
-
-    const { rerender } = render(
-      <RenderMessage
-        message={researching}
-        messageId={researching.id}
-        getIsOpen={() => true}
-        onOpenChange={() => {}}
-        status="streaming"
-        isLatestMessage={true}
-      />
-    )
+    // No standalone chips row outside the process section.
     expect(screen.queryByText('Recalled from:')).not.toBeInTheDocument()
-
-    // The answer begins: attribution appears with it.
-    const answering = {
-      ...researching,
-      parts: [
-        ...(researching.parts as any[]),
-        { type: 'text', text: '## Answer' }
-      ]
-    } as UIMessage
-    rerender(
-      <RenderMessage
-        message={answering}
-        messageId={answering.id}
-        getIsOpen={() => true}
-        onOpenChange={() => {}}
-        status="streaming"
-        isLatestMessage={true}
-      />
-    )
-    expect(screen.getByText('Recalled from:')).toBeInTheDocument()
   })
 
-  test('renders no recall chips when recall injected nothing', () => {
+  test('drops empty recall parts instead of buffering a blank step', () => {
     const message: UIMessage = {
       id: 'assistant-msg',
       role: 'assistant',
@@ -165,6 +91,8 @@ describe('RenderMessage', () => {
         onOpenChange={() => {}}
       />
     )
+    // Nothing recalled → no process section and no chips at all.
+    expect(screen.queryByTestId('research-process')).not.toBeInTheDocument()
     expect(screen.queryByText('Recalled from:')).not.toBeInTheDocument()
   })
 
@@ -443,5 +371,21 @@ describe('endsInActiveResearch', () => {
     expect(endsInActiveResearch(msg([{ type: 'text', text: 'Hi!' }]))).toBe(
       false
     )
+  })
+
+  test('recall parts count as research activity only when non-empty', () => {
+    expect(
+      endsInActiveResearch(
+        msg([
+          {
+            type: 'data-recall',
+            data: { chats: [{ chatId: 'c1', title: 'Past chat' }] }
+          }
+        ])
+      )
+    ).toBe(true)
+    expect(
+      endsInActiveResearch(msg([{ type: 'data-recall', data: { chats: [] } }]))
+    ).toBe(false)
   })
 })

@@ -96,6 +96,37 @@ describe('ResearchProcessSection', () => {
       expect(screen.getByTestId('tool-section')).toBeInTheDocument()
     })
 
+    test('renders recall attribution as a step inside the process', () => {
+      // Recall chips live inside the step list (user preference: the answer
+      // view stays clean; past-chat links are found under "N steps").
+      const message = {
+        id: 'test-message',
+        role: 'assistant' as const,
+        parts: [
+          {
+            type: 'data-recall',
+            id: 'recall',
+            data: { chats: [{ chatId: 'past-1', title: 'Tokio vs async-std' }] }
+          },
+          { type: 'reasoning', text: 'Thinking' }
+        ]
+      } as unknown as UIMessage
+
+      render(
+        <ResearchProcessSection
+          message={message}
+          messageId="test-recall"
+          getIsOpen={mockGetIsOpen}
+          onOpenChange={mockOnOpenChange}
+        />
+      )
+
+      expect(screen.getByText('Recalled from:')).toBeInTheDocument()
+      expect(
+        screen.getByRole('link', { name: 'Tokio vs async-std' })
+      ).toHaveAttribute('href', '/search/past-1')
+    })
+
     test('filters out empty reasoning parts', () => {
       const emptyReasoningPart: ReasoningPart = {
         type: 'reasoning',
