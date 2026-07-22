@@ -456,11 +456,13 @@ export function createSearchTool(
         ...searchResult
       }
     },
-    // Trim the model-facing tool result: images are UI-only thumbnails and
-    // state is a streaming marker. citationMap is no longer produced, but we
-    // still drop it defensively for any older persisted output replayed through
-    // here. toolCallId MUST stay: the prompt cites as [number](#toolCallId), so
-    // the model reads the id from here.
+    // Trim the model-facing tool result: state is a streaming marker, and
+    // citationMap is no longer produced (dropped defensively for any older
+    // persisted output replayed here). images MUST stay — getImageSpecPrompt
+    // (lib/render/prompt.ts) instructs the model to embed image URLs verbatim
+    // from this array, so stripping them made inline images impossible.
+    // toolCallId MUST stay: the prompt cites as [number](#toolCallId), so the
+    // model reads the id from here.
     toModelOutput: ({ output }) => {
       if (!output || typeof output !== 'object') {
         return { type: 'json', value: (output ?? null) as JSONValue }
@@ -469,7 +471,6 @@ export function createSearchTool(
         ...(output as Record<string, unknown>)
       }
       delete modelView.citationMap
-      delete modelView.images
       delete modelView.state
       return { type: 'json', value: modelView as JSONValue }
     }

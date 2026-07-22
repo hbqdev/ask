@@ -3,9 +3,10 @@ import { describe, expect, it } from 'vitest'
 import { createSearchTool } from '@/lib/tools/search'
 
 // The search tool's toModelOutput strips UI-only fields (citationMap duplicates
-// results; images are display thumbnails) from what the model sees, halving the
-// search payload's token weight. These fields must survive in the streamed/
-// persisted output (for the UI) but never reach the model.
+// results; state is a streaming marker) from what the model sees. images MUST
+// reach the model — getImageSpecPrompt tells it to embed image URLs verbatim
+// from that array. All fields still survive in the streamed/persisted output
+// for the UI.
 describe('search tool toModelOutput', () => {
   const tool = createSearchTool('google:gemini-3-flash-preview')
 
@@ -25,7 +26,7 @@ describe('search tool toModelOutput', () => {
     toolCallId: 'call_123'
   }
 
-  it('omits citationMap, images, and state from the model output', async () => {
+  it('omits citationMap and state from the model output', async () => {
     const modelOutput = await tool.toModelOutput?.({
       toolCallId: 'call_123',
       input: {} as never,
@@ -39,7 +40,6 @@ describe('search tool toModelOutput', () => {
     ).value
 
     expect(value).not.toHaveProperty('citationMap')
-    expect(value).not.toHaveProperty('images')
     expect(value).not.toHaveProperty('state')
   })
 
@@ -56,6 +56,8 @@ describe('search tool toModelOutput', () => {
     expect(value.results).toEqual(fullOutput.results)
     expect(value.query).toBe('test query')
     expect(value.number_of_results).toBe(2)
+    // images MUST reach the model — the prompt embeds their URLs verbatim.
+    expect(value.images).toEqual(fullOutput.images)
     // toolCallId is required: the prompt cites as [number](#toolCallId).
     expect(value.toolCallId).toBe('call_123')
   })
