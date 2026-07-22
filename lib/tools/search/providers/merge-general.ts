@@ -52,12 +52,8 @@ export function mergeGeneralSearchResults(
     results.push(toResultItem(r))
   }
 
-  const images = brave?.images?.length
-    ? brave.images
-    : (searxng?.images ?? [])
-  const videos = brave?.videos?.length
-    ? brave.videos
-    : (searxng?.videos ?? [])
+  const images = brave?.images?.length ? brave.images : (searxng?.images ?? [])
+  const videos = brave?.videos?.length ? brave.videos : (searxng?.videos ?? [])
 
   return {
     results,
