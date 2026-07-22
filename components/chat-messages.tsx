@@ -12,7 +12,7 @@ import { extractCitationMapsFromMessages } from '@/lib/utils/citation'
 import { WildBreathGlyph } from './ui/wild-breath-logo'
 import { ChatError } from './chat-error'
 import { ChatFooterMessage } from './chat-footer-message'
-import { RenderMessage } from './render-message'
+import { endsInActiveResearch, RenderMessage } from './render-message'
 
 // Import section structure interface
 interface ChatSection {
@@ -125,8 +125,19 @@ export function ChatMessages({
 
   // Keep the assistant logo visible for the latest section after generation
   const latestSection = sections.at(-1)
+  const latestAssistantMessage = latestSection?.assistantMessages.at(-1)
+  // While the research indicator is live it is the single animated mark on
+  // screen — the footer glyph spinning right below it read as a redundant
+  // second logo. It still covers the gap before research starts (no parts
+  // yet) and returns once the answer streams.
+  const researchIndicatorLive =
+    isLoading &&
+    latestAssistantMessage != null &&
+    endsInActiveResearch(latestAssistantMessage)
   const showAssistantLogo = Boolean(
-    latestSection && (isLoading || latestSection.assistantMessages.length > 0)
+    latestSection &&
+      !researchIndicatorLive &&
+      (isLoading || latestSection.assistantMessages.length > 0)
   )
 
   // Helper function to get tool count with caching
@@ -281,7 +292,7 @@ export function ChatMessages({
             })}
             {/* Show assistant logo and footer message after assistant messages */}
             {showAssistantLogo && sectionIndex === sections.length - 1 && (
-              <div className="flex items-center gap-3 py-1 md:py-4">
+              <div className="wb-footer-in flex items-center gap-3 py-1 md:py-4">
                 <WildBreathGlyph
                   className="size-10 shrink-0"
                   spin={isLoading}

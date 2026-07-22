@@ -608,6 +608,21 @@
 .wb-summary-in {
   animation: wb-summary-in 180ms var(--motion-ease-out, ease-out) both;
 }
+/* Footer glyph easing back in after yielding to the research indicator. */
+@keyframes wb-footer-in {
+  from {
+    opacity: 0;
+    transform: scale(0.85);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+.wb-footer-in {
+  transform-origin: left center;
+  animation: wb-footer-in 240ms var(--motion-ease-out, ease-out) both;
+}
 @media (prefers-reduced-motion: reduce) {
   .wb-glyph,
   .wb-glyph-spin {
@@ -619,7 +634,8 @@
     background: var(--muted-foreground);
     opacity: 0.35;
   }
-  .wb-summary-in {
+  .wb-summary-in,
+  .wb-footer-in {
     animation: none;
   }
 }
