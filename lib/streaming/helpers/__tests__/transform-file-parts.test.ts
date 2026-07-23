@@ -149,7 +149,7 @@ describe('transformFileParts', () => {
     expect(result).toEqual([
       {
         type: 'text',
-        text: '[Attached document: mine.txt]\n\nRelevant excerpts:\n\nmy own content'
+        text: '[Attached document: mine.txt]\n\nRelevant excerpts:\n\nmy own content\n\n[Attachment mine.txt — URL: /uploads/u1/chats/c1/1-mine.txt]'
       }
     ])
     expect(findFileByObjectKey).toHaveBeenCalledTimes(1)
@@ -338,7 +338,7 @@ describe('transformFileParts', () => {
     expect(result).toEqual([
       {
         type: 'text',
-        text: '[Attached document: db-down.docx]\n\nRelevant excerpts:\n\nQ1 revenue grew 12%.'
+        text: '[Attached document: db-down.docx]\n\nRelevant excerpts:\n\nQ1 revenue grew 12%.\n\n[Attachment db-down.docx — URL: /uploads/u1/chats/c1/db-down.docx]'
       }
     ])
     expect(warnSpy).toHaveBeenCalledTimes(1)
@@ -374,9 +374,12 @@ describe('transformFileParts', () => {
         url: `data:image/png;base64,${bytes.toString('base64')}`,
         filename: 'pending-photo.png',
         mediaType: 'image/png'
+      },
+      {
+        type: 'text',
+        text: `[Attachment pending-photo.png — URL: /uploads/${objectKey}]`
       }
     ])
-    expect(result.some(p => typeof p.text === 'string')).toBe(false)
   })
 
   it('non-vision model: pending image still yields the still-processing note (needs the VLM text)', async () => {
@@ -433,6 +436,10 @@ describe('transformFileParts', () => {
         url: `data:image/png;base64,${bytes.toString('base64')}`,
         filename: 'failed-photo.png',
         mediaType: 'image/png'
+      },
+      {
+        type: 'text',
+        text: `[Attachment failed-photo.png — URL: /uploads/${objectKey}]`
       }
     ])
   })
@@ -491,6 +498,10 @@ describe('transformFileParts', () => {
         url: `data:image/png;base64,${bytes.toString('base64')}`,
         filename: 'photo.png',
         mediaType: 'image/png'
+      },
+      {
+        type: 'text',
+        text: `[Attachment photo.png — URL: /uploads/${objectKey}]`
       }
     ])
   })
@@ -515,7 +526,7 @@ describe('transformFileParts', () => {
     expect(result).toEqual([
       {
         type: 'text',
-        text: '[Attached image: photo.png]\n\nExtracted content:\n\na cat on a mat'
+        text: '[Attached image: photo.png]\n\nExtracted content:\n\na cat on a mat\n\n[Attachment photo.png — URL: /uploads/u1/chats/c1/photo-nv.png]'
       }
     ])
     expect(result.some(p => typeof p.url === 'string')).toBe(false)
@@ -539,6 +550,10 @@ describe('transformFileParts', () => {
         url: `data:image/png;base64,${bytes.toString('base64')}`,
         filename: 'photo2.png',
         mediaType: 'image/png'
+      },
+      {
+        type: 'text',
+        text: `[Attachment photo2.png — URL: /uploads/${objectKey}]`
       }
     ])
   })
@@ -582,7 +597,7 @@ describe('transformFileParts', () => {
     expect(result).toEqual([
       {
         type: 'text',
-        text: '[Attached image: photo3.png]\n\nExtracted content:\n\nonly text survives'
+        text: '[Attached image: photo3.png]\n\nExtracted content:\n\nonly text survives\n\n[Attachment photo3.png — URL: /uploads/u1/chats/c1/photo3.png]'
       }
     ])
   })
@@ -620,7 +635,8 @@ describe('transformFileParts', () => {
         text:
           'what were the quarterly results?\n\n' +
           '[Attached document: report.docx]\n\nRelevant excerpts:\n\n' +
-          'Q1 revenue grew 12%.\n\n---\n\nQ2 guidance was raised.'
+          'Q1 revenue grew 12%.\n\n---\n\nQ2 guidance was raised.\n\n' +
+          '[Attachment report.docx — URL: /uploads/u1/chats/c1/report.docx]'
       }
     ])
     expect(queryFileChunks).toHaveBeenCalledWith(
@@ -648,7 +664,7 @@ describe('transformFileParts', () => {
     expect(result).toEqual([
       {
         type: 'text',
-        text: '[Attached document: doc.pdf]\n\nExtracted full PDF body text that is long enough to pass the fifty character floor.'
+        text: '[Attached document: doc.pdf]\n\nExtracted full PDF body text that is long enough to pass the fifty character floor.\n\n[Attachment doc.pdf — URL: /uploads/u1/chats/c1/doc.pdf]'
       }
     ])
     expect(queryFileChunks).toHaveBeenCalledTimes(1)
@@ -694,5 +710,114 @@ describe('transformFileParts', () => {
     ])
     expect(execFileMock).not.toHaveBeenCalled()
     expect(mockPdftotext).not.toHaveBeenCalled()
+  })
+
+  // ── attachment URL exposure (baseImageUrl echo / image editing) ─────────────
+  // The image-generation tool resolves `/uploads/<objectKey>` back to bytes, so
+  // every pathway where the model actually receives the attachment's content
+  // must also hand it the exact URL to echo as baseImageUrl — exactly once.
+
+  it('vision model: ready image appends the exact attachment URL as a standalone text part alongside the base64', async () => {
+    vi.mocked(findFileByObjectKey).mockResolvedValue({ status: 'ready' } as any)
+    vi.mocked(queryFileChunks).mockResolvedValue(null)
+    const objectKey = 'u1/chats/c1/editme.png'
+    const bytes = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x09])
+    await writeUploadFile(objectKey, bytes)
+
+    const result = await run(
+      [filePart(objectKey, { mediaType: 'image/png', filename: 'editme.png' })],
+      { modelHasVision: true }
+    )
+
+    expect(result).toEqual([
+      {
+        type: 'file',
+        url: `data:image/png;base64,${bytes.toString('base64')}`,
+        filename: 'editme.png',
+        mediaType: 'image/png'
+      },
+      {
+        type: 'text',
+        text: `[Attachment editme.png — URL: /uploads/${objectKey}]`
+      }
+    ])
+  })
+
+  it('non-vision model: VLM-described image appends the attachment URL exactly once (merged with the extracted text)', async () => {
+    vi.mocked(findFileByObjectKey).mockResolvedValue({ status: 'ready' } as any)
+    vi.mocked(queryFileChunks).mockResolvedValue({
+      filename: 'diagram.png',
+      chunks: ['a flowchart of the pipeline']
+    })
+    const objectKey = 'u1/chats/c1/diagram.png'
+    await writeUploadFile(objectKey, Buffer.from([0x89, 0x50]))
+
+    const result = await run(
+      [
+        filePart(objectKey, {
+          mediaType: 'image/png',
+          filename: 'diagram.png'
+        })
+      ],
+      { modelHasVision: false }
+    )
+
+    expect(result).toEqual([
+      {
+        type: 'text',
+        text: `[Attached image: diagram.png]\n\nExtracted content:\n\na flowchart of the pipeline\n\n[Attachment diagram.png — URL: /uploads/${objectKey}]`
+      }
+    ])
+    // Still no base64 for a text-only model.
+    expect(result.some(p => typeof p.url === 'string')).toBe(false)
+    // URL appears exactly once.
+    expect((result[0].text.match(/URL: \/uploads\//g) || []).length).toBe(1)
+  })
+
+  it('extracted document appends the attachment URL line', async () => {
+    vi.mocked(findFileByObjectKey).mockResolvedValue({ status: 'ready' } as any)
+    vi.mocked(queryFileChunks).mockResolvedValue({
+      filename: 'spec.pdf',
+      chunks: ['section 1 body']
+    })
+    const objectKey = 'u1/chats/c1/spec.pdf'
+    await writeUploadFile(objectKey, '%PDF fake')
+
+    const result = await run([
+      filePart(objectKey, {
+        mediaType: 'application/pdf',
+        filename: 'spec.pdf'
+      })
+    ])
+
+    expect(result).toEqual([
+      {
+        type: 'text',
+        text: `[Attached document: spec.pdf]\n\nRelevant excerpts:\n\nsection 1 body\n\n[Attachment spec.pdf — URL: /uploads/${objectKey}]`
+      }
+    ])
+  })
+
+  it('foreign-user rejection path stays unreferenceable — never emits an attachment URL', async () => {
+    const objectKey = 'u2/chats/c9/1-secret.png'
+
+    const result = await run(
+      [
+        filePart(objectKey, {
+          mediaType: 'image/png',
+          filename: 'secret.png'
+        })
+      ],
+      { userId: 'u1' }
+    )
+
+    expect(result).toEqual([
+      { type: 'text', text: '[Attached file: secret.png — not accessible.]' }
+    ])
+    expect(
+      result.every(
+        p => typeof p.text !== 'string' || !p.text.includes('URL: /uploads/')
+      )
+    ).toBe(true)
   })
 })

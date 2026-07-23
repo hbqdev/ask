@@ -140,6 +140,18 @@ async function transformPart(
       }
     ]
 
+  // A referenceable pointer to the attachment's canonical URL, appended below
+  // to every pathway where the model actually receives the attachment's content
+  // (vision pixels, VLM-extracted image text, or extracted document text). This
+  // is what lets the model echo the exact `/uploads/<objectKey>` path back as
+  // the image-generation tool's `baseImageUrl`. Deliberately NOT emitted on the
+  // not-accessible / expired / unprocessed / unextractable notes above and
+  // below — those pathways must stay unreferenceable.
+  const attachmentUrlPart = {
+    type: 'text',
+    text: `[Attachment ${filename} — URL: /uploads/${objectKey}]`
+  }
+
   const query = userQuery || filename
   const result = await queryFileChunks(localPath, query, 10)
 
@@ -177,6 +189,7 @@ async function transformPart(
         }
       ]
     }
+    out.push(attachmentUrlPart)
     return out
   }
 
@@ -186,7 +199,8 @@ async function transformPart(
       {
         type: 'text',
         text: `[Attached document: ${filename}]\n\nRelevant excerpts:\n\n${context}`
-      }
+      },
+      attachmentUrlPart
     ]
   }
 
@@ -206,7 +220,8 @@ async function transformPart(
       const text = stdout.trim()
       if (text.length > 50) {
         return [
-          { type: 'text', text: `[Attached document: ${filename}]\n\n${text}` }
+          { type: 'text', text: `[Attached document: ${filename}]\n\n${text}` },
+          attachmentUrlPart
         ]
       }
     } catch {
