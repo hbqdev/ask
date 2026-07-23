@@ -15,7 +15,7 @@
 - Never fetch client-supplied foreign URLs server-side; only Replicate output URLs (returned by Replicate's API) and our own `/uploads/` files are read.
 - Tests: `bun run test` (Vitest). Gates before any deploy: `bun typecheck`, `bun lint`, `bun format:check`, `DATABASE_URL=postgresql://placeholder:placeholder@localhost:5432/placeholder bun run build`, full test suite.
 - Commits are local; NO push to `origin/dev` and NO prod rebuild without the operator's explicit approval (established workflow).
-- Live Replicate calls happen ONLY in Task 13 (two calls total), on the operator's personal token temporarily swapped into `.env`.
+- Live Replicate calls happen ONLY in Task 13 (two calls total), on the token in `.env`.
 
 ---
 
@@ -864,13 +864,12 @@ export function GeneratedImageSection({ part }: { part: any }) {
 
 - [ ] **Step 1: Full gates** — `bun typecheck && bun lint && bun format:check && bun run test` then the placeholder-DB build. All green before staging.
 - [ ] **Step 2: Rebuild staging** — `docker compose -f docker-compose.yaml -f docker-compose.admin-feature.yaml up -d --build ask` (from the ask repo root).
-- [ ] **Step 3: Token swap (operator pre-approved)** — copy `REPLICATE_API_TOKEN_P` from `/home/nightfury/selfhosted/image-gen/.env` over `REPLICATE_API_TOKEN` in `/home/nightfury/selfhosted/ask/.env` (keep a byte-exact copy of the original line to restore; never print either value), restart the staging container to pick it up.
+- [ ] **Step 3: Use Token `REPLICATE_API_TOKEN` in `/home/nightfury/selfhosted/ask/.env`.
 - [ ] **Step 4: Two live tests via Playwright on :3739** —
   1. New chat, Balanced: "generate an image of a red fox in the snow, 16:9". Verify: skeleton card appears; final `<img>` with `/uploads/<user>/generated/...` src loads (HTTP 200); files row exists with `status='ready'`; `replicate:budget:` key incremented if a budget is set.
   2. Upload any small local PNG as an attachment, prompt: "turn this into a watercolor painting". Verify the edit path: tool part input contains `baseImageUrl`, output image renders.
      Also verify: reloading the chat shows both images (persistence); the research indicator behaved normally; no console errors beyond the known pre-existing ones.
-- [ ] **Step 5: Restore the original `.env` token line**, restart staging.
-- [ ] **Step 6: Commit any fixes, report results.** STOP — push to `origin/dev` and prod rebuild ONLY on the operator's explicit approval.
+- [ ] **Step 5: Commit any fixes, report results.** STOP — push to `origin/dev` and prod rebuild ONLY on the operator's explicit approval.
 
 ---
 
