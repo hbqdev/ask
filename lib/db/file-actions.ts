@@ -252,6 +252,8 @@ export async function expireIdleUploads(): Promise<ExpireSummary> {
     ) m ON m.chat_id = c.id
     WHERE f.status <> 'expired'
       AND f.object_key IS NOT NULL
+      -- Generated images are chat content, not uploads: they must survive the idle sweep or old chats lose their images.
+      AND split_part(f.object_key, '/', 2) <> 'generated'
       AND NOT (f.status = 'processing'
                AND f.claimed_at > now() - interval '${sql.raw(String(STALE_CLAIM_MINUTES))} minutes')
       AND COALESCE(GREATEST(c.last_viewed_at, c.created_at, m.last_msg), f.created_at)

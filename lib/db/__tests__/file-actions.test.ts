@@ -247,6 +247,41 @@ describe('expireIdleUploads', () => {
     })
   })
 
+  // Generated images (key `<userId>/generated/<chatId>/<file>`) are chat
+  // content, not user uploads — the idle sweep must never reap them or old
+  // chats silently lose their images. The filtering happens in Postgres via
+  // split_part, and db.execute is mocked here, so we prove BOTH directions the
+  // way this file proves every other query shape (PgDialect on the compiled
+  // SQL): the SELECT's WHERE excludes a `/generated/` second segment, while a
+  // `/chats/` upload still flows all the way through to unlink + tombstone.
+  it('excludes generated images from the sweep but still reaps a chats upload', async () => {
+    execute.mockResolvedValueOnce([
+      // What Postgres returns AFTER the split_part filter: the generated row is
+      // gone, only the real chats upload remains selected for expiry.
+      { id: 'f-pdf', object_key: 'u1/chats/c1/123-y.pdf', size: 50 }
+    ]) // the SELECT
+    execute.mockResolvedValueOnce([]) // the UPDATE tombstone
+    execute.mockResolvedValueOnce([]) // the GC live-keys SELECT
+    readdir.mockResolvedValueOnce([]) // GC: empty uploads dir
+    stat.mockResolvedValueOnce({ size: 50 }) // bytes
+    stat.mockResolvedValueOnce({ size: 10 }) // sidecar
+    unlink.mockResolvedValue(undefined)
+
+    const summary = await expireIdleUploads()
+
+    // Exclusion direction: the compiled SELECT must carry the clause that keeps
+    // any `<userId>/generated/...` key out of the result set.
+    const selectSql = execute.mock.calls[0][0]
+    const { sql: compiledSelect } = new PgDialect().sqlToQuery(selectSql)
+    expect(compiledSelect).toMatch(
+      /split_part\(f\.object_key,\s*'\/',\s*2\)\s*<>\s*'generated'/i
+    )
+
+    // Inclusion direction: a `/chats/` upload on the same idle chat IS swept.
+    expect(unlink).toHaveBeenCalledWith('/app/uploads/u1/chats/c1/123-y.pdf')
+    expect(summary.expired).toBe(1)
+  })
+
   it('skips object keys that would escape the uploads root', async () => {
     execute.mockResolvedValueOnce([
       { id: 'evil', object_key: '../../etc/passwd', size: 0 }
