@@ -31,6 +31,14 @@ function extForContentType(contentType: string | null): string {
   return EXT_BY_CONTENT_TYPE[normalizeContentType(contentType)] ?? 'png'
 }
 
+// chatId flows from the client (same trust level as the upload route's
+// x-chat-id header, which applies this identical guard). No-op on valid
+// ids; neutralizes path metacharacters so the objectKey's segment layout
+// — which the TTL sweep's split_part(object_key,'/',3) relies on — holds.
+function sanitizeChatId(chatId: string): string {
+  return chatId.replace(/[^a-z0-9\-_]/gi, '_')
+}
+
 export async function persistGeneratedImage(args: {
   sourceUrl: string // Replicate delivery URL (trusted: from Replicate's API response)
   userId: string
@@ -59,7 +67,7 @@ export async function persistGeneratedImage(args: {
   // Layout mirrors app/api/upload/route.ts but with `generated` as the second
   // segment (TTL-exempt) and chatId as the third (what the TTL sweep reads via
   // split_part(object_key, '/', 3)).
-  const objectKey = `${userId}/generated/${chatId ?? 'none'}/${Date.now()}-${randomUUID().slice(0, 8)}.${ext}`
+  const objectKey = `${userId}/generated/${chatId ? sanitizeChatId(chatId) : 'none'}/${Date.now()}-${randomUUID().slice(0, 8)}.${ext}`
   const absPath = path.join(uploadsDir, objectKey)
 
   let size: number
