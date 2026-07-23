@@ -310,6 +310,67 @@ export const REGISTRY: EnvVarSpec[] = [
     target: 'ask',
     help: 'Bearer token the uploads-ingestion worker uses against /api/ingest/*. Unset disables worker ingestion (uploads queue as pending; text documents still fast-path locally).'
   },
+  // ---------- Models: Image generation (Replicate) ----------
+  // NOTE: the model options below duplicate the capability arrays in the app's
+  // lib/imagegen/models/*.json — model-manager cannot import from the app, so
+  // these lists must be kept in sync by hand. REPLICATE_IMAGE_MODEL lists every
+  // generate-capable model; REPLICATE_IMAGE_EDIT_MODEL only the edit-capable ones.
+  {
+    key: 'REPLICATE_API_TOKEN',
+    category: 'models',
+    group: 'Image generation',
+    label: 'Replicate API token',
+    type: 'secret',
+    help: 'Enables the image-generation tool. When unset the tool is absent from the researcher entirely.'
+  },
+  {
+    key: 'REPLICATE_IMAGE_MODEL',
+    category: 'models',
+    group: 'Image generation',
+    label: 'Image generate model',
+    type: 'enum',
+    enumValues: [
+      'black-forest-labs/flux-1.1-pro',
+      'black-forest-labs/flux-schnell',
+      'bytedance/seedream-4',
+      'google/nano-banana'
+    ],
+    default: 'black-forest-labs/flux-1.1-pro',
+    help: 'Model used for text-to-image generation. All options are generate-capable.'
+  },
+  {
+    key: 'REPLICATE_IMAGE_EDIT_MODEL',
+    category: 'models',
+    group: 'Image generation',
+    label: 'Image edit model',
+    type: 'enum',
+    enumValues: [
+      'google/nano-banana',
+      'bytedance/seedream-4',
+      'black-forest-labs/flux-1.1-pro'
+    ],
+    default: 'google/nano-banana',
+    help: 'Model used when a base image is supplied. Edit-capable models only. flux-1.1-pro is edit-capable — its image input is a composition reference, not a strict edit target.'
+  },
+  {
+    key: 'REPLICATE_MONTHLY_BUDGET',
+    category: 'models',
+    group: 'Image generation',
+    label: 'Monthly generation budget',
+    type: 'int',
+    validate: nonNegInt,
+    help: 'Caps image generations per UTC month (soft Redis counter). Unset or 0 = unlimited.'
+  },
+  {
+    key: 'REPLICATE_TIMEOUT_MS',
+    category: 'models',
+    group: 'Image generation',
+    label: 'Replicate timeout (ms)',
+    type: 'int',
+    validate: int,
+    default: '120000',
+    help: 'Per-request timeout for Replicate prediction polling.'
+  },
 
   // ---------- Search ----------
   {
