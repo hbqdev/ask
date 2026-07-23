@@ -5,7 +5,10 @@ import path from 'node:path'
 
 // Stream a previously-uploaded file from the local uploads volume.
 //
-// Path layout (matches the upload route): /uploads/<userId>/chats/<chatId>/<file>
+// Path layout: /uploads/<userId>/(chats|generated)/<chatId>/<file>
+//   - `chats`     — user uploads (see app/api/upload/route.ts)
+//   - `generated` — image-generation outputs (see lib/imagegen/persist-image.ts)
+// Both share the same capability-URL auth model below.
 //
 // Auth model: capability URL. The path contains a UUID userId, a UUID chatId,
 // and a timestamp+sanitized-filename — the UUIDs are unguessable and the URL
@@ -23,13 +26,13 @@ export async function GET(
 ) {
   const { path: segments } = await params
 
-  // Defensive: at minimum we need <userId>/chats/<chatId>/<file>
+  // Defensive: at minimum we need <userId>/(chats|generated)/<chatId>/<file>
   if (!segments || segments.length < 4) {
     return NextResponse.json({ error: 'Not found' }, { status: 404 })
   }
 
   const [pathUserId, ...rest] = segments
-  if (rest[0] !== 'chats') {
+  if (rest[0] !== 'chats' && rest[0] !== 'generated') {
     return NextResponse.json({ error: 'Not found' }, { status: 404 })
   }
 
@@ -57,9 +60,11 @@ export async function GET(
         ? 'image/png'
         : ext === '.jpg' || ext === '.jpeg'
           ? 'image/jpeg'
-          : ext === '.pdf'
-            ? 'application/pdf'
-            : 'application/octet-stream'
+          : ext === '.webp'
+            ? 'image/webp'
+            : ext === '.pdf'
+              ? 'application/pdf'
+              : 'application/octet-stream'
 
     // NextResponse's body type wants a typed array, not a Node Buffer —
     // newer @types/node marks Buffer as `Buffer<ArrayBufferLike>` which
