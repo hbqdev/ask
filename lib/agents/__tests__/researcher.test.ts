@@ -1,9 +1,18 @@
-import { describe, expect, it, vi } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import {
+  createResearcher,
+  getResearcherTools,
   getSourcesPromptAddendum,
   wrapSearchToolForSources
 } from '../researcher'
+
+// Keep createResearcher hermetic: the memory injection is the only step that
+// would otherwise reach the database. getModel() below is left real — for a
+// non-Ollama model it just constructs a lazy LanguageModel with no network.
+vi.mock('@/lib/memory/inject', () => ({
+  getMemoryInjection: vi.fn(async () => '')
+}))
 
 // A minimal stand-in for the real search tool: captures the params it was
 // called with and yields a single 'complete' chunk, mirroring the shape
@@ -172,5 +181,43 @@ describe('getSourcesPromptAddendum', () => {
     expect(getSourcesPromptAddendum(['academic', 'social'])).not.toMatch(
       /zero or very few results/i
     )
+  })
+})
+
+describe('createResearcher — generateImage tool registration', () => {
+  const original = process.env.REPLICATE_API_TOKEN
+
+  afterEach(() => {
+    if (original === undefined) delete process.env.REPLICATE_API_TOKEN
+    else process.env.REPLICATE_API_TOKEN = original
+  })
+
+  it('registers the generateImage tool when REPLICATE_API_TOKEN is configured', async () => {
+    process.env.REPLICATE_API_TOKEN = 'test-token'
+    const agent = await createResearcher({
+      model: 'openai:gpt-4o',
+      userId: 'user-1'
+    })
+    expect(getResearcherTools(agent)).toHaveProperty('generateImage')
+  })
+
+  it('omits the generateImage tool when REPLICATE_API_TOKEN is unset', async () => {
+    delete process.env.REPLICATE_API_TOKEN
+    const agent = await createResearcher({
+      model: 'openai:gpt-4o',
+      userId: 'user-1'
+    })
+    expect(getResearcherTools(agent)).not.toHaveProperty('generateImage')
+  })
+
+  // Ephemeral/incognito turns run createResearcher with no userId (see
+  // create-ephemeral-chat-stream-response.ts). Image generation persists into
+  // the requesting user's upload store, so without a userId there is nowhere
+  // to file the result — and createGenerateImageTool requires a string userId.
+  // The tool is therefore gated on userId as well as the token.
+  it('omits the generateImage tool for an anonymous (no userId) turn even with a token', async () => {
+    process.env.REPLICATE_API_TOKEN = 'test-token'
+    const agent = await createResearcher({ model: 'openai:gpt-4o' })
+    expect(getResearcherTools(agent)).not.toHaveProperty('generateImage')
   })
 })

@@ -7,6 +7,10 @@ import { getMemoryInjection } from '../memory/inject'
 import { getRelatedQuestionsSpecPrompt } from '../render/prompt'
 import { calculateTool } from '../tools/calculate'
 import { fetchTool } from '../tools/fetch'
+import {
+  createGenerateImageTool,
+  isImageGenEnabled
+} from '../tools/generate-image'
 import { createQuestionTool } from '../tools/question'
 import { createRecallTool } from '../tools/recall'
 import { createRememberTool } from '../tools/remember'
@@ -427,6 +431,15 @@ export async function createResearcher({
       systemPrompt = systemPrompt + getSourcesPromptAddendum(sources)
     }
 
+    // Offer image generation across every mode (skip/speed/quality/balanced)
+    // when it's configured AND the turn has an authenticated user — generated
+    // images are persisted into that user's upload store, and
+    // createGenerateImageTool requires a userId, so ephemeral/no-user turns
+    // (create-ephemeral-chat-stream-response.ts) don't get the tool.
+    if (isImageGenEnabled() && userId) {
+      activeToolsList.push('generateImage')
+    }
+
     // Give the agent the classifier's resolved standalone query as a
     // scoping hint alongside the raw conversation — Perplexica's pattern.
     // It's a hint, not a rigid replacement: the agent can still exercise
@@ -473,6 +486,13 @@ The conversation history is background context, not a to-do list. Any topic from
       get_weather: weatherTool,
       remember: createRememberTool(userId),
       recall: createRecallTool(userId, currentChatId),
+      // Gated identically to the activeToolsList entry above so the two never
+      // disagree. `&& userId` also narrows userId to string for the tool's
+      // required first argument.
+      ...(isImageGenEnabled() &&
+        userId && {
+          generateImage: createGenerateImageTool(userId, currentChatId)
+        }),
       ...todoTools
     } as ResearcherTools
 
