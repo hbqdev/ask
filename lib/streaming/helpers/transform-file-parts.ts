@@ -10,7 +10,7 @@ const UPLOADS_DIR = process.env.UPLOADS_DIR || '/app/uploads'
 // Single `new URL` parse shared by both derived values — localPath (for disk
 // I/O) and objectKey (for the DB lookup) always agree because they come from
 // the same parse, and a malformed/non-upload URL yields both as null.
-function resolveUploadUrl(
+export function resolveUploadUrl(
   url: string
 ): { localPath: string; objectKey: string } | null {
   try {
