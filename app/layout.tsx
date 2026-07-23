@@ -1,7 +1,5 @@
 import type { Metadata, Viewport } from 'next'
 
-import { Analytics } from '@vercel/analytics/next'
-
 import { getCurrentUserId } from '@/lib/auth/get-current-user'
 import { ChatHeaderProvider } from '@/lib/contexts/chat-header-context'
 import { UserProvider } from '@/lib/contexts/user-context'
@@ -100,7 +98,6 @@ export default async function RootLayout({
             </UserProvider>
           </PostHogProvider>
           <Toaster />
-          <Analytics />
         </ThemeProvider>
       </body>
     </html>
