@@ -8,6 +8,7 @@ import type {
 
 import type { calculateTool } from '../tools/calculate'
 import type { fetchTool } from '../tools/fetch'
+import type { createGenerateImageTool } from '../tools/generate-image'
 import type { createQuestionTool } from '../tools/question'
 import type { createRecallTool } from '../tools/recall'
 import type { createRememberTool } from '../tools/remember'
@@ -24,6 +25,9 @@ export type ResearcherTools = {
   get_weather: typeof weatherTool
   remember: ReturnType<typeof createRememberTool>
   recall: ReturnType<typeof createRecallTool>
+  // Present only when image generation is configured (REPLICATE_API_TOKEN set)
+  // and the turn has an authenticated user — see createResearcher.
+  generateImage?: ReturnType<typeof createGenerateImageTool>
 } & ReturnType<typeof createTodoTools>
 
 // Type alias for the researcher agent using ToolLoopAgent
