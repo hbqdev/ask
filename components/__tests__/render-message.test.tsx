@@ -26,6 +26,10 @@ vi.mock('../dynamic-tool-display', () => ({
   DynamicToolDisplay: () => <div data-testid="dynamic-tool" />
 }))
 
+vi.mock('../generated-image-section', () => ({
+  GeneratedImageSection: () => <div data-testid="generated-image" />
+}))
+
 vi.mock('../user-file-section', () => ({
   UserFileSection: () => <div data-testid="user-file" />
 }))
@@ -310,6 +314,67 @@ describe('RenderMessage', () => {
       'Port 22 appears free right now.'
     )
   })
+
+  test('renders a generated image as a standalone sibling, not inside the research process', () => {
+    // Generated images are answer content: the tool-search step still belongs
+    // in the collapsed research process, but the tool-generateImage part must
+    // carve out into its own card rather than being buffered into the accordion.
+    const message: UIMessage = {
+      id: 'assistant-msg',
+      role: 'assistant',
+      parts: [
+        {
+          type: 'tool-search',
+          toolCallId: 'tool-1',
+          state: 'output-available',
+          input: {},
+          output: {}
+        } as any,
+        {
+          type: 'tool-generateImage',
+          toolCallId: 'tool-2',
+          state: 'output-available',
+          input: { prompt: 'a red fox' },
+          output: {
+            imageUrl: '/uploads/u/fox.png',
+            modelId: 'flux',
+            prompt: 'a red fox'
+          }
+        } as any,
+        { type: 'text', text: '## Here is your image' } as any
+      ]
+    } as UIMessage
+
+    const { container } = render(
+      <RenderMessage
+        message={message}
+        messageId={message.id}
+        getIsOpen={() => true}
+        onOpenChange={() => {}}
+      />
+    )
+
+    // The research process contains ONLY the search step — not the image tool.
+    const processSections = screen.getAllByTestId('research-process')
+    expect(processSections).toHaveLength(1)
+    expect(processSections[0]).toHaveTextContent('tool-search')
+    expect(processSections[0]).not.toHaveTextContent('tool-generateImage')
+
+    // The image renders as a standalone sibling.
+    expect(screen.getByTestId('generated-image')).toBeInTheDocument()
+
+    // Order: research process, then the image card, then the answer.
+    const order = Array.from(
+      container.querySelectorAll(
+        '[data-testid="research-process"], [data-testid="generated-image"], [data-testid="answer-section"]'
+      )
+    ).map(node => node.getAttribute('data-testid'))
+    expect(order).toEqual([
+      'research-process',
+      'generated-image',
+      'answer-section'
+    ])
+  })
 })
 
 describe('endsInActiveResearch', () => {
@@ -371,6 +436,38 @@ describe('endsInActiveResearch', () => {
     expect(endsInActiveResearch(msg([{ type: 'text', text: 'Hi!' }]))).toBe(
       false
     )
+  })
+
+  test('a trailing generated-image tool is not active research', () => {
+    // The standalone image card (its skeleton) is the activity cue for image
+    // generation, so tool-generateImage is excluded here — otherwise the helper
+    // would report research-live while no process-section indicator renders,
+    // leaving neither mark animated.
+    expect(
+      endsInActiveResearch(
+        msg([
+          {
+            type: 'tool-generateImage',
+            toolCallId: 't1',
+            state: 'input-available',
+            input: { prompt: 'a red fox' }
+          }
+        ])
+      )
+    ).toBe(false)
+    // Still false once the image has resolved — it never counted as research.
+    expect(
+      endsInActiveResearch(
+        msg([
+          {
+            type: 'tool-generateImage',
+            toolCallId: 't2',
+            state: 'output-available',
+            output: { imageUrl: '/x.png', modelId: 'flux', prompt: 'a red fox' }
+          }
+        ])
+      )
+    ).toBe(false)
   })
 
   test('recall parts count as research activity only when non-empty', () => {

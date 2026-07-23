@@ -11,6 +11,7 @@ import type { DynamicToolPart } from '@/lib/types/dynamic-tools'
 
 import { AnswerSection } from './answer-section'
 import { DynamicToolDisplay } from './dynamic-tool-display'
+import { GeneratedImageSection } from './generated-image-section'
 import ResearchProcessSection from './research-process-section'
 import { UserFileSection } from './user-file-section'
 import { UserTextSection } from './user-text-section'
@@ -49,7 +50,11 @@ export function endsInActiveResearch(message: UIMessage): boolean {
       part.type === 'data-classifier' ||
       part.type === 'data-attachments' ||
       (part.type === 'data-recall' && part.data?.chats?.length) ||
-      part.type?.startsWith?.('tool-')
+      // generateImage renders as a standalone card whose own skeleton is the
+      // activity cue — it never joins the research process, so it must not
+      // count as research-live here (else the footer glyph would yield to a
+      // process indicator that never renders).
+      (part.type?.startsWith?.('tool-') && part.type !== 'tool-generateImage')
     ) {
       live = true
     } else if (
@@ -229,6 +234,16 @@ export function RenderMessage({
           onQuoteContext={onQuoteContext}
         />
       )
+    } else if (part.type === 'tool-generateImage') {
+      // Generated images are answer content, not research process — they
+      // render standalone, never buried in the collapsed accordion.
+      flushBuffer(`seg-${index}`)
+      elements.push(
+        <GeneratedImageSection
+          key={`${messageId}-genimg-${index}`}
+          part={part as any}
+        />
+      )
     } else if (
       part.type === 'reasoning' ||
       part.type === 'data-classifier' ||
@@ -238,7 +253,9 @@ export function RenderMessage({
       // links are found under "Completed N steps"). Empty recall parts are
       // dropped so they can't render a blank step.
       (part.type === 'data-recall' && part.data?.chats?.length) ||
-      part.type?.startsWith?.('tool-')
+      // tool-generateImage is handled by the standalone branch above; every
+      // other tool-* part is research process and buffers into the accordion.
+      (part.type?.startsWith?.('tool-') && part.type !== 'tool-generateImage')
     ) {
       buffer.push(part)
     } else if (part.type === 'dynamic-tool') {
