@@ -21,6 +21,7 @@ import { SearchMode, SearchSources } from '../types/search'
 import { getModel } from '../utils/registry'
 import { isTracingEnabled } from '../utils/telemetry'
 
+import { IMAGE_TOOL_GUIDANCE } from './prompts/image-tool-guidance'
 import {
   getAdaptiveModePrompt,
   getQualityModePrompt,
@@ -476,6 +477,14 @@ The conversation history is background context, not a to-do list. Any topic from
     if (memoryBlock) systemPrompt = systemPrompt + memoryBlock
 
     if (recallBlock) systemPrompt = systemPrompt + recallBlock
+
+    // Teach the agent when/how to reach for generateImage — but only when the
+    // tool is actually registered (same gate as activeToolsList and the tools
+    // object below). Appending guidance for an unregistered tool would prompt
+    // the model to hallucinate calls to a tool that isn't available.
+    if (isImageGenEnabled() && userId) {
+      systemPrompt = systemPrompt + IMAGE_TOOL_GUIDANCE
+    }
 
     // Build tools object with proper typing
     const tools: ResearcherTools = {
