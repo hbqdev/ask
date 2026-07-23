@@ -1,4 +1,5 @@
-import { render, screen } from '@testing-library/react'
+import type { User } from '@supabase/supabase-js'
+import { fireEvent, render, screen } from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 // The dialog reaches into theme + the memory tab's data hooks; stub them so we
@@ -9,8 +10,24 @@ vi.mock('@/components/theme-provider', () => ({
 vi.mock('@/components/settings/memory-tab', () => ({
   MemoryTab: () => <div data-testid="memory-tab-content">memory</div>
 }))
+// The Account tab pulls the delete-account action and supabase client.
+vi.mock('@/lib/actions/account', () => ({
+  deleteAccount: vi.fn()
+}))
+vi.mock('@/lib/supabase/client', () => ({
+  createClient: () => ({ auth: { signOut: vi.fn() } })
+}))
+vi.mock('next/navigation', () => ({
+  useRouter: () => ({ push: vi.fn(), refresh: vi.fn() })
+}))
 
 import { SettingsDialog } from '../settings-dialog'
+
+const testUser = {
+  id: 'u1',
+  email: 'night@fury.dev',
+  user_metadata: { full_name: 'Night Fury' }
+} as unknown as User
 
 describe('SettingsDialog tab reachability', () => {
   beforeEach(() => {
@@ -47,5 +64,29 @@ describe('SettingsDialog tab reachability', () => {
       })
       expect(reachable, `"${label}" tab must be reachable below lg`).toBe(true)
     }
+  })
+
+  it('shows the Account tab only when a user is provided', () => {
+    const { rerender } = render(<SettingsDialog open onOpenChange={() => {}} />)
+    expect(
+      screen.queryByRole('button', { name: /Account/ })
+    ).not.toBeInTheDocument()
+
+    rerender(<SettingsDialog open onOpenChange={() => {}} user={testUser} />)
+    expect(
+      screen.getAllByRole('button', { name: /Account/ }).length
+    ).toBeGreaterThan(0)
+  })
+
+  it('Account tab shows the profile and the delete-account danger zone', () => {
+    render(<SettingsDialog open onOpenChange={() => {}} user={testUser} />)
+
+    fireEvent.click(screen.getAllByRole('button', { name: /Account/ })[0])
+
+    expect(screen.getByText('Night Fury')).toBeInTheDocument()
+    expect(screen.getByText('night@fury.dev')).toBeInTheDocument()
+    expect(
+      screen.getByRole('button', { name: /delete account/i })
+    ).toBeInTheDocument()
   })
 })

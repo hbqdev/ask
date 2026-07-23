@@ -2,8 +2,6 @@
 
 import React from 'react'
 
-import { User } from '@supabase/supabase-js'
-
 import { useChatHeaderInfo } from '@/lib/contexts/chat-header-context'
 import { cn } from '@/lib/utils'
 
@@ -11,13 +9,18 @@ import { useSidebar } from '@/components/ui/sidebar'
 
 import { ChatHeader } from './chat-header'
 import GuestMenu from './guest-menu'
-import UserMenu from './user-menu'
 
 interface HeaderProps {
-  user: User | null
+  /**
+   * Account access lives in the sidebar footer now, so the header's right
+   * side stays empty whenever the sidebar exists. Logged-out visitors on
+   * public routes (/, /share) get NO sidebar at all — for them this keeps
+   * the old top-right Sign In + settings gear so both stay reachable.
+   */
+  showGuestMenu?: boolean
 }
 
-export const Header: React.FC<HeaderProps> = ({ user }) => {
+export const Header: React.FC<HeaderProps> = ({ showGuestMenu = false }) => {
   const { open } = useSidebar()
   const { info: chatHeaderInfo } = useChatHeaderInfo()
 
@@ -45,9 +48,11 @@ export const Header: React.FC<HeaderProps> = ({ user }) => {
         )}
       </div>
 
-      <div className="flex items-center gap-2">
-        {user ? <UserMenu user={user} /> : <GuestMenu />}
-      </div>
+      {showGuestMenu && (
+        <div className="flex items-center gap-2">
+          <GuestMenu />
+        </div>
+      )}
     </header>
   )
 }

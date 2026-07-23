@@ -1,17 +1,37 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useEffect, useState, useTransition } from 'react'
+import { useRouter } from 'next/navigation'
 
+import type { User } from '@supabase/supabase-js'
 import {
   IconAdjustments,
   IconChevronLeft,
   IconNotes,
-  IconPalette
+  IconPalette,
+  IconTrash,
+  IconUserCircle
 } from '@tabler/icons-react'
+import { toast } from 'sonner'
 
+import { deleteAccount } from '@/lib/actions/account'
+import { createClient } from '@/lib/supabase/client'
 import { cn } from '@/lib/utils'
 
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger
+} from '@/components/ui/alert-dialog'
+import { Button } from '@/components/ui/button'
 import { Dialog, DialogContent, DialogTitle } from '@/components/ui/dialog'
+import { Spinner } from '@/components/ui/spinner'
 
 import { MemoryTab } from '@/components/settings/memory-tab'
 import { useTheme } from '@/components/theme-provider'
@@ -52,6 +72,12 @@ const TABS = [
     label: 'Memory',
     description: 'Manage what Ask remembers about you.',
     icon: IconNotes
+  },
+  {
+    key: 'account',
+    label: 'Account',
+    description: 'Manage your profile and account data.',
+    icon: IconUserCircle
   }
 ] as const
 type TabKey = (typeof TABS)[number]['key']
@@ -284,16 +310,140 @@ function PersonalizationTab() {
 }
 
 // ---------------------------------------------------------------------------
+// Account tab — absorbed from the old standalone account dialog. Theme is
+// deliberately not repeated here; it already lives under Preferences.
+// ---------------------------------------------------------------------------
+function AccountTab({
+  user,
+  onCloseDialog
+}: {
+  user: User
+  onCloseDialog: () => void
+}) {
+  const router = useRouter()
+  const [isDeleting, startDeleteTransition] = useTransition()
+  const [confirmOpen, setConfirmOpen] = useState(false)
+
+  const userName =
+    user.user_metadata?.full_name || user.user_metadata?.name || 'User'
+
+  const handleDeleteAccount = () => {
+    startDeleteTransition(async () => {
+      // A rejected action (network failure, stale server action after a
+      // redeploy) must surface, not die silently.
+      let result: Awaited<ReturnType<typeof deleteAccount>>
+      try {
+        result = await deleteAccount()
+      } catch {
+        toast.error(
+          'Failed to delete account — refresh the page and try again.'
+        )
+        return
+      }
+
+      if (result.success) {
+        try {
+          await createClient().auth.signOut()
+        } catch (error) {
+          console.error('Failed to clear client session:', error)
+        }
+
+        toast.success('Account deleted')
+        setConfirmOpen(false)
+        onCloseDialog()
+        router.push('/')
+        router.refresh()
+        return
+      }
+
+      toast.error(result.error ?? 'Failed to delete account')
+    })
+  }
+
+  return (
+    <div className="flex-1 space-y-6 overflow-y-auto px-6 py-6">
+      <SettingRow title="Profile" description="The signed-in account.">
+        <div className="text-sm text-muted-foreground">
+          <p className="truncate">{userName}</p>
+          <p className="truncate">{user.email}</p>
+        </div>
+      </SettingRow>
+
+      <SettingRow
+        title="Delete account"
+        description="Permanently delete your account, chat history, and uploaded files. This action cannot be undone."
+      >
+        <AlertDialog
+          open={confirmOpen}
+          onOpenChange={nextOpen => {
+            if (!isDeleting) {
+              setConfirmOpen(nextOpen)
+            }
+          }}
+        >
+          <AlertDialogTrigger asChild>
+            <Button
+              type="button"
+              variant="destructive"
+              className="w-fit gap-2"
+              disabled={isDeleting}
+            >
+              <IconTrash className="size-4" />
+              Delete account
+            </Button>
+          </AlertDialogTrigger>
+          <AlertDialogContent>
+            <AlertDialogHeader>
+              <AlertDialogTitle>Delete your account?</AlertDialogTitle>
+              <AlertDialogDescription>
+                This action cannot be undone. Your account, chat history, and
+                uploaded files will be permanently deleted.
+              </AlertDialogDescription>
+            </AlertDialogHeader>
+            <AlertDialogFooter>
+              <AlertDialogCancel disabled={isDeleting}>
+                Cancel
+              </AlertDialogCancel>
+              <AlertDialogAction
+                disabled={isDeleting}
+                onClick={event => {
+                  event.preventDefault()
+                  handleDeleteAccount()
+                }}
+                className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              >
+                {isDeleting ? <Spinner /> : 'Delete account'}
+              </AlertDialogAction>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialog>
+      </SettingRow>
+    </div>
+  )
+}
+
+// ---------------------------------------------------------------------------
 // Main dialog
 // ---------------------------------------------------------------------------
 interface SettingsDialogProps {
   open: boolean
   onOpenChange: (open: boolean) => void
+  /** Signed-in user; enables the Account tab when present. */
+  user?: User | null
 }
 
-export function SettingsDialog({ open, onOpenChange }: SettingsDialogProps) {
+export function SettingsDialog({
+  open,
+  onOpenChange,
+  user = null
+}: SettingsDialogProps) {
   const [activeTab, setActiveTab] = useState<TabKey>('preferences')
-  const activeSection = TABS.find(t => t.key === activeTab)!
+  // Guests have no Account tab; fall back if the stored tab is unavailable.
+  const tabs = user ? TABS : TABS.filter(t => t.key !== 'account')
+  const effectiveTab: TabKey = tabs.some(t => t.key === activeTab)
+    ? activeTab
+    : 'preferences'
+  const activeSection = TABS.find(t => t.key === effectiveTab)!
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -326,13 +476,13 @@ export function SettingsDialog({ open, onOpenChange }: SettingsDialogProps) {
 
               {/* Nav items — matches Vane: space-y-1 mt-8, px-2 py-1.5 */}
               <div className="flex flex-col items-start space-y-1 mt-8">
-                {TABS.map(({ key, label, icon: Icon }) => (
+                {tabs.map(({ key, label, icon: Icon }) => (
                   <button
                     key={key}
                     onClick={() => setActiveTab(key)}
                     className={cn(
                       'flex flex-row items-center space-x-2 px-2 py-1.5 rounded-lg w-full text-sm hover:bg-muted transition duration-200 active:scale-95',
-                      activeTab === key
+                      effectiveTab === key
                         ? 'bg-muted text-foreground/90'
                         : 'text-foreground/70'
                     )}
@@ -359,13 +509,13 @@ export function SettingsDialog({ open, onOpenChange }: SettingsDialogProps) {
                 than 1024px). Shown only below lg, so it and the sidebar are
                 mutually exclusive and cover every width. */}
             <div className="lg:hidden flex flex-row gap-1 overflow-x-auto border-b border-border/60 pl-3 pr-12 py-2 flex-shrink-0">
-              {TABS.map(({ key, label, icon: Icon }) => (
+              {tabs.map(({ key, label, icon: Icon }) => (
                 <button
                   key={key}
                   onClick={() => setActiveTab(key)}
                   className={cn(
                     'flex flex-row items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm whitespace-nowrap shrink-0 transition-colors active:scale-95',
-                    activeTab === key
+                    effectiveTab === key
                       ? 'bg-muted text-foreground/90'
                       : 'text-foreground/70 hover:bg-muted'
                   )}
@@ -390,9 +540,15 @@ export function SettingsDialog({ open, onOpenChange }: SettingsDialogProps) {
 
             {/* Scrollable section content */}
             <div className="flex-1 overflow-y-auto">
-              {activeTab === 'preferences' && <PreferencesTab />}
-              {activeTab === 'personalization' && <PersonalizationTab />}
-              {activeTab === 'memory' && <MemoryTab />}
+              {effectiveTab === 'preferences' && <PreferencesTab />}
+              {effectiveTab === 'personalization' && <PersonalizationTab />}
+              {effectiveTab === 'memory' && <MemoryTab />}
+              {effectiveTab === 'account' && user && (
+                <AccountTab
+                  user={user}
+                  onCloseDialog={() => onOpenChange(false)}
+                />
+              )}
             </div>
           </div>
         </div>
