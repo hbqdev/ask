@@ -864,7 +864,7 @@ export function GeneratedImageSection({ part }: { part: any }) {
 
 - [ ] **Step 1: Full gates** — `bun typecheck && bun lint && bun format:check && bun run test` then the placeholder-DB build. All green before staging.
 - [ ] **Step 2: Rebuild staging** — `docker compose -f docker-compose.yaml -f docker-compose.admin-feature.yaml up -d --build ask` (from the ask repo root).
-- [ ] **Step 3: Use Token `REPLICATE_API_TOKEN` in `/home/nightfury/selfhosted/ask/.env`.
+- [ ] \*\*Step 3: Use Token `REPLICATE_API_TOKEN` in `/home/nightfury/selfhosted/ask/.env`.
 - [ ] **Step 4: Two live tests via Playwright on :3739** —
   1. New chat, Balanced: "generate an image of a red fox in the snow, 16:9". Verify: skeleton card appears; final `<img>` with `/uploads/<user>/generated/...` src loads (HTTP 200); files row exists with `status='ready'`; `replicate:budget:` key incremented if a budget is set.
   2. Upload any small local PNG as an attachment, prompt: "turn this into a watercolor painting". Verify the edit path: tool part input contains `baseImageUrl`, output image renders.

@@ -132,11 +132,16 @@ describe('runReplicatePrediction', () => {
       (_url, init) =>
         new Promise((_resolve, reject) => {
           init?.signal?.addEventListener('abort', () =>
-            reject(Object.assign(new Error('timed out'), { name: 'TimeoutError' }))
+            reject(
+              Object.assign(new Error('timed out'), { name: 'TimeoutError' })
+            )
           )
         }) as any
     )
-    const res = await runReplicatePrediction({ modelPath: 'a/b', input: { prompt: 'x' } })
+    const res = await runReplicatePrediction({
+      modelPath: 'a/b',
+      input: { prompt: 'x' }
+    })
     expect(res).toMatchObject({ ok: false, errorClass: 'timeout' })
   })
 })
