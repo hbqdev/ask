@@ -133,6 +133,34 @@ describe('persistGeneratedImage', () => {
     expect(res.objectKey).toMatch(/^u1\/generated\/none\/\d+-[0-9a-f]{8}\.png$/)
   })
 
+  it('sanitizes a path-traversal chatId so it cannot escape UPLOADS_DIR or split the layout', async () => {
+    vi.mocked(fetch).mockResolvedValue(mockResponse({}) as any)
+
+    const res = await persistGeneratedImage({
+      sourceUrl: ARGS.sourceUrl,
+      userId: 'u1',
+      chatId: '../../../etc',
+      modelPath: 'google/nano-banana'
+    })
+    if (!('publicUrl' in res)) throw new Error('expected success')
+
+    const segments = res.objectKey.split('/')
+    // Layout holds: second segment stays TTL-exempt `generated`, and the
+    // traversal collapses into a single slash-free third segment. The guard
+    // (like the upload route's) also strips dots, so every `.` and `/` in
+    // `../../../etc` becomes `_`.
+    expect(segments[1]).toBe('generated')
+    expect(segments[2]).toBe('_________etc')
+    // No extra slashes beyond the four-segment layout's own.
+    expect(segments).toHaveLength(4)
+
+    // The file landed INSIDE the temp uploads dir, not above it.
+    const absPath = path.join(uploadsDir, res.objectKey)
+    expect(absPath.startsWith(uploadsDir + path.sep)).toBe(true)
+    const onDisk = await readFile(absPath)
+    expect(Array.from(onDisk)).toEqual([1, 2, 3, 4])
+  })
+
   it.each([
     ['image/webp', 'webp'],
     ['image/jpeg', 'jpg'],
