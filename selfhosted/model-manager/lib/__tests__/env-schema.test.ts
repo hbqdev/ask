@@ -45,6 +45,54 @@ describe('UPLOAD_TTL_DAYS', () => {
   })
 })
 
+describe('Replicate image-generation env', () => {
+  it('REPLICATE_API_TOKEN is an optional secret in the models category', () => {
+    const spec = specByKey('REPLICATE_API_TOKEN')
+    expect(spec).toBeDefined()
+    expect(spec!.category).toBe('models')
+    expect(spec!.type).toBe('secret')
+    expect(spec!.required).toBeFalsy()
+  })
+  it('REPLICATE_IMAGE_MODEL is an enum of generate-capable models defaulting to flux-1.1-pro', () => {
+    const spec = specByKey('REPLICATE_IMAGE_MODEL')
+    expect(spec).toBeDefined()
+    expect(spec!.type).toBe('enum')
+    expect(spec!.default).toBe('black-forest-labs/flux-1.1-pro')
+    expect(spec!.enumValues).toEqual([
+      'black-forest-labs/flux-1.1-pro',
+      'black-forest-labs/flux-schnell',
+      'bytedance/seedream-4',
+      'google/nano-banana'
+    ])
+  })
+  it('REPLICATE_IMAGE_EDIT_MODEL is an enum of edit-capable models defaulting to nano-banana', () => {
+    const spec = specByKey('REPLICATE_IMAGE_EDIT_MODEL')
+    expect(spec).toBeDefined()
+    expect(spec!.type).toBe('enum')
+    expect(spec!.default).toBe('google/nano-banana')
+    expect(spec!.enumValues).toEqual([
+      'google/nano-banana',
+      'bytedance/seedream-4',
+      'black-forest-labs/flux-1.1-pro'
+    ])
+  })
+  it('REPLICATE_MONTHLY_BUDGET validates as a non-negative integer (0 = unlimited)', () => {
+    const spec = specByKey('REPLICATE_MONTHLY_BUDGET')
+    expect(spec).toBeDefined()
+    expect(spec!.type).toBe('int')
+    expect(spec!.required).toBeFalsy()
+    expect(spec!.validate!('0')).toBeNull()
+    expect(spec!.validate!('950')).toBeNull()
+    expect(typeof spec!.validate!('-1')).toBe('string')
+  })
+  it('REPLICATE_TIMEOUT_MS is an integer defaulting to 120000', () => {
+    const spec = specByKey('REPLICATE_TIMEOUT_MS')
+    expect(spec).toBeDefined()
+    expect(spec!.type).toBe('int')
+    expect(spec!.default).toBe('120000')
+  })
+})
+
 describe('.env parity — every key in Ask .env has a spec', () => {
   it('covers all keys', () => {
     const sample = readFileSync(
