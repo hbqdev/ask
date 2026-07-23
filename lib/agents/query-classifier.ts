@@ -99,7 +99,7 @@ export interface QueryClassification {
 // follow-ups, pure confirmations, and casual chit-chat).
 const CLASSIFIER_SYSTEM_PROMPT = `You decide whether a NEW web search is needed to answer the latest user message, given the conversation so far.
 
-Rule: if the latest message names a different subject/entity than what was already discussed, or asks for any fact not yet stated above, that is ALWAYS skipSearch=false - no exceptions, even if the question is short or looks like a follow-up.
+Rule: if the latest message names a different subject/entity than what was already discussed, or asks for any fact not yet stated above, that is ALWAYS skipSearch=false - no exceptions, even if the question is short or looks like a follow-up — except a request only to generate, draw, or edit an image (covered by the skip-search rule below).
 
 Rule: skipSearch=true ONLY when the latest message is casual small talk (greeting/thanks), OR purely asks to confirm/restate/compare something the assistant ALREADY explicitly stated above (with the new message introducing zero new subject), OR only asks to generate, draw, or edit an image (the assistant has an image tool; no web search is needed unless the request also asks for information).
 
@@ -127,6 +127,7 @@ Examples:
 6) User: "did anything major happen in AI this week" -> current events -> skipSearch=false, needsRecent=true, intent="news", standaloneQuery="Major AI news this week"
 7) User: "what mechanical keyboard do people actually recommend" -> opinions/community consensus -> skipSearch=false, needsRecent=false, intent="discussion", standaloneQuery="Recommended mechanical keyboards according to users"
 8) User: "does creatine actually improve muscle recovery, any studies" -> scientific evidence -> skipSearch=false, needsRecent=false, intent="academic", standaloneQuery="Does creatine improve muscle recovery (research evidence)?"
+9) User: "draw me a picture of the Sydney Opera House" -> pure image-generation request; names a new entity but the assistant's image tool handles it, no web search -> skipSearch=true, needsRecent=false, intent="general", standaloneQuery="Generate an image of the Sydney Opera House"
 
 standaloneQuery is always a short plain string, never empty, never a meta-question back to the user.`
 
