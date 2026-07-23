@@ -85,11 +85,11 @@ export default async function RootLayout({
                 }
               >
                 <LibraryProvider>
-                  {userId && <AppSidebar />}
+                  {userId && <AppSidebar user={user} />}
                   <KeyboardShortcutHandler />
                   <ChatHeaderProvider>
                     <div className="flex flex-col flex-1 min-w-0">
-                      <Header user={user} />
+                      <Header showGuestMenu={!userId} />
                       <main className="flex flex-1 min-h-0 min-w-0 overflow-hidden">
                         <ArtifactRoot>{children}</ArtifactRoot>
                       </main>

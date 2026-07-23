@@ -1,15 +1,14 @@
 'use client'
 
-import { useState } from 'react'
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
 
+import type { User } from '@supabase/supabase-js'
 import {
   IconCompass,
   IconHome,
   IconLibrary,
-  IconPlus,
-  IconSettings
+  IconPlus
 } from '@tabler/icons-react'
 
 import { SHORTCUT_EVENTS } from '@/lib/keyboard-shortcuts'
@@ -24,7 +23,7 @@ import {
 } from '@/components/ui/sidebar'
 
 import { WildBreathGlyph } from './ui/wild-breath-logo'
-import { SettingsDialog } from './settings-dialog'
+import SidebarAccountMenu from './sidebar-account-menu'
 
 const NAV_ITEMS = [
   { href: '/', icon: IconHome, label: 'Home', exact: true },
@@ -32,9 +31,8 @@ const NAV_ITEMS = [
   { href: '/library', icon: IconLibrary, label: 'Library', exact: false }
 ]
 
-export default function AppSidebar() {
+export default function AppSidebar({ user }: { user: User | null }) {
   const pathname = usePathname()
-  const [settingsOpen, setSettingsOpen] = useState(false)
 
   // Dispatch the same event the keyboard shortcut uses, so the chat panel's
   // handleNewChat resets state (chatId, messages, input, files, error modal)
@@ -95,19 +93,10 @@ export default function AppSidebar() {
       </SidebarContent>
 
       <SidebarFooter className="flex flex-col items-center pb-4 px-2">
-        <button
-          onClick={() => setSettingsOpen(true)}
-          title="Settings"
-          className="flex flex-col items-center gap-1.5 py-2.5 px-1 rounded-xl w-full transition-all duration-200 cursor-pointer select-none text-muted-foreground hover:bg-muted/60 hover:text-foreground hover:scale-105 active:scale-95"
-        >
-          <IconSettings className="size-5" />
-          <span className="text-[10px] font-medium leading-none">Settings</span>
-        </button>
+        <SidebarAccountMenu user={user} />
       </SidebarFooter>
 
       <SidebarRail />
-
-      <SettingsDialog open={settingsOpen} onOpenChange={setSettingsOpen} />
     </Sidebar>
   )
 }
