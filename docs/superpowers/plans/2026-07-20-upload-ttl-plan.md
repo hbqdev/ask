@@ -28,17 +28,19 @@
 ### Task 1: Schema/type widening + `expireIdleUploads()` core action
 
 **Files:**
+
 - Modify: `lib/db/schema.ts` (status enum), `lib/types/index.ts` (`UploadedFile.ingestStatus`)
 - Modify: `lib/db/file-actions.ts` (add the action)
 - Test: `lib/db/__tests__/file-actions.test.ts` (extend)
 
 **Interfaces:**
+
 - Produces: `export async function expireIdleUploads(): Promise<ExpireSummary>` and `export interface ExpireSummary { expired: number; bytesFreed: number; scanned: number }` — consumed by Task 3 (route) and Task 7.
 - Produces: `status` union widened to include `'expired'` — consumed by Tasks 4, 5.
 
 - [ ] **Step 1: Widen the status type (TS-only, no migration).** In `lib/db/schema.ts`, change the `libraryFiles.status` enum array to `['pending', 'processing', 'ready', 'failed', 'expired']`. In `lib/types/index.ts`, change `ingestStatus?: 'pending' | 'processing' | 'ready' | 'failed'` to also include `'expired'`.
 
-- [ ] **Step 2: Confirm no migration is generated.** Run `bunx drizzle-kit generate` (or the repo's generate script) and confirm it reports no schema changes / creates no new `drizzle/00NN_*.sql`. If it *does* generate one (unexpected), discard it — the varchar column is unchanged. Then `bun typecheck` (the wider union must not break existing `status ===` comparisons).
+- [ ] **Step 2: Confirm no migration is generated.** Run `bunx drizzle-kit generate` (or the repo's generate script) and confirm it reports no schema changes / creates no new `drizzle/00NN_*.sql`. If it _does_ generate one (unexpected), discard it — the varchar column is unchanged. Then `bun typecheck` (the wider union must not break existing `status ===` comparisons).
 
 - [ ] **Step 3: Write the failing unit tests.** Extend `lib/db/__tests__/file-actions.test.ts`. Mock `fs` and `upload-rag`'s `chunksFilePath` alongside the existing `@/lib/db` mock:
 
@@ -67,7 +69,11 @@ describe('expireIdleUploads', () => {
 
   it('is a no-op when UPLOAD_TTL_DAYS is 0/unset', async () => {
     process.env.UPLOAD_TTL_DAYS = '0'
-    expect(await expireIdleUploads()).toEqual({ expired: 0, bytesFreed: 0, scanned: 0 })
+    expect(await expireIdleUploads()).toEqual({
+      expired: 0,
+      bytesFreed: 0,
+      scanned: 0
+    })
     expect(execute).not.toHaveBeenCalled()
   })
 
@@ -77,13 +83,15 @@ describe('expireIdleUploads', () => {
     ]) // the SELECT
     execute.mockResolvedValueOnce([]) // the UPDATE tombstone
     stat.mockResolvedValueOnce({ size: 100 }) // bytes
-    stat.mockResolvedValueOnce({ size: 20 })  // sidecar
+    stat.mockResolvedValueOnce({ size: 20 }) // sidecar
     unlink.mockResolvedValue(undefined)
 
     const summary = await expireIdleUploads()
 
     expect(unlink).toHaveBeenCalledWith('/app/uploads/u1/chats/c1/1-a.png')
-    expect(unlink).toHaveBeenCalledWith('/app/uploads/u1/chats/c1/1-a.png.chunks.json')
+    expect(unlink).toHaveBeenCalledWith(
+      '/app/uploads/u1/chats/c1/1-a.png.chunks.json'
+    )
     // UPDATE ... status='expired' for the row
     const updateSql = execute.mock.calls[1][0]
     expect(String(updateSql)).toMatch(/status/i)
@@ -194,10 +202,12 @@ export async function expireIdleUploads(): Promise<ExpireSummary> {
 Reclaims two edge classes the main sweep misses. Keep it strict and capped; it may be deferred if the reviewer deems it risky — the core disk win is Task 1.
 
 **Files:**
+
 - Modify: `lib/db/file-actions.ts` (add `gcOrphanUploads()`, call it from `expireIdleUploads()` after the main loop)
 - Test: `lib/db/__tests__/file-actions.test.ts` (extend)
 
 **Interfaces:**
+
 - Consumes: `ExpireSummary` from Task 1. Extend it with `orphansRemoved: number` and update Task 1's tests/return accordingly (add `orphansRemoved: 0` to the disabled-path and existing expectations).
 
 - [ ] **Step 1: Write failing tests.** Cover: (a) a `files` row whose bytes are missing and whose chat is idle → tombstoned `expired` (DB-side, via the same SELECT already returning it — assert it's counted, bytesFreed 0); (b) a stray on-disk file whose `object_key` matches **no** row and is older than the TTL → unlinked; (c) a stray file that DOES match a live row → left untouched. Mock `fs.readdir`/`fs.stat`/`fs.unlink` and the DB `select`/`execute`.
@@ -215,10 +225,12 @@ Reclaims two edge classes the main sweep misses. Keep it strict and capped; it m
 ### Task 3: Token-authed sweep route
 
 **Files:**
+
 - Create: `app/api/maintenance/expire-uploads/route.ts`
 - Test: `app/api/maintenance/expire-uploads/__tests__/route.test.ts`
 
 **Interfaces:**
+
 - Consumes: `expireIdleUploads()` from Task 1; `checkIngestAuth` from `lib/utils/ingest-auth.ts`.
 
 - [ ] **Step 1: Write failing tests** mirroring `app/api/upload/__tests__/route.test.ts` structure. Mock `@/lib/db/file-actions` (`expireIdleUploads` → a fixed summary). Cases: no `INGEST_API_TOKEN` env → 503 (and `expireIdleUploads` not called); wrong bearer → 401; correct bearer → 200 with `{ summary }`. Set/unset `process.env.INGEST_API_TOKEN` per case.
@@ -251,10 +263,12 @@ export async function POST(req: NextRequest) {
 ### Task 4: Answer-time `expired` note in transform-file-parts
 
 **Files:**
+
 - Modify: `lib/streaming/helpers/transform-file-parts.ts`
 - Test: `lib/streaming/helpers/__tests__/transform-file-parts.test.ts`
 
 **Interfaces:**
+
 - Consumes: the widened `status` union (Task 1). An `expired` file has **no bytes and no chunks**, so the note must be returned for **all** models (vision included) — placed before the vision/pending/failed gates.
 
 - [ ] **Step 1: Write failing tests** in the existing transform test file. `findFileByObjectKey` mocked to `{ status: 'expired' }`: (a) a normal file part → returns exactly the expired/re-upload note and **never** calls `queryFileChunks`/reads bytes; (b) an image part with `modelHasVision: true` → still returns the note (no base64 attach), since the bytes are gone.
@@ -284,11 +298,13 @@ if (status === 'expired') {
 ### Task 5: UI expired state (chip + historical preview)
 
 **Files:**
+
 - Modify: `components/uploaded-file-list.tsx` (compose-time chip)
 - Modify: the message file-part/attachment renderer that shows a past message's image/file (locate via `grep -rln "no-img-element\|file.*part\|attachment" components/ | head`; likely `components/render-message.tsx` or an attachment sub-component)
 - Test: none required for pure presentational states beyond `bun typecheck`; add a small render test only if the renderer already has one.
 
 **Interfaces:**
+
 - Consumes: `ingestStatus === 'expired'` (Task 1 widened the union) and, for history, an image URL that now 404s.
 
 - [ ] **Step 1: Compose chip.** In `uploaded-file-list.tsx`, add an `expired` affordance next to the `failed` branch — e.g. an overlay with a distinct icon and `title="Expired — re-upload to use again"`, shown when `it.ingestStatus === 'expired'`.
@@ -304,6 +320,7 @@ if (status === 'expired') {
 ### Task 6: Configuration + cron
 
 **Files:**
+
 - Modify: `selfhosted/model-manager/lib/env-schema.ts` (add `UPLOAD_TTL_DAYS`)
 - Modify: prod env (`.env` on `.231`, via the model-manager) — operational, not committed
 - Doc: add the cron line to the deploy notes / this plan’s Task 7
@@ -315,6 +332,7 @@ if (status === 'expired') {
 - [ ] **Step 2:** Confirm the ask runtime reads it: prod `ask` uses `env_file: .env`, so `UPLOAD_TTL_DAYS=14` in prod `.env` reaches `process.env`. No compose change needed.
 
 - [ ] **Step 3: Cron (documented; applied at deploy in Task 7).** Daily on `.231`:
+
   ```
   15 4 * * *  curl -fsS -X POST http://localhost:3738/api/maintenance/expire-uploads -H "Authorization: Bearer $INGEST_API_TOKEN" >/dev/null 2>&1
   ```

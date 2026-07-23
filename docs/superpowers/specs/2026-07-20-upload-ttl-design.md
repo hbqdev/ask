@@ -44,12 +44,12 @@ Two existing behaviors make expiry safe and cheap:
 ## Design decisions (settled)
 
 1. **Clock = chat idleness.** A file expires `UPLOAD_TTL_DAYS` after its
-   chat's *last activity*, not from upload time and not from per-file access.
+   chat's _last activity_, not from upload time and not from per-file access.
    This matches the per-chat-attachment model: attachments live and die with
    the conversation. Re-opening a chat to re-read it keeps its files alive.
 2. **Default 14 days**, env-overridable. `0` or unset disables expiry (the
    sweep no-ops) — an explicit opt-out.
-3. **Expire everything, gracefully.** Delete the original bytes *and* the
+3. **Expire everything, gracefully.** Delete the original bytes _and_ the
    `.chunks.json` sidecar; keep a lightweight tombstone row
    (`status='expired'`) so the model and UI can say specifically that the
    file expired and prompt a re-upload — rather than a generic "unavailable."
@@ -151,7 +151,7 @@ inactivity and is no longer available. Tell the user to re-upload it to ask
 about it again.]
 ```
 
-This runs *before* the `fileExists` check, so the message is specific
+This runs _before_ the `fileExists` check, so the message is specific
 ("expired, re-upload") rather than the generic "no longer available" the
 missing-bytes path would produce. The vision-model image branch is likewise
 gated: an expired image has no bytes to attach, so it too yields the

@@ -28,17 +28,17 @@ token-authed route runs the sweep, driven by a daily cron.
 
 ## Commits (`c306187..4a54fab`)
 
-| Commit | Task | Summary |
-|---|---|---|
-| `1113de6` | 1 | `expireIdleUploads()` sweep — chat-idle SELECT, unlink bytes+sidecar, tombstone, path-guard, disabled-on-0 |
-| `1bd085a` | 2 | orphan GC — reap on-disk files/sidecars with no row, past TTL |
-| `ff42d1f` | 3 | token-authed `POST /api/maintenance/expire-uploads` |
-| `b101c99` | 4 | answer-time "expired — re-upload" note (before the vision/base64 branch) |
-| `fd79f3c` | 5 | UI expired state — chip + history `onError` placeholder |
-| `8d6be71` | 6 | `UPLOAD_TTL_DAYS` in the model-manager env registry (default 14) |
-| `00fe89f` | 6b | **remove legacy `upload-cleanup.ts`** (see below) |
-| `3b8b088` | — | `gcOrphanUploads` `days<=0` guard (final-review fix) |
-| `4a54fab` | — | enable `UPLOAD_TTL_DAYS=14` on the staging compose (test only) |
+| Commit    | Task | Summary                                                                                                    |
+| --------- | ---- | ---------------------------------------------------------------------------------------------------------- |
+| `1113de6` | 1    | `expireIdleUploads()` sweep — chat-idle SELECT, unlink bytes+sidecar, tombstone, path-guard, disabled-on-0 |
+| `1bd085a` | 2    | orphan GC — reap on-disk files/sidecars with no row, past TTL                                              |
+| `ff42d1f` | 3    | token-authed `POST /api/maintenance/expire-uploads`                                                        |
+| `b101c99` | 4    | answer-time "expired — re-upload" note (before the vision/base64 branch)                                   |
+| `fd79f3c` | 5    | UI expired state — chip + history `onError` placeholder                                                    |
+| `8d6be71` | 6    | `UPLOAD_TTL_DAYS` in the model-manager env registry (default 14)                                           |
+| `00fe89f` | 6b   | **remove legacy `upload-cleanup.ts`** (see below)                                                          |
+| `3b8b088` | —    | `gcOrphanUploads` `days<=0` guard (final-review fix)                                                       |
+| `4a54fab` | —    | enable `UPLOAD_TTL_DAYS=14` on the staging compose (test only)                                             |
 
 Status widening (`'expired'` added to the drizzle TS-enum) produced **no DB
 migration** — `status` is a plain `varchar(256)` with no CHECK/pgEnum.
@@ -78,17 +78,17 @@ path is fully gone.
 The chat-idle SQL is not unit-testable (mocked DB), so it was validated here
 with controlled data. All green:
 
-| Case | Setup | Expected | Result |
-|---|---|---|---|
-| Real upload | `ttl-alpha.txt` via UI | fast-path → `ready`, answers `ALPHA-4417` | ✓ |
-| Idle chat | chat + message backdated 20d | expired; bytes + sidecar gone; row tombstoned | ✓ |
-| Kept by message | chat backdated 20d, message recent | kept | ✓ |
-| Kept by `last_viewed_at` | chat created 20d, viewed now | kept | ✓ |
-| Deleted-chat fallback | file 20d, chat row absent | expired (COALESCE → `created_at`) | ✓ |
-| No over-deletion | other users' recent-chat files | untouched (expired total = 2) | ✓ |
-| Graceful answer | ask after expiry | "expired after 14 days … please re-upload" | ✓ |
-| Idempotent | re-run sweep | `{expired:0}` | ✓ |
-| Route auth | wrong token | 401 | ✓ |
+| Case                     | Setup                              | Expected                                      | Result |
+| ------------------------ | ---------------------------------- | --------------------------------------------- | ------ |
+| Real upload              | `ttl-alpha.txt` via UI             | fast-path → `ready`, answers `ALPHA-4417`     | ✓      |
+| Idle chat                | chat + message backdated 20d       | expired; bytes + sidecar gone; row tombstoned | ✓      |
+| Kept by message          | chat backdated 20d, message recent | kept                                          | ✓      |
+| Kept by `last_viewed_at` | chat created 20d, viewed now       | kept                                          | ✓      |
+| Deleted-chat fallback    | file 20d, chat row absent          | expired (COALESCE → `created_at`)             | ✓      |
+| No over-deletion         | other users' recent-chat files     | untouched (expired total = 2)                 | ✓      |
+| Graceful answer          | ask after expiry                   | "expired after 14 days … please re-upload"    | ✓      |
+| Idempotent               | re-run sweep                       | `{expired:0}`                                 | ✓      |
+| Route auth               | wrong token                        | 401                                           | ✓      |
 
 Sweep summaries: `#1 {expired:1}` (delta), `#2 {expired:1, 23022 bytes}`
 (alpha), `#3 {expired:0}`. Test data cleaned up afterward.
