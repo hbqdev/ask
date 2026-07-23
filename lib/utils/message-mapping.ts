@@ -416,6 +416,23 @@ export function mapDBPartToUIMessagePart(
 
         // Special handling for dynamic tools
         if (toolName === 'dynamic') {
+          // generateImage persists through the dynamic envelope (it streams as
+          // a tool-generateImage part that falls through to the generic
+          // tool-dynamic storage path), but it must rehydrate under its real
+          // type or the standalone image card is lost on reload and replaced
+          // by the generic "Custom Tool" display. Keep this narrow: only
+          // generateImage; every other dynamic tool stays a dynamic-tool part.
+          if (part.tool_dynamic_name === 'generateImage') {
+            return {
+              type: 'tool-generateImage',
+              toolCallId: part.tool_toolCallId || '',
+              state: part.tool_state as any, // Maps directly to AI SDK states
+              input: part.tool_dynamic_input,
+              output: part.tool_dynamic_output,
+              errorText: part.tool_errorText
+            }
+          }
+
           return {
             type: 'dynamic-tool',
             toolCallId: part.tool_toolCallId || '',
