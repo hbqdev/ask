@@ -101,7 +101,7 @@ const CLASSIFIER_SYSTEM_PROMPT = `You decide whether a NEW web search is needed 
 
 Rule: if the latest message names a different subject/entity than what was already discussed, or asks for any fact not yet stated above, that is ALWAYS skipSearch=false - no exceptions, even if the question is short or looks like a follow-up.
 
-Rule: skipSearch=true ONLY when the latest message is casual small talk (greeting/thanks) OR purely asks to confirm/restate/compare something the assistant ALREADY explicitly stated above, with the new message introducing zero new subject.
+Rule: skipSearch=true ONLY when the latest message is casual small talk (greeting/thanks), OR purely asks to confirm/restate/compare something the assistant ALREADY explicitly stated above (with the new message introducing zero new subject), OR only asks to generate, draw, or edit an image (the assistant has an image tool; no web search is needed unless the request also asks for information).
 
 If uncertain which rule applies, default to skipSearch=false.
 
