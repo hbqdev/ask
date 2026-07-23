@@ -147,7 +147,5 @@ model-picker UI, generation from the Discover/Library surfaces.
   regression: research-indicator behavior unchanged.
 - Staging E2E: exactly two real generations — one text-to-image via
   `flux-schnell` (~$0.003, doubles as the credit probe) and one edit via
-  `nano-banana` (~$0.039) with an uploaded base image. These run on the
-  operator's personal Replicate token, temporarily swapped into `.env`
-  for the test window and restored afterwards.
+  `nano-banana` (~$0.039) with an uploaded base image. These run on the token in `.env`.
 - Prod ship only on explicit approval, per the established workflow.
