@@ -1,0 +1,21 @@
+{
+  "modelPath": "black-forest-labs/flux-schnell",
+  "capabilities": ["generate"],
+  "promptField": "prompt",
+  "aspectRatioField": "aspect_ratio",
+  "aspectRatioValues": [
+    "1:1",
+    "16:9",
+    "21:9",
+    "3:2",
+    "2:3",
+    "4:5",
+    "5:4",
+    "3:4",
+    "4:3",
+    "9:16",
+    "9:21"
+  ],
+  "defaults": { "output_format": "png" },
+  "costNote": "~$0.003/image"
+}
