@@ -95,3 +95,52 @@ export async function deleteAccount(): Promise<{
     return { success: false, error: getErrorMessage(error) }
   }
 }
+
+export async function updateEmail(
+  newEmail: string
+): Promise<{ success: boolean; error?: string }> {
+  if (process.env.ENABLE_AUTH === 'false') {
+    return {
+      success: false,
+      error: 'Email change is unavailable in anonymous mode.'
+    }
+  }
+
+  const user = await getCurrentUser()
+  if (!user) {
+    return { success: false, error: 'User not authenticated' }
+  }
+
+  const email = newEmail.trim().toLowerCase()
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+    return { success: false, error: 'Enter a valid email address.' }
+  }
+  if (email === user.email?.toLowerCase()) {
+    return { success: false, error: 'That is already your email address.' }
+  }
+
+  let adminClient: ReturnType<typeof createAdminClient>
+  try {
+    adminClient = createAdminClient()
+  } catch (error) {
+    console.error('Supabase admin client is not configured:', error)
+    return {
+      success: false,
+      error: 'Email change is not configured. Set SUPABASE_SECRET_KEY.'
+    }
+  }
+
+  // Service-role update, marked pre-confirmed — deliberately skips Supabase's
+  // confirmation-email ceremony. Single-operator instance; same trust model
+  // as deleteAccount above. Login identity switches to the new address
+  // immediately; the existing session stays valid (same user id).
+  const { error } = await adminClient.auth.admin.updateUserById(user.id, {
+    email,
+    email_confirm: true
+  })
+  if (error) {
+    return { success: false, error: error.message }
+  }
+
+  return { success: true }
+}

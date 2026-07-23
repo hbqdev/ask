@@ -10,12 +10,20 @@ vi.mock('@/components/theme-provider', () => ({
 vi.mock('@/components/settings/memory-tab', () => ({
   MemoryTab: () => <div data-testid="memory-tab-content">memory</div>
 }))
-// The Account tab pulls the delete-account action and supabase client.
+// The Account tab pulls the account actions and supabase client.
 vi.mock('@/lib/actions/account', () => ({
-  deleteAccount: vi.fn()
+  deleteAccount: vi.fn(),
+  updateEmail: vi.fn()
 }))
+const signInWithPassword = vi.fn()
+const updateUser = vi.fn()
 vi.mock('@/lib/supabase/client', () => ({
-  createClient: () => ({ auth: { signOut: vi.fn() } })
+  createClient: () => ({
+    auth: { signOut: vi.fn(), signInWithPassword, updateUser }
+  })
+}))
+vi.mock('sonner', () => ({
+  toast: { success: vi.fn(), error: vi.fn() }
 }))
 vi.mock('next/navigation', () => ({
   useRouter: () => ({ push: vi.fn(), refresh: vi.fn() })
@@ -31,6 +39,7 @@ const testUser = {
 
 describe('SettingsDialog tab reachability', () => {
   beforeEach(() => {
+    vi.clearAllMocks()
     // jsdom has no matchMedia; some UI primitives probe it.
     window.matchMedia ??= vi.fn().mockReturnValue({
       matches: false,
@@ -88,5 +97,74 @@ describe('SettingsDialog tab reachability', () => {
     expect(
       screen.getByRole('button', { name: /delete account/i })
     ).toBeInTheDocument()
+  })
+
+  it('Account tab has the email and password change forms', () => {
+    render(<SettingsDialog open onOpenChange={() => {}} user={testUser} />)
+
+    fireEvent.click(screen.getAllByRole('button', { name: /Account/ })[0])
+
+    expect(screen.getByPlaceholderText('night@fury.dev')).toBeInTheDocument()
+    expect(
+      screen.getByRole('button', { name: /save email/i })
+    ).toBeInTheDocument()
+    expect(screen.getByPlaceholderText('Current password')).toBeInTheDocument()
+    expect(screen.getByPlaceholderText('New password')).toBeInTheDocument()
+    expect(
+      screen.getByPlaceholderText('Confirm new password')
+    ).toBeInTheDocument()
+    expect(
+      screen.getByRole('button', { name: /update password/i })
+    ).toBeInTheDocument()
+  })
+
+  it('password change verifies the current password before updating', async () => {
+    signInWithPassword.mockResolvedValue({ error: null })
+    updateUser.mockResolvedValue({ error: null })
+
+    render(<SettingsDialog open onOpenChange={() => {}} user={testUser} />)
+    fireEvent.click(screen.getAllByRole('button', { name: /Account/ })[0])
+
+    fireEvent.change(screen.getByPlaceholderText('Current password'), {
+      target: { value: 'old-pass' }
+    })
+    fireEvent.change(screen.getByPlaceholderText('New password'), {
+      target: { value: 'new-pass-123' }
+    })
+    fireEvent.change(screen.getByPlaceholderText('Confirm new password'), {
+      target: { value: 'new-pass-123' }
+    })
+    fireEvent.click(screen.getByRole('button', { name: /update password/i }))
+
+    await vi.waitFor(() => {
+      expect(signInWithPassword).toHaveBeenCalledWith({
+        email: 'night@fury.dev',
+        password: 'old-pass'
+      })
+      expect(updateUser).toHaveBeenCalledWith({ password: 'new-pass-123' })
+    })
+  })
+
+  it('password change stops when the current password is wrong', async () => {
+    signInWithPassword.mockResolvedValue({ error: { message: 'invalid' } })
+
+    render(<SettingsDialog open onOpenChange={() => {}} user={testUser} />)
+    fireEvent.click(screen.getAllByRole('button', { name: /Account/ })[0])
+
+    fireEvent.change(screen.getByPlaceholderText('Current password'), {
+      target: { value: 'wrong' }
+    })
+    fireEvent.change(screen.getByPlaceholderText('New password'), {
+      target: { value: 'new-pass-123' }
+    })
+    fireEvent.change(screen.getByPlaceholderText('Confirm new password'), {
+      target: { value: 'new-pass-123' }
+    })
+    fireEvent.click(screen.getByRole('button', { name: /update password/i }))
+
+    await vi.waitFor(() => {
+      expect(signInWithPassword).toHaveBeenCalled()
+    })
+    expect(updateUser).not.toHaveBeenCalled()
   })
 })

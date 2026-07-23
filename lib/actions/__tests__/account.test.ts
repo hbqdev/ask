@@ -8,7 +8,7 @@ import * as dbActions from '@/lib/db/actions'
 import { deleteUserObjects } from '@/lib/storage/r2-client'
 import { createAdminClient } from '@/lib/supabase/admin'
 
-import { deleteAccount } from '../account'
+import { deleteAccount, updateEmail } from '../account'
 
 vi.mock('@/lib/analytics')
 vi.mock('@/lib/auth/get-current-user')
@@ -19,8 +19,12 @@ vi.mock('@/lib/supabase/admin')
 const originalEnableAuth = process.env.ENABLE_AUTH
 
 describe('Account Actions', () => {
-  const user = { id: '550e8400-e29b-41d4-a716-446655440000' }
+  const user = {
+    id: '550e8400-e29b-41d4-a716-446655440000',
+    email: 'old@fury.dev'
+  }
   const deleteUser = vi.fn()
+  const updateUserById = vi.fn()
 
   beforeEach(() => {
     vi.clearAllMocks()
@@ -41,8 +45,9 @@ describe('Account Actions', () => {
     })
     vi.mocked(trackAccountDeleted).mockResolvedValue()
     deleteUser.mockResolvedValue({ data: { user: null }, error: null })
+    updateUserById.mockResolvedValue({ data: { user: {} }, error: null })
     vi.mocked(createAdminClient).mockReturnValue({
-      auth: { admin: { deleteUser } }
+      auth: { admin: { deleteUser, updateUserById } }
     } as any)
   })
 
@@ -201,5 +206,68 @@ describe('Account Actions', () => {
       error: 'Auth deletion failed'
     })
     expect(trackAccountDeleted).not.toHaveBeenCalled()
+  })
+
+  describe('updateEmail', () => {
+    it('returns an error in anonymous mode', async () => {
+      process.env.ENABLE_AUTH = 'false'
+
+      const result = await updateEmail('new@fury.dev')
+
+      expect(result.success).toBe(false)
+      expect(getCurrentUser).not.toHaveBeenCalled()
+    })
+
+    it('returns an error when the user is not authenticated', async () => {
+      vi.mocked(getCurrentUser).mockResolvedValue(null)
+
+      const result = await updateEmail('new@fury.dev')
+
+      expect(result).toEqual({
+        success: false,
+        error: 'User not authenticated'
+      })
+      expect(createAdminClient).not.toHaveBeenCalled()
+    })
+
+    it('rejects an invalid email address without calling Supabase', async () => {
+      const result = await updateEmail('not-an-email')
+
+      expect(result.success).toBe(false)
+      expect(updateUserById).not.toHaveBeenCalled()
+    })
+
+    it('rejects the current address without calling Supabase', async () => {
+      const result = await updateEmail('  OLD@fury.dev ')
+
+      expect(result.success).toBe(false)
+      expect(updateUserById).not.toHaveBeenCalled()
+    })
+
+    it('updates the Supabase user pre-confirmed and normalizes the address', async () => {
+      const result = await updateEmail('  New@Fury.dev ')
+
+      expect(updateUserById).toHaveBeenCalledWith(user.id, {
+        email: 'new@fury.dev',
+        email_confirm: true
+      })
+      expect(result).toEqual({ success: true })
+    })
+
+    it('surfaces Supabase errors (e.g. address already registered)', async () => {
+      updateUserById.mockResolvedValue({
+        data: { user: null },
+        error: {
+          message: 'A user with this email address has already been registered'
+        }
+      })
+
+      const result = await updateEmail('taken@fury.dev')
+
+      expect(result).toEqual({
+        success: false,
+        error: 'A user with this email address has already been registered'
+      })
+    })
   })
 })

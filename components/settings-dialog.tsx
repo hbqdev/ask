@@ -14,7 +14,7 @@ import {
 } from '@tabler/icons-react'
 import { toast } from 'sonner'
 
-import { deleteAccount } from '@/lib/actions/account'
+import { deleteAccount, updateEmail } from '@/lib/actions/account'
 import { createClient } from '@/lib/supabase/client'
 import { cn } from '@/lib/utils'
 
@@ -31,6 +31,7 @@ import {
 } from '@/components/ui/alert-dialog'
 import { Button } from '@/components/ui/button'
 import { Dialog, DialogContent, DialogTitle } from '@/components/ui/dialog'
+import { Input } from '@/components/ui/input'
 import { Spinner } from '@/components/ui/spinner'
 
 import { MemoryTab } from '@/components/settings/memory-tab'
@@ -324,8 +325,86 @@ function AccountTab({
   const [isDeleting, startDeleteTransition] = useTransition()
   const [confirmOpen, setConfirmOpen] = useState(false)
 
+  const [newEmail, setNewEmail] = useState('')
+  const [emailPending, startEmailTransition] = useTransition()
+
+  const [currentPassword, setCurrentPassword] = useState('')
+  const [newPassword, setNewPassword] = useState('')
+  const [confirmPassword, setConfirmPassword] = useState('')
+  const [passwordPending, setPasswordPending] = useState(false)
+
   const userName =
     user.user_metadata?.full_name || user.user_metadata?.name || 'User'
+
+  const handleEmailSave = (event: React.FormEvent) => {
+    event.preventDefault()
+    startEmailTransition(async () => {
+      let result: Awaited<ReturnType<typeof updateEmail>>
+      try {
+        result = await updateEmail(newEmail)
+      } catch {
+        toast.error('Failed to change email — refresh the page and try again.')
+        return
+      }
+
+      if (result.success) {
+        toast.success('Email updated — sign in with the new address next time')
+        setNewEmail('')
+        // Re-fetch server components so the displayed profile email updates.
+        router.refresh()
+        return
+      }
+
+      toast.error(result.error ?? 'Failed to change email')
+    })
+  }
+
+  const handlePasswordSave = async (event: React.FormEvent) => {
+    event.preventDefault()
+    if (!user.email) {
+      toast.error('No email on this account.')
+      return
+    }
+    if (newPassword !== confirmPassword) {
+      toast.error('New passwords do not match.')
+      return
+    }
+    if (newPassword.length < 6) {
+      toast.error('New password must be at least 6 characters.')
+      return
+    }
+
+    setPasswordPending(true)
+    try {
+      const supabase = createClient()
+      // Supabase's updateUser doesn't ask for the old password, so verify it
+      // ourselves first — otherwise anyone at an unlocked screen could set a
+      // new one. Signing in again just refreshes the same session.
+      const { error: verifyError } = await supabase.auth.signInWithPassword({
+        email: user.email,
+        password: currentPassword
+      })
+      if (verifyError) {
+        toast.error('Current password is incorrect.')
+        return
+      }
+
+      const { error } = await supabase.auth.updateUser({
+        password: newPassword
+      })
+      if (error) {
+        toast.error(error.message)
+        return
+      }
+
+      toast.success('Password updated')
+      setCurrentPassword('')
+      setNewPassword('')
+      setConfirmPassword('')
+    } finally {
+      setPasswordPending(false)
+    }
+  }
 
   const handleDeleteAccount = () => {
     startDeleteTransition(async () => {
@@ -367,6 +446,82 @@ function AccountTab({
           <p className="truncate">{userName}</p>
           <p className="truncate">{user.email}</p>
         </div>
+      </SettingRow>
+
+      <SettingRow
+        title="Email"
+        description="Change the address you sign in with. Takes effect immediately — no confirmation email."
+      >
+        <form
+          onSubmit={handleEmailSave}
+          className="flex flex-col sm:flex-row gap-2"
+        >
+          <Input
+            type="email"
+            value={newEmail}
+            onChange={e => setNewEmail(e.target.value)}
+            placeholder={user.email ?? 'new@email.com'}
+            autoComplete="email"
+            required
+            className="sm:max-w-xs"
+          />
+          <Button
+            type="submit"
+            variant="outline"
+            className="w-fit"
+            disabled={emailPending || !newEmail}
+          >
+            {emailPending ? <Spinner /> : 'Save email'}
+          </Button>
+        </form>
+      </SettingRow>
+
+      <SettingRow
+        title="Password"
+        description="Verify your current password, then choose a new one (6 characters minimum)."
+      >
+        <form
+          onSubmit={handlePasswordSave}
+          className="flex flex-col gap-2 sm:max-w-xs"
+        >
+          <Input
+            type="password"
+            value={currentPassword}
+            onChange={e => setCurrentPassword(e.target.value)}
+            placeholder="Current password"
+            autoComplete="current-password"
+            required
+          />
+          <Input
+            type="password"
+            value={newPassword}
+            onChange={e => setNewPassword(e.target.value)}
+            placeholder="New password"
+            autoComplete="new-password"
+            required
+          />
+          <Input
+            type="password"
+            value={confirmPassword}
+            onChange={e => setConfirmPassword(e.target.value)}
+            placeholder="Confirm new password"
+            autoComplete="new-password"
+            required
+          />
+          <Button
+            type="submit"
+            variant="outline"
+            className="w-fit"
+            disabled={
+              passwordPending ||
+              !currentPassword ||
+              !newPassword ||
+              !confirmPassword
+            }
+          >
+            {passwordPending ? <Spinner /> : 'Update password'}
+          </Button>
+        </form>
       </SettingRow>
 
       <SettingRow
