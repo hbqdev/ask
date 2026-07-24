@@ -180,6 +180,9 @@ export async function createChatStreamResponse(
     // message pays no serial recall wait (see chooseRecall). getRecallInjection
     // is fail-safe (never rejects); on a gated/refetch turn this result is
     // simply not awaited. userId-less turns have no recall.
+    // On a gated (skipSearch) turn this speculative recall still runs to
+    // completion in the background and is discarded — gating removes the
+    // user-facing wait, not the reranker load.
     const speculativeRecall = userId
       ? getRecallInjection(userId, latestMessageText, chatId)
       : Promise.resolve({ block: '', hits: [] })

@@ -49,4 +49,14 @@ describe('chooseRecall', () => {
       })
     ).toBe('refetch')
   })
+
+  it('returns refetch for a whitespace-only standalone query (truthy, differs from raw)', () => {
+    expect(
+      chooseRecall({
+        skipSearch: false,
+        standaloneQuery: '   ',
+        latestMessageText: 'best vector db 2026'
+      })
+    ).toBe('refetch')
+  })
 })
