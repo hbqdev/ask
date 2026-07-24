@@ -238,3 +238,34 @@ describe('google family registration', () => {
     )
   })
 })
+
+describe('flux-2 family registration', () => {
+  it('registers the five FLUX.2 models with expected pools', () => {
+    const paths = listImageModels().map(m => m.modelPath)
+    for (const p of [
+      'black-forest-labs/flux-2-pro',
+      'black-forest-labs/flux-2-max',
+      'black-forest-labs/flux-2-flex',
+      'black-forest-labs/flux-2-klein-4b',
+      'black-forest-labs/flux-2-klein-9b'
+    ])
+      expect(paths).toContain(p)
+
+    const editGeneral = resolveImagePool({ role: 'edit', prompt: 'x' })
+    expect(editGeneral.models.map(m => m.modelPath)).toContain(
+      'black-forest-labs/flux-2-pro'
+    )
+    expect(editGeneral.models.map(m => m.modelPath)).not.toContain(
+      'black-forest-labs/flux-2-klein-4b'
+    ) // draft tier
+
+    const designText = resolveImagePool({
+      role: 'generate',
+      task: 'design-text',
+      prompt: 'poster'
+    })
+    expect(designText.models.map(m => m.modelPath)).toContain(
+      'black-forest-labs/flux-2-flex'
+    )
+  })
+})

@@ -1,4 +1,9 @@
 import fluxPro from './models/flux-1.1-pro.json'
+import flux2Flex from './models/flux-2-flex.json'
+import flux2Klein4b from './models/flux-2-klein-4b.json'
+import flux2Klein9b from './models/flux-2-klein-9b.json'
+import flux2Max from './models/flux-2-max.json'
+import flux2Pro from './models/flux-2-pro.json'
 import fluxSchnell from './models/flux-schnell.json'
 import imagen4 from './models/imagen-4.json'
 import imagen4Fast from './models/imagen-4-fast.json'
@@ -52,7 +57,12 @@ const MODELS = [
   nanoBananaPro,
   imagen4,
   imagen4Fast,
-  imagen4Ultra
+  imagen4Ultra,
+  flux2Pro,
+  flux2Max,
+  flux2Flex,
+  flux2Klein4b,
+  flux2Klein9b
 ] as ImageModelDef[]
 
 const ROLE_ENV: Record<'generate' | 'edit', string> = {
