@@ -14,6 +14,7 @@ import {
 } from '@/lib/utils/ollama-search-client'
 import { fetchSearxngJson } from '@/lib/utils/searxng-client'
 
+import { SEARXNG_ENGINES_ADVANCED, SEARXNG_ENGINES_BASIC } from '../engines'
 import { intentToCategory, type SearchIntent } from '../intent'
 
 import { BaseSearchProvider, SearchContentType, SearchModeOption } from './base'
@@ -154,14 +155,11 @@ export class SearXNGSearchProvider extends BaseSearchProvider {
           if (searchDepth === 'advanced') {
             url.searchParams.append('time_range', options?.time_range ?? '')
             url.searchParams.append('safesearch', '0')
-            url.searchParams.append(
-              'engines',
-              'google,bing,duckduckgo,wikipedia'
-            )
+            url.searchParams.append('engines', SEARXNG_ENGINES_ADVANCED)
           } else {
             url.searchParams.append('time_range', options?.time_range ?? 'year')
             url.searchParams.append('safesearch', '1')
-            url.searchParams.append('engines', 'google,bing')
+            url.searchParams.append('engines', SEARXNG_ENGINES_BASIC)
           }
         }
 
