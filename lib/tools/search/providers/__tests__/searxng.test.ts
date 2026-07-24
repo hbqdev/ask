@@ -36,7 +36,7 @@ describe('SearXNGSearchProvider', () => {
     expect(calledUrl.searchParams.get('categories')).toBe('general,images')
   })
 
-  it('pins google cse in the basic-depth engine list (CAPTCHA-resistant Google source)', async () => {
+  it('pins google cse (and not scraped google) in the basic-depth engine list', async () => {
     const fetchMock = vi.fn().mockResolvedValue(mockSearxngResponse([]))
     vi.stubGlobal('fetch', fetchMock)
 
@@ -45,10 +45,10 @@ describe('SearXNGSearchProvider', () => {
     const engines = new URL(fetchMock.mock.calls[0][0]).searchParams.get(
       'engines'
     )
-    expect(engines).toBe('google,bing,google cse')
+    expect(engines).toBe('bing,google cse')
   })
 
-  it('pins google cse in the advanced-depth engine list', async () => {
+  it('pins google cse (and not scraped google) in the advanced-depth engine list', async () => {
     const fetchMock = vi.fn().mockResolvedValue(mockSearxngResponse([]))
     vi.stubGlobal('fetch', fetchMock)
 
@@ -57,7 +57,7 @@ describe('SearXNGSearchProvider', () => {
     const engines = new URL(fetchMock.mock.calls[0][0]).searchParams.get(
       'engines'
     )
-    expect(engines).toBe('google,bing,duckduckgo,wikipedia,google cse')
+    expect(engines).toBe('bing,duckduckgo,wikipedia,google cse')
   })
 
   it('adds the videos category when content_types includes "video"', async () => {
