@@ -36,6 +36,7 @@ import { perfLog, perfTime } from '../utils/perf-logging'
 import { isUsageLogging, logUsage } from '../utils/usage-logging'
 
 import { convertDataPart } from './helpers/convert-data-part'
+import { firstChunkTimer } from './helpers/first-chunk-timer'
 import { persistStreamResults } from './helpers/persist-stream-results'
 import { prepareMessages } from './helpers/prepare-messages'
 import { smoothAndStripNarration } from './helpers/smooth-and-strip-narration'
@@ -44,6 +45,7 @@ import { stripReasoningParts } from './helpers/strip-reasoning-parts'
 import { stripSpecFromMessages } from './helpers/strip-spec-from-messages'
 import { transformFileParts } from './helpers/transform-file-parts'
 import type { StreamContext } from './helpers/types'
+import { LatencyTracker } from './latency-tracker'
 import { BaseStreamConfig } from './types'
 
 // Constants
@@ -133,11 +135,16 @@ export async function createChatStreamResponse(
   try {
     // Prepare messages for the model
     const prepareStart = performance.now()
+    const latency = new LatencyTracker({
+      chatId,
+      mode: searchMode ?? 'balanced'
+    })
     perfLog(
       `prepareMessages - Invoked: trigger=${trigger}, isNewChat=${isNewChat}`
     )
     const messagesToModel = await prepareMessages(context, message)
     perfTime('prepareMessages completed (stream)', prepareStart)
+    latency.mark('prepare_ms', performance.now() - prepareStart)
 
     // Decide whether this turn needs new research or is answerable directly
     // from the existing conversation (see query-classifier.ts). Kicked off
@@ -244,6 +251,7 @@ export async function createChatStreamResponse(
               durationMs: Math.round(performance.now() - attachmentsStart)
             }
           })
+          latency.mark('attachments_ms', performance.now() - attachmentsStart)
         }
 
         // The classifier promise has been running since before the stream
@@ -318,15 +326,18 @@ export async function createChatStreamResponse(
         }
 
         classification = await classificationPromise
+        latency.mark('classify_ms', performance.now() - classifyStart)
 
         // Past-conversation recall: retrieve here (not in createResearcher)
         // because this scope owns both the resolved standaloneQuery and the
         // stream writer needed for the attribution chips.
+        const recallStart = performance.now()
         const recall = await getRecallInjection(
           userId,
           classification?.standaloneQuery || latestMessageText,
           chatId
         )
+        latency.mark('recall_ms', performance.now() - recallStart)
         if (recall.hits.length > 0) {
           writer.write({
             type: 'data-recall',
@@ -422,11 +433,16 @@ export async function createChatStreamResponse(
             .catch(() => {})
         }
 
-        writer.merge(result.toUIMessageStream({ sendStart: false }))
+        writer.merge(
+          result
+            .toUIMessageStream({ sendStart: false })
+            .pipeThrough(firstChunkTimer(() => latency.markFirstToken()))
+        )
       },
       onFinish: async ({ responseMessage, isAborted }) => {
         try {
           perfTime('researchAgent.stream completed', llmStart)
+          latency.emit({ skipSearch: classification?.skipSearch ?? null })
           if (isAborted || !responseMessage) return
 
           // Clean the assembled responseMessage of any narration preamble
