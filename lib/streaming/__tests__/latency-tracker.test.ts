@@ -57,10 +57,11 @@ describe('LatencyTracker', () => {
       fakeClock([0, 500, 999, 2000]),
       l => lines.push(l)
     )
-    t.markFirstToken() // reads 500
-    t.markFirstToken() // reads 999 — must be ignored
-    t.emit({}) // reads 2000
+    t.markFirstToken() // reads 500 → firstTokenAt
+    t.markFirstToken() // guard short-circuits: no clock read
+    t.emit({}) // reads 999 → total_ms
     const obj = JSON.parse(lines[0].slice('[latency] '.length))
     expect(obj.ttft_ms).toBe(500)
+    expect(obj.total_ms).toBe(999)
   })
 })

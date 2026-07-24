@@ -29,20 +29,24 @@ export class LatencyTracker {
 
   /** Emit the single per-turn line. */
   emit(extra: { skipSearch?: boolean | null }): void {
-    const total = Math.round(this.now() - this.startedAt)
-    const ttft =
-      this.firstTokenAt === null
-        ? null
-        : Math.round(this.firstTokenAt - this.startedAt)
-    this.sink(
-      `[latency] ${JSON.stringify({
-        chatId: this.meta.chatId ?? null,
-        mode: this.meta.mode,
-        ...this.marks,
-        ttft_ms: ttft,
-        total_ms: total,
-        skipSearch: extra.skipSearch ?? null
-      })}`
-    )
+    try {
+      const total = Math.round(this.now() - this.startedAt)
+      const ttft =
+        this.firstTokenAt === null
+          ? null
+          : Math.round(this.firstTokenAt - this.startedAt)
+      this.sink(
+        `[latency] ${JSON.stringify({
+          chatId: this.meta.chatId ?? null,
+          mode: this.meta.mode,
+          ...this.marks,
+          ttft_ms: ttft,
+          total_ms: total,
+          skipSearch: extra.skipSearch ?? null
+        })}`
+      )
+    } catch {
+      // Telemetry must never break a turn.
+    }
   }
 }
