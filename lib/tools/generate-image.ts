@@ -4,11 +4,21 @@ import { z } from 'zod'
 
 import { checkImageBudget, recordImageGeneration } from '@/lib/imagegen/budget'
 import { persistGeneratedImage } from '@/lib/imagegen/persist-image'
-import { buildModelInput, getImageModel } from '@/lib/imagegen/registry'
+import {
+  buildModelInput,
+  effectiveImageTask,
+  getPremiumModel,
+  IMAGE_TASKS,
+  type ImageModelDef,
+  pickPinnedModel,
+  resolveImagePool
+} from '@/lib/imagegen/registry'
 import {
   type ReplicateResult,
   runReplicatePrediction
 } from '@/lib/imagegen/replicate-client'
+import { trackRetry } from '@/lib/imagegen/retry-tracker'
+import { nextRotationIndex } from '@/lib/imagegen/rotation'
 import { resolveUploadUrl } from '@/lib/streaming/helpers/transform-file-parts'
 
 /**
@@ -129,13 +139,14 @@ async function resolveBaseImage(
  * and where generated images are stored) and, when present, the current chat
  * (so a generated image is filed as an artifact of that chat).
  *
- * Success: `{ imageUrl, modelId, prompt, aspectRatio? }`.
+ * Success: `{ imageUrl, prompt, aspectRatio? }` — model identity is deliberately
+ * hidden from the LLM (the ops log line is the only attribution).
  * Failure: `{ error }` — never throws.
  */
 export function createGenerateImageTool(userId: string, chatId?: string) {
   return tool({
     description:
-      "Generate a new image from a text description, or edit/transform one of the user's uploaded images. Use this whenever the user asks to create, draw, make, design, or edit an image, picture, illustration, logo, or artwork. Write a vivid, specific, visual prompt. To edit an existing uploaded image, pass its exact URL from the attachment context as baseImageUrl.",
+      "Generate a new image from a text description, or edit/transform one of the user's uploaded images. Use this whenever the user asks to create, draw, make, design, or edit an image, picture, illustration, logo, or artwork. Write a vivid, specific, visual prompt. To edit an existing uploaded image, pass its exact URL from the attachment context as baseImageUrl. The image engine is selected automatically and rotates between requests — never state or guess which model produced an image. Declare `task` from the user's intent (photoreal photography, illustration, design/typography, logo-svg for vector work, draft-fast only when the user wants a quick rough result). If the user was unhappy with the previous image and wants another go, set isRetry: true; if they explicitly ask for top quality, set quality: 'premium'.",
     inputSchema: z.object({
       prompt: z
         .string()
@@ -150,9 +161,34 @@ export function createGenerateImageTool(userId: string, chatId?: string) {
         ),
       aspectRatio: z
         .enum(['1:1', '16:9', '9:16', '4:3', '3:4', '3:2', '2:3'])
+        .optional(),
+      task: z
+        .enum(IMAGE_TASKS)
         .optional()
+        .describe(
+          'What kind of image the user wants; steers which engines are used.'
+        ),
+      quality: z
+        .enum(['standard', 'premium'])
+        .optional()
+        .describe(
+          "Set 'premium' only when the user explicitly asks for top quality."
+        ),
+      isRetry: z
+        .boolean()
+        .optional()
+        .describe(
+          'True when regenerating because the user was dissatisfied with the previous image in this chat.'
+        )
     }),
-    execute: async ({ prompt, baseImageUrl, aspectRatio }) => {
+    execute: async ({
+      prompt,
+      baseImageUrl,
+      aspectRatio,
+      task,
+      quality,
+      isRetry
+    }) => {
       try {
         // 1. Budget — deny before any external call when the month is spent.
         const budget = await checkImageBudget()
@@ -171,8 +207,40 @@ export function createGenerateImageTool(userId: string, chatId?: string) {
           baseImage = resolved.baseImage
         }
 
-        // 3. Pick the model role and build its provider-specific input.
-        const model = getImageModel(baseImage ? 'edit' : 'generate')
+        // 3. Select the model: env pin → premium (explicit or 4th consecutive
+        //    retry) → task pool round-robin. logo-svg never escalates to
+        //    premium (no premium model emits SVG). The retry counter is
+        //    tracked on every call so premium attempts count too.
+        const role = baseImage ? ('edit' as const) : ('generate' as const)
+        const effTask = effectiveImageTask(prompt, task)
+        const retry = await trackRetry(
+          chatId ?? `user:${userId}`,
+          isRetry === true
+        )
+
+        let model: ImageModelDef | undefined
+        let selection: string
+        const pinned = pickPinnedModel(role)
+        const premium = getPremiumModel(role)
+        if (pinned) {
+          model = pinned
+          selection = 'pinned'
+        } else if (
+          (quality === 'premium' || retry.escalate) &&
+          effTask !== 'logo-svg' &&
+          premium
+        ) {
+          model = premium
+          selection = 'premium'
+        } else {
+          const pool = resolveImagePool({ role, task, aspectRatio, prompt })
+          if (pool.models.length === 0) {
+            return { error: 'No image model available for this request.' }
+          }
+          const idx = await nextRotationIndex(pool.poolKey, pool.models.length)
+          model = pool.models[idx]
+          selection = pool.poolKey
+        }
         const input = buildModelInput(model, { prompt, baseImage, aspectRatio })
 
         // 4. Run the prediction.
@@ -194,10 +262,18 @@ export function createGenerateImageTool(userId: string, chatId?: string) {
         // 6. Record the spend only after a fully successful generation.
         await recordImageGeneration()
 
-        // 7. Success.
+        // 7. Ops trace — model identity is hidden from the user/LLM, so this
+        //    log line is the only attribution for a given output file.
+        console.log('[imagegen] generated', {
+          chatId: chatId ?? null,
+          objectKey: persisted.objectKey,
+          model: model.modelPath,
+          selection
+        })
+
+        // 8. Success — modelId deliberately absent (hidden identity).
         return {
           imageUrl: persisted.publicUrl,
-          modelId: model.modelPath,
           prompt,
           ...(aspectRatio ? { aspectRatio } : {})
         }
