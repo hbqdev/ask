@@ -1,6 +1,12 @@
 import fluxPro from './models/flux-1.1-pro.json'
 import fluxSchnell from './models/flux-schnell.json'
+import imagen4 from './models/imagen-4.json'
+import imagen4Fast from './models/imagen-4-fast.json'
+import imagen4Ultra from './models/imagen-4-ultra.json'
 import nanoBanana from './models/nano-banana.json'
+import nanoBanana2 from './models/nano-banana-2.json'
+import nanoBanana2Lite from './models/nano-banana-2-lite.json'
+import nanoBananaPro from './models/nano-banana-pro.json'
 import seedream from './models/seedream-4.json'
 
 export type ImageTask =
@@ -36,7 +42,18 @@ export type ImageModelDef = {
   costNote: string
 }
 
-const MODELS = [nanoBanana, fluxPro, fluxSchnell, seedream] as ImageModelDef[]
+const MODELS = [
+  nanoBanana,
+  fluxPro,
+  fluxSchnell,
+  seedream,
+  nanoBanana2,
+  nanoBanana2Lite,
+  nanoBananaPro,
+  imagen4,
+  imagen4Fast,
+  imagen4Ultra
+] as ImageModelDef[]
 
 const ROLE_ENV: Record<'generate' | 'edit', string> = {
   generate: 'REPLICATE_IMAGE_MODEL',
