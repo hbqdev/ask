@@ -8,12 +8,12 @@ import { buildWarmRequests, shouldWarm } from '@/lib/warm/build-warm-requests'
 // sent — instead of a 24/7 keep-warm loop burning ~37W to serve a handful of
 // first-turns a day. See lib/warm/build-warm-requests.ts for the measurements.
 
-// Measured on the P5000: one ping holds P0 for ~8-15s (it varies run to run),
-// then the clock falls away. The ~45s decay figure applies only to a GPU held
-// at P0 by sustained traffic and does NOT describe a single ping. The window
-// therefore sits under the low end of that range — at 10s a composing user hit
-// a cold gap before the next ping landed.
-const WARM_THROTTLE_MS = 7_000
+// Measured on the P5000: one ping holds P0 for ~6-15s, varying run to run.
+// The ~45s decay figure applies only to a GPU held at P0 by sustained traffic
+// and does NOT describe a single ping. The window sits under the SHORTEST hold
+// observed (~6s), because a window longer than the hold opens a cold gap
+// mid-compose — seen directly on staging at 10s.
+const WARM_THROTTLE_MS = 5_000
 const PING_TIMEOUT_MS = 8_000
 
 let lastWarmedAt: number | null = null
