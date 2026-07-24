@@ -7,6 +7,7 @@ import {
   parseModelSelectionCookie
 } from '@/lib/config/model-selection-cookie'
 import { getModelForMode } from '@/lib/config/model-types'
+import { getPreferredChatModel } from '@/lib/db/model-preference-actions'
 import { fetchAvailableModels } from '@/lib/models/fetch-models'
 import { Model } from '@/lib/types/models'
 import { SearchMode } from '@/lib/types/search'
@@ -57,6 +58,11 @@ function pickFirstFetchedModel(
 interface ModelSelectionParams {
   searchMode?: SearchMode
   cookieStore?: ReadonlyRequestCookies
+  // Account the request belongs to. When set, the account's saved pick wins
+  // and the browser cookie is IGNORED (login boundary: another user on the
+  // same browser must not inherit a cookie pick). Null/undefined = guest →
+  // cookie behavior.
+  userId?: string | null
 }
 
 function buildLocalCookieModel(providerId: string, modelId: string): Model {
@@ -106,30 +112,34 @@ function resolveModelForMode(mode: SearchMode): Model | undefined {
  */
 export async function selectModel({
   searchMode,
-  cookieStore
+  cookieStore,
+  userId
 }: ModelSelectionParams): Promise<Model | null> {
   if (!isCloudDeployment()) {
-    const parsedCookie = parseModelSelectionCookie(
-      cookieStore?.get(MODEL_SELECTION_COOKIE)?.value
-    )
+    // Authenticated: the account's saved explicit pick is the only "previous
+    // model" that counts — the cookie is deliberately ignored so a login
+    // switch on a shared browser never inherits another user's model.
+    // Guest: the cookie keeps its historical role.
+    const parsedPick = userId
+      ? await getPreferredChatModel(userId)
+      : parseModelSelectionCookie(
+          cookieStore?.get(MODEL_SELECTION_COOKIE)?.value
+        )
 
-    if (parsedCookie) {
+    if (parsedPick) {
       try {
-        if (!isProviderEnabled(parsedCookie.providerId)) {
+        if (!isProviderEnabled(parsedPick.providerId)) {
           console.warn(
-            `[ModelSelection] Saved model provider "${parsedCookie.providerId}" is not enabled.`
+            `[ModelSelection] Saved model provider "${parsedPick.providerId}" is not enabled.`
           )
         } else {
           return buildLocalCookieModel(
-            parsedCookie.providerId,
-            parsedCookie.modelId
+            parsedPick.providerId,
+            parsedPick.modelId
           )
         }
       } catch (error) {
-        console.error(
-          '[ModelSelection] Failed to resolve model from cookie:',
-          error
-        )
+        console.error('[ModelSelection] Failed to resolve saved model:', error)
       }
     }
 

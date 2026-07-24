@@ -530,6 +530,9 @@ export const userSettings = pgTable(
     userId: varchar('user_id', { length: USER_ID_LENGTH }).primaryKey(),
     memoryEnabled: boolean('memory_enabled').notNull().default(true),
     recallEnabled: boolean('recall_enabled').notNull().default(true),
+    // Last EXPLICITLY picked chat model, cookie-serialized as
+    // `providerId:modelId`. Null = user never picked → deployment default.
+    preferredChatModel: varchar('preferred_chat_model', { length: 512 }),
     updatedAt: timestamp('updated_at').notNull().defaultNow()
   },
   table => [
