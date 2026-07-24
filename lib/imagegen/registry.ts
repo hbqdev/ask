@@ -3,9 +3,30 @@ import fluxSchnell from './models/flux-schnell.json'
 import nanoBanana from './models/nano-banana.json'
 import seedream from './models/seedream-4.json'
 
+export type ImageTask =
+  | 'photoreal'
+  | 'illustration'
+  | 'design-text'
+  | 'logo-svg'
+  | 'draft-fast'
+  | 'general'
+
+export type ImageTier = 'draft' | 'standard' | 'flagship' | 'premium'
+
+export const IMAGE_TASKS = [
+  'photoreal',
+  'illustration',
+  'design-text',
+  'logo-svg',
+  'draft-fast',
+  'general'
+] as const satisfies readonly ImageTask[]
+
 export type ImageModelDef = {
   modelPath: string
   capabilities: ('generate' | 'edit')[]
+  tier: ImageTier
+  categories: ImageTask[]
   promptField: string
   imageField?: string
   imageFieldShape?: 'string' | 'array'
@@ -17,10 +38,6 @@ export type ImageModelDef = {
 
 const MODELS = [nanoBanana, fluxPro, fluxSchnell, seedream] as ImageModelDef[]
 
-const ROLE_DEFAULTS: Record<'generate' | 'edit', string> = {
-  generate: 'black-forest-labs/flux-1.1-pro',
-  edit: 'google/nano-banana'
-}
 const ROLE_ENV: Record<'generate' | 'edit', string> = {
   generate: 'REPLICATE_IMAGE_MODEL',
   edit: 'REPLICATE_IMAGE_EDIT_MODEL'
@@ -30,20 +47,94 @@ export function listImageModels(): ImageModelDef[] {
   return MODELS
 }
 
-export function getImageModel(role: 'generate' | 'edit'): ImageModelDef {
+/**
+ * The task a request should route on: an svg/vector prompt always routes to
+ * logo-svg (deterministic guardrail), otherwise the researcher-declared task,
+ * otherwise general.
+ */
+export function effectiveImageTask(
+  prompt: string,
+  task?: ImageTask
+): ImageTask {
+  if (/\b(svg|vector)\b/i.test(prompt)) return 'logo-svg'
+  return task ?? 'general'
+}
+
+/**
+ * Env pin: when REPLICATE_IMAGE_MODEL / REPLICATE_IMAGE_EDIT_MODEL names a
+ * registered model with the required capability, that model is used and
+ * rotation is disabled for the role. Unknown/mismatched pins warn and return
+ * null so the caller falls through to rotation.
+ */
+export function pickPinnedModel(
+  role: 'generate' | 'edit',
+  models: ImageModelDef[] = MODELS
+): ImageModelDef | null {
   const wanted = process.env[ROLE_ENV[role]]
-  const pick = (path: string) =>
-    MODELS.find(m => m.modelPath === path && m.capabilities.includes(role))
-  // An override that names an unknown or capability-mismatched model is
-  // ignored (with a warn) rather than breaking the tool.
-  if (wanted) {
-    const m = pick(wanted)
-    if (m) return m
-    console.warn(
-      `[imagegen] ${ROLE_ENV[role]}=${wanted} is not ${role}-capable; using default`
+  if (!wanted) return null
+  const m = models.find(
+    m => m.modelPath === wanted && m.capabilities.includes(role)
+  )
+  if (m) return m
+  console.warn(
+    `[imagegen] ${ROLE_ENV[role]}=${wanted} is not ${role}-capable; using rotation`
+  )
+  return null
+}
+
+export function getPremiumModel(
+  role: 'generate' | 'edit',
+  models: ImageModelDef[] = MODELS
+): ImageModelDef | null {
+  return (
+    models.find(m => m.tier === 'premium' && m.capabilities.includes(role)) ??
+    null
+  )
+}
+
+/**
+ * Resolve the rotation pool for a request. Guardrails, in order: svg keyword
+ * rewrite (via effectiveImageTask), role capability, draft-tier gating (draft
+ * models only via task draft-fast), empty-pool fallback to the role's general
+ * pool, and aspect-ratio subset preference.
+ */
+export function resolveImagePool(
+  args: {
+    role: 'generate' | 'edit'
+    task?: ImageTask
+    aspectRatio?: string
+    prompt: string
+  },
+  models: ImageModelDef[] = MODELS
+): { poolKey: string; models: ImageModelDef[] } {
+  const { role, aspectRatio, prompt } = args
+  let task = effectiveImageTask(prompt, args.task)
+
+  const roleCapable = models.filter(
+    m => m.tier !== 'premium' && m.capabilities.includes(role)
+  )
+  let pool = roleCapable.filter(
+    m =>
+      m.categories.includes(task) &&
+      (task === 'draft-fast' ? true : m.tier !== 'draft')
+  )
+  if (pool.length === 0) {
+    // Task yields to correctness: fall back to the role's general pool (for
+    // edits, any edit-capable non-draft model qualifies).
+    task = 'general'
+    pool = roleCapable.filter(
+      m =>
+        m.tier !== 'draft' &&
+        (m.categories.includes('general') || role === 'edit')
     )
   }
-  return pick(ROLE_DEFAULTS[role])!
+  if (aspectRatio) {
+    const supporting = pool.filter(m =>
+      m.aspectRatioValues?.includes(aspectRatio)
+    )
+    if (supporting.length > 0) pool = supporting
+  }
+  return { poolKey: `${role}:${task}`, models: pool }
 }
 
 export function buildModelInput(

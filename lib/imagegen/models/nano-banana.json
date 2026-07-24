@@ -1,6 +1,8 @@
 {
   "modelPath": "google/nano-banana",
   "capabilities": ["generate", "edit"],
+  "tier": "standard",
+  "categories": ["general"],
   "promptField": "prompt",
   "imageField": "image_input",
   "imageFieldShape": "array",

@@ -1,6 +1,8 @@
 {
   "modelPath": "black-forest-labs/flux-1.1-pro",
-  "capabilities": ["generate", "edit"],
+  "capabilities": ["generate"],
+  "tier": "flagship",
+  "categories": [],
   "promptField": "prompt",
   "imageField": "image_prompt",
   "imageFieldShape": "string",
