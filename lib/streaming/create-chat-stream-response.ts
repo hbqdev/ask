@@ -26,6 +26,7 @@ import { extractIndexableText } from '../memory/extract-indexable-text'
 import { indexMessage } from '../memory/recall-index'
 import { getRecallInjection } from '../memory/recall-inject'
 import { saveCandidates } from '../memory/write'
+import { durableLatencySink } from '../telemetry/latency-store'
 import {
   getMaxAllowedTokens,
   shouldTruncateMessages,
@@ -136,10 +137,16 @@ export async function createChatStreamResponse(
   try {
     // Prepare messages for the model
     const prepareStart = performance.now()
-    const latency = new LatencyTracker({
-      chatId,
-      mode: searchMode ?? 'balanced'
-    })
+    const latency = new LatencyTracker(
+      {
+        chatId,
+        mode: searchMode ?? 'balanced'
+      },
+      undefined,
+      // Mirror the line into Redis: Docker's json-file driver is per-container,
+      // so every prod rebuild wiped the history we need to compare against.
+      durableLatencySink
+    )
     perfLog(
       `prepareMessages - Invoked: trigger=${trigger}, isNewChat=${isNewChat}`
     )
