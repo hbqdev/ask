@@ -11,6 +11,7 @@ import {
   rerankByCrossEncoder,
   rerankByEmbedding
 } from '@/lib/embeddings/rerank'
+import { SEARXNG_ENGINES_ADVANCED } from '@/lib/tools/search/engines'
 import { intentToCategory, type SearchIntent } from '@/lib/tools/search/intent'
 import {
   mergeDegoogIntoSearxngResults,
@@ -316,7 +317,7 @@ async function advancedSearchXNGSearch(
   }
 
   const SEARXNG_ENGINES =
-    process.env.SEARXNG_ENGINES || 'google,bing,duckduckgo,wikipedia'
+    process.env.SEARXNG_ENGINES || SEARXNG_ENGINES_ADVANCED
   const SEARXNG_TIME_RANGE = process.env.SEARXNG_TIME_RANGE || 'None'
   const SEARXNG_SAFESEARCH = process.env.SEARXNG_SAFESEARCH || '0'
   const SEARXNG_CRAWL_MULTIPLIER = parseInt(
