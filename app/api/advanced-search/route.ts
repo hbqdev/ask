@@ -551,29 +551,41 @@ async function advancedSearchXNGSearch(
       )
       const byUrl = new Map(scraped.map(s => [s.url, s]))
 
-      const crawledResults = await Promise.all(
-        candidates.map(async result => {
-          if (prefetchedUrls.has(result.url)) {
-            // Ollama already fetched this — keep its content, don't crawl.
+      // Everything Crawl4AI did not cover (past the cap, or unrenderable)
+      // falls to the legacy per-result crawl here. That is the majority of the
+      // pool -- 57 of 73 candidates on a measured turn -- and it was the
+      // single largest unaccounted block inside this route, so it is counted
+      // and timed separately from crawl_ms.
+      let legacyCrawled = 0
+      const crawledResults = await timer.time('enrich_ms', () =>
+        Promise.all(
+          candidates.map(async result => {
+            if (prefetchedUrls.has(result.url)) {
+              // Ollama already fetched this — keep its content, don't crawl.
+              return {
+                ...result,
+                content: highlightQueryTerms(
+                  `${result.title}\n\n${result.content}`.substring(0, 10000),
+                  query
+                )
+              }
+            }
+            const hit = byUrl.get(result.url)
+            if (!hit) {
+              legacyCrawled++
+              return crawlPage(result, query)
+            }
             return {
               ...result,
               content: highlightQueryTerms(
-                `${result.title}\n\n${result.content}`.substring(0, 10000),
+                `${result.title}\n\n${hit.markdown}`.substring(0, 10000),
                 query
               )
             }
-          }
-          const hit = byUrl.get(result.url)
-          if (!hit) return crawlPage(result, query)
-          return {
-            ...result,
-            content: highlightQueryTerms(
-              `${result.title}\n\n${hit.markdown}`.substring(0, 10000),
-              query
-            )
-          }
-        })
+          })
+        )
       )
+      timer.set('legacy_crawled', legacyCrawled)
 
       if (isCrawl4aiConfigured()) {
         console.log(
