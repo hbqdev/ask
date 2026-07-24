@@ -165,6 +165,7 @@ describe('persistGeneratedImage', () => {
     ['image/webp', 'webp'],
     ['image/jpeg', 'jpg'],
     ['image/png', 'png'],
+    ['image/svg+xml', 'svg'],
     ['application/octet-stream', 'png'],
     [null, 'png']
   ])('maps content-type %s to extension .%s', async (contentType, ext) => {

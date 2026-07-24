@@ -62,9 +62,11 @@ export async function GET(
           ? 'image/jpeg'
           : ext === '.webp'
             ? 'image/webp'
-            : ext === '.pdf'
-              ? 'application/pdf'
-              : 'application/octet-stream'
+            : ext === '.svg'
+              ? 'image/svg+xml'
+              : ext === '.pdf'
+                ? 'application/pdf'
+                : 'application/octet-stream'
 
     // NextResponse's body type wants a typed array, not a Node Buffer —
     // newer @types/node marks Buffer as `Buffer<ArrayBufferLike>` which

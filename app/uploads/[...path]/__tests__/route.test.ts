@@ -13,6 +13,10 @@ let GET: typeof import('../route').GET
 
 const PNG_BYTES = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a])
 const WEBP_BYTES = Buffer.from('RIFF....WEBPVP8 ', 'ascii')
+const SVG_BYTES = Buffer.from(
+  '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 8 8"><rect width="8" height="8"/></svg>',
+  'utf8'
+)
 
 beforeAll(async () => {
   uploadsDir = await mkdtemp(path.join(tmpdir(), 'ask-uploads-get-test-'))
@@ -32,6 +36,10 @@ beforeAll(async () => {
   await writeFile(
     path.join(uploadsDir, 'u1', 'generated', 'c1', 'img.webp'),
     WEBP_BYTES
+  )
+  await writeFile(
+    path.join(uploadsDir, 'u1', 'generated', 'c1', 'logo.svg'),
+    SVG_BYTES
   )
   ;({ GET } = await import('../route'))
 })
@@ -64,6 +72,15 @@ describe('GET /uploads/[...path]', () => {
     expect(res.headers.get('Content-Type')).toBe('image/webp')
     const body = Buffer.from(await res.arrayBuffer())
     expect(body.equals(WEBP_BYTES)).toBe(true)
+  })
+
+  it('serves an svg generation output as image/svg+xml', async () => {
+    const res = await call(['u1', 'generated', 'c1', 'logo.svg'])
+
+    expect(res.status).toBe(200)
+    expect(res.headers.get('Content-Type')).toBe('image/svg+xml')
+    const body = Buffer.from(await res.arrayBuffer())
+    expect(body.equals(SVG_BYTES)).toBe(true)
   })
 
   it('404s an unknown second segment', async () => {
