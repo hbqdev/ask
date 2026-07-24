@@ -36,8 +36,17 @@ unnecessary work is right regardless of magnitude.)
 
 ### 1. Gate recall on `skipSearch` (the primary win)
 
-When `classification.skipSearch` is true, **skip recall entirely** (treat as no
-hits — no embed, no search, no rerank, no chips).
+When `classification.skipSearch` is true, the turn gets **no recall block and no
+chips, and the user never waits for recall** (`recall_ms → 0`).
+
+Implementation note (accuracy): because recall is started _speculatively_ before
+`skipSearch` is known (change 2), a background recall — including the reranker
+hop — still runs and is discarded on a gated turn. So this gates the user-facing
+_latency_, not the reranker _load_. Reranker load on gated turns is unchanged
+from before (the old code also ran recall on those turns); we've removed the
+wait, not the work. Eliminating the work too would require cancelling the
+in-flight recall on `skipSearch` (an `abortSignal` through `getRecallInjection`)
+— out of scope here.
 
 **Why it's correct, not a quality regression:** the classifier sets
 `skipSearch=true` in exactly three cases (per its own prompt rules): casual
