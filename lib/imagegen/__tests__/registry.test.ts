@@ -305,3 +305,53 @@ describe('bytedance/wan/openai registration', () => {
     )
   })
 })
+
+describe('complete roster', () => {
+  it('registers 32 models total with the final pool shapes', () => {
+    expect(listImageModels().length).toBe(32)
+
+    const svg = resolveImagePool({
+      role: 'generate',
+      task: 'logo-svg',
+      prompt: 'acme logo'
+    })
+    expect(svg.models.map(m => m.modelPath)).toEqual([
+      'recraft-ai/recraft-v4.1-svg'
+    ])
+
+    const illus = resolveImagePool({
+      role: 'generate',
+      task: 'illustration',
+      prompt: 'x'
+    })
+    expect(illus.models.map(m => m.modelPath)).toEqual([
+      'bytedance/seedream-5-lite',
+      'prunaai/z-image',
+      'prunaai/ernie-image-turbo',
+      'bria/image-3.2'
+    ])
+
+    const editDraft = resolveImagePool({
+      role: 'edit',
+      task: 'draft-fast',
+      prompt: 'x'
+    })
+    expect(editDraft.models.map(m => m.modelPath)).toEqual([
+      'google/nano-banana-2-lite',
+      'black-forest-labs/flux-2-klein-4b',
+      'prunaai/p-image-edit'
+    ])
+
+    // fibo-edit prompts via `instruction`
+    const fiboEdit = listImageModels().find(
+      m => m.modelPath === 'bria/fibo-edit'
+    )!
+    expect(fiboEdit.promptField).toBe('instruction')
+    const input = buildModelInput(fiboEdit, {
+      prompt: 'remove the hat',
+      baseImage: 'data:image/png;base64,AAAA'
+    })
+    expect(input.instruction).toBe('remove the hat')
+    expect(input.image).toBe('data:image/png;base64,AAAA')
+  })
+})

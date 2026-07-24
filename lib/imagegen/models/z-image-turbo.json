@@ -1,0 +1,9 @@
+{
+  "modelPath": "prunaai/z-image-turbo",
+  "capabilities": ["generate"],
+  "tier": "draft",
+  "categories": ["draft-fast"],
+  "promptField": "prompt",
+  "defaults": { "output_format": "png" },
+  "costNote": "~$0.003/image"
+}

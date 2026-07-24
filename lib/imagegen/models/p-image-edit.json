@@ -1,0 +1,22 @@
+{
+  "modelPath": "prunaai/p-image-edit",
+  "capabilities": ["edit"],
+  "tier": "draft",
+  "categories": ["draft-fast"],
+  "promptField": "prompt",
+  "imageField": "images",
+  "imageFieldShape": "array",
+  "aspectRatioField": "aspect_ratio",
+  "aspectRatioValues": [
+    "match_input_image",
+    "1:1",
+    "16:9",
+    "9:16",
+    "4:3",
+    "3:4",
+    "3:2",
+    "2:3"
+  ],
+  "defaults": {},
+  "costNote": "~$0.01/image"
+}

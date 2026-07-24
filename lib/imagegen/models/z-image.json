@@ -1,0 +1,9 @@
+{
+  "modelPath": "prunaai/z-image",
+  "capabilities": ["generate"],
+  "tier": "standard",
+  "categories": ["illustration"],
+  "promptField": "prompt",
+  "defaults": { "output_format": "png" },
+  "costNote": "~$0.01/image"
+}
