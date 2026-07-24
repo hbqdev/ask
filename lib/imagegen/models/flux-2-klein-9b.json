@@ -1,0 +1,26 @@
+{
+  "modelPath": "black-forest-labs/flux-2-klein-9b",
+  "capabilities": ["generate", "edit"],
+  "tier": "standard",
+  "categories": ["general"],
+  "promptField": "prompt",
+  "imageField": "images",
+  "imageFieldShape": "array",
+  "aspectRatioField": "aspect_ratio",
+  "aspectRatioValues": [
+    "1:1",
+    "16:9",
+    "9:16",
+    "3:2",
+    "2:3",
+    "4:3",
+    "3:4",
+    "5:4",
+    "4:5",
+    "21:9",
+    "9:21",
+    "match_input_image"
+  ],
+  "defaults": { "output_format": "png" },
+  "costNote": "~$0.015/image"
+}
