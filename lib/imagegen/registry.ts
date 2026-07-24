@@ -5,6 +5,7 @@ import flux2Klein9b from './models/flux-2-klein-9b.json'
 import flux2Max from './models/flux-2-max.json'
 import flux2Pro from './models/flux-2-pro.json'
 import fluxSchnell from './models/flux-schnell.json'
+import gptImage2 from './models/gpt-image-2.json'
 import imagen4 from './models/imagen-4.json'
 import imagen4Fast from './models/imagen-4-fast.json'
 import imagen4Ultra from './models/imagen-4-ultra.json'
@@ -12,7 +13,11 @@ import nanoBanana from './models/nano-banana.json'
 import nanoBanana2 from './models/nano-banana-2.json'
 import nanoBanana2Lite from './models/nano-banana-2-lite.json'
 import nanoBananaPro from './models/nano-banana-pro.json'
+import seedream45 from './models/seedream-4.5.json'
 import seedream from './models/seedream-4.json'
+import seedream5Lite from './models/seedream-5-lite.json'
+import wan27Image from './models/wan-2.7-image.json'
+import wan27ImagePro from './models/wan-2.7-image-pro.json'
 
 export type ImageTask =
   | 'photoreal'
@@ -62,7 +67,12 @@ const MODELS = [
   flux2Max,
   flux2Flex,
   flux2Klein4b,
-  flux2Klein9b
+  flux2Klein9b,
+  seedream45,
+  seedream5Lite,
+  wan27ImagePro,
+  wan27Image,
+  gptImage2
 ] as ImageModelDef[]
 
 const ROLE_ENV: Record<'generate' | 'edit', string> = {
