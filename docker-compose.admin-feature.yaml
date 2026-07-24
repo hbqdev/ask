@@ -8,6 +8,12 @@ services:
     # with the base service's environment block.
     environment:
       UPLOAD_TTL_DAYS: '14'
+      # Classifier on Ollama Cloud — staging A/B vs prod's local granite (.171).
+      # Cloud proxy (.231:11434) + a fast flash model; think:false confirmed to
+      # suppress reasoning. Measured warm ~0.75s vs granite ~1.5s. Reversible:
+      # delete these two lines to fall back to the base .env (granite on .171).
+      CLASSIFIER_OLLAMA_BASE_URL: 'http://192.168.50.231:11434'
+      CLASSIFIER_MODEL_ID: 'deepseek-v4-flash:cloud'
     ports: !override
       - '${ADMIN_FEATURE_HOST_PORT:-3739}:3000'
     volumes: !override
