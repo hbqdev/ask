@@ -85,6 +85,24 @@ fleet.
   prompt injection. `recall.hits` / `recall.block` contracts unchanged.
 - `EMPTY` = the same shape `getRecallInjection` returns for no hits (`{ hits: [], block: '' }` — confirm exact shape during implementation).
 
+## Recall lookback is maximal and UNCHANGED by this work
+
+Recall (`recall-search.ts`) searches the user's ENTIRE history — pgvector
+similarity ∪ keyword over all `conversation_chunks` across all chats (only the
+current chat is excluded), with NO recency/date gate. Relevance ranking is the
+cross-encoder, not recency, so a match from any point in the past can surface.
+This depth is latency-independent of history size: the vector search is
+HNSW-indexed (~constant time) and the rerank is capped at a FIXED candidate
+pool (`RECALL_RERANK_POOL`, default 20; measured 15→~1s, 30→3.4s, 60→7.6s).
+So "as far back as possible without adding latency" is already the design —
+the pool cap, not the historical depth, is the latency knob.
+
+**Neither change here reduces that.** Gating only skips recall on turns that
+structurally can't use it; overlap changes _when_ recall runs, not _how deep_.
+When recall runs, it still searches all of history. (Deepening recall further
+would mean raising `RECALL_RERANK_POOL`, which trades latency for breadth —
+explicitly out of scope for a latency-reduction phase.)
+
 ## Testing
 
 - Unit (extract the decision into a pure helper
