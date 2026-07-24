@@ -73,6 +73,11 @@ export async function nextRotationIndex(
       return (n - 1) % poolSize
     } catch (error) {
       console.warn('[imagegen] rotation INCR failed, using memory:', error)
+      // Durably abandon the failing client so the process stays on the memory
+      // path. clientInitialized is already true, so getRotationClient() will
+      // consistently return null from here on — at most one possible repeated
+      // index per process (this call) instead of one per transient blip.
+      client = null
     }
   }
   return nextFromMemory(key, poolSize)

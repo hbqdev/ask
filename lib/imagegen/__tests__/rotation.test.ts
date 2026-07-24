@@ -36,11 +36,13 @@ describe('nextRotationIndex (client path)', () => {
     expect(incr).toHaveBeenCalledWith('imagegen:rr:generate:general')
   })
 
-  it('falls back to memory when the client throws', async () => {
-    __setRotationClientForTests({
-      incr: vi.fn().mockRejectedValue(new Error('down'))
-    })
+  it('falls back to memory when the client throws and abandons the failing client', async () => {
+    const incr = vi.fn().mockRejectedValue(new Error('down'))
+    __setRotationClientForTests({ incr })
     expect(await nextRotationIndex('generate:general', 3)).toBe(0)
     expect(await nextRotationIndex('generate:general', 3)).toBe(1)
+    // the failing client is abandoned after the first blip: no further INCRs,
+    // and memory keeps advancing without repeating an index
+    expect(incr).toHaveBeenCalledTimes(1)
   })
 })
