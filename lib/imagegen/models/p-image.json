@@ -1,0 +1,11 @@
+{
+  "modelPath": "prunaai/p-image",
+  "capabilities": ["generate"],
+  "tier": "draft",
+  "categories": ["draft-fast"],
+  "promptField": "prompt",
+  "aspectRatioField": "aspect_ratio",
+  "aspectRatioValues": ["1:1", "16:9", "9:16", "4:3", "3:4", "3:2", "2:3"],
+  "defaults": { "aspect_ratio": "1:1" },
+  "costNote": "~$0.005/image"
+}

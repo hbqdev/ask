@@ -1,0 +1,21 @@
+{
+  "modelPath": "recraft-ai/recraft-v4.1-utility",
+  "capabilities": ["generate"],
+  "tier": "draft",
+  "categories": ["draft-fast", "design-text"],
+  "promptField": "prompt",
+  "aspectRatioField": "aspect_ratio",
+  "aspectRatioValues": [
+    "1:1",
+    "4:3",
+    "3:4",
+    "3:2",
+    "2:3",
+    "16:9",
+    "9:16",
+    "4:5",
+    "5:4"
+  ],
+  "defaults": {},
+  "costNote": "~$0.02/image"
+}

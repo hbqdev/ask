@@ -1,0 +1,11 @@
+{
+  "modelPath": "bria/fibo-edit",
+  "capabilities": ["edit"],
+  "tier": "standard",
+  "categories": ["general"],
+  "promptField": "instruction",
+  "imageField": "image",
+  "imageFieldShape": "string",
+  "defaults": {},
+  "costNote": "~$0.04/image"
+}

@@ -1,3 +1,7 @@
+import briaImage32 from './models/bria-image-3.2.json'
+import ernieImageTurbo from './models/ernie-image-turbo.json'
+import fibo from './models/fibo.json'
+import fiboEdit from './models/fibo-edit.json'
 import fluxPro from './models/flux-1.1-pro.json'
 import flux2Flex from './models/flux-2-flex.json'
 import flux2Klein4b from './models/flux-2-klein-4b.json'
@@ -13,11 +17,19 @@ import nanoBanana from './models/nano-banana.json'
 import nanoBanana2 from './models/nano-banana-2.json'
 import nanoBanana2Lite from './models/nano-banana-2-lite.json'
 import nanoBananaPro from './models/nano-banana-pro.json'
+import pImage from './models/p-image.json'
+import pImageEdit from './models/p-image-edit.json'
+import recraftV41 from './models/recraft-v4.1.json'
+import recraftV41Pro from './models/recraft-v4.1-pro.json'
+import recraftV41Svg from './models/recraft-v4.1-svg.json'
+import recraftV41Utility from './models/recraft-v4.1-utility.json'
 import seedream45 from './models/seedream-4.5.json'
 import seedream from './models/seedream-4.json'
 import seedream5Lite from './models/seedream-5-lite.json'
 import wan27Image from './models/wan-2.7-image.json'
 import wan27ImagePro from './models/wan-2.7-image-pro.json'
+import zImage from './models/z-image.json'
+import zImageTurbo from './models/z-image-turbo.json'
 
 export type ImageTask =
   | 'photoreal'
@@ -72,7 +84,19 @@ const MODELS = [
   seedream5Lite,
   wan27ImagePro,
   wan27Image,
-  gptImage2
+  gptImage2,
+  pImage,
+  pImageEdit,
+  zImageTurbo,
+  zImage,
+  ernieImageTurbo,
+  recraftV41,
+  recraftV41Pro,
+  recraftV41Utility,
+  recraftV41Svg,
+  briaImage32,
+  fibo,
+  fiboEdit
 ] as ImageModelDef[]
 
 const ROLE_ENV: Record<'generate' | 'edit', string> = {
