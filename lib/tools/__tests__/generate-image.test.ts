@@ -345,7 +345,11 @@ describe('createGenerateImageTool', () => {
     okPrediction()
     okPersist()
 
-    await run({ prompt: 'an svg logo', quality: 'premium', isRetry: true } as any)
+    await run({
+      prompt: 'an svg logo',
+      quality: 'premium',
+      isRetry: true
+    } as any)
 
     expect(runReplicatePrediction).toHaveBeenCalledWith(
       expect.objectContaining({ modelPath: 'recraft-ai/recraft-v4.1-svg' })
