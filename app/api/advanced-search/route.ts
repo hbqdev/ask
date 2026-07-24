@@ -11,6 +11,7 @@ import {
   rerankByCrossEncoder,
   rerankByEmbedding
 } from '@/lib/embeddings/rerank'
+import { StageTimer } from '@/lib/telemetry/stage-timer'
 import { SEARXNG_ENGINES_ADVANCED } from '@/lib/tools/search/engines'
 import { intentToCategory, type SearchIntent } from '@/lib/tools/search/intent'
 import {
@@ -262,11 +263,24 @@ export async function POST(request: Request) {
       effectiveTimeRange ?? ''
     }:${typeof intent === 'string' ? intent : ''}:${useOllama ? `oll${typeof ollamaMaxResults === 'number' ? ollamaMaxResults : 5}` : ''}`
 
+    // Per-search stage timings. This is the half of the turn the [latency]
+    // line cannot see: it is emitted from the chat pipeline, while the search
+    // fan-out, crawl and rerank all happen behind this route.
+    const timer = new StageTimer('latency:search', {
+      depth: searchDepth || SEARXNG_DEFAULT_DEPTH,
+      intent: typeof intent === 'string' ? intent : 'general'
+    })
+
     // Try to get cached results
-    const cachedResults = await getCachedResults(cacheKey)
+    const cachedResults = await timer.time('cache_ms', () =>
+      getCachedResults(cacheKey)
+    )
     if (cachedResults) {
+      timer.set('cache', 'hit')
+      timer.emit()
       return NextResponse.json(cachedResults)
     }
+    timer.set('cache', 'miss')
 
     // If not cached, perform the search
     const results = await advancedSearchXNGSearch(
@@ -278,12 +292,15 @@ export async function POST(request: Request) {
       effectiveTimeRange,
       typeof intent === 'string' ? (intent as SearchIntent) : 'general',
       Boolean(useOllama),
-      typeof ollamaMaxResults === 'number' ? ollamaMaxResults : 5
+      typeof ollamaMaxResults === 'number' ? ollamaMaxResults : 5,
+      timer
     )
 
     // Cache the results
     await setCachedResults(cacheKey, results)
 
+    timer.set('returned', results.results?.length ?? 0)
+    timer.emit()
     return NextResponse.json(results)
   } catch (error) {
     console.error('Advanced search error:', error)
@@ -310,7 +327,8 @@ async function advancedSearchXNGSearch(
   timeRange?: string,
   intent: SearchIntent = 'general',
   useOllama = false,
-  ollamaMaxResults = 5
+  ollamaMaxResults = 5,
+  timer: StageTimer = new StageTimer('latency:search')
 ): Promise<SearXNGSearchResults> {
   if (!process.env.SEARXNG_API_URL && !process.env.SEARXNG_FALLBACK_API_URL) {
     throw new Error('SEARXNG_API_URL is not set in the environment variables')
@@ -372,21 +390,23 @@ async function advancedSearchXNGSearch(
       degoogImgSettled,
       ollamaSettled,
       tavilySettled
-    ] = await Promise.allSettled([
-      fetchSearxngJson(buildUrl),
-      fetchDegoogJson(degoogUrl('web')),
-      intent === 'news'
-        ? fetchDegoogJson(degoogUrl('news'))
-        : Promise.resolve(null),
-      fetchDegoogJson(degoogUrl('images')),
-      useOllama
-        ? fetchOllamaSearch(query, ollamaMaxResults)
-        : Promise.resolve(null),
-      // Tavily only on the advanced path (balanced/quality modes), budget-gated.
-      searchDepth === 'advanced'
-        ? maybeFetchTavily(query)
-        : Promise.resolve(null)
-    ])
+    ] = await timer.time('search_ms', () =>
+      Promise.allSettled([
+        fetchSearxngJson(buildUrl),
+        fetchDegoogJson(degoogUrl('web')),
+        intent === 'news'
+          ? fetchDegoogJson(degoogUrl('news'))
+          : Promise.resolve(null),
+        fetchDegoogJson(degoogUrl('images')),
+        useOllama
+          ? fetchOllamaSearch(query, ollamaMaxResults)
+          : Promise.resolve(null),
+        // Tavily only on the advanced path (balanced/quality modes), budget-gated.
+        searchDepth === 'advanced'
+          ? maybeFetchTavily(query)
+          : Promise.resolve(null)
+      ])
+    )
 
     if (searxngSettled.status === 'rejected') throw searxngSettled.reason
     const { data: rawData, baseUrlUsed: apiUrl } = searxngSettled.value
@@ -515,11 +535,19 @@ async function advancedSearchXNGSearch(
       // weren't enriched" instead of aborting the whole enrichment (an
       // earlier all-or-nothing version turned one timeout into a 140s
       // turn by re-crawling every candidate through the legacy path).
-      const scraped = await crawl4aiScrapeMany(
-        toEnrich.map(r => r.url),
-        // domcontentloaded, not networkidle: benchmarked 4.7s vs 26.4s on
-        // a 16-URL batch, with MORE usable results. See Crawl4aiWaitUntil.
-        { waitUntil: 'domcontentloaded', chunkSize: 8, chunkTimeoutMs: 60_000 }
+      timer.set('candidates', candidates.length)
+      timer.set('crawled', toEnrich.length)
+      const scraped = await timer.time('crawl_ms', () =>
+        crawl4aiScrapeMany(
+          toEnrich.map(r => r.url),
+          // domcontentloaded, not networkidle: benchmarked 4.7s vs 26.4s on
+          // a 16-URL batch, with MORE usable results. See Crawl4aiWaitUntil.
+          {
+            waitUntil: 'domcontentloaded',
+            chunkSize: 8,
+            chunkTimeoutMs: 60_000
+          }
+        )
       )
       const byUrl = new Map(scraped.map(s => [s.url, s]))
 
@@ -581,6 +609,10 @@ async function advancedSearchXNGSearch(
           .map(r => r.doc.original)
       }
 
+      // Bracketed rather than wrapped: the phase is two tiers with a fallback
+      // between them, and what matters is the total the user waits for.
+      const rerankStart = performance.now()
+      let rerankTier = 'none'
       let reranked = false
       if (isCrossEncoderConfigured()) {
         try {
@@ -602,6 +634,7 @@ async function advancedSearchXNGSearch(
           // uses a looser 0.2 floor) rather than answering with no sources.
           if (generalResults.length > 0) {
             reranked = true
+            rerankTier = 'cross-encoder'
             console.log(
               `[advanced-search] cross-encoder reranked ${out.length}/${docsForRerank.length}`
             )
@@ -623,6 +656,7 @@ async function advancedSearchXNGSearch(
           const out = await rerankByEmbedding(docsForRerank, query, maxResults)
           applyReranked(out, 0.2)
           reranked = true
+          rerankTier = 'embedding'
         } catch (error) {
           console.error(
             '[advanced-search] embedding rerank failed, using keyword scorer:',
@@ -637,8 +671,13 @@ async function advancedSearchXNGSearch(
             .filter(result => result.score >= MIN_RELEVANCE_SCORE)
             .sort((a, b) => b.score - a.score)
             .slice(0, maxResults)
+          rerankTier = 'keyword'
         }
       }
+
+      timer.mark('rerank_ms', performance.now() - rerankStart)
+      timer.set('rerank_tier', rerankTier)
+      timer.set('rerank_docs', docsForRerank.length)
     }
 
     generalResults = generalResults.slice(0, maxResults)
