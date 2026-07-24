@@ -53,27 +53,67 @@ describe('Replicate image-generation env', () => {
     expect(spec!.type).toBe('secret')
     expect(spec!.required).toBeFalsy()
   })
-  it('REPLICATE_IMAGE_MODEL is an enum of generate-capable models defaulting to flux-1.1-pro', () => {
+  it('REPLICATE_IMAGE_MODEL is a pin-override enum of generate-capable models with no default (unset = rotate)', () => {
     const spec = specByKey('REPLICATE_IMAGE_MODEL')
     expect(spec).toBeDefined()
     expect(spec!.type).toBe('enum')
-    expect(spec!.default).toBe('black-forest-labs/flux-1.1-pro')
+    expect(spec!.default).toBeUndefined()
     expect(spec!.enumValues).toEqual([
+      'google/nano-banana',
+      'google/nano-banana-2',
+      'google/nano-banana-2-lite',
+      'google/nano-banana-pro',
+      'google/imagen-4',
+      'google/imagen-4-fast',
+      'google/imagen-4-ultra',
+      'black-forest-labs/flux-2-pro',
+      'black-forest-labs/flux-2-max',
+      'black-forest-labs/flux-2-flex',
+      'black-forest-labs/flux-2-klein-4b',
+      'black-forest-labs/flux-2-klein-9b',
       'black-forest-labs/flux-1.1-pro',
       'black-forest-labs/flux-schnell',
       'bytedance/seedream-4',
-      'google/nano-banana'
+      'bytedance/seedream-4.5',
+      'bytedance/seedream-5-lite',
+      'openai/gpt-image-2',
+      'wan-video/wan-2.7-image-pro',
+      'wan-video/wan-2.7-image',
+      'prunaai/p-image',
+      'prunaai/z-image-turbo',
+      'prunaai/z-image',
+      'prunaai/ernie-image-turbo',
+      'recraft-ai/recraft-v4.1',
+      'recraft-ai/recraft-v4.1-pro',
+      'recraft-ai/recraft-v4.1-utility',
+      'recraft-ai/recraft-v4.1-svg',
+      'bria/image-3.2',
+      'bria/fibo'
     ])
   })
-  it('REPLICATE_IMAGE_EDIT_MODEL is an enum of edit-capable models defaulting to nano-banana', () => {
+  it('REPLICATE_IMAGE_EDIT_MODEL is a pin-override enum of edit-capable models with no default (unset = rotate)', () => {
     const spec = specByKey('REPLICATE_IMAGE_EDIT_MODEL')
     expect(spec).toBeDefined()
     expect(spec!.type).toBe('enum')
-    expect(spec!.default).toBe('google/nano-banana')
+    expect(spec!.default).toBeUndefined()
     expect(spec!.enumValues).toEqual([
       'google/nano-banana',
+      'google/nano-banana-2',
+      'google/nano-banana-2-lite',
+      'google/nano-banana-pro',
+      'black-forest-labs/flux-2-pro',
+      'black-forest-labs/flux-2-max',
+      'black-forest-labs/flux-2-flex',
+      'black-forest-labs/flux-2-klein-4b',
+      'black-forest-labs/flux-2-klein-9b',
       'bytedance/seedream-4',
-      'black-forest-labs/flux-1.1-pro'
+      'bytedance/seedream-4.5',
+      'bytedance/seedream-5-lite',
+      'openai/gpt-image-2',
+      'wan-video/wan-2.7-image-pro',
+      'wan-video/wan-2.7-image',
+      'prunaai/p-image-edit',
+      'bria/fibo-edit'
     ])
   })
   it('REPLICATE_MONTHLY_BUDGET validates as a non-negative integer (0 = unlimited)', () => {

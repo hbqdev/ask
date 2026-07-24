@@ -313,8 +313,9 @@ export const REGISTRY: EnvVarSpec[] = [
   // ---------- Models: Image generation (Replicate) ----------
   // NOTE: the model options below duplicate the capability arrays in the app's
   // lib/imagegen/models/*.json — model-manager cannot import from the app, so
-  // these lists must be kept in sync by hand. REPLICATE_IMAGE_MODEL lists every
-  // generate-capable model; REPLICATE_IMAGE_EDIT_MODEL only the edit-capable ones.
+  // these lists must be kept in sync by hand. Since the rotation feature
+  // (2026-07-23) these vars are PIN OVERRIDES: unset = task-pool rotation;
+  // set = that model handles every request for its role.
   {
     key: 'REPLICATE_API_TOKEN',
     category: 'models',
@@ -327,30 +328,68 @@ export const REGISTRY: EnvVarSpec[] = [
     key: 'REPLICATE_IMAGE_MODEL',
     category: 'models',
     group: 'Image generation',
-    label: 'Image generate model',
+    label: 'Image generate model (pin)',
     type: 'enum',
     enumValues: [
+      'google/nano-banana',
+      'google/nano-banana-2',
+      'google/nano-banana-2-lite',
+      'google/nano-banana-pro',
+      'google/imagen-4',
+      'google/imagen-4-fast',
+      'google/imagen-4-ultra',
+      'black-forest-labs/flux-2-pro',
+      'black-forest-labs/flux-2-max',
+      'black-forest-labs/flux-2-flex',
+      'black-forest-labs/flux-2-klein-4b',
+      'black-forest-labs/flux-2-klein-9b',
       'black-forest-labs/flux-1.1-pro',
       'black-forest-labs/flux-schnell',
       'bytedance/seedream-4',
-      'google/nano-banana'
+      'bytedance/seedream-4.5',
+      'bytedance/seedream-5-lite',
+      'openai/gpt-image-2',
+      'wan-video/wan-2.7-image-pro',
+      'wan-video/wan-2.7-image',
+      'prunaai/p-image',
+      'prunaai/z-image-turbo',
+      'prunaai/z-image',
+      'prunaai/ernie-image-turbo',
+      'recraft-ai/recraft-v4.1',
+      'recraft-ai/recraft-v4.1-pro',
+      'recraft-ai/recraft-v4.1-utility',
+      'recraft-ai/recraft-v4.1-svg',
+      'bria/image-3.2',
+      'bria/fibo'
     ],
-    default: 'black-forest-labs/flux-1.1-pro',
-    help: 'Model used for text-to-image generation. All options are generate-capable.'
+    help: 'PIN override. Unset (recommended) = automatic task-pool rotation. Set = this model handles ALL text-to-image requests. nano-banana-pro is the intended premium pin.'
   },
   {
     key: 'REPLICATE_IMAGE_EDIT_MODEL',
     category: 'models',
     group: 'Image generation',
-    label: 'Image edit model',
+    label: 'Image edit model (pin)',
     type: 'enum',
     enumValues: [
       'google/nano-banana',
+      'google/nano-banana-2',
+      'google/nano-banana-2-lite',
+      'google/nano-banana-pro',
+      'black-forest-labs/flux-2-pro',
+      'black-forest-labs/flux-2-max',
+      'black-forest-labs/flux-2-flex',
+      'black-forest-labs/flux-2-klein-4b',
+      'black-forest-labs/flux-2-klein-9b',
       'bytedance/seedream-4',
-      'black-forest-labs/flux-1.1-pro'
+      'bytedance/seedream-4.5',
+      'bytedance/seedream-5-lite',
+      'openai/gpt-image-2',
+      'wan-video/wan-2.7-image-pro',
+      'wan-video/wan-2.7-image',
+      'prunaai/p-image-edit',
+      'bria/fibo-edit'
     ],
-    default: 'google/nano-banana',
-    help: 'Model used when a base image is supplied. Edit-capable models only. flux-1.1-pro is edit-capable — its image input is a composition reference, not a strict edit target.'
+    help: 'PIN override for edit requests (base image supplied). Unset (recommended) = rotation. Edit-capable models only.'
   },
   {
     key: 'REPLICATE_MONTHLY_BUDGET',
