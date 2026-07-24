@@ -3,7 +3,7 @@
 import { WildBreathGlyph } from './ui/wild-breath-logo'
 
 type GenerateImageOutput =
-  | { imageUrl: string; modelId: string; prompt: string; aspectRatio?: string }
+  | { imageUrl: string; prompt: string; aspectRatio?: string }
   | { error: string }
 
 export function GeneratedImageSection({ part }: { part: any }) {
@@ -42,7 +42,7 @@ export function GeneratedImageSection({ part }: { part: any }) {
         />
       </a>
       <figcaption className="mt-1.5 text-xs text-muted-foreground truncate">
-        {output.prompt} · {output.modelId}
+        {output.prompt}
       </figcaption>
     </figure>
   )

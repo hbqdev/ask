@@ -50,10 +50,14 @@ describe('GeneratedImageSection', () => {
     const img = screen.getByRole('img') as HTMLImageElement
     expect(img).toHaveAttribute('src', '/uploads/user/fox.png')
     expect(img).toHaveAttribute('alt', 'a red fox in the snow')
-    // Caption pairs the prompt with the model id.
+    // Caption shows the prompt only — model identity is hidden, even for
+    // legacy parts that still carry a modelId.
     expect(
-      screen.getByText(/a red fox in the snow · black-forest-labs\/flux/)
+      screen.getByText('a red fox in the snow', { selector: 'figcaption' })
     ).toBeInTheDocument()
+    expect(
+      screen.queryByText(/black-forest-labs\/flux/)
+    ).not.toBeInTheDocument()
   })
 
   test('output-available error renders an error card with no image', () => {
