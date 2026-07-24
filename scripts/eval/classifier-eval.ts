@@ -53,7 +53,12 @@ async function main() {
         b.skipSearch === n.skipSearch &&
         b.needsRecent === n.needsRecent &&
         b.intent === n.intent
-      const queryOk = b.standaloneQuery === n.standaloneQuery
+      // standaloneQuery only affects behavior when skipSearch is false (it's the
+      // search/recall query). On skipSearch turns it's unused, so don't gate on
+      // it — the OLD baseline stored throwaway text there.
+      const queryOk = b.skipSearch
+        ? true
+        : b.standaloneQuery === n.standaloneQuery
       if (decisionOk && queryOk) {
         console.log(`  PASS ${c.name}`)
       } else {
