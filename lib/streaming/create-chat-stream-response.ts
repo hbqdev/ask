@@ -390,11 +390,20 @@ export async function createChatStreamResponse(
         // construction — the first search of the turn awaits it (bounded)
         // and fans out to the variants. Speed mode and skipped turns stay
         // single-query.
+        // expand_ms measures the promise's own lifetime, not a blocking await:
+        // expansion deliberately overlaps the work below, so timing it here
+        // records how long it was in flight without serialising it. Only the
+        // branch that actually expands is marked — a skipped turn would
+        // otherwise log a meaningless 0.
+        const expandStart = performance.now()
         const expandedQueriesPromise =
           !classification.skipSearch && searchMode !== 'speed'
             ? expandQuery({
                 standaloneQuery: classification.standaloneQuery,
                 abortSignal
+              }).then(queries => {
+                latency.mark('expand_ms', performance.now() - expandStart)
+                return queries
               })
             : Promise.resolve([])
 
