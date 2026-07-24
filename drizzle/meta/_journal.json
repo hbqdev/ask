@@ -141,6 +141,13 @@
       "when": 1784692255244,
       "tag": "0019_wrap_legacy_rls_current_setting",
       "breakpoints": true
+    },
+    {
+      "idx": 20,
+      "version": "7",
+      "when": 1784872268060,
+      "tag": "0020_preferred_chat_model",
+      "breakpoints": true
     }
   ]
 }

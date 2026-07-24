@@ -178,7 +178,7 @@ export async function POST(req: Request) {
       )
     }
 
-    const selectedModel = await selectModel({ searchMode, cookieStore })
+    const selectedModel = await selectModel({ searchMode, cookieStore, userId })
 
     if (!selectedModel) {
       return new Response('No enabled model is available', {

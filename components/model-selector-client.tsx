@@ -7,6 +7,7 @@ import {
   IconCpu as Cpu
 } from '@tabler/icons-react'
 
+import { saveModelPreference } from '@/lib/actions/model-preference'
 import {
   MODEL_SELECTION_COOKIE,
   serializeModelSelectionCookie
@@ -178,6 +179,12 @@ export function ModelSelectorClient({ data }: ModelSelectorClientProps) {
                               modelId: nextModel.id
                             })
                           )
+                          // Remember the explicit pick on the account too
+                          // (fire-and-forget; guests no-op server-side).
+                          void saveModelPreference(
+                            nextModel.providerId,
+                            nextModel.id
+                          ).catch(() => {})
                           setOpen(false)
                         }}
                         className={cn(
