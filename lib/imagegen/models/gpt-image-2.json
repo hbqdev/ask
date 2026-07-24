@@ -1,0 +1,13 @@
+{
+  "modelPath": "openai/gpt-image-2",
+  "capabilities": ["generate", "edit"],
+  "tier": "flagship",
+  "categories": ["general", "design-text"],
+  "promptField": "prompt",
+  "imageField": "input_images",
+  "imageFieldShape": "array",
+  "aspectRatioField": "aspect_ratio",
+  "aspectRatioValues": ["1:1", "3:2", "2:3", "4:3", "3:4", "16:9", "9:16"],
+  "defaults": { "quality": "medium", "output_format": "png" },
+  "costNote": "~$0.05/image @medium (varies)"
+}

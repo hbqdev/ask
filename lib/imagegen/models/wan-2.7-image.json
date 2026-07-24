@@ -1,0 +1,11 @@
+{
+  "modelPath": "wan-video/wan-2.7-image",
+  "capabilities": ["generate", "edit"],
+  "tier": "standard",
+  "categories": ["general"],
+  "promptField": "prompt",
+  "imageField": "images",
+  "imageFieldShape": "array",
+  "defaults": { "size": "2K" },
+  "costNote": "~$0.03/image @2K"
+}

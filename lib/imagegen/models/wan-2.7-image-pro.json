@@ -1,0 +1,11 @@
+{
+  "modelPath": "wan-video/wan-2.7-image-pro",
+  "capabilities": ["generate", "edit"],
+  "tier": "flagship",
+  "categories": ["photoreal"],
+  "promptField": "prompt",
+  "imageField": "images",
+  "imageFieldShape": "array",
+  "defaults": { "size": "2K" },
+  "costNote": "~$0.05/image @2K"
+}

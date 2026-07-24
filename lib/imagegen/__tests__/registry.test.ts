@@ -269,3 +269,39 @@ describe('flux-2 family registration', () => {
     )
   })
 })
+
+describe('bytedance/wan/openai registration', () => {
+  it('registers the five models; wan drops out of AR-filtered pools', () => {
+    const paths = listImageModels().map(m => m.modelPath)
+    for (const p of [
+      'bytedance/seedream-4.5',
+      'bytedance/seedream-5-lite',
+      'wan-video/wan-2.7-image-pro',
+      'wan-video/wan-2.7-image',
+      'openai/gpt-image-2'
+    ])
+      expect(paths).toContain(p)
+
+    const general = resolveImagePool({ role: 'generate', prompt: 'x' })
+    expect(general.models.map(m => m.modelPath)).toContain('openai/gpt-image-2')
+
+    // wan has no aspect_ratio input → excluded when a ratio is requested
+    const withAr = resolveImagePool({
+      role: 'generate',
+      task: 'photoreal',
+      prompt: 'x',
+      aspectRatio: '16:9'
+    })
+    expect(withAr.models.map(m => m.modelPath)).not.toContain(
+      'wan-video/wan-2.7-image-pro'
+    )
+    const noAr = resolveImagePool({
+      role: 'generate',
+      task: 'photoreal',
+      prompt: 'x'
+    })
+    expect(noAr.models.map(m => m.modelPath)).toContain(
+      'wan-video/wan-2.7-image-pro'
+    )
+  })
+})

@@ -1,0 +1,26 @@
+{
+  "modelPath": "bytedance/seedream-4.5",
+  "capabilities": ["generate", "edit"],
+  "tier": "flagship",
+  "categories": ["general", "photoreal"],
+  "promptField": "prompt",
+  "imageField": "image_input",
+  "imageFieldShape": "array",
+  "aspectRatioField": "aspect_ratio",
+  "aspectRatioValues": [
+    "match_input_image",
+    "1:1",
+    "4:3",
+    "3:4",
+    "4:5",
+    "5:4",
+    "16:9",
+    "9:16",
+    "3:2",
+    "2:3",
+    "21:9",
+    "9:21"
+  ],
+  "defaults": { "size": "2K" },
+  "costNote": "~$0.04/image @2K"
+}
