@@ -51,9 +51,8 @@ export async function GET(
     }
 
     const data = await fs.readFile(absPath)
-    // Crude content-type inference from extension — fine for our three
-    // supported types (jpeg/png/pdf). If we add more types later, replace
-    // with a proper lookup.
+    // Crude content-type inference from extension — covers the types we store
+    // (png/jpg/webp/svg/pdf); anything else falls back to octet-stream.
     const ext = path.extname(absPath).toLowerCase()
     const contentType =
       ext === '.png'
@@ -68,16 +67,28 @@ export async function GET(
                 ? 'application/pdf'
                 : 'application/octet-stream'
 
+    const headers: Record<string, string> = {
+      'Content-Type': contentType,
+      'Content-Length': String(stat.size),
+      'Cache-Control': 'private, max-age=3600',
+      // Never let the browser MIME-sniff a served file into something
+      // executable — honor the Content-Type we set above.
+      'X-Content-Type-Options': 'nosniff'
+    }
+    if (ext === '.svg') {
+      // The image card links outputs with target=_blank, so an SVG opened via
+      // top-level navigation renders as a document and would run any embedded
+      // <script> same-origin. A sandbox CSP neutralizes that script execution
+      // (it's irrelevant to <img> rendering, which never runs SVG scripts).
+      headers['Content-Security-Policy'] = 'sandbox'
+    }
+
     // NextResponse's body type wants a typed array, not a Node Buffer —
     // newer @types/node marks Buffer as `Buffer<ArrayBufferLike>` which
     // doesn't fit BodyInit's URLSearchParams-shaped expectations.
     return new NextResponse(new Uint8Array(data), {
       status: 200,
-      headers: {
-        'Content-Type': contentType,
-        'Content-Length': String(stat.size),
-        'Cache-Control': 'private, max-age=3600'
-      }
+      headers
     })
   } catch (err: any) {
     if (err?.code === 'ENOENT') {

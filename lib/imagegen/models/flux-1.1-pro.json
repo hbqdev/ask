@@ -4,8 +4,6 @@
   "tier": "flagship",
   "categories": [],
   "promptField": "prompt",
-  "imageField": "image_prompt",
-  "imageFieldShape": "string",
   "aspectRatioField": "aspect_ratio",
   "aspectRatioValues": [
     "1:1",
