@@ -5,8 +5,11 @@ import { shouldWarm } from './build-warm-requests'
 // letting the browser hammer /api/warm — the route throttles too, but there is
 // no reason to spend a request per character.
 
-// Matches the server window, which sits under the measured ~45s P8 decay.
-const WARM_INTERVAL_MS = 30_000
+// Matches the server window. One ping holds the GPU at P0 for only ~14-15s
+// (measured), so a longer window would let a composing user go cold between
+// keystrokes — the whole point is to be warm at send, not merely to have
+// pinged at some point.
+const WARM_INTERVAL_MS = 10_000
 
 type Deps = {
   send: () => void

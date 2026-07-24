@@ -8,9 +8,11 @@ import { buildWarmRequests, shouldWarm } from '@/lib/warm/build-warm-requests'
 // sent — instead of a 24/7 keep-warm loop burning ~37W to serve a handful of
 // first-turns a day. See lib/warm/build-warm-requests.ts for the measurements.
 
-// Measured P8 decay is ~45s of quiet, so a 30s window keeps a composing user
-// warm while an abandoned session falls back to idle on its own.
-const WARM_THROTTLE_MS = 30_000
+// Measured on the P5000: ONE ping holds P0 for ~14-15s, then the clock falls
+// back (P5 by +16s). The ~45s decay figure applies only to a GPU held at P0 by
+// sustained traffic — it does not describe a single ping. So the window has to
+// sit under that ~15s hold, or a composing user goes cold between pings.
+const WARM_THROTTLE_MS = 10_000
 const PING_TIMEOUT_MS = 8_000
 
 let lastWarmedAt: number | null = null
@@ -26,17 +28,20 @@ export async function POST() {
   }
   lastWarmedAt = now
 
-  // Fire-and-forget: the point is to START the clock ramp, not to wait for it.
-  // A failed or slow ping is not an error worth surfacing — the turn itself
-  // still works, just from a colder clock.
-  for (const req of buildWarmRequests(process.env)) {
+  // These MUST be awaited. An unawaited fetch here is torn down when the
+  // handler returns, so the pings never reach the GPU — the endpoint answers
+  // 204 while doing nothing, which is exactly how this shipped broken the
+  // first time. They run concurrently and settle in ~0.5s, and the client
+  // never blocks on this response anyway.
+  const pings = buildWarmRequests(process.env).map(req =>
     fetch(req.url, {
       method: 'POST',
       headers: req.headers,
       body: req.body,
       signal: AbortSignal.timeout(PING_TIMEOUT_MS)
-    }).catch(() => {})
-  }
+    })
+  )
+  await Promise.allSettled(pings)
 
   return new NextResponse(null, { status: 204 })
 }

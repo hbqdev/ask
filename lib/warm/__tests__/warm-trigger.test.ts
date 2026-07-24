@@ -8,7 +8,7 @@ describe('createWarmTrigger', () => {
     const trigger = createWarmTrigger({
       send: () => sent++,
       now: () => 1_000,
-      minIntervalMs: 30_000
+      minIntervalMs: 10_000
     })
 
     trigger()
@@ -22,7 +22,7 @@ describe('createWarmTrigger', () => {
     const trigger = createWarmTrigger({
       send: () => sent++,
       now: () => clock,
-      minIntervalMs: 30_000
+      minIntervalMs: 10_000
     })
 
     trigger()
@@ -40,11 +40,11 @@ describe('createWarmTrigger', () => {
     const trigger = createWarmTrigger({
       send: () => sent++,
       now: () => clock,
-      minIntervalMs: 30_000
+      minIntervalMs: 10_000
     })
 
     trigger()
-    clock = 31_000
+    clock = 11_000
     trigger()
 
     expect(sent).toBe(2)
@@ -56,7 +56,7 @@ describe('createWarmTrigger', () => {
         throw new Error('offline')
       },
       now: () => 1_000,
-      minIntervalMs: 30_000
+      minIntervalMs: 10_000
     })
 
     expect(() => trigger()).not.toThrow()
