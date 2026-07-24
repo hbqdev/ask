@@ -1,0 +1,74 @@
+{
+  "standalone-vectordb": {
+    "skipSearch": false,
+    "standaloneQuery": "What is the best open-source vector database in 2026?",
+    "needsRecent": true,
+    "intent": "general"
+  },
+  "standalone-photosynthesis": {
+    "skipSearch": false,
+    "standaloneQuery": "How does photosynthesis work?",
+    "needsRecent": false,
+    "intent": "general"
+  },
+  "standalone-news": {
+    "skipSearch": false,
+    "standaloneQuery": "What are the latest news events concerning OpenAI for this week?",
+    "needsRecent": true,
+    "intent": "news"
+  },
+  "followup-pricing": {
+    "skipSearch": false,
+    "standaloneQuery": "What is the pricing for Pinecone's vector database?",
+    "needsRecent": true,
+    "intent": "general"
+  },
+  "followup-pronoun": {
+    "skipSearch": false,
+    "standaloneQuery": "Where did Dario Amodei attend school?",
+    "needsRecent": false,
+    "intent": "general"
+  },
+  "new-entity": {
+    "skipSearch": false,
+    "standaloneQuery": "What is Rust?",
+    "needsRecent": false,
+    "intent": "general"
+  },
+  "confirm-restate": {
+    "skipSearch": true,
+    "standaloneQuery": "Confirm: Is the capital of France Paris?",
+    "needsRecent": false,
+    "intent": "general"
+  },
+  "greeting": {
+    "skipSearch": true,
+    "standaloneQuery": "Greeting acknowledgment.",
+    "needsRecent": false,
+    "intent": "general"
+  },
+  "thanks": {
+    "skipSearch": true,
+    "standaloneQuery": "greeting, no search needed",
+    "needsRecent": false,
+    "intent": "general"
+  },
+  "image-gen": {
+    "skipSearch": true,
+    "standaloneQuery": "Generate an image of a watercolor fox",
+    "needsRecent": false,
+    "intent": "general"
+  },
+  "recent-price": {
+    "skipSearch": false,
+    "standaloneQuery": "What is the current price of Bitcoin?",
+    "needsRecent": true,
+    "intent": "general"
+  },
+  "stable-fact": {
+    "skipSearch": false,
+    "standaloneQuery": "What year did the Western Roman Empire fall?",
+    "needsRecent": false,
+    "intent": "general"
+  }
+}
