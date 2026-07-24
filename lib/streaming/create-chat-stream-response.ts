@@ -35,6 +35,7 @@ import { getTextFromParts } from '../utils/message-utils'
 import { perfLog, perfTime } from '../utils/perf-logging'
 import { isUsageLogging, logUsage } from '../utils/usage-logging'
 
+import { chooseRecall } from './helpers/choose-recall'
 import { convertDataPart } from './helpers/convert-data-part'
 import { firstChunkTimer } from './helpers/first-chunk-timer'
 import { persistStreamResults } from './helpers/persist-stream-results'
@@ -173,6 +174,15 @@ export async function createChatStreamResponse(
           intent: 'general' as const
         })
       : classifyQuery({ messages: messagesToModel, abortSignal })
+
+    // Start recall speculatively on the raw message, concurrent with the
+    // classifier, so a research turn whose standalone query matches the raw
+    // message pays no serial recall wait (see chooseRecall). getRecallInjection
+    // is fail-safe (never rejects); on a gated/refetch turn this result is
+    // simply not awaited. userId-less turns have no recall.
+    const speculativeRecall = userId
+      ? getRecallInjection(userId, latestMessageText, chatId)
+      : Promise.resolve({ block: '', hits: [] })
 
     // Declared in outer scope (same pattern as titlePromise above) so the
     // memory-extraction block in onFinish — a sibling property of execute on
@@ -332,11 +342,21 @@ export async function createChatStreamResponse(
         // because this scope owns both the resolved standaloneQuery and the
         // stream writer needed for the attribution chips.
         const recallStart = performance.now()
-        const recall = await getRecallInjection(
-          userId,
-          classification?.standaloneQuery || latestMessageText,
-          chatId
-        )
+        const recallDecision = chooseRecall({
+          skipSearch: classification.skipSearch,
+          standaloneQuery: classification.standaloneQuery,
+          latestMessageText
+        })
+        const recall =
+          recallDecision === 'gated'
+            ? { block: '', hits: [] }
+            : recallDecision === 'speculative'
+              ? await speculativeRecall
+              : await getRecallInjection(
+                  userId,
+                  classification.standaloneQuery,
+                  chatId
+                )
         latency.mark('recall_ms', performance.now() - recallStart)
         if (recall.hits.length > 0) {
           writer.write({
