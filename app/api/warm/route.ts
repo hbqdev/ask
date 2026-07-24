@@ -8,11 +8,12 @@ import { buildWarmRequests, shouldWarm } from '@/lib/warm/build-warm-requests'
 // sent — instead of a 24/7 keep-warm loop burning ~37W to serve a handful of
 // first-turns a day. See lib/warm/build-warm-requests.ts for the measurements.
 
-// Measured on the P5000: ONE ping holds P0 for ~14-15s, then the clock falls
-// back (P5 by +16s). The ~45s decay figure applies only to a GPU held at P0 by
-// sustained traffic — it does not describe a single ping. So the window has to
-// sit under that ~15s hold, or a composing user goes cold between pings.
-const WARM_THROTTLE_MS = 10_000
+// Measured on the P5000: one ping holds P0 for ~8-15s (it varies run to run),
+// then the clock falls away. The ~45s decay figure applies only to a GPU held
+// at P0 by sustained traffic and does NOT describe a single ping. The window
+// therefore sits under the low end of that range — at 10s a composing user hit
+// a cold gap before the next ping landed.
+const WARM_THROTTLE_MS = 7_000
 const PING_TIMEOUT_MS = 8_000
 
 let lastWarmedAt: number | null = null
@@ -33,15 +34,40 @@ export async function POST() {
   // 204 while doing nothing, which is exactly how this shipped broken the
   // first time. They run concurrently and settle in ~0.5s, and the client
   // never blocks on this response anyway.
-  const pings = buildWarmRequests(process.env).map(req =>
-    fetch(req.url, {
-      method: 'POST',
-      headers: req.headers,
-      body: req.body,
-      signal: AbortSignal.timeout(PING_TIMEOUT_MS)
-    })
+  const started = Date.now()
+  const targets = buildWarmRequests(process.env)
+  const results = await Promise.allSettled(
+    targets.map(req =>
+      fetch(req.url, {
+        method: 'POST',
+        headers: req.headers,
+        body: req.body,
+        cache: 'no-store',
+        signal: AbortSignal.timeout(PING_TIMEOUT_MS)
+      })
+    )
   )
-  await Promise.allSettled(pings)
+
+  // One line per warm, mirroring the [latency] convention. Without this a
+  // failing ping is invisible: allSettled swallows the reason and the route
+  // still answers 204, which is precisely how the first version shipped
+  // broken.
+  const failures = results
+    .map((r, i) =>
+      r.status === 'rejected'
+        ? `${new URL(targets[i].url).host}:${(r.reason as Error)?.message}`
+        : null
+    )
+    .filter(Boolean)
+  console.log(
+    `[warm] ${JSON.stringify({
+      targets: targets.length,
+      ok: results.filter(r => r.status === 'fulfilled').length,
+      failed: failures.length,
+      ms: Date.now() - started,
+      ...(failures.length ? { errors: failures } : {})
+    })}`
+  )
 
   return new NextResponse(null, { status: 204 })
 }
