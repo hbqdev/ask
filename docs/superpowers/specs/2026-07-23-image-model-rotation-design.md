@@ -1,158 +1,196 @@
-# Image Model Rotation — Design
+# Image Model Rotation & Task Routing — Design
 
-**Date:** 2026-07-23
+**Date:** 2026-07-23 (rev 2 — roster expansion + task routing per operator)
 **Status:** Approved direction; pending operator spec review
 
 ## Goal
 
-Replace the fixed per-role image model defaults with automatic rotation across a
-curated pool, hide model identity from users entirely, and give the premium
-model two dynamic entry points (explicit quality requests and retry
-escalation). Users who dislike a result and retry silently get a different
-engine.
+Replace the fixed per-role image model defaults with task-aware selection over
+a ~27-model 2026-fresh roster: the researcher declares what kind of image the
+user wants, the server rotates within the matching pool (with guardrails), and
+model identity is hidden from users entirely. The premium model has two dynamic
+entry points (explicit quality requests, retry escalation). Users who dislike a
+result and retry silently get a different engine.
 
 ## Current state
 
 - `generateImage` tool exposes `prompt` / `baseImageUrl` / `aspectRatio`.
 - Model choice is server-side: role = `edit` iff a base image resolved, else
-  `generate`; each role has one hardcoded default (`flux-1.1-pro` generate,
+  `generate`; one hardcoded default per role (`flux-1.1-pro` generate,
   `nano-banana` edit), overridable deployment-wide via
   `REPLICATE_IMAGE_MODEL` / `REPLICATE_IMAGE_EDIT_MODEL`.
-- The model path is returned to the LLM (`modelId`) and rendered in the image
-  card caption.
-- Registry: 4 JSON defs (`nano-banana`, `flux-1.1-pro`, `flux-schnell`,
-  `seedream-4`), each declaring provider field names; `buildModelInput` maps
-  generic args onto them.
+- `modelId` is returned to the LLM and rendered in the image card caption.
+- Registry: 4 JSON defs; `buildModelInput` maps generic args onto per-model
+  field names.
 
-## Model roster
+## Roster (verified live 2026-07-23, Replicate metadata API)
 
-Researched live from Replicate 2026-07-23 (metadata API + catalog pages).
-Exact aspect-ratio enums and per-image costs are pinned from the live schema
-during implementation; costs below are approximate.
+**Inclusion rule (operator):** last model version 2026-01-01 or newer. Applied
+retroactively: `seedream-4`, `flux-1.1-pro`, `flux-schnell` leave rotation
+(stay registered, pin-only). The whole `flux-kontext` family is 2025 → excluded
+(FLUX.2 family covers instruction editing). `flux-2-dev` 2025 → excluded.
+`gemini-2.5-flash-image` excluded as a `nano-banana` duplicate.
 
-| Model                                       | Capabilities       | Pools           | Image field      | ~Cost       |
-| ------------------------------------------- | ------------------ | --------------- | ---------------- | ----------- |
-| `google/nano-banana` (existing)             | gen+edit           | gen, edit       | `image_input[]`  | $0.039      |
-| `google/nano-banana-2` (new)                | gen+edit           | gen, edit       | `image_input[]`  | ~$0.05–0.08 |
-| `bytedance/seedream-4` (existing)           | gen+edit           | gen, edit       | `image_input[]`  | $0.03       |
-| `bytedance/seedream-4.5` (new)              | gen+edit           | gen, edit       | `image_input[]`  | ~$0.04      |
-| `bytedance/seedream-5-lite` (new)           | gen+edit           | gen, edit       | `image_input[]`  | ~$0.03      |
-| `black-forest-labs/flux-2-pro` (new)        | gen+edit           | gen, edit       | `input_images[]` | ~$0.05–0.06 |
-| `black-forest-labs/flux-1.1-pro` (existing) | gen only (demoted) | gen             | n/a              | $0.04       |
-| `google/nano-banana-pro` (new)              | gen+edit           | none (premium)  | `image_input[]`  | ~$0.13–0.15 |
-| `black-forest-labs/flux-schnell` (existing) | gen only           | none (pin-only) | n/a              | $0.003      |
+Tiers: `draft` (speed-first), `standard`, `flagship`, `premium`.
+Categories: `photoreal`, `illustration`, `design-text`, `logo-svg`,
+`draft-fast`, `general` (edit capability is a schema fact, not a category).
 
-- `flux-1.1-pro` is demoted from edit: its image conditioning is
-  image-prompting, not instruction editing — the weakest editor of the set.
-- `flux-schnell` leaves the default path entirely (draft quality would make
-  rotation results inconsistent) but stays registered for env pinning.
-- `openai/gpt-image-1.5` was evaluated and excluded (requires a separate
-  OpenAI API key). `xai/grok-imagine-image` excluded (sub-1K outputs).
+| Model                           | Ver   | Caps     | Tier        | Categories              | Image field         | Prompt field    |
+| ------------------------------- | ----- | -------- | ----------- | ----------------------- | ------------------- | --------------- |
+| google/nano-banana              | 02-06 | gen+edit | standard    | general                 | `image_input[]`     | prompt          |
+| google/nano-banana-2            | 07-21 | gen+edit | flagship    | general, photoreal      | `image_input[]`     | prompt          |
+| google/nano-banana-2-lite       | 07-05 | gen+edit | draft       | draft-fast              | `image_input[]`     | prompt          |
+| google/imagen-4                 | 02-12 | gen      | flagship    | photoreal               | —                   | prompt          |
+| google/imagen-4-fast            | 04-17 | gen      | draft       | draft-fast              | —                   | prompt          |
+| google/imagen-4-ultra           | 04-15 | gen      | flagship    | photoreal               | —                   | prompt          |
+| bfl/flux-2-pro                  | 03-23 | gen+edit | flagship    | general, photoreal      | `input_images[]`    | prompt          |
+| bfl/flux-2-max                  | 03-16 | gen+edit | flagship    | photoreal               | `input_images[]`    | prompt          |
+| bfl/flux-2-flex                 | 05-04 | gen+edit | standard    | design-text             | `input_images[]`    | prompt          |
+| bfl/flux-2-klein-4b             | 01-15 | gen+edit | draft       | draft-fast              | `images[]`          | prompt          |
+| bfl/flux-2-klein-9b             | 01-21 | gen+edit | standard    | general                 | `images[]`          | prompt          |
+| bytedance/seedream-4.5          | 06-01 | gen+edit | flagship    | general, photoreal      | `image_input[]`     | prompt          |
+| bytedance/seedream-5-lite       | 02-24 | gen+edit | standard    | general, illustration   | `image_input[]`     | prompt          |
+| openai/gpt-image-2              | 07-08 | gen+edit | flagship    | general, design-text    | `input_images[]`    | prompt          |
+| wan-video/wan-2.7-image-pro     | 04-02 | gen+edit | flagship    | photoreal               | `images[]` + `size` | prompt          |
+| wan-video/wan-2.7-image         | 04-02 | gen+edit | standard    | general                 | `images[]` + `size` | prompt          |
+| prunaai/p-image                 | 06-19 | gen      | draft       | draft-fast              | —                   | prompt          |
+| prunaai/p-image-edit            | 06-22 | edit     | draft       | draft-fast              | `images[]`          | prompt          |
+| prunaai/z-image-turbo           | 05-11 | gen      | draft       | draft-fast              | — (no AR)           | prompt          |
+| prunaai/z-image                 | 01-27 | gen      | standard    | illustration            | —                   | prompt          |
+| prunaai/ernie-image-turbo       | 04-14 | gen      | standard    | illustration            | —                   | prompt          |
+| recraft-ai/recraft-v4.1         | 05-11 | gen      | standard    | design-text             | —                   | prompt          |
+| recraft-ai/recraft-v4.1-pro     | 05-11 | gen      | flagship    | design-text             | —                   | prompt          |
+| recraft-ai/recraft-v4.1-utility | 05-11 | gen      | draft       | draft-fast, design-text | —                   | prompt          |
+| recraft-ai/recraft-v4.1-svg     | 05-11 | gen      | standard    | logo-svg                | —                   | prompt          |
+| bria/image-3.2                  | 02-05 | gen      | standard    | general, illustration   | —                   | prompt          |
+| bria/fibo                       | 02-05 | gen      | standard    | photoreal               | `image`             | prompt          |
+| bria/fibo-edit                  | 02-09 | edit     | standard    | general                 | `image`             | **instruction** |
+| google/nano-banana-pro          | 07-21 | gen+edit | **premium** | (all)                   | `image_input[]`     | prompt          |
 
-Registry model defs gain a `pools: ('generate' | 'edit')[]` field (which
-rotations the model participates in) alongside the existing `capabilities`
-(what it is allowed to do when pinned or escalated).
+Registered pin-only (out of rotation): `seedream-4`, `flux-1.1-pro`,
+`flux-schnell`. Category assignments above are the starting judgment call and
+are expected to be tuned with use; they live in the model JSONs.
 
-## Selection algorithm
+Notes: wan-video has only two image models (rest of catalog is video) — the
+operator's "5 per vendor" target is met where the vendor catalog allows.
+`recraft-v4.1-utility-pro` left out (near-duplicate of utility;
+run-count 1.7K). Exact aspect-ratio enums, size defaults, and cost notes are
+pinned from the metadata API during implementation.
 
-Per call, in precedence order:
+## Selection algorithm (Design 3: task enum + server guardrails)
 
-1. **Env pin** — `REPLICATE_IMAGE_MODEL` / `REPLICATE_IMAGE_EDIT_MODEL`, if
-   set and capability-valid (existing warn-and-fall-through behavior kept).
-   Pinning disables rotation for that role.
-2. **Explicit premium** — tool arg `quality: 'premium'` → `nano-banana-pro`.
-3. **Retry escalation** — if this call is a retry (see below) and it is the
-   4th consecutive retry in the chat → `nano-banana-pro`, and the retry
-   counter resets. Retries 1–3 fall through to rotation.
-4. **Round-robin** — Redis `INCR imagegen:rr:<role>` modulo pool size, pool
-   ordered by registry order. In-memory counter fallback when Redis is
-   unavailable. A global counter guarantees consecutive calls (any user)
-   never repeat a model, which is what makes plain retries silently land on a
-   different engine.
+Tool schema:
+
+```
+prompt        string                                      (unchanged)
+baseImageUrl  string, optional                            (unchanged)
+aspectRatio   enum, optional                              (unchanged values)
+task          enum photoreal | illustration | design-text |
+              logo-svg | draft-fast | general, optional   (researcher-declared)
+quality       enum standard | premium, optional
+isRetry       boolean, optional
+```
+
+Per call, the server resolves a **candidate pool**, then round-robins:
+
+1. **Env pin** — `REPLICATE_IMAGE_MODEL` / `REPLICATE_IMAGE_EDIT_MODEL` wins
+   if set and capability-valid (existing warn-and-fall-through kept). Pinning
+   disables rotation for that role.
+2. **Premium** — `quality: 'premium'`, or 4th consecutive retry (below) →
+   `nano-banana-pro`. Exception: `task: 'logo-svg'` skips premium (no premium
+   model emits SVG) and falls through to the svg pool.
+3. **Pool resolution + guardrails** —
+   a. Base pool: models whose `categories` include `task`; no/`general` task →
+   the default pool = `general`-tagged standard+flagship models (draft-tier
+   models are ONLY reachable via `task: 'draft-fast'` — they never pollute
+   default requests).
+   b. Edit constraint: when `baseImageUrl` resolved, intersect with
+   edit-capable; if the intersection is empty, use the full edit-capable
+   standard+flagship set (task yields to correctness).
+   c. Aspect-ratio filter: if `aspectRatio` given, prefer the subset
+   supporting it; empty subset → keep pool, ratio is dropped per-model as
+   today.
+   d. SVG keyword guardrail: prompt matching /\b(svg|vector)\b/i routes to the
+   `logo-svg` pool even without the task param (deterministic, tested).
+4. **Round-robin** — Redis `INCR imagegen:rr:<poolKey>` mod pool size,
+   pool ordered by registry order; `poolKey` = resolved pool id (e.g.
+   `generate:photoreal`, `edit:default`). In-memory counter fallback when
+   Redis is unavailable. Consecutive calls on the same pool never repeat a
+   model, which is what makes plain retries land on a different engine.
 
 ### Retry tracking
 
-- Tool arg `isRetry: boolean` — set by the researcher when it regenerates
-  because the user was dissatisfied with the previous image in this chat.
-  The LLM judges "this is a retry" from conversation intent; the server owns
-  the escalation threshold.
-- Counter: Redis `imagegen:retry:<chatId>`, INCR when `isRetry`, DEL when a
-  non-retry generation happens in the chat, TTL 24h. One counter per chat
-  (not per role).
-- Escalated and explicit-premium calls still count as attempts; an explicit
-  `quality: 'premium'` call wins at step 2 regardless of the counter.
-- Redis down → escalation silently degrades to rotation (safe: engines still
-  vary between attempts).
+- `isRetry: true` set by the researcher when regenerating because the user was
+  dissatisfied with the previous image in this chat. LLM judges intent; server
+  owns the threshold.
+- Redis `imagegen:retry:<chatId>`: INCR on retry, DEL on non-retry generation,
+  TTL 24h, one counter per chat. Retries 1–3 → rotation; 4th → premium, then
+  reset. Explicit `quality: 'premium'` wins regardless of the counter.
+- Redis down → escalation degrades to plain rotation.
 
 ## Hiding model identity
 
-- The tool's success payload drops `modelId` — the chat LLM never learns the
-  engine, so it cannot leak it.
-- The image card caption drops the `· model` suffix. Existing chats with
-  `modelId` in stored parts simply stop rendering it.
-- Tool description gains: the engine is selected automatically and rotates;
-  never state or guess which model produced an image; if the user is
-  unhappy, generate again with `isRetry: true`.
-- Ops traceability: one server log line per generation at persist time —
-  chat id, stored filename, model path — so a bad output can be attributed.
-
-## Tool schema changes
-
-```
-prompt        string            (unchanged)
-baseImageUrl  string, optional  (unchanged)
-aspectRatio   enum, optional    (unchanged values)
-quality       enum 'standard' | 'premium', optional, default 'standard'
-isRetry       boolean, optional, default false
-```
+- Tool success payload drops `modelId`; the LLM cannot leak what it never
+  learns. Image card caption drops the `· model` suffix (legacy parts with
+  modelId simply stop rendering it).
+- Tool description: engine is selected automatically and rotates; never state
+  or guess which model produced an image; on user dissatisfaction, call again
+  with `isRetry: true`; declare `task` from the user's intent.
+- Ops traceability: one server log line per generation at persist time — chat
+  id, stored filename, model path, resolved poolKey.
 
 ## Config surface
 
-- `REPLICATE_IMAGE_MODEL` / `REPLICATE_IMAGE_EDIT_MODEL` semantics change
-  from "the model" to "pin override (disables rotation)". Model-manager
-  tooltips updated accordingly; `nano-banana-pro` documented as the intended
-  premium pin. Model-manager container rebuilt at deploy.
-- No new env vars. Rotation pools are code (registry JSONs), not config.
+- Pin vars keep their names; semantics documented as "pin override (disables
+  rotation)". Model-manager tooltips updated; container rebuilt at deploy.
+- No new env vars; pools/categories/tiers are code (registry JSONs).
 
 ## Budget
 
-Unchanged, count-based (`replicate:budget:YYYY-MM`). Pool average stays
-~$0.04/image; premium calls ~3–4x that. Escalation frequency is bounded (at
-most 1 premium per 4 retries), so count-based budgeting remains a reasonable
-cost proxy.
+Unchanged, count-based (`replicate:budget:YYYY-MM`). Per-image cost now spans
+~$0.001 (z-image-turbo) to ~$0.15 (nano-banana-pro); default-pool average
+~$0.04. Count-based budgeting stays a rough cost proxy; dollar-denominated
+budgets noted as future work.
 
 ## Implementation wrinkles
 
-- `flux-2-pro` has no `match_input_image` aspect value (default `1:1`): edit
-  calls through it must omit/derive the ratio rather than force `1:1` — per-
-  model edit defaults live in its JSON.
-- `seedream-4.5` / `seedream-5-lite` use `size` (not `resolution`); defaults
-  pinned in JSON to keep per-image cost predictable.
-- `nano-banana-2` / `-pro` price by resolution tier; JSON defaults pin 1K/2K
-  respectively.
-- Output formats differ (flux-2-pro defaults webp); the existing
-  extension-based media-type handling in the tool and persist path already
-  covers png/jpg/webp/gif.
-- Exact aspect-ratio enums and cost notes for the five new models are read
-  from the Replicate metadata API (free, read-only) during implementation.
+- `bria/fibo-edit` prompts via `instruction` (registry `promptField` covers
+  this). `wan-2.7-*` and seedreams size via `size`; flux-2 family via
+  `resolution`; JSON `defaults` pin each to a ~1–2K tier for cost
+  predictability.
+- `z-image-turbo` has no aspect-ratio field → excluded by the AR filter
+  whenever a ratio is requested.
+- `gpt-image-2`: `openai_api_key` is optional per schema — leave unset (bills
+  through Replicate); its `quality` input pinned in defaults. Latency is the
+  highest in the roster (~30–90s); acceptable in rotation per operator.
+- Output formats vary (webp/jpg/png/svg); existing extension-based media-type
+  handling covers raster; **SVG persistence** needs `image/svg+xml` added to
+  the media-type map and the uploads route content-type handling verified.
+- One-spin staging verification for gpt-image-2 (no-key billing) and one svg
+  generation (persist + render path) during E2E.
+- Registry JSONs for 25 new models are generated from the metadata API
+  (schema-derived field names + AR enums), then hand-tuned for categories.
 
 ## Testing
 
-- Registry: rotation advance + wraparound; pool filtering by `pools`; env
-  pin honored; capability-mismatched pin warns and falls through; Redis-
-  absent in-memory fallback.
-- Retry: counter increments on `isRetry`, resets on non-retry and after
-  escalation; 4th consecutive retry escalates; explicit premium bypasses.
-- `buildModelInput`: `input_images` vs `image_input` array shapes; `size` vs
-  `resolution` defaults; aspect-ratio mapping incl. edit-path behavior for
-  flux-2-pro.
-- Tool: success payload has no `modelId`; persist-time log line emitted.
-- Component: caption renders without model suffix (new and legacy parts).
-- Staging E2E: several spins to observe rotation and one premium-quality
-  request (paid calls on the operator-directed token).
+- Pool resolution: category filtering, draft-tier gating, edit intersection +
+  fallback, AR subset preference, SVG keyword guardrail, logo-svg premium
+  skip.
+- Rotation: advance/wraparound per poolKey; distinct poolKeys independent;
+  Redis-absent in-memory fallback.
+- Retry: increments/resets/escalation at 4; explicit premium bypass.
+- `buildModelInput`: field-name matrix across the five image-field shapes
+  (`image_input[]`, `input_images[]`, `images[]`, `image`, none) and
+  `instruction` prompt field; `size` vs `resolution` defaults.
+- Tool: `modelId` absent from success payload; persist log line emitted.
+- Component: caption without model suffix (new + legacy parts).
+- Staging E2E: rotation observation across ≥3 spins, one premium request, one
+  gpt-image-2 spin, one svg spin (paid calls on the operator-directed token).
 
-## Out of scope
+## Phase 2 (explicitly out of v1)
 
-- Per-user model preferences; cost-weighted or quality-weighted rotation;
-  automatic bad-output detection (user dissatisfaction is signaled through
-  conversation, interpreted by the researcher); dollar-denominated budgets.
+Mask/canvas/promptless operations — `bria/genfill`, `bria/expand-image`,
+`bria/eraser`, `bria/remove-background`, `bria/increase-resolution`,
+`flux-fill-pro`, recraft upscalers/vectorize — likely a separate tool with its
+own contract. Also out: per-user model preferences, cost-weighted rotation,
+automatic bad-output detection, dollar budgets.
