@@ -5,6 +5,7 @@ import {
   MODEL_SELECTION_COOKIE,
   parseModelSelectionCookie
 } from '@/lib/config/model-selection-cookie'
+import { pickFallbackModel } from '@/lib/model-selector/pick-fallback-model'
 import { fetchAvailableModels } from '@/lib/models/fetch-models'
 import { ModelSelectorData } from '@/lib/types/model-selector'
 import { Model } from '@/lib/types/models'
@@ -16,22 +17,8 @@ function modelKey(model: Model): string {
   return `${model.providerId}:${model.id}`
 }
 
-function pickFirstAvailableModel(
-  modelsByProvider: Record<string, Model[]>
-): Model | null {
-  const providers = Object.keys(modelsByProvider).sort((a, b) =>
-    a.localeCompare(b)
-  )
-
-  for (const provider of providers) {
-    const firstModel = modelsByProvider[provider]?.[0]
-    if (firstModel) {
-      return firstModel
-    }
-  }
-
-  return null
-}
+// pickFallbackModel lives in its own module (no server-only import) so it
+// stays unit-testable; see lib/model-selector/pick-fallback-model.ts.
 
 function resolveSelectedModelKey(
   modelsByProvider: Record<string, Model[]>,
@@ -69,7 +56,7 @@ export async function getModelSelectorData(): Promise<ModelSelectorData> {
   }
 
   const modelsByProvider = await fetchAvailableModels()
-  const fallbackModel = pickFirstAvailableModel(modelsByProvider)
+  const fallbackModel = pickFallbackModel(modelsByProvider)
   const hasAvailableModels =
     fallbackModel !== null || isProviderEnabled(DEFAULT_MODEL.providerId)
   const cookieStore = await cookies()
