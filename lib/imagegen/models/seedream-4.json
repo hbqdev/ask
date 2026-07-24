@@ -1,6 +1,8 @@
 {
   "modelPath": "bytedance/seedream-4",
   "capabilities": ["generate", "edit"],
+  "tier": "standard",
+  "categories": [],
   "promptField": "prompt",
   "imageField": "image_input",
   "imageFieldShape": "array",

@@ -1,6 +1,8 @@
 {
   "modelPath": "black-forest-labs/flux-schnell",
   "capabilities": ["generate"],
+  "tier": "draft",
+  "categories": [],
   "promptField": "prompt",
   "aspectRatioField": "aspect_ratio",
   "aspectRatioValues": [
