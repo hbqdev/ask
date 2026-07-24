@@ -38,7 +38,8 @@ const MEDIA_TYPE_BY_EXT: Record<string, string> = {
   jpg: 'image/jpeg',
   jpeg: 'image/jpeg',
   webp: 'image/webp',
-  gif: 'image/gif'
+  gif: 'image/gif',
+  svg: 'image/svg+xml'
 }
 
 function mediaTypeForPath(p: string): string {

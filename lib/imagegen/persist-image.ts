@@ -19,7 +19,8 @@ import { createFileRecord } from '@/lib/db/file-actions'
 const EXT_BY_CONTENT_TYPE: Record<string, string> = {
   'image/webp': 'webp',
   'image/jpeg': 'jpg',
-  'image/png': 'png'
+  'image/png': 'png',
+  'image/svg+xml': 'svg'
 }
 
 function normalizeContentType(contentType: string | null): string {
