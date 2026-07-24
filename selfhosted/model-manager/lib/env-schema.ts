@@ -130,6 +130,14 @@ export const REGISTRY: EnvVarSpec[] = [
     help: 'Cloud models not shown by /api/tags. Add / remove / reorder.'
   },
   {
+    key: 'DEFAULT_CHAT_MODEL',
+    category: 'models',
+    group: 'Chat',
+    label: 'Default chat model',
+    type: 'model',
+    help: 'Model new sessions start on (no saved selection yet). Unset = kimi-k2.6:cloud. Should be one of the chat models listed above.'
+  },
+  {
     key: 'OLLAMA_EMBED_MODEL',
     category: 'models',
     group: 'Chat',
