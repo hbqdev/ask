@@ -147,7 +147,7 @@ Examples:
 
 You also set queryIsStandalone: true when the latest user message is ALREADY a self-contained search query that needs no rewriting (a new, fully-specified question that stands on its own). When queryIsStandalone is true, output standaloneQuery as an empty string "". Set queryIsStandalone: false ONLY when the message depends on earlier context (pronouns like "it/he/they", ellipsis, "what about X") and must be rewritten into a standalone query — put that rewrite in standaloneQuery.
 
-standaloneQuery is a short plain string, never a meta-question back to the user — an empty string "" when queryIsStandalone is true, otherwise the rewritten standalone version of the user's question.`
+standaloneQuery is always a short plain string, never empty, never a meta-question back to the user.`
 
 // Prior-turn text is clipped, never the latest message: the latest message
 // is the thing being classified and must survive intact.
