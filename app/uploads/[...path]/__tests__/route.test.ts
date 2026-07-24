@@ -70,15 +70,22 @@ describe('GET /uploads/[...path]', () => {
 
     expect(res.status).toBe(200)
     expect(res.headers.get('Content-Type')).toBe('image/webp')
+    // nosniff on all served files; no CSP sandbox on non-svg responses.
+    expect(res.headers.get('X-Content-Type-Options')).toBe('nosniff')
+    expect(res.headers.get('Content-Security-Policy')).toBeNull()
     const body = Buffer.from(await res.arrayBuffer())
     expect(body.equals(WEBP_BYTES)).toBe(true)
   })
 
-  it('serves an svg generation output as image/svg+xml', async () => {
+  it('serves an svg generation output as image/svg+xml, sandboxed and nosniff', async () => {
     const res = await call(['u1', 'generated', 'c1', 'logo.svg'])
 
     expect(res.status).toBe(200)
     expect(res.headers.get('Content-Type')).toBe('image/svg+xml')
+    // Harden SVG: nosniff plus a sandbox CSP so an embedded <script> can't run
+    // on top-level navigation (the image card links outputs with target=_blank).
+    expect(res.headers.get('X-Content-Type-Options')).toBe('nosniff')
+    expect(res.headers.get('Content-Security-Policy')).toBe('sandbox')
     const body = Buffer.from(await res.arrayBuffer())
     expect(body.equals(SVG_BYTES)).toBe(true)
   })
