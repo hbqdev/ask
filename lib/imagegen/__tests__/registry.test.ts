@@ -199,3 +199,42 @@ describe('buildModelInput (unchanged behavior)', () => {
     })
   })
 })
+
+describe('google family registration', () => {
+  it('registers the six google models with expected pools', () => {
+    const paths = listImageModels().map(m => m.modelPath)
+    for (const p of [
+      'google/nano-banana-2',
+      'google/nano-banana-2-lite',
+      'google/nano-banana-pro',
+      'google/imagen-4',
+      'google/imagen-4-fast',
+      'google/imagen-4-ultra'
+    ])
+      expect(paths).toContain(p)
+
+    expect(getPremiumModel('generate')?.modelPath).toBe(
+      'google/nano-banana-pro'
+    )
+    expect(getPremiumModel('edit')?.modelPath).toBe('google/nano-banana-pro')
+
+    const photo = resolveImagePool({
+      role: 'generate',
+      task: 'photoreal',
+      prompt: 'x'
+    })
+    expect(photo.models.map(m => m.modelPath)).toContain('google/imagen-4')
+    expect(photo.models.map(m => m.modelPath)).not.toContain(
+      'google/imagen-4-fast'
+    ) // draft tier
+
+    const draft = resolveImagePool({
+      role: 'generate',
+      task: 'draft-fast',
+      prompt: 'x'
+    })
+    expect(draft.models.map(m => m.modelPath)).toContain(
+      'google/nano-banana-2-lite'
+    )
+  })
+})

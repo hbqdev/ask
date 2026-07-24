@@ -1,0 +1,25 @@
+{
+  "modelPath": "google/nano-banana-2-lite",
+  "capabilities": ["generate", "edit"],
+  "tier": "draft",
+  "categories": ["draft-fast"],
+  "promptField": "prompt",
+  "imageField": "image_input",
+  "imageFieldShape": "array",
+  "aspectRatioField": "aspect_ratio",
+  "aspectRatioValues": [
+    "match_input_image",
+    "1:1",
+    "2:3",
+    "3:2",
+    "3:4",
+    "4:3",
+    "4:5",
+    "5:4",
+    "9:16",
+    "16:9",
+    "21:9"
+  ],
+  "defaults": { "output_format": "png" },
+  "costNote": "~$0.02/image"
+}

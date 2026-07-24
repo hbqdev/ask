@@ -1,0 +1,11 @@
+{
+  "modelPath": "google/imagen-4-ultra",
+  "capabilities": ["generate"],
+  "tier": "flagship",
+  "categories": ["photoreal"],
+  "promptField": "prompt",
+  "aspectRatioField": "aspect_ratio",
+  "aspectRatioValues": ["1:1", "9:16", "16:9", "3:4", "4:3"],
+  "defaults": { "output_format": "png" },
+  "costNote": "~$0.06/image"
+}
