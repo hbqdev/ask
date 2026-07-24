@@ -43,6 +43,7 @@ import {
   setCookie,
   subscribeToCookieChange
 } from '@/lib/utils/cookies'
+import { warmOnIntent } from '@/lib/warm/warm-trigger'
 
 import { useClientSettingEnabled } from '@/hooks/use-client-setting'
 
@@ -704,14 +705,23 @@ export function ChatPanel({
             tabIndex={0}
             onCompositionStart={handleCompositionStart}
             onCompositionEnd={handleCompositionEnd}
-            onFocus={() => setIsInputFocused(true)}
+            onFocus={() => {
+              setIsInputFocused(true)
+              warmOnIntent()
+            }}
             onBlur={() => setIsInputFocused(false)}
             placeholder={messages.length > 0 ? 'Reply...' : 'Ask anything...'}
             spellCheck={false}
             value={input}
             disabled={isLoading || isToolInvocationInProgress()}
             className="resize-none w-full min-h-12 bg-transparent border-0 p-3 md:p-4 text-sm placeholder:text-muted-foreground focus-visible:outline-hidden disabled:cursor-not-allowed disabled:opacity-50"
-            onChange={handleInputChange}
+            onChange={e => {
+              // Typing is the signal that survives a long compose: focus alone
+              // decays (~45s) before a slow typist hits send. Throttled to one
+              // ping per window, so this is not a request per keystroke.
+              warmOnIntent()
+              handleInputChange(e)
+            }}
             onPaste={e => {
               // Image paste (e.g. screenshot → ⌘V). Must run before text
               // branches — getData('text') on an image paste is usually empty.
