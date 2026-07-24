@@ -71,10 +71,26 @@ const MAX_HISTORY_CHARS_PER_MESSAGE = 2500
 
 const classifierSchema = z.object({
   skipSearch: z.boolean(),
+  queryIsStandalone: z.boolean(),
   standaloneQuery: z.string(),
   needsRecent: z.boolean(),
   intent: z.enum(SEARCH_INTENTS)
 })
+
+/**
+ * Resolve the standalone query the rest of the app consumes. When the classifier
+ * flags the latest message as already self-contained, use it verbatim (the model
+ * emits an empty standaloneQuery to save tokens); otherwise use the rewrite,
+ * falling back to the raw message if the rewrite is empty. Keeps the public
+ * QueryClassification.standaloneQuery contract identical to before.
+ */
+export function resolveStandaloneQuery(
+  raw: { queryIsStandalone: boolean; standaloneQuery: string },
+  latestMessage: string
+): string {
+  if (raw.queryIsStandalone) return latestMessage
+  return raw.standaloneQuery || latestMessage
+}
 
 export interface QueryClassification {
   skipSearch: boolean
@@ -128,6 +144,8 @@ Examples:
 7) User: "what mechanical keyboard do people actually recommend" -> opinions/community consensus -> skipSearch=false, needsRecent=false, intent="discussion", standaloneQuery="Recommended mechanical keyboards according to users"
 8) User: "does creatine actually improve muscle recovery, any studies" -> scientific evidence -> skipSearch=false, needsRecent=false, intent="academic", standaloneQuery="Does creatine improve muscle recovery (research evidence)?"
 9) User: "draw me a picture of the Sydney Opera House" -> pure image-generation request; names a new entity but the assistant's image tool handles it, no web search -> skipSearch=true, needsRecent=false, intent="general", standaloneQuery="Generate an image of the Sydney Opera House"
+
+You also set queryIsStandalone: true when the latest user message is ALREADY a self-contained search query that needs no rewriting (a new, fully-specified question that stands on its own). When queryIsStandalone is true, output standaloneQuery as an empty string "". Set queryIsStandalone: false ONLY when the message depends on earlier context (pronouns like "it/he/they", ellipsis, "what about X") and must be rewritten into a standalone query — put that rewrite in standaloneQuery.
 
 standaloneQuery is always a short plain string, never empty, never a meta-question back to the user.`
 
@@ -215,11 +233,16 @@ export async function classifyQuery({
       output: Output.object({ schema: classifierSchema })
     })
 
-    if (!classification || !classification.standaloneQuery.trim()) {
+    if (!classification) {
       return fallback
     }
 
-    return classification
+    return {
+      skipSearch: classification.skipSearch,
+      standaloneQuery: resolveStandaloneQuery(classification, latestMessage),
+      needsRecent: classification.needsRecent,
+      intent: classification.intent
+    }
   } catch (error) {
     if (process.env.NODE_ENV === 'development') {
       console.warn(

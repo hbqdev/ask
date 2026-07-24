@@ -91,9 +91,19 @@ describe('classifyQuery', () => {
     })
   })
 
-  it('falls back when the model returns an empty standaloneQuery', async () => {
+  it('normalizes a standalone turn to the raw latest message without un-gating skipSearch', async () => {
+    // A standalone turn deliberately emits standaloneQuery: "" to save output
+    // tokens. This must NOT be treated as an empty-query failure: skipSearch is
+    // preserved and standaloneQuery is normalized back to the raw latest message
+    // (keeping the public contract byte-identical to before this feature).
     mockGenerateText.mockResolvedValue({
-      output: { skipSearch: true, standaloneQuery: '   ', needsRecent: false }
+      output: {
+        skipSearch: true,
+        queryIsStandalone: true,
+        standaloneQuery: '',
+        needsRecent: false,
+        intent: 'general'
+      }
     } as any)
 
     const result = await classifyQuery({
@@ -101,7 +111,7 @@ describe('classifyQuery', () => {
     })
 
     expect(result).toEqual({
-      skipSearch: false,
+      skipSearch: true,
       standaloneQuery: 'hello there',
       needsRecent: false,
       intent: 'general'
