@@ -59,14 +59,14 @@ describe('buildWarmRequests', () => {
 
 describe('shouldWarm', () => {
   it('warms when nothing has been warmed yet', () => {
-    expect(shouldWarm(null, 1_000, 30_000)).toBe(true)
+    expect(shouldWarm(null, 1_000, 10_000)).toBe(true)
   })
 
   it('skips a warm inside the throttle window', () => {
-    expect(shouldWarm(1_000, 10_000, 30_000)).toBe(false)
+    expect(shouldWarm(1_000, 5_000, 10_000)).toBe(false)
   })
 
   it('warms again once the throttle window has elapsed', () => {
-    expect(shouldWarm(1_000, 31_000, 30_000)).toBe(true)
+    expect(shouldWarm(1_000, 11_000, 10_000)).toBe(true)
   })
 })

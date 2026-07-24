@@ -5,11 +5,14 @@
 // idle GPU drops to power state P8 (~139 MHz, ~8% of max) and the next request
 // runs at that crawl clock — the whole cold/warm latency gap.
 //
-// Measured on the P5000 classifier: pinned at P0 it draws ~47W, idle at P8
-// ~9.6W, and it takes ~45s of quiet before it drops. A 24/7 keep-warm loop
-// therefore burns ~37W continuously to save the first turn after idle. Instead
-// we warm on *intent* — while the user is actually composing — which costs
-// ~0.46Wh per stray warm and nothing at all when the app sits idle.
+// Measured on the P5000 classifier: pinned at P0 it draws ~47W vs ~9.6W idle
+// at P8, so a 24/7 keep-warm loop burns ~37W continuously to save the first
+// turn after idle. Instead we warm on *intent* — while the user is actually
+// composing — which costs nothing at all when the app sits idle.
+//
+// Timing that matters: a GPU held at P0 by sustained traffic takes ~45s of
+// quiet to drop, but a SINGLE ping only holds P0 for ~14-15s. The warm
+// interval is set from the latter (see warm-trigger.ts).
 //
 // Targets are env-driven with no infra defaults: an unconfigured (or
 // tokenless) service is skipped rather than pinged blindly.

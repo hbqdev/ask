@@ -25,8 +25,15 @@ describe('POST /api/warm', () => {
     fetchSpy.mockRestore()
   })
 
-  it('fires the warm pings for an authenticated user and returns immediately', async () => {
-    const fetchSpy = vi.spyOn(global, 'fetch').mockResolvedValue(new Response())
+  it('fires the warm pings for an authenticated user and waits for them to be issued', async () => {
+    // An unawaited fetch in a route handler is torn down when the response
+    // returns — the pings silently never reach the GPU. Prove they complete.
+    let completed = false
+    const fetchSpy = vi.spyOn(global, 'fetch').mockImplementation(async () => {
+      await new Promise(resolve => setTimeout(resolve, 5))
+      completed = true
+      return new Response()
+    })
 
     const res = await POST()
 
@@ -35,6 +42,7 @@ describe('POST /api/warm', () => {
       'http://classifier:11434/api/generate',
       expect.objectContaining({ method: 'POST' })
     )
+    expect(completed).toBe(true)
     fetchSpy.mockRestore()
   })
 
