@@ -2,7 +2,11 @@
 // never touches answer content. Emitted by default (one line/turn is cheap
 // and the point is to see numbers in prod), unlike the opt-in perfLog helpers.
 
-type Meta = { chatId?: string | null; mode: string }
+// modelId is load-bearing, not decoration: generation is the largest slice of
+// a research turn, and without it in the line there is no way to attribute
+// that time to a model. Inferring it from the UI's model selector is wrong —
+// the selector shows the CURRENT choice, not what the turn actually ran on.
+type Meta = { chatId?: string | null; mode: string; modelId?: string | null }
 
 export class LatencyTracker {
   private readonly startedAt: number
@@ -39,6 +43,7 @@ export class LatencyTracker {
         `[latency] ${JSON.stringify({
           chatId: this.meta.chatId ?? null,
           mode: this.meta.mode,
+          modelId: this.meta.modelId ?? null,
           ...this.marks,
           ttft_ms: ttft,
           total_ms: total,
