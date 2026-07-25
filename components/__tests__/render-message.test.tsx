@@ -15,8 +15,19 @@ vi.mock('../answer-section', () => ({
 
 vi.mock('../research-process-section', () => ({
   __esModule: true,
-  default: ({ parts }: { parts: Array<{ type: string }> }) => (
-    <div data-testid="research-process">
+  default: ({
+    parts,
+    hasSubsequentText
+  }: {
+    parts: Array<{ type: string }>
+    hasSubsequentText?: boolean
+  }) => (
+    // hasSubsequentText is what gates the section's live indicator (and with
+    // it the elapsed timer and waiting quote), so the mock has to surface it.
+    <div
+      data-testid="research-process"
+      data-has-subsequent-text={String(Boolean(hasSubsequentText))}
+    >
       {parts.map(part => part.type).join(',')}
     </div>
   )
@@ -374,6 +385,107 @@ describe('RenderMessage', () => {
       'generated-image',
       'answer-section'
     ])
+  })
+
+  test('leaves only the last research section in progress when the stream is split', () => {
+    // A generated image or an MCP tool lands mid-stream and carves the research
+    // process into several sections. Only the final one is still running: the
+    // earlier ones must be marked as having subsequent content, or each renders
+    // its own live indicator — two spinning glyphs, two elapsed timers counting
+    // from different mount times, and two /api/quotes fetches.
+    const message: UIMessage = {
+      id: 'assistant-msg',
+      role: 'assistant',
+      parts: [
+        {
+          type: 'tool-search',
+          toolCallId: 'tool-1',
+          state: 'output-available',
+          input: {},
+          output: {}
+        } as any,
+        {
+          type: 'tool-generateImage',
+          toolCallId: 'tool-2',
+          state: 'output-available',
+          input: { prompt: 'a red fox' },
+          output: {
+            imageUrl: '/uploads/u/fox.png',
+            modelId: 'flux',
+            prompt: 'a red fox'
+          }
+        } as any,
+        { type: 'reasoning', text: 'Considering the image' } as any,
+        {
+          type: 'dynamic-tool',
+          toolName: 'mcp_thing',
+          toolCallId: 'tool-3',
+          state: 'output-available',
+          input: {},
+          output: {}
+        } as any,
+        {
+          type: 'tool-fetch',
+          toolCallId: 'tool-4',
+          state: 'input-available',
+          input: {}
+        } as any
+      ]
+    } as UIMessage
+
+    render(
+      <RenderMessage
+        message={message}
+        messageId={message.id}
+        getIsOpen={() => true}
+        onOpenChange={() => {}}
+        status="streaming"
+        isLatestMessage={true}
+      />
+    )
+
+    const sections = screen.getAllByTestId('research-process')
+    expect(sections).toHaveLength(3)
+
+    const live = sections.filter(
+      section => section.getAttribute('data-has-subsequent-text') === 'false'
+    )
+    expect(live).toHaveLength(1)
+    expect(live[0]).toHaveTextContent('tool-fetch')
+    expect(live[0]).toBe(sections[sections.length - 1])
+  })
+
+  test('keeps a research section live when it is the only one and the answer has not started', () => {
+    // Guard against over-correcting: a single in-progress section must keep
+    // its live indicator.
+    const message: UIMessage = {
+      id: 'assistant-msg',
+      role: 'assistant',
+      parts: [
+        {
+          type: 'tool-search',
+          toolCallId: 'tool-1',
+          state: 'input-available',
+          input: {}
+        } as any
+      ]
+    } as UIMessage
+
+    render(
+      <RenderMessage
+        message={message}
+        messageId={message.id}
+        getIsOpen={() => true}
+        onOpenChange={() => {}}
+        status="streaming"
+        isLatestMessage={true}
+      />
+    )
+
+    expect(screen.getByTestId('research-process')).toHaveAttribute(
+      'data-has-subsequent-text',
+      'false'
+    )
   })
 })
 

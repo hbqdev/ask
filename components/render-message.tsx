@@ -1,3 +1,5 @@
+import { cloneElement } from 'react'
+
 import { UseChatHelpers } from '@ai-sdk/react'
 
 import type { SearchResultItem } from '@/lib/types'
@@ -150,8 +152,13 @@ export function RenderMessage({
     (status === 'streaming' || status === 'submitted')
   const isStreamingComplete = !isThisMessageStreaming
 
+  // Where each ResearchProcessSection landed in `elements`, so the pass below
+  // can settle which of them is still live once the whole message is segmented.
+  const processIndices: number[] = []
+
   const flushBuffer = (keySuffix: string, hasSubsequentText = false) => {
     if (buffer.length === 0) return
+    processIndices.push(elements.length)
     elements.push(
       <ResearchProcessSection
         key={`${messageId}-proc-${keySuffix}`}
@@ -270,6 +277,20 @@ export function RenderMessage({
   })
   // Flush tail (no subsequent text)
   flushBuffer('tail')
+
+  // Only the LAST research section can still be in progress. The image and
+  // dynamic-tool branches above flush mid-stream with hasSubsequentText
+  // defaulting to false, so a generated image or MCP call landing before the
+  // answer used to leave two sections claiming to be live at once — two
+  // spinning glyphs, two elapsed timers counting from different mount times,
+  // and two /api/quotes fetches. Everything before the final section is
+  // finished by definition, whatever followed it.
+  for (const i of processIndices.slice(0, -1)) {
+    elements[i] = cloneElement(
+      elements[i] as React.ReactElement<{ hasSubsequentText?: boolean }>,
+      { hasSubsequentText: true }
+    )
+  }
 
   return <>{elements}</>
 }
