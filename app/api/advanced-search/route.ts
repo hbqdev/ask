@@ -43,6 +43,7 @@ import {
   fetchTavilySearch,
   type TavilySearchResult
 } from '@/lib/utils/tavily-search-client'
+import { withDeadline } from '@/lib/utils/with-deadline'
 
 /**
  * Maximum number of results to fetch from SearXNG.
@@ -52,6 +53,18 @@ import {
 const SEARXNG_MAX_RESULTS = Math.max(
   10,
   Math.min(100, parseInt(process.env.SEARXNG_MAX_RESULTS || '50', 10))
+)
+
+/**
+ * Wall-clock budget for the legacy crawl tail (the candidates Crawl4AI's
+ * MAX_ENRICH_URLS cap does not cover). Measured before this bound: 30.2s of a
+ * 42.9s search, for 20 pages that mostly got discarded by the reranker anyway
+ * — the browser renderer does 16 pages in 5.8s. Anything past the budget keeps
+ * its snippet instead of stalling the turn.
+ */
+const LEGACY_CRAWL_BUDGET_MS = Math.max(
+  1000,
+  parseInt(process.env.LEGACY_CRAWL_BUDGET_MS || '6000', 10)
 )
 
 const CACHE_TTL = 3600 // Cache time-to-live in seconds (1 hour)
@@ -557,6 +570,7 @@ async function advancedSearchXNGSearch(
       // single largest unaccounted block inside this route, so it is counted
       // and timed separately from crawl_ms.
       let legacyCrawled = 0
+      let legacyTimedOut = 0
       const crawledResults = await timer.time('enrich_ms', () =>
         Promise.all(
           candidates.map(async result => {
@@ -573,7 +587,21 @@ async function advancedSearchXNGSearch(
             const hit = byUrl.get(result.url)
             if (!hit) {
               legacyCrawled++
-              return crawlPage(result, query)
+              // Bounded. crawlPage allows 20s per page and these run
+              // concurrently, so one hanging page held the whole stage at
+              // ~30s (measured: 20 pages, 1.5s/URL average vs 0.36s/URL for
+              // the browser renderer). Past the budget we keep the search
+              // snippet, which then faces the same isQualityContent filter
+              // and reranker as everything else — a slow page degrades to
+              // "not enriched", never to a stalled turn.
+              return withDeadline(
+                crawlPage(result, query),
+                LEGACY_CRAWL_BUDGET_MS,
+                () => {
+                  legacyTimedOut++
+                  return result
+                }
+              )
             }
             return {
               ...result,
@@ -586,6 +614,7 @@ async function advancedSearchXNGSearch(
         )
       )
       timer.set('legacy_crawled', legacyCrawled)
+      timer.set('legacy_timed_out', legacyTimedOut)
 
       if (isCrawl4aiConfigured()) {
         console.log(
