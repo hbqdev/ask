@@ -140,7 +140,8 @@ export async function createChatStreamResponse(
     const latency = new LatencyTracker(
       {
         chatId,
-        mode: searchMode ?? 'balanced'
+        mode: searchMode ?? 'balanced',
+        modelId: context.modelId
       },
       undefined,
       // Mirror the line into Redis: Docker's json-file driver is per-container,
