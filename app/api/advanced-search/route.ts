@@ -67,6 +67,24 @@ const LEGACY_CRAWL_BUDGET_MS = Math.max(
   parseInt(process.env.LEGACY_CRAWL_BUDGET_MS || '6000', 10)
 )
 
+/**
+ * Hard cap on how many candidates take the legacy path.
+ *
+ * The budget above bounds a SLOW page, but not a BUSY stage: crawlPage parses
+ * every page with JSDOM (`resources: 'usable'`), which is CPU work on the Node
+ * event loop, and a setTimeout deadline cannot preempt a blocked event loop.
+ * Measured with the budget in place, 39 legacy crawls still took 32s while
+ * Crawl4AI rendered 16 pages in 6.3s. Local parsing is the bottleneck, so the
+ * only real fix is to do less of it — and while it runs it stalls every other
+ * request this server is handling, not just this search.
+ *
+ * Pages past the cap keep their search snippet and are still reranked.
+ */
+const MAX_LEGACY_CRAWL_URLS = Math.max(
+  0,
+  parseInt(process.env.MAX_LEGACY_CRAWL_URLS || '8', 10)
+)
+
 const CACHE_TTL = 3600 // Cache time-to-live in seconds (1 hour)
 const CACHE_EXPIRATION_CHECK_INTERVAL = 3600000 // 1 hour in milliseconds
 
@@ -538,7 +556,10 @@ async function advancedSearchXNGSearch(
       // spend it on the most promising ones. Anything past the cap — and
       // anything Crawl4AI can't render — still gets crawled by the cheap
       // legacy path, so no candidate is silently dropped.
-      const MAX_ENRICH_URLS = 16
+      const MAX_ENRICH_URLS = Math.max(
+        1,
+        parseInt(process.env.MAX_ENRICH_URLS || '24', 10)
+      )
       const toEnrich = candidates
         .filter(r => !prefetchedUrls.has(r.url))
         .slice(0, MAX_ENRICH_URLS)
@@ -571,6 +592,7 @@ async function advancedSearchXNGSearch(
       // and timed separately from crawl_ms.
       let legacyCrawled = 0
       let legacyTimedOut = 0
+      let legacySkipped = 0
       const crawledResults = await timer.time('enrich_ms', () =>
         Promise.all(
           candidates.map(async result => {
@@ -586,6 +608,12 @@ async function advancedSearchXNGSearch(
             }
             const hit = byUrl.get(result.url)
             if (!hit) {
+              // Past the cap, keep the snippet rather than spending local CPU
+              // on a page the reranker will most likely discard anyway.
+              if (legacyCrawled >= MAX_LEGACY_CRAWL_URLS) {
+                legacySkipped++
+                return result
+              }
               legacyCrawled++
               // Bounded. crawlPage allows 20s per page and these run
               // concurrently, so one hanging page held the whole stage at
@@ -615,6 +643,7 @@ async function advancedSearchXNGSearch(
       )
       timer.set('legacy_crawled', legacyCrawled)
       timer.set('legacy_timed_out', legacyTimedOut)
+      timer.set('legacy_skipped', legacySkipped)
 
       if (isCrawl4aiConfigured()) {
         console.log(
