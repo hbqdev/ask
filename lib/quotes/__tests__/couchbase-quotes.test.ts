@@ -16,11 +16,26 @@ function setEnv() {
   process.env.COUCHBASE_PASSWORD = 'pass'
 }
 
-function clusterReturning(content: unknown) {
+/**
+ * Records the document coordinates the subject asks for. Passed in by the
+ * tests that pin the document contract; defaulted for the ones that do not
+ * care, so every call site keeps working.
+ */
+type DocumentCalls = { bucket?: string; docId?: string }
+
+function clusterReturning(content: unknown, calls: DocumentCalls = {}) {
   return {
-    bucket: () => ({
-      defaultCollection: () => ({ get: async () => ({ content }) })
-    })
+    bucket: (bucketName: string) => {
+      calls.bucket = bucketName
+      return {
+        defaultCollection: () => ({
+          get: async (docId: string) => {
+            calls.docId = docId
+            return { content }
+          }
+        })
+      }
+    }
   }
 }
 
@@ -49,13 +64,48 @@ describe('fetchQuotesFromCouchbase', () => {
   it('returns the quotes array from the document', async () => {
     setEnv()
     const { connect, fetchQuotesFromCouchbase } = await loadFresh()
+    const calls: DocumentCalls = {}
     connect.mockResolvedValue(
-      clusterReturning({ quotes: [{ q: 'One.', a: 'A' }] }) as never
+      clusterReturning({ quotes: [{ q: 'One.', a: 'A' }] }, calls) as never
     )
 
     await expect(fetchQuotesFromCouchbase()).resolves.toEqual([
       { q: 'One.', a: 'A' }
     ])
+
+    // Credentials belong in the options object, never in the connection
+    // string — that string is the part most likely to reach a log line or an
+    // error message. Asserted both ways round so a mutant that folds
+    // `user:pass@` into the URL cannot slip through.
+    expect(connect).toHaveBeenCalledWith('couchbase://cb.example', {
+      username: 'user',
+      password: 'pass'
+    })
+    const [connectionString] = connect.mock.calls[0]
+    expect(connectionString).not.toContain('user')
+    expect(connectionString).not.toContain('pass')
+
+    // Default document coordinates.
+    expect(calls.bucket).toBe('Quotes')
+    expect(calls.docId).toBe('quotes_collection')
+  })
+
+  it('honours the bucket and document env overrides', async () => {
+    setEnv()
+    process.env.COUCHBASE_QUOTES_BUCKET = 'OtherBucket'
+    process.env.COUCHBASE_QUOTES_DOC = 'other_doc'
+    const { connect, fetchQuotesFromCouchbase } = await loadFresh()
+    const calls: DocumentCalls = {}
+    connect.mockResolvedValue(
+      clusterReturning({ quotes: [{ q: 'One.', a: 'A' }] }, calls) as never
+    )
+
+    await expect(fetchQuotesFromCouchbase()).resolves.toEqual([
+      { q: 'One.', a: 'A' }
+    ])
+
+    expect(calls.bucket).toBe('OtherBucket')
+    expect(calls.docId).toBe('other_doc')
   })
 
   it('returns rows unvalidated, leaving normalisation to the caller', async () => {
