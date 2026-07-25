@@ -101,6 +101,14 @@ describe('WaitingQuote', () => {
     expect(words[1].style.animationDelay).toBe('240ms')
     expect(words[1].style.animationDelay).not.toBe('300ms')
     expect(words[2].style.animationDelay).toBe('480ms')
+
+    // The attribution derives from the same cadence. Asserted here rather than
+    // only on the five-word quote, where 300ms is both the derived value and
+    // the default — a hardcoded 300 would be indistinguishable there.
+    const author = words[words.length - 1]
+    expect(author.textContent).toContain('Nobody')
+    expect(author.style.animationDelay).toBe('6150ms') // 25 * 240 + 150
+    expect(author.style.animationDelay).not.toBe('7650ms') // 25 * 300 + 150
   })
 
   it('holds the attribution back until after the last word', async () => {
