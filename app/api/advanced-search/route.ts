@@ -422,7 +422,7 @@ async function advancedSearchXNGSearch(
     // as DuckDuckGo VQD CAPTCHAs and Brave/Startpage blocks. Breadth comes from
     // the engine fan-out and SEARXNG_CRAWL_MULTIPLIER, not from paging deeper.
     // Inherited from upstream bf554d6 (2024-08-21), not introduced here.
-    const pageno = 1
+    const pageno = Math.max(1, parseInt(process.env.SEARXNG_PAGENO || '1', 10))
 
     // Fetches from SearXNG, automatically failing over to
     // SEARXNG_FALLBACK_API_URL if the primary instance is unreachable.
