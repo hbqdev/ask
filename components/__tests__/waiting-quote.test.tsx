@@ -243,6 +243,19 @@ describe('WaitingQuote', () => {
     expect(screen.getByTestId('waiting-elapsed').textContent).toBe('1:02')
   })
 
+  it('reports wall-clock elapsed even when ticks are dropped', async () => {
+    // Browsers throttle setInterval in a background tab. A counter that adds 1
+    // per tick would report 0:02 here; reading the clock reports the truth.
+    render(<WaitingQuote />)
+    await advance(0)
+
+    vi.setSystemTime(Date.now() + 30_000) // 30s pass, only 2 ticks delivered
+    await advance(1_000)
+    await advance(1_000)
+
+    expect(screen.getByTestId('waiting-elapsed').textContent).toBe('0:32')
+  })
+
   it('announces each quote once and keeps the timer out of the buffer', async () => {
     const { container } = render(<WaitingQuote />)
     await advance(0)
