@@ -640,6 +640,107 @@
   }
 }
 
+/* Waiting-indicator quote: five reveals, one chosen at random per quote.
+   Each word carries its own animation-delay, set inline from the timing
+   function so the cadence adapts to quote length. */
+.wq-word {
+  display: inline-block;
+  white-space: pre;
+  will-change: transform, opacity, filter;
+}
+
+.wq-rise .wq-word {
+  animation: wq-rise 520ms cubic-bezier(0.2, 0.8, 0.3, 1) both;
+}
+.wq-focus .wq-word {
+  animation: wq-focus 560ms ease-out both;
+}
+.wq-drift .wq-word {
+  animation: wq-drift 520ms cubic-bezier(0.2, 0.8, 0.3, 1) both;
+}
+.wq-settle .wq-word {
+  animation: wq-settle 460ms cubic-bezier(0.34, 1.4, 0.5, 1) both;
+}
+.wq-wipe .wq-word {
+  animation: wq-wipe 560ms cubic-bezier(0.3, 0.7, 0.2, 1) both;
+}
+
+@keyframes wq-rise {
+  from {
+    opacity: 0;
+    transform: translateY(9px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+@keyframes wq-focus {
+  from {
+    opacity: 0;
+    filter: blur(7px);
+  }
+  to {
+    opacity: 1;
+    filter: blur(0);
+  }
+}
+@keyframes wq-drift {
+  from {
+    opacity: 0;
+    transform: translateX(-12px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+@keyframes wq-settle {
+  from {
+    opacity: 0;
+    transform: scale(0.86);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+@keyframes wq-wipe {
+  from {
+    opacity: 0.15;
+    clip-path: inset(0 100% 0 0);
+  }
+  to {
+    opacity: 1;
+    clip-path: inset(0 0 0 0);
+  }
+}
+
+/* The outgoing line dissolves before it is replaced, so the changeover reads
+   as a hand-off rather than a cut. */
+.wq-leaving {
+  animation: wq-leave 420ms ease-in forwards;
+}
+@keyframes wq-leave {
+  to {
+    opacity: 0;
+    transform: translateY(-5px);
+  }
+}
+
+/* Reduced motion: the whole quote is simply there. Rotation still happens on
+   the same timing — only the per-word reveal and the fade-out are dropped. */
+@media (prefers-reduced-motion: reduce) {
+  .wq-word,
+  .wq-leaving {
+    animation: none !important;
+    opacity: 1 !important;
+    filter: none !important;
+    transform: none !important;
+    clip-path: none !important;
+  }
+}
+
 @utility container {
   margin-inline: auto;
   padding-inline: 2rem;
