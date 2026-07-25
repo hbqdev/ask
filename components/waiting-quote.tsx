@@ -69,7 +69,15 @@ export function WaitingQuote() {
   }, [])
 
   useEffect(() => {
-    const id = setInterval(() => setElapsed(e => e + 1), 1000)
+    // Derived from a start timestamp, NOT by counting ticks: browsers throttle
+    // setInterval hard in a background tab, so an incrementing counter drifts
+    // behind and under-reports exactly when a long wait makes the number worth
+    // reading. Recomputing from the clock self-corrects on the next tick.
+    const startedAt = Date.now()
+    const id = setInterval(
+      () => setElapsed(Math.floor((Date.now() - startedAt) / 1000)),
+      1000
+    )
     return () => clearInterval(id)
   }, [])
 
