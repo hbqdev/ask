@@ -84,6 +84,20 @@ describe('quoteTiming', () => {
     expect(quoteTiming(text).revealMs).toBeLessThanOrEqual(6000)
   })
 
+  it('never exceeds the reveal ceiling at any word count from 1 to 80', () => {
+    // Spot checks miss this: words * (6000 / words) is not exactly 6000 in
+    // binary floating point. At 79 words (and again at 87) it lands on
+    // 6000.000000000001 — one ulp over a ceiling that must be hard. 79 is
+    // inside the pool, which runs to 80 words, so sweep every count.
+    for (let words = 1; words <= 80; words++) {
+      const text = Array.from({ length: words }, () => 'word').join(' ')
+      expect(
+        quoteTiming(text).revealMs,
+        `revealMs overshot the ceiling at ${words} words`
+      ).toBeLessThanOrEqual(6000)
+    }
+  })
+
   it('caps the tail so it cannot run away on long quotes', () => {
     const text = Array.from({ length: 80 }, () => 'word').join(' ')
     expect(quoteTiming(text).tailMs).toBe(3200)

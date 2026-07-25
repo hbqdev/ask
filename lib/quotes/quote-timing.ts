@@ -60,7 +60,9 @@ export function quoteTiming(text: string): QuoteTiming {
 
   // Long quotes tighten their cadence so they always finish arriving promptly.
   const perWordMs = Math.min(REVEAL_PER_WORD_MS, REVEAL_CEILING_MS / words)
-  const revealMs = words * perWordMs
+  // Clamped because words * (REVEAL_CEILING_MS / words) is not exactly the
+  // ceiling in floating point — at 79 words it comes back one ulp over.
+  const revealMs = Math.min(REVEAL_CEILING_MS, words * perWordMs)
   const tailMs = Math.min(
     TAIL_BASE_MS + words * TAIL_PER_WORD_MS,
     TAIL_CEILING_MS
