@@ -14,6 +14,7 @@ import {
 import { StageTimer } from '@/lib/telemetry/stage-timer'
 import { SEARXNG_ENGINES_ADVANCED } from '@/lib/tools/search/engines'
 import { intentToCategory, type SearchIntent } from '@/lib/tools/search/intent'
+import { mergeBraveIntoSearxngResults } from '@/lib/tools/search/providers/merge-brave'
 import {
   mergeDegoogIntoSearxngResults,
   resolveDegoogUrl
@@ -27,6 +28,10 @@ import {
   SearXNGResult,
   SearXNGSearchResults
 } from '@/lib/types'
+import {
+  type BraveSearchResult,
+  fetchBraveSearch
+} from '@/lib/utils/brave-search-client'
 import { crawl4aiScrapeMany, isCrawl4aiConfigured } from '@/lib/utils/crawl4ai'
 import { isCrossEncoderConfigured } from '@/lib/utils/cross-encoder'
 import { fetchDegoogJson } from '@/lib/utils/degoog-client'
@@ -286,6 +291,74 @@ function currentTavilyBudgetKey(): string {
  * continues without Tavily. Fails CLOSED (skips Tavily) when Redis is
  * unavailable so a cache outage can't blow the free-tier quota.
  */
+// --- Brave API merge budget -----------------------------------------------
+// The Brave Search API is the only general engine we have that CANNOT be
+// blocked by our IP's reputation: the query runs on Brave's own infrastructure
+// against a subscribed quota. Google 403s us, DuckDuckGo and Startpage serve
+// CAPTCHAs, and SCRAPED Brave returns 429 — none of which touches this path.
+// Metered (free tier ~2,000/mo), so budget-gate it like Tavily.
+const BRAVE_MONTHLY_BUDGET = Math.max(
+  0,
+  parseInt(process.env.BRAVE_MONTHLY_BUDGET || '2000', 10)
+)
+const BRAVE_MERGE_MAX_RESULTS = Math.max(
+  1,
+  parseInt(process.env.BRAVE_MERGE_MAX_RESULTS || '10', 10)
+)
+
+function isBraveMergeEnabled(): boolean {
+  return (
+    Boolean(process.env.BRAVE_SEARCH_API_KEY) &&
+    process.env.BRAVE_MERGE_ENABLED !== 'off' &&
+    BRAVE_MONTHLY_BUDGET > 0
+  )
+}
+
+function currentBraveBudgetKey(): string {
+  const d = new Date()
+  const month = `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, '0')}`
+  return `brave:budget:${month}`
+}
+
+/**
+ * Fetch Brave for this advanced search IF enabled and under the monthly budget.
+ * Same contract as maybeFetchTavily: counts only SUCCESSFUL calls (an outage
+ * must not burn the quota), never throws for budget/Redis reasons, and fails
+ * CLOSED when Redis is unavailable so a cache outage cannot blow the free tier.
+ */
+async function maybeFetchBrave(
+  query: string
+): Promise<BraveSearchResult[] | null> {
+  if (!isBraveMergeEnabled()) return null
+  const rawClient = await initializeRedisClient()
+  if (!rawClient) return null
+  const client = rawClient as unknown as {
+    get(key: string): Promise<unknown>
+    incr(key: string): Promise<number>
+    expire(key: string, seconds: number): Promise<unknown>
+  }
+
+  const key = currentBraveBudgetKey()
+  let spent = 0
+  try {
+    spent = Number(await client.get(key)) || 0
+  } catch (error) {
+    console.warn('[brave] budget read failed, skipping Brave:', error)
+    return null
+  }
+  if (spent >= BRAVE_MONTHLY_BUDGET) return null
+
+  const results = await fetchBraveSearch(query, BRAVE_MERGE_MAX_RESULTS)
+
+  try {
+    const n = await client.incr(key)
+    if (n === 1) await client.expire(key, 60 * 60 * 24 * 35)
+  } catch (error) {
+    console.warn('[brave] budget increment failed:', error)
+  }
+  return results
+}
+
 async function maybeFetchTavily(
   query: string
 ): Promise<TavilySearchResult[] | null> {
@@ -479,7 +552,8 @@ async function advancedSearchXNGSearch(
       degoogNewsSettled,
       degoogImgSettled,
       ollamaSettled,
-      tavilySettled
+      tavilySettled,
+      braveSettled
     ] = await timer.time('search_ms', () =>
       Promise.allSettled([
         fetchSearxngJson(buildUrl),
@@ -510,6 +584,10 @@ async function advancedSearchXNGSearch(
         // Tavily only on the advanced path (balanced/quality modes), budget-gated.
         searchDepth === 'advanced'
           ? maybeFetchTavily(query)
+          : Promise.resolve(null),
+        // Brave API on the advanced path too — block-immune, budget-gated.
+        searchDepth === 'advanced'
+          ? maybeFetchBrave(query)
           : Promise.resolve(null)
       ])
     )
@@ -548,6 +626,17 @@ async function advancedSearchXNGSearch(
       console.warn(
         '[tavily] advanced web search failed, continuing without it:',
         tavilySettled.reason
+      )
+    }
+
+    const braveResults: BraveSearchResult[] =
+      braveSettled.status === 'fulfilled' && braveSettled.value
+        ? (braveSettled.value as BraveSearchResult[])
+        : []
+    if (braveSettled.status === 'rejected') {
+      console.warn(
+        '[brave] advanced web search failed, continuing without it:',
+        braveSettled.reason
       )
     }
 
@@ -598,6 +687,16 @@ async function advancedSearchXNGSearch(
       generalResults = mergeTavilyIntoSearxngResults(
         generalResults,
         tavilyResults,
+        maxResults * SEARXNG_CRAWL_MULTIPLIER
+      )
+    }
+
+    // Brave API: same reasoning as Tavily — block-immune, snippet-only, so it
+    // joins the candidate pool before crawl+rerank and its URLs get crawled.
+    if (braveResults.length > 0) {
+      generalResults = mergeBraveIntoSearxngResults(
+        generalResults,
+        braveResults,
         maxResults * SEARXNG_CRAWL_MULTIPLIER
       )
     }
