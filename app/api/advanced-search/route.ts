@@ -124,6 +124,19 @@ const CRAWL4AI_CHUNK_TIMEOUT_MS = Math.max(
   parseInt(process.env.CRAWL4AI_CHUNK_TIMEOUT_MS || '120000', 10)
 )
 
+/**
+ * degoog: OFF. It scrapes Google, Brave, Startpage and DDG from our residential
+ * IP, and by 2026-07-25 every one of those was refusing it (Google 403,
+ * Brave 429, Startpage + DDG CAPTCHA) — so it contributed almost nothing while
+ * spending the per-IP reputation that SearXNG and ordinary browsing depend on.
+ * Two degoog calls per search each fanned out to four engines, which is how ~25
+ * test searches took Brave down for SearXNG too.
+ *
+ * Set DEGOOG_ENABLED=true to restore it; the client, merge layer and types are
+ * all still in place.
+ */
+const DEGOOG_ENABLED = process.env.DEGOOG_ENABLED === 'true'
+
 const CACHE_TTL = 3600 // Cache time-to-live in seconds (1 hour)
 const CACHE_EXPIRATION_CHECK_INTERVAL = 3600000 // 1 hour in milliseconds
 
@@ -470,8 +483,10 @@ async function advancedSearchXNGSearch(
     ] = await timer.time('search_ms', () =>
       Promise.allSettled([
         fetchSearxngJson(buildUrl),
-        fetchDegoogJson(degoogUrl('web')),
-        intent === 'news'
+        DEGOOG_ENABLED
+          ? fetchDegoogJson(degoogUrl('web'))
+          : Promise.resolve(null),
+        DEGOOG_ENABLED && intent === 'news'
           ? fetchDegoogJson(degoogUrl('news'))
           : Promise.resolve(null),
         // OFF by default. SearXNG already returns images in the SAME request
@@ -486,7 +501,7 @@ async function advancedSearchXNGSearch(
         // (Brave returned 429 forty-six times in 12h). There is no 'images'
         // SearchIntent to gate on, so this is an explicit switch rather than a
         // condition that would silently never fire.
-        DEGOOG_IMAGES_ENABLED
+        DEGOOG_ENABLED && DEGOOG_IMAGES_ENABLED
           ? fetchDegoogJson(degoogUrl('images'))
           : Promise.resolve(null),
         useOllama
