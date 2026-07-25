@@ -842,9 +842,15 @@ async function crawlPage(
     virtualConsole.on('error', () => {})
     virtualConsole.on('warn', () => {})
 
+    // NO `resources: 'usable'`. That setting makes JSDOM fetch every external
+    // subresource (images, stylesheets, iframes) while parsing — network work
+    // whose results this function then throws away, since all it reads is
+    // textContent. It is also the expensive half of a path that runs ON the
+    // Node event loop, so it stalls unrelated requests too. Dropping it
+    // changes no extracted text: the walk below only reads text nodes, and
+    // Readability (tried first, above) never needed subresources either.
     const dom = new JSDOM(html, {
       runScripts: 'outside-only',
-      resources: 'usable',
       virtualConsole
     })
     const document = dom.window.document
