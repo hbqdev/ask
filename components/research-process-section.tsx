@@ -21,6 +21,7 @@ import { type ClassifierPart, ClassifierSection } from './classifier-section'
 import { ReasoningSection } from './reasoning-section'
 import { type RecallPart, RecallSection } from './recall-section'
 import { ToolSection } from './tool-section'
+import { WaitingQuote } from './waiting-quote'
 
 // Message part types
 type TextPart = {
@@ -470,66 +471,69 @@ export function ResearchProcessSection({
               setParentOpenStates(prev => ({ ...prev, [parentId]: open }))
             }}
           >
-            <div className="flex items-center gap-1">
-              {isInProgress && (
-                <button
-                  type="button"
-                  onClick={() => {
-                    if (summaryVisible) {
-                      // Full retreat: hide the summary and close the steps.
-                      setSummaryShownStates(prev => ({
-                        ...prev,
-                        [parentId]: false
-                      }))
-                      setParentOpenStates(prev => ({
-                        ...prev,
-                        [parentId]: false
-                      }))
-                    } else {
-                      setSummaryShownStates(prev => ({
-                        ...prev,
-                        [parentId]: true
-                      }))
-                    }
-                  }}
-                  aria-expanded={summaryVisible}
-                  aria-label={
-                    summaryVisible
-                      ? 'Hide research status'
-                      : 'Show research status'
-                  }
-                  title={summaryVisible ? 'Hide status' : 'Show status'}
-                  className="flex items-center gap-2 px-1 py-1 rounded-full cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                >
-                  <WildBreathGlyph className="size-6 shrink-0" spin />
-                  {!summaryVisible && (
-                    <span className="wb-rail" aria-hidden="true" />
-                  )}
-                </button>
-              )}
-              {summaryVisible && (
-                <CollapsibleTrigger asChild>
+            <div className="flex flex-col">
+              <div className="flex items-center gap-1">
+                {isInProgress && (
                   <button
                     type="button"
-                    className={cn(
-                      'flex items-center px-1 py-0.5 gap-2 text-sm rounded-lg group',
-                      isInProgress && 'wb-summary-in'
-                    )}
+                    onClick={() => {
+                      if (summaryVisible) {
+                        // Full retreat: hide the summary and close the steps.
+                        setSummaryShownStates(prev => ({
+                          ...prev,
+                          [parentId]: false
+                        }))
+                        setParentOpenStates(prev => ({
+                          ...prev,
+                          [parentId]: false
+                        }))
+                      } else {
+                        setSummaryShownStates(prev => ({
+                          ...prev,
+                          [parentId]: true
+                        }))
+                      }
+                    }}
+                    aria-expanded={summaryVisible}
+                    aria-label={
+                      summaryVisible
+                        ? 'Hide research status'
+                        : 'Show research status'
+                    }
+                    title={summaryVisible ? 'Hide status' : 'Show status'}
+                    className="flex items-center gap-2 px-1 py-1 rounded-full cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                   >
-                    <span className="font-medium text-muted-foreground group-hover:text-muted-foreground/70">
-                      {isInProgress
-                        ? `Working on it — ${totalParts} step${totalParts === 1 ? '' : 's'} so far`
-                        : `Completed ${totalParts} step${totalParts === 1 ? '' : 's'}`}
-                    </span>
-                    <ChevronDown
-                      className={cn(
-                        'size-4 text-muted-foreground group-hover:text-muted-foreground/70 transition-transform duration-200',
-                        isParentOpen && 'rotate-180'
-                      )}
-                    />
+                    <WildBreathGlyph className="size-6 shrink-0" spin />
+                    {!summaryVisible && (
+                      <span className="wb-rail" aria-hidden="true" />
+                    )}
                   </button>
-                </CollapsibleTrigger>
-              )}
+                )}
+                {summaryVisible && (
+                  <CollapsibleTrigger asChild>
+                    <button
+                      type="button"
+                      className={cn(
+                        'flex items-center px-1 py-0.5 gap-2 text-sm rounded-lg group',
+                        isInProgress && 'wb-summary-in'
+                      )}
+                    >
+                      <span className="font-medium text-muted-foreground group-hover:text-muted-foreground/70">
+                        {isInProgress
+                          ? `Working on it — ${totalParts} step${totalParts === 1 ? '' : 's'} so far`
+                          : `Completed ${totalParts} step${totalParts === 1 ? '' : 's'}`}
+                      </span>
+                      <ChevronDown
+                        className={cn(
+                          'size-4 text-muted-foreground group-hover:text-muted-foreground/70 transition-transform duration-200',
+                          isParentOpen && 'rotate-180'
+                        )}
+                      />
+                    </button>
+                  </CollapsibleTrigger>
+                )}
+              </div>
+              {isInProgress && <WaitingQuote />}
             </div>
             <CollapsibleContent className="data-[state=closed]:animate-collapse-up data-[state=open]:animate-collapse-down">
               <div className="pt-2">{segmentContent}</div>
