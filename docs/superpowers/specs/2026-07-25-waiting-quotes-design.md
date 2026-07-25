@@ -41,34 +41,34 @@ onScreen = max( read, reveal + tail, floor )
 
 All values in ms.
 
-| Constant | Value | Reason |
-|---|---|---|
-| reveal cadence | 300ms/word | Operator's call; anything quicker read as too fast |
-| reveal ceiling | 6000ms | The pool runs to 80 words; at a flat 300ms/word that is a 24s reveal. Above ~20 words the cadence tightens so the quote always finishes arriving promptly. |
-| reading rate | 15 cps | Subtitling practice for adult viewers |
-| pause beat | 180ms | Per punctuation mark — the pauses a reader takes |
-| tail | 700 + 125/word, max 3200 | Settle beat before the line is replaced; scales so long quotes don't vanish on their last word, capped so it can't run away |
-| floor | 3000ms | Operator's minimum for anything the formula puts below it |
-| difficulty | 0.9–1.3 | `5.1` is average English word length, so this is a ratio against normal |
+| Constant       | Value                    | Reason                                                                                                                                                     |
+| -------------- | ------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| reveal cadence | 300ms/word               | Operator's call; anything quicker read as too fast                                                                                                         |
+| reveal ceiling | 6000ms                   | The pool runs to 80 words; at a flat 300ms/word that is a 24s reveal. Above ~20 words the cadence tightens so the quote always finishes arriving promptly. |
+| reading rate   | 15 cps                   | Subtitling practice for adult viewers                                                                                                                      |
+| pause beat     | 180ms                    | Per punctuation mark — the pauses a reader takes                                                                                                           |
+| tail           | 700 + 125/word, max 3200 | Settle beat before the line is replaced; scales so long quotes don't vanish on their last word, capped so it can't run away                                |
+| floor          | 3000ms                   | Operator's minimum for anything the formula puts below it                                                                                                  |
+| difficulty     | 0.9–1.3                  | `5.1` is average English word length, so this is a ratio against normal                                                                                    |
 
 **No maximum on `onScreen`.** A long quote genuinely needs its reading time —
-450 characters at 15 cps *is* ~30 seconds — and truncating it would show text
+450 characters at 15 cps _is_ ~30 seconds — and truncating it would show text
 too briefly to read, which is the thing this feature exists to avoid. The quote
 is ambient: if the answer arrives first, it simply disappears.
 
 Verified outputs (these become the unit tests):
 
 | Words | Chars | perWord | On screen | Governed by |
-|---|---|---|---|---|
-| 5 | 26 | 300ms | 3.0s | floor |
-| 8 | 55 | 300ms | 5.1s | read |
-| 8 | 69 | 300ms | 6.2s | read |
-| 10 | 57 | 300ms | 5.0s | reveal |
-| 11 | 58 | 300ms | 5.4s | reveal |
-| 12 | 72 | 300ms | 5.8s | reveal |
-| 16 | 80 | 300ms | 7.5s | reveal |
-| 30 | 165 | 200ms | ~14.3s | read |
-| 80 | 450 | 75ms | ~32.9s | read |
+| ----- | ----- | ------- | --------- | ----------- |
+| 5     | 26    | 300ms   | 3.0s      | floor       |
+| 8     | 55    | 300ms   | 5.1s      | read        |
+| 8     | 69    | 300ms   | 6.2s      | read        |
+| 10    | 57    | 300ms   | 5.0s      | reveal      |
+| 11    | 58    | 300ms   | 5.4s      | reveal      |
+| 12    | 72    | 300ms   | 5.8s      | reveal      |
+| 16    | 80    | 300ms   | 7.5s      | reveal      |
+| 30    | 165   | 200ms   | ~14.3s    | read        |
+| 80    | 450   | 75ms    | ~32.9s    | read        |
 
 Measured across the live pool: p25 6.2s, p50 9.2s, p75 12.4s, p90 18.7s, max
 32.9s. The adaptive cadence leaves every operator-tuned value unchanged, because
@@ -91,7 +91,7 @@ above is what makes long ones workable. The only filtering is integrity:
 
 ## Data flow and security
 
-The waiting UI must never make a network call *while waiting*, and Couchbase
+The waiting UI must never make a network call _while waiting_, and Couchbase
 credentials must never reach the browser.
 
 ```
@@ -112,7 +112,7 @@ route handler is the middle server.
 
 Two differences from hbqnexus, both deliberate:
 
-1. **Connection reuse.** hbqnexus opens *and closes* a cluster connection per
+1. **Connection reuse.** hbqnexus opens _and closes_ a cluster connection per
    request. Ask holds one lazily-created connection for the process lifetime.
 2. **Batch, not per-request.** hbqnexus fetches the whole document to return one
    random quote. Ask does that fetch at most once per 24h (Redis TTL) and serves
@@ -141,28 +141,28 @@ bundled fallback, no errors, no noise in the logs beyond one warning.
 
 Five, one picked at random per quote, never the same twice running:
 
-| Style | Motion |
-|---|---|
-| Rise | Lifts into place from below the line |
-| Focus | Resolves out of a soft blur |
-| Drift | Slides in from the left, with the reading direction |
-| Settle | Slight scale overshoot, then settles |
-| Wipe | Uncovered left to right, like ink laid down |
+| Style  | Motion                                              |
+| ------ | --------------------------------------------------- |
+| Rise   | Lifts into place from below the line                |
+| Focus  | Resolves out of a soft blur                         |
+| Drift  | Slides in from the left, with the reading direction |
+| Settle | Slight scale overshoot, then settles                |
+| Wipe   | Uncovered left to right, like ink laid down         |
 
 Each word carries `animation-delay = wordIndex * perWord`. The author line
 follows the last word by a further 150ms.
 
 ## Components
 
-| File | Responsibility |
-|---|---|
-| `lib/quotes/quote-timing.ts` | Pure. `quoteTiming(text)` → `{ perWordMs, revealMs, tailMs, readMs, totalMs, governedBy }`. No DOM, no I/O. |
-| `lib/quotes/quote-pool.ts` | Pure. `acceptQuote()`, `normalizePool()` — validate, dedupe, shuffle. |
-| `lib/quotes/fallback-quotes.ts` | The bundled ~20-quote constant. |
-| `lib/quotes/couchbase-quotes.ts` | Native SDK fetch, server-only. Never throws; returns `[]` on any failure. |
-| `app/api/quotes/route.ts` | `GET` → Redis-cached batch, with the degradation chain above. |
-| `components/waiting-quote.tsx` | Client. Word reveal, style rotation, fade-out, elapsed timer. |
-| `components/research-process-section.tsx` | Wire the above into the in-progress branch. |
+| File                                      | Responsibility                                                                                              |
+| ----------------------------------------- | ----------------------------------------------------------------------------------------------------------- |
+| `lib/quotes/quote-timing.ts`              | Pure. `quoteTiming(text)` → `{ perWordMs, revealMs, tailMs, readMs, totalMs, governedBy }`. No DOM, no I/O. |
+| `lib/quotes/quote-pool.ts`                | Pure. `acceptQuote()`, `normalizePool()` — validate, dedupe, shuffle.                                       |
+| `lib/quotes/fallback-quotes.ts`           | The bundled ~20-quote constant.                                                                             |
+| `lib/quotes/couchbase-quotes.ts`          | Native SDK fetch, server-only. Never throws; returns `[]` on any failure.                                   |
+| `app/api/quotes/route.ts`                 | `GET` → Redis-cached batch, with the degradation chain above.                                               |
+| `components/waiting-quote.tsx`            | Client. Word reveal, style rotation, fade-out, elapsed timer.                                               |
+| `components/research-process-section.tsx` | Wire the above into the in-progress branch.                                                                 |
 
 ## Behaviour details
 

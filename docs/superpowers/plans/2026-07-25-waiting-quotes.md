@@ -26,28 +26,30 @@
 
 ## File Structure
 
-| File | Responsibility |
-|---|---|
-| `lib/quotes/types.ts` | The `Quote` type, shared by every other file. |
-| `lib/quotes/quote-timing.ts` | Pure. Turns quote text into durations. No DOM, no I/O. |
-| `lib/quotes/quote-pool.ts` | Pure. Validates, dedupes and shuffles raw rows into a pool. |
-| `lib/quotes/fallback-quotes.ts` | Bundled constant used when Couchbase is unavailable. |
-| `lib/quotes/couchbase-quotes.ts` | Server-only. Native SDK fetch. Never throws. |
-| `app/api/quotes/route.ts` | Redis-cached batch endpoint with the degradation chain. |
-| `components/waiting-quote.tsx` | Client. Reveal, style rotation, fade, elapsed timer. |
-| `app/globals.css` | The five reveal keyframes, beside the existing `.wb-rail` rules. |
-| `components/research-process-section.tsx` | Wires the component into the in-progress branch. |
+| File                                      | Responsibility                                                   |
+| ----------------------------------------- | ---------------------------------------------------------------- |
+| `lib/quotes/types.ts`                     | The `Quote` type, shared by every other file.                    |
+| `lib/quotes/quote-timing.ts`              | Pure. Turns quote text into durations. No DOM, no I/O.           |
+| `lib/quotes/quote-pool.ts`                | Pure. Validates, dedupes and shuffles raw rows into a pool.      |
+| `lib/quotes/fallback-quotes.ts`           | Bundled constant used when Couchbase is unavailable.             |
+| `lib/quotes/couchbase-quotes.ts`          | Server-only. Native SDK fetch. Never throws.                     |
+| `app/api/quotes/route.ts`                 | Redis-cached batch endpoint with the degradation chain.          |
+| `components/waiting-quote.tsx`            | Client. Reveal, style rotation, fade, elapsed timer.             |
+| `app/globals.css`                         | The five reveal keyframes, beside the existing `.wb-rail` rules. |
+| `components/research-process-section.tsx` | Wires the component into the in-progress branch.                 |
 
 ---
 
 ### Task 1: Timing function
 
 **Files:**
+
 - Create: `lib/quotes/types.ts`
 - Create: `lib/quotes/quote-timing.ts`
 - Test: `lib/quotes/__tests__/quote-timing.test.ts`
 
 **Interfaces:**
+
 - Consumes: nothing.
 - Produces: `type Quote = { q: string; a: string }`; `quoteTiming(text: string): QuoteTiming` where `QuoteTiming = { words: number; chars: number; perWordMs: number; revealMs: number; tailMs: number; readMs: number; totalMs: number; governedBy: 'read' | 'reveal' | 'floor' }`.
 
@@ -67,7 +69,12 @@ const CASES: Array<{
   totalMs: number
   governedBy: 'read' | 'reveal' | 'floor'
 }> = [
-  { text: 'We are made of star-stuff.', words: 5, totalMs: 3000, governedBy: 'floor' },
+  {
+    text: 'We are made of star-stuff.',
+    words: 5,
+    totalMs: 3000,
+    governedBy: 'floor'
+  },
   {
     text: 'Somewhere, something incredible is waiting to be known.',
     words: 8,
@@ -221,7 +228,10 @@ export function quoteTiming(text: string): QuoteTiming {
   // Long quotes tighten their cadence so they always finish arriving promptly.
   const perWordMs = Math.min(REVEAL_PER_WORD_MS, REVEAL_CEILING_MS / words)
   const revealMs = words * perWordMs
-  const tailMs = Math.min(TAIL_BASE_MS + words * TAIL_PER_WORD_MS, TAIL_CEILING_MS)
+  const tailMs = Math.min(
+    TAIL_BASE_MS + words * TAIL_PER_WORD_MS,
+    TAIL_CEILING_MS
+  )
 
   const difficulty = clamp(chars / words / AVG_WORD_CHARS, 0.9, 1.3)
   const pauses = (text.match(PAUSE_CHARS) ?? []).length
@@ -232,7 +242,16 @@ export function quoteTiming(text: string): QuoteTiming {
   const governedBy =
     totalMs === readMs ? 'read' : totalMs === revealTotal ? 'reveal' : 'floor'
 
-  return { words, chars, perWordMs, revealMs, tailMs, readMs, totalMs, governedBy }
+  return {
+    words,
+    chars,
+    perWordMs,
+    revealMs,
+    tailMs,
+    readMs,
+    totalMs,
+    governedBy
+  }
 }
 
 export const QUOTE_FADE_OUT_MS = 420
@@ -258,11 +277,13 @@ git commit -m "Add quote timing: read, reveal and floor compete for time on scre
 ### Task 2: Pool normalisation and fallback set
 
 **Files:**
+
 - Create: `lib/quotes/quote-pool.ts`
 - Create: `lib/quotes/fallback-quotes.ts`
 - Test: `lib/quotes/__tests__/quote-pool.test.ts`
 
 **Interfaces:**
+
 - Consumes: `Quote` from `lib/quotes/types.ts`.
 - Produces: `acceptQuote(row: unknown): row is Quote`; `normalizePool(rows: unknown[], random?: () => number): Quote[]`; `FALLBACK_QUOTES: Quote[]`.
 
@@ -278,7 +299,9 @@ import { acceptQuote, normalizePool } from '../quote-pool'
 
 describe('acceptQuote', () => {
   it('accepts a well-formed quote', () => {
-    expect(acceptQuote({ q: 'We are made of star-stuff.', a: 'Carl Sagan' })).toBe(true)
+    expect(
+      acceptQuote({ q: 'We are made of star-stuff.', a: 'Carl Sagan' })
+    ).toBe(true)
   })
 
   it('accepts both extremes of length — there is no length cap', () => {
@@ -328,7 +351,11 @@ describe('normalizePool', () => {
       { q: 'C.', a: 'x' }
     ]
     // Always picking index 0 reverses the array under Fisher-Yates.
-    expect(normalizePool(rows, () => 0).map(p => p.q)).toEqual(['C.', 'A.', 'B.'])
+    expect(normalizePool(rows, () => 0).map(p => p.q)).toEqual([
+      'C.',
+      'A.',
+      'B.'
+    ])
   })
 })
 
@@ -363,14 +390,22 @@ import type { Quote } from './types'
 export function acceptQuote(row: unknown): row is Quote {
   if (!row || typeof row !== 'object') return false
   const { q, a } = row as { q?: unknown; a?: unknown }
-  return typeof q === 'string' && q.trim().length > 0 && typeof a === 'string' && a.trim().length > 0
+  return (
+    typeof q === 'string' &&
+    q.trim().length > 0 &&
+    typeof a === 'string' &&
+    a.trim().length > 0
+  )
 }
 
 /**
  * Validate, trim, dedupe and shuffle. Shuffled here (once, server-side) so the
  * client can simply walk the batch in order without repeating itself.
  */
-export function normalizePool(rows: unknown[], random: () => number = Math.random): Quote[] {
+export function normalizePool(
+  rows: unknown[],
+  random: () => number = Math.random
+): Quote[] {
   const seen = new Set<string>()
   const out: Quote[] = []
 
@@ -403,22 +438,67 @@ import type { Quote } from './types'
  */
 export const FALLBACK_QUOTES: Quote[] = [
   { q: 'We are made of star-stuff.', a: 'Carl Sagan' },
-  { q: 'Somewhere, something incredible is waiting to be known.', a: 'Carl Sagan' },
-  { q: 'The universe is under no obligation to make sense to you.', a: 'Neil deGrasse Tyson' },
-  { q: 'Any sufficiently advanced technology is indistinguishable from magic.', a: 'Arthur C. Clarke' },
-  { q: 'I have no special talent. I am only passionately curious.', a: 'Albert Einstein' },
-  { q: 'Science gathers knowledge faster than society gathers wisdom.', a: 'Isaac Asimov' },
-  { q: 'The good thing about science is that it is true whether or not you believe in it.', a: 'Neil deGrasse Tyson' },
-  { q: 'Nothing in life is to be feared, it is only to be understood.', a: 'Marie Curie' },
-  { q: 'The important thing is not to stop questioning.', a: 'Albert Einstein' },
-  { q: 'Equipped with his five senses, man explores the universe around him.', a: 'Edwin Hubble' },
-  { q: 'Research is what I am doing when I do not know what I am doing.', a: 'Wernher von Braun' },
-  { q: 'If I have seen further it is by standing on the shoulders of giants.', a: 'Isaac Newton' },
-  { q: 'What we know is a drop, what we do not know is an ocean.', a: 'Isaac Newton' },
+  {
+    q: 'Somewhere, something incredible is waiting to be known.',
+    a: 'Carl Sagan'
+  },
+  {
+    q: 'The universe is under no obligation to make sense to you.',
+    a: 'Neil deGrasse Tyson'
+  },
+  {
+    q: 'Any sufficiently advanced technology is indistinguishable from magic.',
+    a: 'Arthur C. Clarke'
+  },
+  {
+    q: 'I have no special talent. I am only passionately curious.',
+    a: 'Albert Einstein'
+  },
+  {
+    q: 'Science gathers knowledge faster than society gathers wisdom.',
+    a: 'Isaac Asimov'
+  },
+  {
+    q: 'The good thing about science is that it is true whether or not you believe in it.',
+    a: 'Neil deGrasse Tyson'
+  },
+  {
+    q: 'Nothing in life is to be feared, it is only to be understood.',
+    a: 'Marie Curie'
+  },
+  {
+    q: 'The important thing is not to stop questioning.',
+    a: 'Albert Einstein'
+  },
+  {
+    q: 'Equipped with his five senses, man explores the universe around him.',
+    a: 'Edwin Hubble'
+  },
+  {
+    q: 'Research is what I am doing when I do not know what I am doing.',
+    a: 'Wernher von Braun'
+  },
+  {
+    q: 'If I have seen further it is by standing on the shoulders of giants.',
+    a: 'Isaac Newton'
+  },
+  {
+    q: 'What we know is a drop, what we do not know is an ocean.',
+    a: 'Isaac Newton'
+  },
   { q: 'Simplicity is the ultimate sophistication.', a: 'Leonardo da Vinci' },
-  { q: 'The cure for boredom is curiosity. There is no cure for curiosity.', a: 'Dorothy Parker' },
-  { q: 'Everything should be made as simple as possible, but not simpler.', a: 'Albert Einstein' },
-  { q: 'An expert is a person who has made all the mistakes in a narrow field.', a: 'Niels Bohr' },
+  {
+    q: 'The cure for boredom is curiosity. There is no cure for curiosity.',
+    a: 'Dorothy Parker'
+  },
+  {
+    q: 'Everything should be made as simple as possible, but not simpler.',
+    a: 'Albert Einstein'
+  },
+  {
+    q: 'An expert is a person who has made all the mistakes in a narrow field.',
+    a: 'Niels Bohr'
+  },
   { q: 'Somewhere, something incredible is being ignored.', a: 'Anonymous' },
   { q: 'The best way to predict the future is to invent it.', a: 'Alan Kay' },
   { q: 'Premature optimization is the root of all evil.', a: 'Donald Knuth' },
@@ -446,11 +526,13 @@ git commit -m "Add quote pool normalisation and bundled fallback set"
 ### Task 3: Couchbase source
 
 **Files:**
+
 - Create: `lib/quotes/couchbase-quotes.ts`
 - Test: `lib/quotes/__tests__/couchbase-quotes.test.ts`
 - Modify: `package.json` (add the `couchbase` dependency)
 
 **Interfaces:**
+
 - Consumes: `Quote` from `lib/quotes/types.ts`.
 - Produces: `fetchQuotesFromCouchbase(): Promise<Quote[]>` — returns raw rows straight from the document; returns `[]` on any failure and never throws.
 
@@ -512,7 +594,9 @@ describe('fetchQuotesFromCouchbase', () => {
       clusterReturning({ quotes: [{ q: 'One.', a: 'A' }] }) as never
     )
 
-    await expect(fetchQuotesFromCouchbase()).resolves.toEqual([{ q: 'One.', a: 'A' }])
+    await expect(fetchQuotesFromCouchbase()).resolves.toEqual([
+      { q: 'One.', a: 'A' }
+    ])
   })
 
   it('returns empty without connecting when credentials are absent', async () => {
@@ -528,7 +612,9 @@ describe('fetchQuotesFromCouchbase', () => {
 
   it('returns empty when the document has an unexpected shape', async () => {
     setEnv()
-    vi.mocked(connect).mockResolvedValue(clusterReturning({ nope: true }) as never)
+    vi.mocked(connect).mockResolvedValue(
+      clusterReturning({ nope: true }) as never
+    )
     await expect(fetchQuotesFromCouchbase()).resolves.toEqual([])
   })
 })
@@ -559,9 +645,16 @@ import type { Quote } from './types'
 
 let clusterPromise: Promise<Cluster> | null = null
 
-function getCluster(url: string, username: string, password: string): Promise<Cluster> {
+function getCluster(
+  url: string,
+  username: string,
+  password: string
+): Promise<Cluster> {
   if (!clusterPromise) {
-    clusterPromise = connect(`couchbase://${url}`, { username, password }).catch(error => {
+    clusterPromise = connect(`couchbase://${url}`, {
+      username,
+      password
+    }).catch(error => {
       clusterPromise = null // let the next call retry rather than caching a failure
       throw error
     })
@@ -615,10 +708,12 @@ git commit -m "Add server-only Couchbase quote source that never throws"
 ### Task 4: Cached batch endpoint
 
 **Files:**
+
 - Create: `app/api/quotes/route.ts`
 - Test: `app/api/quotes/__tests__/route.test.ts`
 
 **Interfaces:**
+
 - Consumes: `fetchQuotesFromCouchbase()`, `normalizePool()`, `FALLBACK_QUOTES`, `getLatencyRedis()` from `lib/telemetry/latency-store.ts` (an existing lazily-connected client returning `null` when Redis is unavailable).
 - Produces: `GET /api/quotes?n=<count>` → `{ quotes: Quote[] }`.
 
@@ -675,8 +770,13 @@ describe('GET /api/quotes', () => {
 
   it('fetches and caches when Redis is empty', async () => {
     const set = vi.fn(async () => undefined)
-    vi.mocked(getLatencyRedis).mockResolvedValue({ get: async () => null, set } as never)
-    vi.mocked(fetchQuotesFromCouchbase).mockResolvedValue([{ q: 'Fresh.', a: 'Couchbase' }])
+    vi.mocked(getLatencyRedis).mockResolvedValue({
+      get: async () => null,
+      set
+    } as never)
+    vi.mocked(fetchQuotesFromCouchbase).mockResolvedValue([
+      { q: 'Fresh.', a: 'Couchbase' }
+    ])
 
     const res = await GET(request())
     const body = await res.json()
@@ -744,7 +844,10 @@ async function writeCache(client: CacheClient, pool: Quote[]): Promise<void> {
   if (typeof client.set !== 'function') return
   const payload = JSON.stringify(pool)
   // node-redis takes { EX }, Upstash takes { ex }; send both, each ignores the other.
-  await client.set(CACHE_KEY, payload, { EX: CACHE_TTL_SECONDS, ex: CACHE_TTL_SECONDS })
+  await client.set(CACHE_KEY, payload, {
+    EX: CACHE_TTL_SECONDS,
+    ex: CACHE_TTL_SECONDS
+  })
 }
 
 /** Resolve the pool through the degradation chain: Redis → Couchbase → bundled. */
@@ -782,10 +885,16 @@ export async function GET(request: Request): Promise<NextResponse> {
   }
 
   const requested = Number(new URL(request.url).searchParams.get('n'))
-  const n = Number.isFinite(requested) && requested > 0 ? Math.min(requested, MAX_BATCH) : DEFAULT_BATCH
+  const n =
+    Number.isFinite(requested) && requested > 0
+      ? Math.min(requested, MAX_BATCH)
+      : DEFAULT_BATCH
 
   const start = Math.floor(Math.random() * Math.max(1, pool.length))
-  const quotes = Array.from({ length: Math.min(n, pool.length) }, (_, i) => pool[(start + i) % pool.length])
+  const quotes = Array.from(
+    { length: Math.min(n, pool.length) },
+    (_, i) => pool[(start + i) % pool.length]
+  )
 
   return NextResponse.json({ quotes })
 }
@@ -810,11 +919,13 @@ git commit -m "Add /api/quotes: Redis-cached batch with Couchbase and bundled fa
 ### Task 5: Waiting quote component
 
 **Files:**
+
 - Create: `components/waiting-quote.tsx`
 - Modify: `app/globals.css` (append after the existing `.wb-rail` block, around line 590)
 - Test: `components/__tests__/waiting-quote.test.tsx`
 
 **Interfaces:**
+
 - Consumes: `quoteTiming`, `QUOTE_FADE_OUT_MS`, `QUOTE_AUTHOR_DELAY_MS` from `lib/quotes/quote-timing.ts`; `FALLBACK_QUOTES`; `Quote`.
 - Produces: `<WaitingQuote />` — a client component taking no props.
 
@@ -849,31 +960,64 @@ Append to `app/globals.css`:
 }
 
 @keyframes wq-rise {
-  from { opacity: 0; transform: translateY(9px); }
-  to { opacity: 1; transform: none; }
+  from {
+    opacity: 0;
+    transform: translateY(9px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
 }
 @keyframes wq-focus {
-  from { opacity: 0; filter: blur(7px); }
-  to { opacity: 1; filter: blur(0); }
+  from {
+    opacity: 0;
+    filter: blur(7px);
+  }
+  to {
+    opacity: 1;
+    filter: blur(0);
+  }
 }
 @keyframes wq-drift {
-  from { opacity: 0; transform: translateX(-12px); }
-  to { opacity: 1; transform: none; }
+  from {
+    opacity: 0;
+    transform: translateX(-12px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
 }
 @keyframes wq-settle {
-  from { opacity: 0; transform: scale(0.86); }
-  to { opacity: 1; transform: scale(1); }
+  from {
+    opacity: 0;
+    transform: scale(0.86);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
 }
 @keyframes wq-wipe {
-  from { opacity: 0.15; clip-path: inset(0 100% 0 0); }
-  to { opacity: 1; clip-path: inset(0 0 0 0); }
+  from {
+    opacity: 0.15;
+    clip-path: inset(0 100% 0 0);
+  }
+  to {
+    opacity: 1;
+    clip-path: inset(0 0 0 0);
+  }
 }
 
 .wq-leaving {
   animation: wq-leave 420ms ease-in forwards;
 }
 @keyframes wq-leave {
-  to { opacity: 0; transform: translateY(-5px); }
+  to {
+    opacity: 0;
+    transform: translateY(-5px);
+  }
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -904,7 +1048,9 @@ beforeEach(() => {
     'fetch',
     vi.fn(async () => ({
       ok: true,
-      json: async () => ({ quotes: [{ q: 'We are made of star-stuff.', a: 'Carl Sagan' }] })
+      json: async () => ({
+        quotes: [{ q: 'We are made of star-stuff.', a: 'Carl Sagan' }]
+      })
     }))
   )
 })
@@ -928,7 +1074,9 @@ describe('WaitingQuote', () => {
     const { container } = render(<WaitingQuote />)
     await vi.advanceTimersByTimeAsync(0)
 
-    const words = Array.from(container.querySelectorAll<HTMLElement>('.wq-word'))
+    const words = Array.from(
+      container.querySelectorAll<HTMLElement>('.wq-word')
+    )
     expect(words[0].style.animationDelay).toBe('0ms')
     expect(words[1].style.animationDelay).toBe('300ms')
   })
@@ -973,7 +1121,13 @@ import {
 } from '@/lib/quotes/quote-timing'
 import type { Quote } from '@/lib/quotes/types'
 
-const STYLES = ['wq-rise', 'wq-focus', 'wq-drift', 'wq-settle', 'wq-wipe'] as const
+const STYLES = [
+  'wq-rise',
+  'wq-focus',
+  'wq-drift',
+  'wq-settle',
+  'wq-wipe'
+] as const
 const BATCH_SIZE = 40
 
 function formatElapsed(totalSeconds: number): string {
@@ -1056,14 +1210,20 @@ export function WaitingQuote() {
           const delay = wordIndex * timing.perWordMs
           if (/\S/.test(token)) wordIndex++
           return (
-            <span key={`${index}-${i}`} className="wq-word" style={{ animationDelay: `${delay}ms` }}>
+            <span
+              key={`${index}-${i}`}
+              className="wq-word"
+              style={{ animationDelay: `${delay}ms` }}
+            >
               {token}
             </span>
           )
         })}
         <span
           className="wq-word not-italic text-xs text-muted-foreground/60"
-          style={{ animationDelay: `${wordIndex * timing.perWordMs + QUOTE_AUTHOR_DELAY_MS}ms` }}
+          style={{
+            animationDelay: `${wordIndex * timing.perWordMs + QUOTE_AUTHOR_DELAY_MS}ms`
+          }}
         >
           {`  — ${quote.a}`}
         </span>
@@ -1099,9 +1259,11 @@ git commit -m "Add waiting-quote component: word reveal, style rotation, elapsed
 ### Task 6: Wire into the indicator
 
 **Files:**
+
 - Modify: `components/research-process-section.tsx` (the in-progress branch, around lines 476–508)
 
 **Interfaces:**
+
 - Consumes: `<WaitingQuote />` from `components/waiting-quote.tsx`.
 - Produces: nothing.
 
