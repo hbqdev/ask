@@ -41,3 +41,5 @@ next-env.d.ts
 
 # temporary files
 .tmp/
+# Brainstorming/SDD scratch (mockups, ledgers) — never publish
+.superpowers/
