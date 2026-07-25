@@ -118,10 +118,43 @@ describe('fetchQuotesFromCouchbase', () => {
   })
 
   it('returns empty without connecting when credentials are absent', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
     const { connect, fetchQuotesFromCouchbase } = await loadFresh()
 
     await expect(fetchQuotesFromCouchbase()).resolves.toEqual([])
     expect(connect).not.toHaveBeenCalled()
+
+    // Silent degradation is the failure mode this guards: prod would serve the
+    // bundled set forever and say nothing. Exactly one line, once per process
+    // however many times the pool is refetched — and no credential values.
+    await fetchQuotesFromCouchbase()
+    await fetchQuotesFromCouchbase()
+    expect(warn).toHaveBeenCalledTimes(1)
+
+    const message = String(warn.mock.calls[0][0])
+    expect(message).toContain('COUCHBASE_URL')
+    expect(message).toContain('COUCHBASE_USERNAME')
+    expect(message).toContain('COUCHBASE_PASSWORD')
+    expect(message).toMatch(/bundled/i)
+  })
+
+  it('names only the missing variables, and no credential values', async () => {
+    process.env.COUCHBASE_URL = 'cb.example'
+    process.env.COUCHBASE_USERNAME = 'user'
+    // Password left unset — a half-configured deployment is the likeliest
+    // shape of this mistake.
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    const { connect, fetchQuotesFromCouchbase } = await loadFresh()
+
+    await expect(fetchQuotesFromCouchbase()).resolves.toEqual([])
+    expect(connect).not.toHaveBeenCalled()
+
+    const message = String(warn.mock.calls[0][0])
+    expect(message).toContain('COUCHBASE_PASSWORD')
+    expect(message).not.toContain('COUCHBASE_URL')
+    expect(message).not.toContain('COUCHBASE_USERNAME')
+    expect(message).not.toContain('cb.example')
+    expect(message).not.toContain('user')
   })
 
   it('returns empty when the cluster is unreachable, and does not throw', async () => {

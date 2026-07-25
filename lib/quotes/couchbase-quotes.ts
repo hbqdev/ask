@@ -16,6 +16,10 @@ import type { Quote } from './types'
 
 let clusterPromise: Promise<Cluster> | null = null
 
+// One line per process, not one per request: the quote pool is fetched on a
+// cache miss and every miss would otherwise repeat this forever.
+let warnedUnconfigured = false
+
 function getCluster(
   url: string,
   username: string,
@@ -42,7 +46,23 @@ export async function fetchQuotesFromCouchbase(): Promise<Quote[]> {
   const url = process.env.COUCHBASE_URL
   const username = process.env.COUCHBASE_USERNAME
   const password = process.env.COUCHBASE_PASSWORD
-  if (!url || !username || !password) return []
+  if (!url || !username || !password) {
+    // Without this the feature degrades in total silence: prod serves the
+    // couple of dozen bundled quotes instead of the full pool, forever, and
+    // nothing anywhere says why. Names only — never a credential value.
+    if (!warnedUnconfigured) {
+      warnedUnconfigured = true
+      const missing = [
+        !url && 'COUCHBASE_URL',
+        !username && 'COUCHBASE_USERNAME',
+        !password && 'COUCHBASE_PASSWORD'
+      ].filter(Boolean)
+      console.warn(
+        `[quotes] Couchbase not configured (missing ${missing.join(', ')}); using the bundled quote set.`
+      )
+    }
+    return []
+  }
 
   const bucketName = process.env.COUCHBASE_QUOTES_BUCKET || 'Quotes'
   const docId = process.env.COUCHBASE_QUOTES_DOC || 'quotes_collection'
