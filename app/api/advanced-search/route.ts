@@ -414,8 +414,15 @@ async function advancedSearchXNGSearch(
   )
 
   try {
-    const resultsPerPage = 10
-    const pageno = Math.ceil(maxResults / resultsPerPage)
+    // Page 1, always. SearXNG's `pageno` selects WHICH page to return, not how
+    // many, so the inherited `ceil(maxResults / 10)` asked for page 2+ and
+    // discarded page 1 entirely — throwing away the most relevant results on
+    // every advanced search. It also made every query look like a paginating
+    // bot (a human rarely goes to page 2, let alone every time), which shows up
+    // as DuckDuckGo VQD CAPTCHAs and Brave/Startpage blocks. Breadth comes from
+    // the engine fan-out and SEARXNG_CRAWL_MULTIPLIER, not from paging deeper.
+    // Inherited from upstream bf554d6 (2024-08-21), not introduced here.
+    const pageno = 1
 
     // Fetches from SearXNG, automatically failing over to
     // SEARXNG_FALLBACK_API_URL if the primary instance is unreachable.
