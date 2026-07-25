@@ -46,6 +46,19 @@ describe('acceptQuote', () => {
 })
 
 describe('normalizePool', () => {
+  // Pinned end-to-end, not just at acceptQuote: a length cap hidden inside
+  // normalizePool passed the whole suite, because every other fixture here is
+  // short. The pool runs to 80 words and the timing function adapts its cadence
+  // for them, so dropping long quotes would silently shrink the library.
+  it('passes the longest quotes in the pool through untouched', () => {
+    const long = Array.from({ length: 80 }, () => 'word').join(' ')
+    const pool = normalizePool([{ q: long, a: 'Someone' }], () => 0)
+
+    expect(pool).toHaveLength(1)
+    expect(pool[0].q).toBe(long)
+    expect(pool[0].q.split(' ')).toHaveLength(80)
+  })
+
   it('drops invalid rows and keeps the valid ones', () => {
     const pool = normalizePool(
       [{ q: 'One.', a: 'A' }, null, { q: '', a: 'B' }, { q: 'Two.', a: 'C' }],
