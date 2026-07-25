@@ -1,6 +1,13 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
-  serverExternalPackages: ['onnxruntime-node', '@huggingface/transformers'],
+  // Native-addon packages must stay external: bundling rewrites their module
+  // root, so their platform-specific .node loader can no longer find its own
+  // prebuilt binary ("Could not find native build for platform=...").
+  serverExternalPackages: [
+    'onnxruntime-node',
+    '@huggingface/transformers',
+    'couchbase'
+  ],
   // Reverse proxy for PostHog to reduce tracking-blocker interception.
   skipTrailingSlashRedirect: true,
   async rewrites() {
