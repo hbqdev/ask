@@ -38,6 +38,10 @@ import {
   fetchOllamaSearch,
   type OllamaSearchResult
 } from '@/lib/utils/ollama-search-client'
+import {
+  isParseableContentType,
+  MAX_PARSEABLE_BYTES
+} from '@/lib/utils/parseable-content'
 import { fetchSearxngJson } from '@/lib/utils/searxng-client'
 import {
   fetchTavilySearch,
@@ -1109,8 +1113,29 @@ function fetchHtml(url: string): Promise<string> {
           .catch(reject)
         return
       }
+      // Refuse non-pages BEFORE downloading them. Without this a PDF gets
+      // pulled in full, concatenated into a JS string, and parsed as HTML by
+      // Readability + JSDOM — burning event-loop CPU to produce junk that
+      // fails isQualityContent anyway. These are precisely Crawl4AI's per-page
+      // failures (PDFs, antibot walls), i.e. the tail that reaches this path.
+      const contentType = res.headers['content-type']
+      if (!isParseableContentType(contentType)) {
+        res.destroy()
+        reject(new Error(`Unsupported content-type: ${contentType}`))
+        return
+      }
+
       let data = ''
+      let bytes = 0
       res.on('data', chunk => {
+        // Stop at the size cap too: content-type alone does not bound a
+        // pathologically large page, and the parse cost scales with it.
+        bytes += chunk.length
+        if (bytes > MAX_PARSEABLE_BYTES) {
+          res.destroy()
+          reject(new Error(`Response exceeded ${MAX_PARSEABLE_BYTES} bytes`))
+          return
+        }
         data += chunk
       })
       res.on('end', () => resolve(data))
