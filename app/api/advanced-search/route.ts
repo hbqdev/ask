@@ -565,9 +565,23 @@ async function advancedSearchXNGSearch(
       // spend it on the most promising ones. Anything past the cap — and
       // anything Crawl4AI can't render — still gets crawled by the cheap
       // legacy path, so no candidate is silently dropped.
+      // Cover the whole candidate pool with Crawl4AI. A 3-arm A/B (2 runs
+      // each, same query) measured returned SOURCES, not counts of work:
+      //   enrich=24  -> 8.0 sources, 47s   (24 rendered, ~28 via JSDOM)
+      //   enrich=48  -> 11.5 sources, 84s
+      //   enrich=100 -> 13.0 sources, 106s (~50 rendered, ~4 via JSDOM)
+      // Source counts separated cleanly across arms with no overlap, so the
+      // effect is real despite ~2x run-to-run variance in wall-clock.
+      //
+      // The mechanism is yield, not volume: every arm "enriches" the same
+      // pages, but pages scraped by the legacy JSDOM path frequently produce
+      // content that fails isQualityContent and gets dropped, while a real
+      // browser render succeeds. Sending pages to the renderer instead of the
+      // scraper therefore BUYS sources -- the legacy path was quietly costing
+      // them. Slower per turn, and that is the accepted trade.
       const MAX_ENRICH_URLS = Math.max(
         1,
-        parseInt(process.env.MAX_ENRICH_URLS || '24', 10)
+        parseInt(process.env.MAX_ENRICH_URLS || '100', 10)
       )
       const toEnrich = candidates
         .filter(r => !prefetchedUrls.has(r.url))
