@@ -107,6 +107,23 @@ const MAX_LEGACY_CRAWL_URLS = Math.max(
  */
 const DEGOOG_IMAGES_ENABLED = process.env.DEGOOG_IMAGES_ENABLED === 'true'
 
+/**
+ * Per-chunk budget for the Crawl4AI sidecar.
+ *
+ * Raised from 60s after a measured regression: with concurrency at 6, chunks
+ * queue behind each other, and 5 of 10 chunks blew a 60s budget on one turn.
+ * An aborted chunk discards ALL 8 of its rendered pages and the caller then
+ * re-crawls them on the slow legacy path -- 43 of 75 URLs fell back that way,
+ * which is both slower and worse content than simply waiting. The sidecar
+ * already bounds individual pages internally (Page.goto times out at 12s), so
+ * a generous budget here costs nothing on healthy chunks and only stops us
+ * throwing away work that was nearly done.
+ */
+const CRAWL4AI_CHUNK_TIMEOUT_MS = Math.max(
+  30_000,
+  parseInt(process.env.CRAWL4AI_CHUNK_TIMEOUT_MS || '120000', 10)
+)
+
 const CACHE_TTL = 3600 // Cache time-to-live in seconds (1 hour)
 const CACHE_EXPIRATION_CHECK_INTERVAL = 3600000 // 1 hour in milliseconds
 
@@ -635,7 +652,7 @@ async function advancedSearchXNGSearch(
               1,
               parseInt(process.env.CRAWL4AI_CHUNK_SIZE || '8', 10)
             ),
-            chunkTimeoutMs: 60_000
+            chunkTimeoutMs: CRAWL4AI_CHUNK_TIMEOUT_MS
           }
         )
       )
