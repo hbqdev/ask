@@ -11,7 +11,16 @@ export default defineConfig({
   resolve: {
     alias: {
       '@': path.resolve(__dirname, './'),
-      'zod/v4': 'zod'
+      'zod/v4': 'zod',
+      // `server-only` is a build-time marker with no standalone package here:
+      // Next resolves it internally to its own empty stub on the server and to
+      // an error on the client. Vite has no such rule, so any test importing a
+      // server module would fail to resolve it. Point at the very stub Next
+      // uses server-side, which is what a server module gets in production.
+      'server-only': path.resolve(
+        __dirname,
+        './node_modules/next/dist/compiled/server-only/empty.js'
+      )
     }
   },
   test: {
