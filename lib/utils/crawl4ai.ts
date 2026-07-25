@@ -96,15 +96,20 @@ export async function crawl4aiScrapeMany(
   // a slow chunk. Real search results (heavy docs sites, GitHub, pages that
   // hang) routinely push a chunk of 8 past 30s even though a curated list
   // of 16 finishes in 5s.
-  // Bounded fan-out. Firing every chunk at once does NOT go faster — it goes
-  // slower, then fails: 3 concurrent chunks (24 URLs) finished in ~9s, but 6
+  // Bounded fan-out, tuned by measurement. 6 is the knee on this host (per-URL
+  // crawl: 3 -> 1409ms, 6 -> 520ms, 10 -> 669ms with chunk failures tripling the
+  // legacy fallbacks). It only reached 6 after the sidecar's shm went 1g -> 4g;
+  // Chromium exhausts /dev/shm long before it exhausts RAM, which is why the
+  // container sat at 1.3G of 5G while whole batches timed out.
+  //
+  // Firing every chunk at once does NOT go faster — it goes slower, then fails: 3 concurrent chunks (24 URLs) finished in ~9s, but 6
   // chunks (46 URLs) pushed every chunk past its timeout and returned nothing
   // at all, so the caller re-crawled all 46 on its slow fallback path. Because
   // an aborted chunk discards all its rendered pages, over-subscribing the
   // sidecar is the single most expensive thing this function can do.
   const maxConcurrent = Math.max(
     1,
-    parseInt(process.env.CRAWL4AI_MAX_CONCURRENT_CHUNKS || '3', 10)
+    parseInt(process.env.CRAWL4AI_MAX_CONCURRENT_CHUNKS || '6', 10)
   )
 
   const settled = await mapWithConcurrency(chunks, maxConcurrent, chunk =>
