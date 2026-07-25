@@ -98,6 +98,15 @@ const MAX_LEGACY_CRAWL_URLS = Math.max(
   parseInt(process.env.MAX_LEGACY_CRAWL_URLS || '999', 10)
 )
 
+/**
+ * Fetch Google Images via degoog alongside every search. Default OFF: SearXNG
+ * already returns images in the same round-trip, so this only adds variety at
+ * the cost of a SECOND degoog request per search — and each degoog request fans
+ * out to Google, Brave, Startpage and DDG internally, against a per-IP quota
+ * shared with SearXNG and ordinary browsing.
+ */
+const DEGOOG_IMAGES_ENABLED = process.env.DEGOOG_IMAGES_ENABLED === 'true'
+
 const CACHE_TTL = 3600 // Cache time-to-live in seconds (1 hour)
 const CACHE_EXPIRATION_CHECK_INTERVAL = 3600000 // 1 hour in milliseconds
 
@@ -441,7 +450,21 @@ async function advancedSearchXNGSearch(
         intent === 'news'
           ? fetchDegoogJson(degoogUrl('news'))
           : Promise.resolve(null),
-        fetchDegoogJson(degoogUrl('images')),
+        // OFF by default. SearXNG already returns images in the SAME request
+        // (its category list is ['general','images',...]) and both sources are
+        // merged into one `images` array below, so the strip still renders
+        // without this call — it only adds Google Images variety.
+        //
+        // It used to fire on EVERY search, and each degoog request fans out to
+        // Google, Brave, Startpage and DDG internally. That doubled our
+        // upstream engine load for images most turns never show, and burned
+        // the per-IP quota degoog shares with SearXNG and ordinary browsing
+        // (Brave returned 429 forty-six times in 12h). There is no 'images'
+        // SearchIntent to gate on, so this is an explicit switch rather than a
+        // condition that would silently never fire.
+        DEGOOG_IMAGES_ENABLED
+          ? fetchDegoogJson(degoogUrl('images'))
+          : Promise.resolve(null),
         useOllama
           ? fetchOllamaSearch(query, ollamaMaxResults)
           : Promise.resolve(null),
