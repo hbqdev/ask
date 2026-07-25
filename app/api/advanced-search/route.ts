@@ -56,33 +56,42 @@ const SEARXNG_MAX_RESULTS = Math.max(
 )
 
 /**
- * Wall-clock budget for the legacy crawl tail (the candidates Crawl4AI's
- * MAX_ENRICH_URLS cap does not cover). Measured before this bound: 30.2s of a
- * 42.9s search, for 20 pages that mostly got discarded by the reranker anyway
- * — the browser renderer does 16 pages in 5.8s. Anything past the budget keeps
- * its snippet instead of stalling the turn.
+ * Wall-clock safety net for a single legacy crawl, so one pathological page
+ * cannot hang the stage indefinitely. Set at 20s to MATCH crawlPage's own
+ * fetch timeout: it is a backstop for the JSDOM phase (which has no timeout of
+ * its own), NOT a page-dropper. A tighter 6s value was tried and timed out 9
+ * pages that would otherwise have succeeded, costing sources for no reliable
+ * latency gain.
  */
 const LEGACY_CRAWL_BUDGET_MS = Math.max(
   1000,
-  parseInt(process.env.LEGACY_CRAWL_BUDGET_MS || '6000', 10)
+  parseInt(process.env.LEGACY_CRAWL_BUDGET_MS || '20000', 10)
 )
 
 /**
  * Hard cap on how many candidates take the legacy path.
  *
- * The budget above bounds a SLOW page, but not a BUSY stage: crawlPage parses
- * every page with JSDOM (`resources: 'usable'`), which is CPU work on the Node
- * event loop, and a setTimeout deadline cannot preempt a blocked event loop.
- * Measured with the budget in place, 39 legacy crawls still took 32s while
- * Crawl4AI rendered 16 pages in 6.3s. Local parsing is the bottleneck, so the
- * only real fix is to do less of it — and while it runs it stalls every other
- * request this server is handling, not just this search.
+ * DEFAULTS TO EFFECTIVELY UNLIMITED, deliberately. A controlled A/B on the
+ * same query showed a cap of 8 cut returned sources 15 -> 6 (rerank pool
+ * 42 -> 14), dropping nvidia.com, Tom's Hardware, PCWorld and PC Gamer —
+ * WITHOUT reliably saving time (enrich_ms was still 29.8s at cap=8, because a
+ * single JSDOM parse can cost ~3.7s). Capping page count trades sources for
+ * nothing. Raise this only with a fresh A/B on returned URLs; result COUNTS
+ * are not a quality signal — that mistake is what shipped the regression.
  *
- * Pages past the cap keep their search snippet and are still reranked.
+ * The real cost difference is process isolation, not page count: crawlPage
+ * parses with JSDOM (`resources: 'usable'`) ON the Node event loop, so it
+ * serialises and stalls every other request this server handles. Crawl4AI is
+ * a sidecar container on this same host with its own process pool, so it uses
+ * the box's other cores instead. Prefer moving pages to it (MAX_ENRICH_URLS)
+ * over refusing to enrich them.
+ *
+ * Pages past the cap keep their search snippet, which usually fails
+ * isQualityContent (>50 words) and is therefore dropped, not merely thinned.
  */
 const MAX_LEGACY_CRAWL_URLS = Math.max(
   0,
-  parseInt(process.env.MAX_LEGACY_CRAWL_URLS || '8', 10)
+  parseInt(process.env.MAX_LEGACY_CRAWL_URLS || '999', 10)
 )
 
 const CACHE_TTL = 3600 // Cache time-to-live in seconds (1 hour)
@@ -578,7 +587,13 @@ async function advancedSearchXNGSearch(
           // a 16-URL batch, with MORE usable results. See Crawl4aiWaitUntil.
           {
             waitUntil: 'domcontentloaded',
-            chunkSize: 8,
+            // Tunable: the sidecar has its own process pool, but it shares
+            // this host's cores, so raising concurrency is not free above
+            // some point. Verify host load before increasing.
+            chunkSize: Math.max(
+              1,
+              parseInt(process.env.CRAWL4AI_CHUNK_SIZE || '8', 10)
+            ),
             chunkTimeoutMs: 60_000
           }
         )
