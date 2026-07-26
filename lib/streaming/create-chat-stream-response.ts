@@ -34,6 +34,7 @@ import {
 } from '../utils/context-window'
 import { getTextFromParts } from '../utils/message-utils'
 import { perfLog, perfTime } from '../utils/perf-logging'
+import { resolveContextWindow } from '../utils/resolve-context-window'
 import { isUsageLogging, logUsage } from '../utils/usage-logging'
 
 import { chooseRecall } from './helpers/choose-recall'
@@ -304,8 +305,11 @@ export async function createChatStreamResponse(
           emptyMessages: 'remove'
         })
 
-        if (shouldTruncateMessages(modelMessages, model)) {
-          const maxTokens = getMaxAllowedTokens(model)
+        // Size truncation by the model's REAL window (probed from the
+        // provider, cached per model). Unknown window => no truncation.
+        const contextWindow = await resolveContextWindow(model)
+        if (shouldTruncateMessages(modelMessages, model, contextWindow)) {
+          const maxTokens = getMaxAllowedTokens(model, contextWindow) as number
           const originalCount = modelMessages.length
           modelMessages = truncateMessages(modelMessages, maxTokens, model.id)
 

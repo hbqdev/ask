@@ -25,6 +25,7 @@ import {
   truncateMessages
 } from '../utils/context-window'
 import { getTextFromParts } from '../utils/message-utils'
+import { resolveContextWindow } from '../utils/resolve-context-window'
 import { isUsageLogging, logUsage } from '../utils/usage-logging'
 
 import { convertDataPart } from './helpers/convert-data-part'
@@ -129,8 +130,11 @@ export async function createEphemeralChatStreamResponse(
           emptyMessages: 'remove'
         })
 
-        if (shouldTruncateMessages(modelMessages, model)) {
-          const maxTokens = getMaxAllowedTokens(model)
+        // Size truncation by the model's REAL window (probed from the
+        // provider, cached per model). Unknown window => no truncation.
+        const contextWindow = await resolveContextWindow(model)
+        if (shouldTruncateMessages(modelMessages, model, contextWindow)) {
+          const maxTokens = getMaxAllowedTokens(model, contextWindow) as number
           modelMessages = truncateMessages(modelMessages, maxTokens, model.id)
         }
 
