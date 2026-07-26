@@ -42,6 +42,7 @@ import { firstChunkTimer } from './helpers/first-chunk-timer'
 import { persistStreamResults } from './helpers/persist-stream-results'
 import { prepareMessages } from './helpers/prepare-messages'
 import { smoothAndStripNarration } from './helpers/smooth-and-strip-narration'
+import { streamPartTimer } from './helpers/stream-part-timer'
 import { stripNarrationFromMessage } from './helpers/strip-narration-from-message'
 import { stripReasoningParts } from './helpers/strip-reasoning-parts'
 import { stripSpecFromMessages } from './helpers/strip-spec-from-messages'
@@ -206,6 +207,9 @@ export async function createChatStreamResponse(
     // wait is surfaced as a visible step (data-classifier part) instead of
     // dead air before the first byte.
     let llmStart = performance.now()
+    // Resolves once token usage has been folded into the latency line; onFinish
+    // awaits it so emit() never races the usage handler.
+    let usageRecorded: Promise<void> = Promise.resolve()
 
     const stream = createUIMessageStream({
       execute: async ({ writer }) => {
@@ -473,15 +477,34 @@ export async function createChatStreamResponse(
             .catch(() => {})
         }
 
+        // Token usage sizes the answering prompt — the leading candidate for
+        // the gap between the search finishing and the first sentence. This
+        // settles independently of the UI stream, so onFinish awaits the
+        // handle below rather than assuming it already resolved.
+        usageRecorded = Promise.resolve(result.totalUsage)
+          .then(usage =>
+            latency.markUsage({
+              inputTokens: usage?.inputTokens,
+              outputTokens: usage?.outputTokens
+            })
+          )
+          .catch(() => {})
+
         writer.merge(
           result
             .toUIMessageStream({ sendStart: false })
             .pipeThrough(firstChunkTimer(() => latency.markFirstToken()))
+            .pipeThrough(streamPartTimer(type => latency.markStreamPart(type)))
         )
       },
       onFinish: async ({ responseMessage, isAborted }) => {
         try {
           perfTime('researchAgent.stream completed', llmStart)
+          // Bounded: a stalled usage promise must not hold back the line.
+          await Promise.race([
+            usageRecorded,
+            new Promise<void>(resolve => setTimeout(resolve, 1000))
+          ])
           latency.emit({ skipSearch: classification?.skipSearch ?? null })
           if (isAborted || !responseMessage) return
 

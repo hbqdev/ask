@@ -12,6 +12,12 @@ export class LatencyTracker {
   private readonly startedAt: number
   private readonly marks: Record<string, number> = {}
   private firstTokenAt: number | null = null
+  // First-seen offset per UI-message part type. ttft_ms only sees the first
+  // chunk of ANY kind — a tool call on a research turn — so on its own it
+  // cannot show when prose actually started. Measured on staging: first chunk
+  // 13.5s, first sentence ~88s.
+  private readonly streamParts: Record<string, number> = {}
+  private usage: { inputTokens?: number; outputTokens?: number } | null = null
 
   constructor(
     private readonly meta: Meta,
@@ -31,6 +37,21 @@ export class LatencyTracker {
     if (this.firstTokenAt === null) this.firstTokenAt = this.now()
   }
 
+  /**
+   * Stamp the first time a UI-message part of this type reached the client.
+   * Repeats are ignored, so the emitted map is a timeline of firsts.
+   */
+  markStreamPart(type: string): void {
+    if (this.streamParts[type] === undefined) {
+      this.streamParts[type] = Math.round(this.now() - this.startedAt)
+    }
+  }
+
+  /** Record token usage for the turn. Absent counts are simply not emitted. */
+  markUsage(usage: { inputTokens?: number; outputTokens?: number }): void {
+    this.usage = usage
+  }
+
   /** Emit the single per-turn line. */
   emit(extra: { skipSearch?: boolean | null }): void {
     try {
@@ -39,6 +60,7 @@ export class LatencyTracker {
         this.firstTokenAt === null
           ? null
           : Math.round(this.firstTokenAt - this.startedAt)
+      const streamSeen = Object.keys(this.streamParts).length > 0
       this.sink(
         `[latency] ${JSON.stringify({
           chatId: this.meta.chatId ?? null,
@@ -46,6 +68,13 @@ export class LatencyTracker {
           modelId: this.meta.modelId ?? null,
           ...this.marks,
           ttft_ms: ttft,
+          ...(streamSeen && { stream: this.streamParts }),
+          ...(typeof this.usage?.inputTokens === 'number' && {
+            prompt_tokens: this.usage.inputTokens
+          }),
+          ...(typeof this.usage?.outputTokens === 'number' && {
+            completion_tokens: this.usage.outputTokens
+          }),
           total_ms: total,
           skipSearch: extra.skipSearch ?? null
         })}`
