@@ -1,0 +1,22 @@
+# Staging's flavour of the Mullvad overlay. Apply AFTER docker-compose.vpn.yaml,
+# which is written for prod.
+#
+# Separate server on purpose: prod and staging share one WireGuard key (it is
+# account-wide), and two peers presenting the same key to the SAME Mullvad
+# server fight over the route — last handshake wins and the other silently
+# loses egress. Pinning them to different hosts avoids that entirely.
+#
+# prod    -> us-was-wg-001 (185.213.193.36) — the exit that was measured good
+# staging -> us-was-wg-002
+
+services:
+  gluetun:
+    container_name: ask-gluetun-admin-feature
+    environment:
+      SERVER_HOSTNAMES: ${MULLVAD_SERVER_STAGING:-us-was-wg-002}
+    ports: !override
+      - '3740:8080'
+
+  ask:
+    environment:
+      SEARXNG_API_URL: 'http://ask-gluetun-admin-feature:8080'

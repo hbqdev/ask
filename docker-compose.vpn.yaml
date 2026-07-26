@@ -13,11 +13,14 @@
 # fleet access (.17 reranker, .160 embedder, .171 granite) and add a WAN hop to
 # purely local traffic.
 #
-# Usage (staging):
-#   docker compose -f docker-compose.yaml \
-#                  -f docker-compose.admin-feature.yaml \
-#                  -f docker-compose.vpn.yaml \
-#                  -p ask-stack-admin-feature up -d
+# Usage:
+#   prod:
+#     docker compose -f docker-compose.yaml -f docker-compose.vpn.yaml \
+#                    -p ask-stack up -d
+#   staging (adds the admin-feature overlays AFTER this one):
+#     docker compose -f docker-compose.yaml -f docker-compose.admin-feature.yaml \
+#                    -f docker-compose.vpn.yaml -f docker-compose.vpn.admin-feature.yaml \
+#                    -p ask-stack-admin-feature up -d
 #
 # REQUIRED in .env before this will start — get these from
 # https://mullvad.net/en/account/wireguard-config (generate a key, pick a
@@ -31,7 +34,7 @@
 services:
   gluetun:
     image: qmcgaw/gluetun:latest
-    container_name: ask-gluetun-admin-feature
+    container_name: ask-gluetun
     cap_add:
       - NET_ADMIN
     devices:
@@ -63,11 +66,12 @@ services:
       # Let the LAN through so the fleet (.17 reranker, .160 embedder, .171
       # granite) stays reachable and does not get routed over the tunnel.
       FIREWALL_OUTBOUND_SUBNETS: 192.168.50.0/24
-    # Browse staging's SearXNG from the LAN at http://192.168.50.231:3740 to
-    # see exactly which engines answer through the tunnel. Published HERE
-    # because searxng has no ports of its own inside this namespace.
+    # Browse this instance's SearXNG from the LAN at
+    # http://192.168.50.231:3741 to see exactly which engines answer through
+    # the tunnel. Published HERE because searxng has no ports of its own once
+    # it is inside this namespace.
     ports:
-      - '3740:8080'
+      - '3741:8080'
     restart: unless-stopped
     healthcheck:
       test: ['CMD', 'wget', '-qO-', 'https://ipinfo.io/ip']
@@ -81,15 +85,20 @@ services:
     # outbound engine requests exit via Mullvad.
     #
     # Consequence: it no longer has its own hostname on the compose network.
-    # Anything that talked to `ask-searxng-admin-feature:8080` must now talk to
-    # `ask-gluetun-admin-feature:8080` — see the ask service override below.
+    # Anything that talked to `ask-searxng:8080` must now talk to
+    # `ask-gluetun:8080` — see the ask service override below.
     network_mode: service:gluetun
+    # The base compose publishes 3741 on this service. A container inside
+    # another's network namespace cannot own ports, so hand it to gluetun above.
+    ports: !override []
     depends_on:
       gluetun:
         condition: service_healthy
 
   ask:
     environment:
-      # Follows the namespace move above. Without this, staging's searches fail
-      # closed — the hostname simply stops resolving.
-      SEARXNG_API_URL: 'http://ask-gluetun-admin-feature:8080'
+      # Follows the namespace move above. Without this, searches fail closed —
+      # the hostname simply stops resolving. SEARXNG_FALLBACK_API_URL still
+      # applies, so a dead tunnel degrades to the fallback instance rather
+      # than breaking search outright.
+      SEARXNG_API_URL: 'http://ask-gluetun:8080'
