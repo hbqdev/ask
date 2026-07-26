@@ -6,6 +6,11 @@ import {
   getConfiguredModel
 } from '@/lib/embeddings/transformers-embedding'
 import { getSearchSchemaForModel } from '@/lib/schema/search'
+import {
+  basicSearchCacheKey,
+  redisCacheIO,
+  withBasicSearchCache
+} from '@/lib/search/basic-search-cache'
 import type { FullContentByToolCall } from '@/lib/search/rehydrate-full-content'
 import { SearchResultItem, SearchResults } from '@/lib/types'
 import { readNdjson } from '@/lib/utils/ndjson'
@@ -118,9 +123,16 @@ async function searchExpansionVariants(
     (process.env.SEARCH_API as SearchProviderType) || DEFAULT_PROVIDER
   const settled = await Promise.allSettled(
     variants.map(v =>
-      createSearchProvider(searchAPI).search(v, 10, 'basic', [], [], {
-        time_range: timeRange
-      })
+      // Cached: the classifier runs at temperature 0, so the same question
+      // yields the same variants every time and these repeat constantly.
+      withBasicSearchCache(
+        basicSearchCacheKey(v, 10, timeRange),
+        () =>
+          createSearchProvider(searchAPI).search(v, 10, 'basic', [], [], {
+            time_range: timeRange
+          }),
+        redisCacheIO
+      )
     )
   )
   return settled.flatMap(s =>
@@ -492,20 +504,34 @@ export function createSearchTool(
               filledQuery
             )
           } else if (searchAPI === 'searxng') {
-            searchResult = await searchProvider.search(
-              filledQuery,
-              effectiveMaxResults,
-              effectiveSearchDepthForAPI,
-              include_domains,
-              exclude_domains,
-              {
-                searchMode: search_mode as SearchModeOption,
-                content_types: content_types as SearchContentType[],
-                time_range: toolOptions?.timeRange,
-                intent: toolOptions?.intent,
-                useOllama,
-                ollamaMaxResults
-              }
+            // Cached at basic depth: follow-up searches all tier down to
+            // basic and previously bypassed the cache entirely, which was the
+            // bulk of engine load. Domain filters are part of the key via the
+            // query string, and advanced never reaches here (it goes through
+            // /api/advanced-search, which has its own cache).
+            searchResult = await withBasicSearchCache(
+              basicSearchCacheKey(
+                `${filledQuery}|${search_mode}|${include_domains.join(',')}|${exclude_domains.join(',')}|${toolOptions?.intent ?? ''}`,
+                effectiveMaxResults,
+                toolOptions?.timeRange
+              ),
+              () =>
+                searchProvider.search(
+                  filledQuery,
+                  effectiveMaxResults,
+                  effectiveSearchDepthForAPI,
+                  include_domains,
+                  exclude_domains,
+                  {
+                    searchMode: search_mode as SearchModeOption,
+                    content_types: content_types as SearchContentType[],
+                    time_range: toolOptions?.timeRange,
+                    intent: toolOptions?.intent,
+                    useOllama,
+                    ollamaMaxResults
+                  }
+                ),
+              redisCacheIO
             )
           } else {
             searchResult = await searchProvider.search(
