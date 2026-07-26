@@ -56,6 +56,8 @@ import {
 } from '@/lib/utils/tavily-search-client'
 import { withDeadline } from '@/lib/utils/with-deadline'
 
+import { buildSearchTelemetryTag } from './telemetry-tag'
+
 /**
  * Maximum number of results to fetch from SearXNG.
  * Increasing this value can improve result quality but may impact performance.
@@ -405,7 +407,8 @@ export async function POST(request: Request) {
     timeRange,
     intent,
     useOllama,
-    ollamaMaxResults
+    ollamaMaxResults,
+    chatId
   } = await request.json()
 
   const SEARXNG_DEFAULT_DEPTH = process.env.SEARXNG_DEFAULT_DEPTH || 'basic'
@@ -425,6 +428,9 @@ export async function POST(request: Request) {
     // line cannot see: it is emitted from the chat pipeline, while the search
     // fan-out, crawl and rerank all happen behind this route.
     const timer = new StageTimer('latency:search', {
+      // chatId joins this search to the turn that caused it. Turns make
+      // multiple searches, so ordering alone mismatches rows.
+      ...buildSearchTelemetryTag({ chatId }),
       depth: searchDepth || SEARXNG_DEFAULT_DEPTH,
       intent: typeof intent === 'string' ? intent : 'general'
     })
@@ -775,7 +781,13 @@ async function advancedSearchXNGSearch(
               1,
               parseInt(process.env.CRAWL4AI_CHUNK_SIZE || '8', 10)
             ),
-            chunkTimeoutMs: CRAWL4AI_CHUNK_TIMEOUT_MS
+            chunkTimeoutMs: CRAWL4AI_CHUNK_TIMEOUT_MS,
+            // crawl_ms is the largest and most variable stage measured
+            // (9.4s-111s). These say whether a slow batch was one bad chunk
+            // or all of them, which have opposite fixes.
+            onStats: stats => {
+              for (const [k, v] of Object.entries(stats)) timer.set(k, v)
+            }
           }
         )
       )

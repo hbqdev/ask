@@ -325,7 +325,8 @@ export async function createResearcher({
       timeRange: needsRecent ? 'month' : undefined,
       expandedQueries: expandedQueriesPromise,
       intent,
-      firstSearchDepth
+      firstSearchDepth,
+      chatId: currentChatId
     })
     const askQuestionTool = createQuestionTool(model)
     const todoTools = createTodoTools()

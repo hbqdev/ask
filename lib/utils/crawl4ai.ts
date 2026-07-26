@@ -16,6 +16,10 @@
  * rejects unauthenticated requests to everything except /health).
  */
 
+import {
+  type Crawl4aiBatchStats,
+  summariseChunkDurations
+} from './crawl4ai-batch-stats'
 import { mapWithConcurrency } from './map-with-concurrency'
 
 const DEFAULT_TIMEOUT_MS = 30_000
@@ -79,6 +83,12 @@ export async function crawl4aiScrapeMany(
   options?: {
     chunkSize?: number
     chunkTimeoutMs?: number
+    /**
+     * Per-chunk timing for the caller's telemetry. crawl_ms alone cannot
+     * distinguish a tail-bound batch (one pathological chunk) from a
+     * throughput-bound one (everything slow), and those have opposite fixes.
+     */
+    onStats?: (stats: Crawl4aiBatchStats) => void
     waitUntil?: Crawl4aiWaitUntil
   }
 ): Promise<Crawl4aiResult[]> {
@@ -112,12 +122,31 @@ export async function crawl4aiScrapeMany(
     parseInt(process.env.CRAWL4AI_MAX_CONCURRENT_CHUNKS || '6', 10)
   )
 
-  const settled = await mapWithConcurrency(chunks, maxConcurrent, chunk =>
-    crawl4aiScrape(chunk, {
-      timeoutMs: options?.chunkTimeoutMs ?? 60_000,
-      waitUntil: options?.waitUntil
-    })
+  const chunkDurations: number[] = []
+  const settled = await mapWithConcurrency(
+    chunks,
+    maxConcurrent,
+    async chunk => {
+      const startedAt = Date.now()
+      try {
+        return await crawl4aiScrape(chunk, {
+          timeoutMs: options?.chunkTimeoutMs ?? 60_000,
+          waitUntil: options?.waitUntil
+        })
+      } finally {
+        // Recorded in `finally` so a chunk that times out still contributes its
+        // duration — those are exactly the chunks that explain a slow batch.
+        chunkDurations.push(Date.now() - startedAt)
+      }
+    }
   )
+
+  const failures = settled.filter(s => s instanceof Error).length
+  try {
+    options?.onStats?.(summariseChunkDurations(chunkDurations, failures))
+  } catch {
+    // Telemetry must never break a crawl.
+  }
 
   return settled.flatMap(s => {
     if (s instanceof Error) {
