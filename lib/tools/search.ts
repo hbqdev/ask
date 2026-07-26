@@ -6,7 +6,8 @@ import {
   getConfiguredModel
 } from '@/lib/embeddings/transformers-embedding'
 import { getSearchSchemaForModel } from '@/lib/schema/search'
-import { SearchResults } from '@/lib/types'
+import type { FullContentByToolCall } from '@/lib/search/rehydrate-full-content'
+import { SearchResultItem, SearchResults } from '@/lib/types'
 import { readNdjson } from '@/lib/utils/ndjson'
 import { isOllamaSearchConfigured } from '@/lib/utils/ollama-search-client'
 import {
@@ -39,6 +40,10 @@ export type SearchToolOptions = {
   // discovery beyond a single phrasing. A rejected/empty promise means
   // single-query search, exactly the pre-expansion behavior.
   expandedQueries?: Promise<string[]>
+  // Collects FULL crawled text per toolCallId so the persisted message can
+  // carry it while the live prompt only gets excerpts. See
+  // lib/search/rehydrate-full-content.ts for why.
+  fullContentSink?: FullContentByToolCall
   // Current chat id, forwarded to /api/advanced-search purely so its
   // [latency:search] line can be joined to the [latency] turn line. Turns
   // make multiple searches, so ordering does not identify them.
@@ -160,6 +165,20 @@ export function createSearchTool(
       },
       context
     ) {
+      // Records full crawled text for THIS tool call so onFinish can persist
+      // it in place of the excerpt the model reads. No-op unless excerpting
+      // actually shrank the payload (the route omits fullResults otherwise).
+      const recordFull = (full?: SearchResultItem[]) => {
+        try {
+          const id = context?.toolCallId
+          if (id && full && full.length > 0) {
+            toolOptions?.fullContentSink?.set(id, full)
+          }
+        } catch {
+          // Never break a search over telemetry-shaped bookkeeping.
+        }
+      }
+
       // Yield initial searching state
       yield {
         state: 'searching' as const,
@@ -369,6 +388,7 @@ export function createSearchTool(
 
           if (streamPreview && response.body) {
             let finalResult: SearchResults | undefined
+            let finalFull: SearchResultItem[] | undefined
             for await (const line of readNdjson(response.body)) {
               const msg = line as { type?: string } & Partial<SearchResults>
               if (msg?.type === 'preview') {
@@ -383,6 +403,8 @@ export function createSearchTool(
                   number_of_results: msg.number_of_results ?? 0
                 }
               } else if (msg?.type === 'final') {
+                finalFull = (msg as { fullResults?: SearchResultItem[] })
+                  .fullResults
                 finalResult = {
                   results: msg.results ?? [],
                   query: msg.query ?? filledQuery,
@@ -395,8 +417,11 @@ export function createSearchTool(
               throw new Error('Advanced search stream ended with no final line')
             }
             searchResult = finalResult
+            recordFull(finalFull)
           } else {
-            searchResult = await response.json()
+            const body = await response.json()
+            searchResult = body
+            recordFull(body?.fullResults)
           }
         } else {
           // Use the provider factory to get the appropriate search provider

@@ -5,6 +5,7 @@ import { type Model } from '@/lib/types/models'
 
 import { getMemoryInjection } from '../memory/inject'
 import { getRelatedQuestionsSpecPrompt } from '../render/prompt'
+import type { FullContentByToolCall } from '../search/rehydrate-full-content'
 import { calculateTool } from '../tools/calculate'
 import { fetchTool } from '../tools/fetch'
 import {
@@ -255,6 +256,7 @@ export async function createResearcher({
   // The chat this turn belongs to — excluded from recall results so the tool
   // never returns the conversation the user is already in.
   currentChatId,
+  fullContentSink,
   // Past-conversation excerpts, retrieved in the streaming layer (it owns the
   // resolved standaloneQuery and the stream writer). Appended to the system
   // prompt next to the feature-A memory block.
@@ -291,6 +293,7 @@ export async function createResearcher({
   // The chat this turn belongs to — excluded from recall results so the tool
   // never returns the conversation the user is already in.
   currentChatId?: string
+  fullContentSink?: FullContentByToolCall
   // Past-conversation excerpts, retrieved in the streaming layer (it owns the
   // resolved standaloneQuery and the stream writer). Appended to the system
   // prompt next to the feature-A memory block.
@@ -326,7 +329,8 @@ export async function createResearcher({
       expandedQueries: expandedQueriesPromise,
       intent,
       firstSearchDepth,
-      chatId: currentChatId
+      chatId: currentChatId,
+      fullContentSink
     })
     const askQuestionTool = createQuestionTool(model)
     const todoTools = createTodoTools()
