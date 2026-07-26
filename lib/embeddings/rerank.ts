@@ -29,14 +29,32 @@ const PASSAGE_OVERLAP_TOKENS = 32
 // embedding batch (CPU inference — batch size is latency).
 const MAX_PASSAGES_PER_DOC = 12
 
+// How many of a document's best passages are kept for the prompt.
+function passagesPerSource(): number {
+  const raw = Number(process.env.PASSAGES_PER_SOURCE)
+  if (!Number.isFinite(raw) || raw < 1) return 3
+  return Math.min(Math.floor(raw), MAX_PASSAGES_PER_DOC)
+}
+
 export type RerankableDoc = {
   content: string
+}
+
+/** A passage kept for a document, with its position in that document. */
+export type RankedPassage = {
+  text: string
+  index: number
 }
 
 export type RerankedDoc<T> = {
   doc: T
   score: number
-  topPassages: string[]
+  /**
+   * The best passages for this document, in DOCUMENT order. Selection is by
+   * score; presentation is positional, because these are concatenated into
+   * the answering prompt and shuffled paragraphs read as nonsense.
+   */
+  topPassages: RankedPassage[]
 }
 
 /**
@@ -66,19 +84,29 @@ async function rerankByPassageScorer<T extends RerankableDoc>(
   const scores = await scoreFn(query, flatPassages)
 
   let cursor = 0
+  const keep = passagesPerSource()
   const scored: RerankedDoc<T>[] = docs.map((doc, i) => {
     const passages = passagesPerDoc[i]
     const passageScores = passages.map((passage, j) => ({
-      passage,
+      text: passage,
+      index: j,
       score: scores[cursor + j] ?? 0
     }))
     cursor += passages.length
 
-    passageScores.sort((a, b) => b.score - a.score)
+    // `byScore` is a copy: sorting `passageScores` in place would decouple
+    // `index` from the position it names for anything reading it later.
+    const byScore = [...passageScores].sort((a, b) => b.score - a.score)
+    const topPassages = byScore
+      .slice(0, keep)
+      // Select by score, then present in reading order.
+      .sort((a, b) => a.index - b.index)
+      .map(({ text, index }) => ({ text, index }))
+
     return {
       doc,
-      score: passageScores[0]?.score ?? 0,
-      topPassages: passageScores.slice(0, 3).map(p => p.passage)
+      score: byScore[0]?.score ?? 0,
+      topPassages
     }
   })
 
