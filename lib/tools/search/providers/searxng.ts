@@ -1,4 +1,12 @@
 import {
+  filterHealthyEngines,
+  parseUnresponsiveEngines
+} from '@/lib/search/engine-health'
+import {
+  loadSuspendedEngines,
+  recordEngineOutcomes
+} from '@/lib/search/engine-health-store'
+import {
   DegoogResponse,
   SearchResultImage,
   SearchResultItem,
@@ -95,6 +103,25 @@ export class SearXNGSearchProvider extends BaseSearchProvider {
       .map(ct => CONTENT_TYPE_TO_CATEGORY[ct])
       .filter((cat): cat is string => Boolean(cat))
 
+    // Which pinned engines this search will actually ask for. SearXNG reports
+    // unresponsive engines but keeps calling them, so engines that are
+    // rate-limiting or CAPTCHA-ing us cost a round trip on every search and
+    // burn more IP reputation with a provider already blocking us. Only the
+    // general branch pins `engines` at all, so only it pays for the lookup.
+    const gatesEngines = !isAcademic && !isSocial
+    const pinnedEngines = gatesEngines
+      ? (searchDepth === 'advanced'
+          ? SEARXNG_ENGINES_ADVANCED
+          : SEARXNG_ENGINES_BASIC
+        ).split(',')
+      : []
+    const suspendedEngines = gatesEngines
+      ? await loadSuspendedEngines(pinnedEngines)
+      : new Set<string>()
+    // Never strands the last engine: if all are suspended this is the original
+    // list, because an empty `engines` param returns nothing, guaranteed.
+    const healthyEngines = filterHealthyEngines(pinnedEngines, suspendedEngines)
+
     try {
       // Construct the URL with query parameters.
       // SearXNG doesn't have a real per-domain filter param (no `site=`) —
@@ -155,11 +182,11 @@ export class SearXNGSearchProvider extends BaseSearchProvider {
           if (searchDepth === 'advanced') {
             url.searchParams.append('time_range', options?.time_range ?? '')
             url.searchParams.append('safesearch', '0')
-            url.searchParams.append('engines', SEARXNG_ENGINES_ADVANCED)
+            url.searchParams.append('engines', healthyEngines.join(','))
           } else {
             url.searchParams.append('time_range', options?.time_range ?? 'year')
             url.searchParams.append('safesearch', '1')
-            url.searchParams.append('engines', SEARXNG_ENGINES_BASIC)
+            url.searchParams.append('engines', healthyEngines.join(','))
           }
         }
 
@@ -293,6 +320,19 @@ export class SearXNGSearchProvider extends BaseSearchProvider {
 
       const { data: rawData, baseUrlUsed } = searxngSettled.value
       const data = rawData as SearXNGResponse
+
+      // Fold this search's outcome into engine health. SearXNG names the
+      // engines that failed in `unresponsive_engines`, so the signal is free —
+      // we were discarding it. Deliberately not awaited: health is best-effort
+      // and must never add latency to, or fail, the search itself.
+      if (gatesEngines) {
+        void recordEngineOutcomes({
+          requested: healthyEngines,
+          unresponsive: parseUnresponsiveEngines(
+            (data as { unresponsive_engines?: unknown }).unresponsive_engines
+          )
+        })
+      }
 
       // Separate results into: images (has img_src), videos (dedicated
       // `videos` field, only when requested), link-style extra categories
