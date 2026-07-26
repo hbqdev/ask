@@ -1,10 +1,12 @@
-import { generateText, Output, UIMessage } from 'ai'
+import { generateText, tool, UIMessage } from 'ai'
 import { createOllama } from 'ai-sdk-ollama'
 import { z } from 'zod'
 
 import { SEARCH_INTENTS } from '../tools/search/intent'
 import { createTimeoutFetch } from '../utils/fetch-with-timeout'
 import { getTextFromParts } from '../utils/message-utils'
+
+import { buildClassifierTelemetry } from './query-classifier-telemetry'
 
 // Dedicated, fixed model for this classification — deliberately NOT routed
 // through registry.ts's getModel(), so this call stays independent of
@@ -73,12 +75,29 @@ const classifierSchema = z.object({
   skipSearch: z.boolean(),
   standaloneQuery: z.string(),
   needsRecent: z.boolean(),
-  intent: z.enum(SEARCH_INTENTS)
+  intent: z.enum(SEARCH_INTENTS),
+  // Fused query expansion. Previously a SECOND serial call to this same
+  // model on this same host (6.6-12.3s), which could not start until this
+  // one resolved because it needed standaloneQuery. Emitting them here
+  // removes that round trip entirely. Empty is valid — the caller falls
+  // back to the standalone expander rather than narrowing the search.
+  expandedQueries: z
+    .array(z.string())
+    .max(3)
+    .describe(
+      'Up to 3 ALTERNATIVE phrasings of standaloneQuery for parallel web search, each approaching the question differently. Empty array when skipSearch is true.'
+    )
 })
 
 export interface QueryClassification {
   skipSearch: boolean
   standaloneQuery: string
+  /**
+   * Alternative phrasings for parallel search, produced by the SAME call
+   * that classifies. See classifierSchema. May be empty — the caller then
+   * falls back to the standalone expander.
+   */
+  expandedQueries?: string[]
   // True when the answer depends on current/recent information (news,
   // prices, versions, releases, schedules, "latest X"). Plumbs through to
   // SearXNG's time_range so this turn's searches prefer fresh pages.
@@ -159,6 +178,17 @@ function buildConversationTranscript(messages: UIMessage[]): {
   return { history, latestMessage: getTextFromParts(latest?.parts) }
 }
 
+/** Telemetry must never break a turn. */
+function emitClassifierTelemetry(
+  t: Parameters<typeof buildClassifierTelemetry>[0]
+): void {
+  try {
+    console.log(buildClassifierTelemetry(t))
+  } catch {
+    // ignored
+  }
+}
+
 export async function classifyQuery({
   messages,
   abortSignal
@@ -166,6 +196,7 @@ export async function classifyQuery({
   messages: UIMessage[]
   abortSignal?: AbortSignal
 }): Promise<QueryClassification> {
+  const startedAt = performance.now()
   const { history, latestMessage } = buildConversationTranscript(messages)
 
   // Fallback matches today's existing behavior exactly: always search,
@@ -175,7 +206,9 @@ export async function classifyQuery({
     skipSearch: false,
     standaloneQuery: latestMessage,
     needsRecent: false,
-    intent: 'general'
+    intent: 'general',
+    // No expansions from a failed call; the caller's fallback expander runs.
+    expandedQueries: []
   }
 
   // Runs on a dedicated GPU-backed Ollama host instead of
@@ -202,25 +235,70 @@ export async function classifyQuery({
       fetch: createTimeoutFetch(CLASSIFIER_TIMEOUT_MS, abortSignal)
     })
 
-    const { output: classification } = await generateText({
-      // keep_alive: -1 keeps this model resident in Ollama's memory
-      // indefinitely — otherwise Ollama's default 5-minute idle timeout
-      // unloads it between calls, and the next classification pays a slow
-      // cold-load penalty instead of the fast warm-inference path.
-      model: provider(CLASSIFIER_MODEL_ID, { think: false, keep_alive: -1 }),
-      system: CLASSIFIER_SYSTEM_PROMPT,
-      prompt: `Conversation so far:\n${history}\n\nLatest message: ${latestMessage}`,
-      temperature: 0,
-      abortSignal,
-      output: Output.object({ schema: classifierSchema })
+    // Tool calling, NOT Output.object. Ollama's `format: <json schema>`
+    // constrains decoding only for LOCAL models — it is silently ignored by
+    // cloud models, which return prose and a `thinking` field instead. A
+    // schema-based classifier therefore fails closed on every turn the moment
+    // CLASSIFIER_MODEL_ID points at a :cloud model. Tool calling is honoured
+    // by both: verified against granite4.1:8b locally and glm-5.2,
+    // deepseek-v4-flash, minimax-m3, kimi-k2.6, kimi-k2.7-code and
+    // nemotron-3-ultra in the cloud.
+    const modelStart = performance.now()
+    let modelMs = 0
+    let usage: { inputTokens?: number; outputTokens?: number } | undefined
+    let classification: z.infer<typeof classifierSchema> | undefined
+
+    try {
+      const result = await generateText({
+        // keep_alive: -1 keeps a LOCAL model resident in Ollama's memory —
+        // otherwise the default 5-minute idle timeout unloads it and the next
+        // classification pays a cold-load penalty. Harmless for cloud models.
+        model: provider(CLASSIFIER_MODEL_ID, { think: false, keep_alive: -1 }),
+        system: CLASSIFIER_SYSTEM_PROMPT,
+        prompt: `Conversation so far:\n${history}\n\nLatest message: ${latestMessage}`,
+        temperature: 0,
+        abortSignal,
+        tools: {
+          classify: tool({
+            description:
+              "Report the classification of the user's latest message. Always call this tool exactly once.",
+            inputSchema: classifierSchema
+          })
+        },
+        toolChoice: 'required'
+      })
+      modelMs = performance.now() - modelStart
+      usage = result.usage
+      const call = result.toolCalls?.[0]
+      if (call && call.toolName === 'classify') {
+        classification = call.input as z.infer<typeof classifierSchema>
+      }
+    } finally {
+      if (modelMs === 0) modelMs = performance.now() - modelStart
+    }
+
+    const ok = Boolean(classification?.standaloneQuery.trim())
+    emitClassifierTelemetry({
+      totalMs: performance.now() - startedAt,
+      modelMs,
+      inputTokens: usage?.inputTokens,
+      outputTokens: usage?.outputTokens,
+      model: CLASSIFIER_MODEL_ID,
+      outcome: ok ? 'ok' : 'empty'
     })
 
-    if (!classification || !classification.standaloneQuery.trim()) {
+    if (!ok || !classification) {
       return fallback
     }
 
     return classification
   } catch (error) {
+    emitClassifierTelemetry({
+      totalMs: performance.now() - startedAt,
+      modelMs: 0,
+      model: CLASSIFIER_MODEL_ID,
+      outcome: 'failed'
+    })
     if (process.env.NODE_ENV === 'development') {
       console.warn(
         'Query classifier failed, defaulting to always-search:',

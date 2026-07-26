@@ -3,6 +3,12 @@ import { afterAll, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { classifyQuery } from '../query-classifier'
 
+// The classifier reads its result from a TOOL CALL, not Output.object.
+// Ollama's `format: <json schema>` constrains decoding only for LOCAL models
+// and is silently ignored by cloud ones — glm-5.2:cloud returns prose plus a
+// `thinking` field — so a schema-based classifier would fail closed on every
+// turn the moment CLASSIFIER_MODEL_ID pointed at a :cloud model.
+
 vi.mock('ai', async () => {
   const actual = await vi.importActual<typeof import('ai')>('ai')
   return {
@@ -54,11 +60,16 @@ describe('classifyQuery', () => {
 
   it('returns the model classification on success', async () => {
     mockGenerateText.mockResolvedValue({
-      output: {
-        skipSearch: true,
-        standaloneQuery: 'confirm the plan',
-        needsRecent: false
-      }
+      toolCalls: [
+        {
+          toolName: 'classify',
+          input: {
+            skipSearch: true,
+            standaloneQuery: 'confirm the plan',
+            needsRecent: false
+          }
+        }
+      ]
     } as any)
 
     const result = await classifyQuery({
@@ -87,13 +98,25 @@ describe('classifyQuery', () => {
       skipSearch: false,
       standaloneQuery: 'what is the tallest mountain in South Korea',
       needsRecent: false,
-      intent: 'general'
+      intent: 'general',
+      // No fused expansions from a failed call — the caller falls back to
+      // the standalone expander rather than narrowing the search.
+      expandedQueries: []
     })
   })
 
   it('falls back when the model returns an empty standaloneQuery', async () => {
     mockGenerateText.mockResolvedValue({
-      output: { skipSearch: true, standaloneQuery: '   ', needsRecent: false }
+      toolCalls: [
+        {
+          toolName: 'classify',
+          input: {
+            skipSearch: true,
+            standaloneQuery: '   ',
+            needsRecent: false
+          }
+        }
+      ]
     } as any)
 
     const result = await classifyQuery({
@@ -104,7 +127,10 @@ describe('classifyQuery', () => {
       skipSearch: false,
       standaloneQuery: 'hello there',
       needsRecent: false,
-      intent: 'general'
+      intent: 'general',
+      // No fused expansions from a failed call — the caller falls back to
+      // the standalone expander rather than narrowing the search.
+      expandedQueries: []
     })
   })
 
@@ -120,18 +146,26 @@ describe('classifyQuery', () => {
       skipSearch: false,
       standaloneQuery: 'what time is it',
       needsRecent: false,
-      intent: 'general'
+      intent: 'general',
+      // No fused expansions from a failed call — the caller falls back to
+      // the standalone expander rather than narrowing the search.
+      expandedQueries: []
     })
   })
 
   it('prefers CLASSIFIER_OLLAMA_BASE_URL over OLLAMA_BASE_URL when both are set', async () => {
     process.env.CLASSIFIER_OLLAMA_BASE_URL = 'http://serenity:11434'
     mockGenerateText.mockResolvedValue({
-      output: {
-        skipSearch: false,
-        standaloneQuery: 'what time is it',
-        needsRecent: true
-      }
+      toolCalls: [
+        {
+          toolName: 'classify',
+          input: {
+            skipSearch: false,
+            standaloneQuery: 'what time is it',
+            needsRecent: true
+          }
+        }
+      ]
     } as any)
 
     await classifyQuery({ messages: [userMsg('what time is it')] })
@@ -148,11 +182,16 @@ describe('classifyQuery', () => {
     // the wrong (previous) turn. The prompt must clip history yet keep the
     // latest message — the thing being classified — intact.
     mockGenerateText.mockResolvedValue({
-      output: {
-        skipSearch: false,
-        standaloneQuery: 'x',
-        needsRecent: false
-      }
+      toolCalls: [
+        {
+          toolName: 'classify',
+          input: {
+            skipSearch: false,
+            standaloneQuery: 'x',
+            needsRecent: false
+          }
+        }
+      ]
     } as any)
 
     const longReport = 'A'.repeat(6000)
@@ -176,12 +215,17 @@ describe('classifyQuery', () => {
 
   it('returns the model-provided intent on success', async () => {
     mockGenerateText.mockResolvedValue({
-      output: {
-        skipSearch: false,
-        standaloneQuery: 'latest node.js LTS version',
-        needsRecent: true,
-        intent: 'code'
-      }
+      toolCalls: [
+        {
+          toolName: 'classify',
+          input: {
+            skipSearch: false,
+            standaloneQuery: 'latest node.js LTS version',
+            needsRecent: true,
+            intent: 'code'
+          }
+        }
+      ]
     } as any)
 
     const result = await classifyQuery({
