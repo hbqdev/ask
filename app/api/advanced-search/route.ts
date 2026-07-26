@@ -13,6 +13,7 @@ import {
   rerankByEmbedding
 } from '@/lib/embeddings/rerank'
 import { buildExcerptContent } from '@/lib/search/build-excerpt'
+import { isQualityContent } from '@/lib/search/quality-content'
 import { StageTimer } from '@/lib/telemetry/stage-timer'
 import { SEARXNG_ENGINES_ADVANCED } from '@/lib/tools/search/engines'
 import { intentToCategory, type SearchIntent } from '@/lib/tools/search/intent'
@@ -1432,19 +1433,4 @@ function timeout(ms: number, message: string): Promise<never> {
       reject(new Error(message))
     }, ms)
   })
-}
-
-function isQualityContent(text: string): boolean {
-  const words = text.split(/\s+/).length
-  const sentences = text.split(/[.!?]+/).length
-  const avgWordsPerSentence = words / sentences
-
-  return (
-    words > 50 &&
-    sentences > 3 &&
-    avgWordsPerSentence > 5 &&
-    avgWordsPerSentence < 30 &&
-    !text.includes('Content unavailable due to crawling error') &&
-    !text.includes('Error fetching content:')
-  )
 }
