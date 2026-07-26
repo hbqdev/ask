@@ -32,14 +32,19 @@ describe('context-window', () => {
       expect(maxTokens).toBe(98816)
     })
 
-    test('uses default values for unknown model', () => {
-      const unknownModel: Model = {
-        ...mockModel,
-        id: 'unknown-model'
-      }
-      const maxTokens = getMaxAllowedTokens(unknownModel)
-      // Expected: (16384 - 4096) - (16384 * 0.1) = 12288 - 1638.4 = 10649.6 -> 10650
-      expect(maxTokens).toBe(10650)
+    // Was: unknown models fell back to a 16384 window, i.e. 10650 tokens of
+    // history. Every Ollama model we run misses the static map, so that
+    // default was silently discarding conversation history on a model whose
+    // real window is 262144. An unknown window must mean "do not truncate".
+    test('returns null (no limit) for a model whose window we do not know', () => {
+      const unknownModel: Model = { ...mockModel, id: 'unknown-model' }
+      expect(getMaxAllowedTokens(unknownModel)).toBeNull()
+    })
+
+    test('uses a caller-supplied window, so a probed value wins over the map', () => {
+      const kimi: Model = { ...mockModel, id: 'kimi-k2.6:cloud' }
+      // 262144 - 8192 reserve - floor(262144 * 0.1) = 253952 - 26214 = 227738
+      expect(getMaxAllowedTokens(kimi, 262144)).toBe(227738)
     })
 
     test('ensures minimum viable token count', () => {
@@ -84,6 +89,26 @@ describe('context-window', () => {
     test('handles null/undefined messages gracefully', () => {
       expect(shouldTruncateMessages(null as any, mockModel)).toBe(false)
       expect(shouldTruncateMessages(undefined as any, mockModel)).toBe(false)
+    })
+
+    test('never truncates a model whose window is unknown, however long the chat', () => {
+      const unknownModel: Model = { ...mockModel, id: 'unknown-model' }
+      const longText = 'This is a test message. '.repeat(1000)
+      const messages: ModelMessage[] = Array(40)
+        .fill(null)
+        .map(() => createMessage('user', longText))
+      expect(shouldTruncateMessages(messages, unknownModel)).toBe(false)
+    })
+
+    test('truncates against a probed window when one is supplied', () => {
+      const kimi: Model = { ...mockModel, id: 'kimi-k2.6:cloud' }
+      const longText = 'This is a test message. '.repeat(1000) // ~6k tokens
+      const messages: ModelMessage[] = Array(60)
+        .fill(null)
+        .map(() => createMessage('user', longText)) // ~360k tokens
+      expect(shouldTruncateMessages(messages, kimi, 262144)).toBe(true)
+      // ...but the same chat is fine for a model that really is that big.
+      expect(shouldTruncateMessages(messages, kimi, 2_000_000)).toBe(false)
     })
   })
 

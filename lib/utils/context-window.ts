@@ -35,11 +35,15 @@ const MODEL_CONTEXT_WINDOWS: Record<string, ModelContextInfo> = {
   'grok-3-mini': { contextWindow: 131072, outputTokens: 8192 }
 }
 
-// Default values for unknown models
-const DEFAULT_CONTEXT_WINDOW = 16384
-const DEFAULT_OUTPUT_TOKENS = 4096
+// Output tokens to reserve when the window came from a probe rather than the
+// static map. Generation shares the context window, so some room has to be
+// held back or long answers get cut off mid-sentence. Measured completions on
+// this deployment run 1.7k-3.2k tokens, so this is generous.
+const PROBED_OUTPUT_RESERVE = 8192
 
-// Safety buffer percentage (reserved for system prompts and formatting)
+// Safety buffer percentage (reserved for system prompts and formatting).
+// Also absorbs tokenizer drift: we estimate with cl100k for every model,
+// which is only an approximation for non-OpenAI tokenizers.
 const SAFETY_BUFFER_RATIO = 0.1
 
 // Cache for tiktoken encoders
@@ -67,33 +71,47 @@ const MODEL_TO_ENCODING: Record<string, TiktokenEncoding> = {
 }
 
 /**
- * Get model-specific context window information
+ * Get model-specific context window information, or null when this model is
+ * not in the static map. Callers must treat null as "unknown" — there is
+ * deliberately no default, because the previous 16384 fallback applied to
+ * every Ollama model we run and silently truncated their history.
  */
-function getModelContextInfo(modelId: string): ModelContextInfo {
-  // Direct lookup only
-  return (
-    MODEL_CONTEXT_WINDOWS[modelId] || {
-      contextWindow: DEFAULT_CONTEXT_WINDOW,
-      outputTokens: DEFAULT_OUTPUT_TOKENS
-    }
-  )
+function getModelContextInfo(modelId: string): ModelContextInfo | null {
+  return MODEL_CONTEXT_WINDOWS[modelId] ?? null
 }
 
 /**
- * Calculate the maximum allowed tokens for input
+ * The statically-known context window for a model id, or null. Exported for
+ * resolve-context-window.ts, which falls back to probing the provider.
  */
-export function getMaxAllowedTokens(model: Model): number {
-  const { contextWindow, outputTokens } = getModelContextInfo(model.id)
+export function getStaticContextWindow(modelId: string): number | null {
+  return getModelContextInfo(modelId)?.contextWindow ?? null
+}
 
-  // Calculate available tokens for input
-  let availableTokens = contextWindow - outputTokens
+/**
+ * Maximum input tokens for a model, or null when the window is unknown and
+ * nothing should be truncated.
+ *
+ * `contextWindow` overrides the static map — pass the value resolved from the
+ * provider (see resolveContextWindow) so we size against the model's real
+ * window rather than a hardcoded guess.
+ */
+export function getMaxAllowedTokens(
+  model: Model,
+  contextWindow?: number | null
+): number | null {
+  const staticInfo = getModelContextInfo(model.id)
+  const window = contextWindow ?? staticInfo?.contextWindow ?? null
+  if (window === null) return null
 
-  // Apply safety buffer
-  const safetyBuffer = Math.floor(contextWindow * SAFETY_BUFFER_RATIO)
-  availableTokens -= safetyBuffer
+  // A probed window has no separate output budget — generation shares it.
+  const outputTokens =
+    contextWindow != null && contextWindow !== staticInfo?.contextWindow
+      ? PROBED_OUTPUT_RESERVE
+      : (staticInfo?.outputTokens ?? PROBED_OUTPUT_RESERVE)
 
-  // Ensure minimum viable token count
-  return Math.max(availableTokens, 1000)
+  const safetyBuffer = Math.floor(window * SAFETY_BUFFER_RATIO)
+  return Math.max(window - outputTokens - safetyBuffer, 1000)
 }
 
 /**
@@ -293,11 +311,16 @@ export function truncateMessages(
  */
 export function shouldTruncateMessages(
   messages: ModelMessage[],
-  model: Model
+  model: Model,
+  contextWindow?: number | null
 ): boolean {
   if (!messages || messages.length === 0) return false
 
-  const maxTokens = getMaxAllowedTokens(model)
+  const maxTokens = getMaxAllowedTokens(model, contextWindow)
+  // Unknown window: never truncate. Dropping history to fit an invented
+  // limit loses the user's conversation for no reason.
+  if (maxTokens === null) return false
+
   const totalTokens = messages.reduce(
     (sum, msg) => sum + estimateTokenCount(msg.content, model.id),
     0
