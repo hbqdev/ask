@@ -89,26 +89,75 @@ untouched.
 The route's return shape at `route.ts:953` is unchanged — still
 `{ title, url, content }`. Nothing downstream learns a new field.
 
+The joining itself lives in a pure helper, `lib/search/build-excerpt.ts`, not
+inline in the route:
+
+```ts
+buildExcerptContent(
+  passages: Array<{ text: string; index: number }>,
+  fallback: string
+): string
+```
+
+The route is a 400-line handler that needs a live SearXNG, a crawler, and a
+reranker to exercise. Gap detection, ordering, and the empty case are exactly
+the logic most likely to be subtly wrong, and a pure function makes them
+testable without any of that.
+
+`fallback` is returned when `passages` is empty — a document that produced no
+passages (no content, or a non-passage-scoring tier) keeps its original text.
+
+### Passage ordering — a bug to fix first
+
+`rerank.ts:77-81` currently does:
+
+```ts
+passageScores.sort((a, b) => b.score - a.score)
+return { ..., topPassages: passageScores.slice(0, 3).map(p => p.passage) }
+```
+
+`topPassages` therefore comes back in **descending score order, not document
+order**. Nothing noticed because nothing consumed it. Concatenating those
+three passages would hand the model a page's paragraphs shuffled — passage 9
+before passage 2 — which is worse than useless for anything with a narrative
+or procedural structure, and actively misleading with an elision marker
+between them.
+
+`rerankByPassageScorer` must track each passage's index, select the top N **by
+score**, then restore **document order** before returning. Selection stays
+score-based; presentation becomes positional.
+
+This also makes `score` (currently `passageScores[0].score`, the best passage)
+independent of ordering — it must keep meaning "best passage score" after the
+re-sort, or ranking silently changes and the returned-URL invariant below
+breaks.
+
 ### Passage joining
 
-Passages are non-contiguous slices of a page. Joining them with a plain
-newline would present a discontinuity as if it were flowing prose, inviting
-the model to read a conclusion into a gap. They are joined with an explicit
-elision marker:
+With passages in document order, the join is gap-aware. Consecutive passages
+(adjacent indices) are contiguous text and are joined with a newline.
+Non-consecutive passages have real elided content between them and get an
+explicit marker:
 
 ```
-passage 1 text
- […]
 passage 2 text
- […]
 passage 3 text
+[…]
+passage 9 text
 ```
+
+Writing `[…]` between every pair regardless would assert an elision that does
+not exist between adjacent passages.
+
+Note passages carry `PASSAGE_OVERLAP_TOKENS = 32` of overlap, so joining two
+adjacent passages duplicates up to 32 tokens. That is bounded, harmless, and
+cheaper to accept than a de-duplication pass.
 
 ### Count
 
-`PASSAGES_PER_SOURCE` — how many of the ranked passages to keep, default 3
-(what `topPassages` already returns). Raising it requires `rerank.ts` to
-return more; `MAX_PASSAGES_PER_DOC = 12` is the ceiling.
+`PASSAGES_PER_SOURCE` — how many ranked passages to keep, default 3. The
+hardcoded `slice(0, 3)` in `rerank.ts` becomes this value, with
+`MAX_PASSAGES_PER_DOC = 12` as the ceiling.
 
 Projected prompt: 15 sources x 3 x 256 tokens ~= 11.5k, plus ~6k of
 conversation base, versus 82k today — roughly a 5x reduction with **all 15
@@ -195,9 +244,15 @@ dial, not a redesign.
 
 ## Scope
 
-`app/api/advanced-search/route.ts` (`applyReranked` and the rerank call sites)
-and `lib/embeddings/rerank.ts` if `PASSAGES_PER_SOURCE` is to exceed 3. No
-schema, prompt, or UI changes.
+- `lib/embeddings/rerank.ts` — track passage indices, restore document order,
+  make the kept-count configurable.
+- `lib/search/build-excerpt.ts` (new) — pure gap-aware joiner.
+- `app/api/advanced-search/route.ts` — `applyReranked` builds content from
+  passages behind the flag.
+
+No schema, prompt, or UI changes. Both rerank tiers
+(`rerankByCrossEncoder`, the embedding reranker) share
+`rerankByPassageScorer`, so the ordering fix lands in one place.
 
 ## Not in scope
 
