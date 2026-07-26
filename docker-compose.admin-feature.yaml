@@ -49,6 +49,11 @@ services:
 
   searxng:
     container_name: ask-searxng-admin-feature
+    # Drop the base compose's 3741 publish. Two containers cannot bind the same
+    # host port, and once the VPN overlay puts this one in gluetun's network
+    # namespace it cannot own ports at all — compose refuses the combination.
+    # Staging's UI is published on gluetun as 3740 instead.
+    ports: !override []
     volumes: !override
       - ./searxng-limiter.toml:/etc/searxng/limiter.toml
       # Staging gets its OWN settings file. Both composes previously mounted

@@ -62,13 +62,22 @@ services:
   # Locally-bundled SearXNG instance, used as an automatic failover target
   # when the primary instance (SEARXNG_API_URL, typically an existing
   # external SearXNG deployment) is unreachable. See SEARXNG_FALLBACK_API_URL
-  # in .env and lib/utils/searxng-client.ts for the failover logic. Not
-  # exposed to the host — only reachable from the `ask` container.
+  # in .env and lib/utils/searxng-client.ts for the failover logic.
   searxng:
     image: searxng/searxng
     container_name: ask-searxng
     environment:
       SEARXNG_SECRET: ${SEARXNG_SECRET}
+    # LAN-only UI so this instance can be inspected directly — which engines
+    # answer, which CAPTCHA — instead of inferring it from Ask's logs. It was
+    # previously unreachable from the host, so the only browsable instance was
+    # the PUBLIC searxng (search.hbqnexus.win), which is a different instance
+    # on a different egress IP and therefore not evidence about this one.
+    #
+    # Read-only UI; it changes nothing about how Ask queries this instance.
+    # Staging overrides this away — see docker-compose.admin-feature.yaml.
+    ports:
+      - '3741:8080'
     volumes:
       - ./searxng-limiter.toml:/etc/searxng/limiter.toml
       - ./searxng-settings.yml:/etc/searxng/settings.yml
