@@ -55,6 +55,16 @@ export async function expandQuery({
   standaloneQuery: string
   abortSignal?: AbortSignal
 }): Promise<string[]> {
+  // Expansion is a second serial call to granite4.1:8b on the same GPU host as
+  // the classifier — measured at 8.2-12.3s on every research turn. Neither
+  // upstream Morphic nor Vane has a query expander (upstream has zero files for
+  // one; Vane's classifier does its standalone rewrite in the SAME call and
+  // never expands). Off switch so both arms can be measured on one build.
+  // Default ON — only the exact string 'false' disables it.
+  if (process.env.QUERY_EXPANSION_ENABLED === 'false') {
+    return []
+  }
+
   const expanderBaseUrl =
     process.env.CLASSIFIER_OLLAMA_BASE_URL || process.env.OLLAMA_BASE_URL
   if (!expanderBaseUrl || !standaloneQuery.trim()) {
