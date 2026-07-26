@@ -41,7 +41,16 @@ services:
       VPN_TYPE: wireguard
       WIREGUARD_PRIVATE_KEY: ${MULLVAD_PRIVATE_KEY:?set MULLVAD_PRIVATE_KEY in .env}
       WIREGUARD_ADDRESSES: ${MULLVAD_ADDRESSES:?set MULLVAD_ADDRESSES in .env}
-      SERVER_COUNTRIES: ${MULLVAD_COUNTRY:-USA}
+      # PINNED to one host, not a country. Engine blocks are per-IP, so letting
+      # gluetun pick any US server makes results unreproducible — observed
+      # three different exits across three reconnects (us-was, us-lax,
+      # us-qas-wg-308), each with its own block status. A/B comparisons are
+      # meaningless while the exit IP moves under us.
+      #
+      # The WireGuard private key is account-wide and works on ANY Mullvad
+      # server, so this can be changed to any hostname without regenerating
+      # the key. If this server's IP gets blocked, pick another and note which.
+      SERVER_HOSTNAMES: ${MULLVAD_SERVER:-us-was-wg-001}
       # Kill switch: if the tunnel drops, SearXNG loses network rather than
       # falling back to the flagged residential IP without us noticing.
       FIREWALL: 'on'
@@ -54,6 +63,11 @@ services:
       # Let the LAN through so the fleet (.17 reranker, .160 embedder, .171
       # granite) stays reachable and does not get routed over the tunnel.
       FIREWALL_OUTBOUND_SUBNETS: 192.168.50.0/24
+    # Browse staging's SearXNG from the LAN at http://192.168.50.231:3740 to
+    # see exactly which engines answer through the tunnel. Published HERE
+    # because searxng has no ports of its own inside this namespace.
+    ports:
+      - '3740:8080'
     restart: unless-stopped
     healthcheck:
       test: ['CMD', 'wget', '-qO-', 'https://ipinfo.io/ip']
