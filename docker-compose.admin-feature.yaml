@@ -25,6 +25,24 @@ services:
       # dedicated classifier host.
       CLASSIFIER_MODEL_ID: 'glm-5.2:cloud'
       CLASSIFIER_OLLAMA_BASE_URL: 'http://192.168.50.231:11434'
+      # Re-enable degoog on the advanced path. It was switched off 2026-07-25
+      # because it scraped Google/Brave/Startpage/DDG from our residential IP
+      # and burned the reputation SearXNG depends on — see the comment on
+      # DEGOOG_ENABLED in app/api/advanced-search/route.ts. That coupling is
+      # gone: degoog now egresses its own Mullvad tunnel (23.234.110.201,
+      # us-atl-wg-406) while Ask's SearXNG uses us-was-wg-001/002, so the two
+      # no longer share a per-IP quota with each other or with browsing.
+      #
+      # What it buys: 7 engines SearXNG never queries — reddit, hacker news,
+      # lemmy, internet archive, wikimedia commons, nasa images, openverse.
+      # merge-degoog.ts promotes exactly those ahead of mainstream results so
+      # they survive truncation; the mainstream ~60% dedupes away against
+      # SearXNG's own hits.
+      #
+      # Staging only, pending the A/B on candidates/crawl_ms/returned. The
+      # fan-out itself is parallel and nearly free, but extra candidates feed
+      # the crawler, which is already 55-70% of turn latency.
+      DEGOOG_ENABLED: 'true'
       # Staging crawls via NightFuryX (Threadripper 3970X, 64 threads, 115G
       # free, load 0.12) instead of the app host (laptop i7-12650H, 16
       # threads, ~10G free, 32 containers). Throughput there plateaued at
