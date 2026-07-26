@@ -26,6 +26,26 @@ const KEY_PREFIX = 'enginehealth:'
 
 const keyFor = (engine: string) => `${KEY_PREFIX}${engine}`
 
+// Engines we have ever seen fail. Needed because SearXNG unions `categories`
+// with `engines`: brave, startpage and mojeek run on every Ask search despite
+// appearing in NEITHER pinned list, so the pinned list alone is the wrong
+// universe to check. Without this the engines costing us the most would never
+// be looked up, and so never suspended.
+const KNOWN_KEY = `${KEY_PREFIX}__known`
+
+async function readKnownEngines(io: CacheIO): Promise<string[]> {
+  try {
+    const raw = await io.get(KNOWN_KEY)
+    if (!raw) return []
+    const parsed = typeof raw === 'string' ? JSON.parse(raw) : raw
+    return Array.isArray(parsed)
+      ? parsed.filter((e): e is string => typeof e === 'string')
+      : []
+  } catch {
+    return []
+  }
+}
+
 async function readState(
   engine: string,
   io: CacheIO
@@ -59,8 +79,12 @@ export async function loadSuspendedEngines(
   const suspended = new Set<string>()
   if (!engineHealthEnabled() || requested.length === 0) return suspended
 
+  // Check the pinned engines AND every engine we have seen fail before —
+  // category-selected engines never appear in `requested` but do run.
+  const universe = new Set([...requested, ...(await readKnownEngines(io))])
+
   const states = await Promise.all(
-    requested.map(async e => [e, await readState(e, io)] as const)
+    [...universe].map(async e => [e, await readState(e, io)] as const)
   )
   for (const [engine, state] of states) {
     if (isEngineSuspended(state, now)) suspended.add(engine)
@@ -93,8 +117,24 @@ export async function recordEngineOutcomes(
   const opts = engineHealthOptions()
   const failed = new Set(unresponsive)
 
+  // Every engine SearXNG named is a breach, whether or not we pinned it. The
+  // category union means the worst offenders (brave, startpage) are never in
+  // `requested`, so scoping breaches to it would miss them entirely.
+  if (unresponsive.length > 0) {
+    try {
+      const known = new Set(await readKnownEngines(io))
+      const before = known.size
+      for (const e of unresponsive) known.add(e)
+      if (known.size !== before) {
+        await io.set(KNOWN_KEY, JSON.stringify([...known]))
+      }
+    } catch {
+      // Best-effort; a missed registration just delays suspension.
+    }
+  }
+
   await Promise.all(
-    requested.map(async engine => {
+    [...new Set([...requested, ...unresponsive])].map(async engine => {
       try {
         if (failed.has(engine)) {
           const next = recordFailure(await readState(engine, io), now, opts)
