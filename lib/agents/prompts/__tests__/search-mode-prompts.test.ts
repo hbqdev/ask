@@ -118,3 +118,37 @@ describe('depth description tracks SEARCH_EXCERPTS_ENABLED', () => {
     expect(getAdaptiveModePrompt()).toContain('crawled in full')
   })
 })
+
+// Measured on prod: every research turn issued 3-5 fetch calls, and ALL 11 of
+// 11 targeted pages the search stage had ALREADY crawled and reranked — two
+// of them twice. 86-118KB re-downloaded per turn plus a round trip each.
+//
+// Cause: the fetch guidance said "use when you need deeper content analysis
+// beyond search snippets" and "fetch the top 2-3 most relevant URLs". That is
+// written for a snippet pipeline. Our first search returns fully crawled,
+// reranked page content, so there is nothing deeper to get for a URL already
+// in the results.
+describe('fetch guidance does not re-fetch already-returned sources', () => {
+  it('tells balanced + quality mode that search results are already full content', () => {
+    for (const prompt of [getAdaptiveModePrompt(), getQualityModePrompt()]) {
+      expect(prompt).toMatch(/already among those results/i)
+    }
+  })
+
+  it('no longer instructs a blanket "fetch the top 2-3 URLs"', () => {
+    expect(getAdaptiveModePrompt()).not.toMatch(
+      /Fetch the top 2-3 most relevant/i
+    )
+  })
+
+  it('still permits fetch for URLs NOT already returned', () => {
+    // A user-supplied link, a citation found inside a source, a PDF: these are
+    // the legitimate uses and must survive.
+    for (const prompt of [getAdaptiveModePrompt(), getQualityModePrompt()]) {
+      expect(prompt.toLowerCase()).toContain('fetch')
+      expect(prompt).toMatch(
+        /not already|user (provides|gives|supplies)|links? (to|out)/i
+      )
+    }
+  })
+})
