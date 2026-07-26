@@ -51,7 +51,11 @@ services:
     container_name: ask-searxng-admin-feature
     volumes: !override
       - ./searxng-limiter.toml:/etc/searxng/limiter.toml
-      - ./searxng-settings.yml:/etc/searxng/settings.yml
+      # Staging gets its OWN settings file. Both composes previously mounted
+      # ./searxng-settings.yml, so there was no way to stage an engine change:
+      # every edit hit the file prod mounts, and took effect on prod's next
+      # restart. Engine edits go here first, then get copied to the prod file.
+      - ./searxng-settings.admin-feature.yml:/etc/searxng/settings.yml
       - searxng-data-admin-feature:/data
 
 volumes:
