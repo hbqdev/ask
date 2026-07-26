@@ -43,6 +43,22 @@ engines:
     disabled: false
   - name: lobste.rs
     disabled: false
+  # bing is in SEARXNG_ENGINES_ADVANCED ('bing,duckduckgo,wikipedia,google cse')
+  # but ships DISABLED in upstream defaults — so Ask requested it on every
+  # advanced search and got nothing back. With brave rate-limited and startpage
+  # CAPTCHA'd from this IP, that left DuckDuckGo carrying the whole result set.
+  - name: bing
+    disabled: false
+  # Independent crawler with its own index — not a Google/Bing reseller, and it
+  # does not rate-limit residential IPs the way brave/startpage/google do. Adds
+  # a source of results that survives when the blocked engines do not.
+  - name: mojeek
+    disabled: false
+  # Measured 2026-07-26 and left DISABLED: qwant returns CAPTCHA from this IP
+  # (same as brave/startpage), and presearch returned 0 results without even
+  # reporting itself unresponsive. Both cost a round trip per search for
+  # nothing — an engine that hangs is worse than an absent one, because the
+  # search waits on it.
 
 # Bound per-engine timeout so one slow/hanging engine (e.g. DuckDuckGo
 # timing out under the 'it' category) can't hold the whole response past
