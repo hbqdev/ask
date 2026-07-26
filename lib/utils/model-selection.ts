@@ -23,6 +23,23 @@ const PROVIDER_LABELS: Record<string, string> = {
   'openai-compatible': 'OpenAI Compatible'
 }
 
+/**
+ * Whether Ollama models reason before answering.
+ *
+ * Measured on prod: a 131.7s turn spent 85.4s between the search finishing and
+ * the first word, having persisted ONE reasoning block of 38,684 characters
+ * against an 8,730-character answer (13,862 completion tokens). Thinking was
+ * unconditional, so a factual lookup paid the same deliberation as a research
+ * synthesis — and it is larger than every pipeline stage combined, which is
+ * also why turn-time variance has been so wide all along.
+ *
+ * Defaults ON: only the exact string 'false' disables it, so a typo cannot
+ * silently change answer quality.
+ */
+export function thinkEnabledForOllama(): boolean {
+  return process.env.OLLAMA_THINK !== 'false'
+}
+
 function buildProviderOptions(
   providerId: string,
   _modelId: string
@@ -30,7 +47,7 @@ function buildProviderOptions(
   if (providerId === 'ollama') {
     return {
       ollama: {
-        think: true
+        think: thinkEnabledForOllama()
       }
     }
   }
