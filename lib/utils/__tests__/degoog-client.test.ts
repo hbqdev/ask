@@ -37,6 +37,42 @@ describe('fetchDegoogJson', () => {
     expect(fetchMock).not.toHaveBeenCalled()
   })
 
+  // One switch has to reach BOTH fan-outs. The advanced route
+  // (app/api/advanced-search/route.ts) gated degoog behind its own
+  // DEGOOG_ENABLED const while the basic provider
+  // (lib/tools/search/providers/searxng.ts) gated only on DEGOOG_API_URL, so
+  // turning degoog "off" silently left it firing on every search after the
+  // first. Gating here means neither caller can miss it.
+  it('returns null when DEGOOG_ENABLED is explicitly off', async () => {
+    vi.stubEnv('DEGOOG_API_URL', 'https://degoog.example')
+    vi.stubEnv('DEGOOG_ENABLED', 'false')
+    const fetchMock = vi.fn()
+    vi.stubGlobal('fetch', fetchMock)
+    const { fetchDegoogJson } = await importFreshModule()
+
+    const result = await fetchDegoogJson(base => `${base}/api/search`)
+
+    expect(result).toBeNull()
+    expect(fetchMock).not.toHaveBeenCalled()
+  })
+
+  // Default ON: degoog contributes 7 engines SearXNG is never asked for
+  // (reddit, hacker news, lemmy, internet archive, wikimedia commons, nasa
+  // images, openverse), so an unset flag must not silently drop them.
+  it('fetches when DEGOOG_ENABLED is unset', async () => {
+    vi.stubEnv('DEGOOG_API_URL', 'https://degoog.example')
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValue(mockResponse(true, { results: [] }))
+    vi.stubGlobal('fetch', fetchMock)
+    const { fetchDegoogJson } = await importFreshModule()
+
+    const result = await fetchDegoogJson(base => `${base}/api/search`)
+
+    expect(result).not.toBeNull()
+    expect(fetchMock).toHaveBeenCalledTimes(1)
+  })
+
   it('fetches with a Bearer auth header when an API key is configured', async () => {
     vi.stubEnv('DEGOOG_API_URL', 'https://degoog.example')
     vi.stubEnv('DEGOOG_API_KEY', 'secret-key')
