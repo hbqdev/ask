@@ -17,8 +17,12 @@ import {
 import { isTracingEnabled } from '@/lib/utils/telemetry'
 
 import { loadChatUncached } from '../actions/chat'
+import { resolveExpandedQueries } from '../agents/classifier-expansion'
 import { extractMemories } from '../agents/memory-extractor'
-import { classifyQuery } from '../agents/query-classifier'
+import {
+  classifyQuery,
+  type QueryClassification
+} from '../agents/query-classifier'
 import { expandQuery } from '../agents/query-expander'
 import { generateChatTitle } from '../agents/title-generator'
 import { isMemoryEnabled } from '../db/memory-actions'
@@ -176,14 +180,18 @@ export async function createChatStreamResponse(
     const isRegenerate = trigger?.startsWith('regenerate') ?? false
     const bypassClassifier = containsUrl || isRegenerate
     const classifyStart = performance.now()
-    const classificationPromise = bypassClassifier
-      ? Promise.resolve({
-          skipSearch: false,
-          standaloneQuery: latestMessageText,
-          needsRecent: false,
-          intent: 'general' as const
-        })
-      : classifyQuery({ messages: messagesToModel, abortSignal })
+    const classificationPromise: Promise<QueryClassification> =
+      bypassClassifier
+        ? Promise.resolve({
+            skipSearch: false,
+            standaloneQuery: latestMessageText,
+            needsRecent: false,
+            intent: 'general' as const,
+            // Bypassed turns never asked the model, so there are no fused
+            // expansions; the standalone expander supplies them.
+            expandedQueries: []
+          })
+        : classifyQuery({ messages: messagesToModel, abortSignal })
 
     // Start recall speculatively on the raw message, concurrent with the
     // classifier, so a research turn whose standalone query matches the raw
@@ -404,17 +412,32 @@ export async function createChatStreamResponse(
         // records how long it was in flight without serialising it. Only the
         // branch that actually expands is marked — a skipped turn would
         // otherwise log a meaningless 0.
+        // The classifier now returns expandedQueries from the SAME call that
+        // classifies, removing a second serial round trip to the same model on
+        // the same host (measured 6.6-12.3s, and it could not start until the
+        // classifier resolved because it needed standaloneQuery). The
+        // standalone expander survives as a fallback for a model that returns
+        // none, so an older or refusing model cannot silently narrow the
+        // search. expand_ms is now ~0 whenever the fused path supplied them.
         const expandStart = performance.now()
-        const expandedQueriesPromise =
-          !classification.skipSearch && searchMode !== 'speed'
-            ? expandQuery({
-                standaloneQuery: classification.standaloneQuery,
-                abortSignal
-              }).then(queries => {
-                latency.mark('expand_ms', performance.now() - expandStart)
-                return queries
-              })
-            : Promise.resolve([])
+        // Captured: the fallback runs inside a closure, and `classification`
+        // is a reassignable outer binding TypeScript cannot narrow there.
+        const resolved = classification
+        const wantsExpansion = !resolved.skipSearch && searchMode !== 'speed'
+        const expandedQueriesPromise = wantsExpansion
+          ? resolveExpandedQueries({
+              fromClassifier: resolved.expandedQueries,
+              wantsExpansion: true,
+              fallback: () =>
+                expandQuery({
+                  standaloneQuery: resolved.standaloneQuery,
+                  abortSignal
+                })
+            }).then(queries => {
+              latency.mark('expand_ms', performance.now() - expandStart)
+              return queries
+            })
+          : Promise.resolve([])
 
         if (!bypassClassifier) {
           // Same part id — replaces the 'running' entry in place.
