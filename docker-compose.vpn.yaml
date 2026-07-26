@@ -1,0 +1,104 @@
+# Routes SearXNG's outbound traffic through Mullvad, leaving every other
+# container on the host's normal egress.
+#
+# Why: our residential IP is flagged. brave, startpage and google cse all
+# rate-limit or CAPTCHA us, and the engine health gate can only stop paying for
+# them — it cannot un-block them. The upstream TLS-fingerprint theory
+# (searxng/searxng#2515) is already addressed in our image: shuffle_ciphers()
+# in searx/network/client.py rotates the cipher list per SSL context, so there
+# is nothing left to apply there. A different egress IP is the remaining lever.
+#
+# Scope: SearXNG ONLY. Ask itself, Postgres, Redis, the crawler and every model
+# host keep the host's LAN egress — routing those through a VPN would break
+# fleet access (.17 reranker, .160 embedder, .171 granite) and add a WAN hop to
+# purely local traffic.
+#
+# Usage:
+#   prod:
+#     docker compose -f docker-compose.yaml -f docker-compose.vpn.yaml \
+#                    -p ask-stack up -d
+#   staging (adds the admin-feature overlays AFTER this one):
+#     docker compose -f docker-compose.yaml -f docker-compose.admin-feature.yaml \
+#                    -f docker-compose.vpn.yaml -f docker-compose.vpn.admin-feature.yaml \
+#                    -p ask-stack-admin-feature up -d
+#
+# REQUIRED in .env before this will start — get these from
+# https://mullvad.net/en/account/wireguard-config (generate a key, pick a
+# server, then read the values out of the downloaded .conf):
+#   MULLVAD_PRIVATE_KEY=   # [Interface] PrivateKey
+#   MULLVAD_ADDRESSES=     # [Interface] Address, e.g. 10.x.y.z/32
+#   MULLVAD_COUNTRY=       # e.g. USA  — pick somewhere Google is not hostile
+#
+# Do NOT paste these into chat or commit them; .env is gitignored.
+
+services:
+  gluetun:
+    image: qmcgaw/gluetun:latest
+    container_name: ask-gluetun
+    cap_add:
+      - NET_ADMIN
+    devices:
+      - /dev/net/tun:/dev/net/tun
+    environment:
+      VPN_SERVICE_PROVIDER: mullvad
+      VPN_TYPE: wireguard
+      WIREGUARD_PRIVATE_KEY: ${MULLVAD_PRIVATE_KEY:?set MULLVAD_PRIVATE_KEY in .env}
+      WIREGUARD_ADDRESSES: ${MULLVAD_ADDRESSES:?set MULLVAD_ADDRESSES in .env}
+      # PINNED to one host, not a country. Engine blocks are per-IP, so letting
+      # gluetun pick any US server makes results unreproducible — observed
+      # three different exits across three reconnects (us-was, us-lax,
+      # us-qas-wg-308), each with its own block status. A/B comparisons are
+      # meaningless while the exit IP moves under us.
+      #
+      # The WireGuard private key is account-wide and works on ANY Mullvad
+      # server, so this can be changed to any hostname without regenerating
+      # the key. If this server's IP gets blocked, pick another and note which.
+      SERVER_HOSTNAMES: ${MULLVAD_SERVER:-us-was-wg-001}
+      # Kill switch: if the tunnel drops, SearXNG loses network rather than
+      # falling back to the flagged residential IP without us noticing.
+      FIREWALL: 'on'
+      # The kill switch blocks INBOUND too, so Ask's requests to SearXNG get
+      # dropped unless the port is opened explicitly. Verified: without this,
+      # SearXNG answers /healthz on localhost inside the namespace but is
+      # unreachable from the compose network, and staging's searches return
+      # an empty body rather than an error.
+      FIREWALL_INPUT_PORTS: '8080'
+      # Let the LAN through so the fleet (.17 reranker, .160 embedder, .171
+      # granite) stays reachable and does not get routed over the tunnel.
+      FIREWALL_OUTBOUND_SUBNETS: 192.168.50.0/24
+    # Browse this instance's SearXNG from the LAN at
+    # http://192.168.50.231:3741 to see exactly which engines answer through
+    # the tunnel. Published HERE because searxng has no ports of its own once
+    # it is inside this namespace.
+    ports:
+      - '3741:8080'
+    restart: unless-stopped
+    healthcheck:
+      test: ['CMD', 'wget', '-qO-', 'https://ipinfo.io/ip']
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 20s
+
+  searxng:
+    # SearXNG now lives inside gluetun's network namespace, so all of its
+    # outbound engine requests exit via Mullvad.
+    #
+    # Consequence: it no longer has its own hostname on the compose network.
+    # Anything that talked to `ask-searxng:8080` must now talk to
+    # `ask-gluetun:8080` — see the ask service override below.
+    network_mode: service:gluetun
+    # The base compose publishes 3741 on this service. A container inside
+    # another's network namespace cannot own ports, so hand it to gluetun above.
+    ports: !override []
+    depends_on:
+      gluetun:
+        condition: service_healthy
+
+  ask:
+    environment:
+      # Follows the namespace move above. Without this, searches fail closed —
+      # the hostname simply stops resolving. SEARXNG_FALLBACK_API_URL still
+      # applies, so a dead tunnel degrades to the fallback instance rather
+      # than breaking search outright.
+      SEARXNG_API_URL: 'http://ask-gluetun:8080'
