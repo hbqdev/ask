@@ -135,3 +135,31 @@ export function filterHealthyEngines(
   const healthy = requested.filter(e => !suspended.has(e))
   return healthy.length > 0 ? healthy : requested
 }
+
+/**
+ * Build the `disabled_engines` parameter that actually excludes an engine.
+ *
+ * Dropping an engine from `engines` is NOT enough. Measured on the live
+ * instance: SearXNG UNIONS `categories` with `engines`, so with
+ * `categories=general` every enabled general engine runs regardless of the pin.
+ * That is why brave, startpage and mojeek showed up in Ask's searches despite
+ * never appearing in SEARXNG_ENGINES_ADVANCED — the pin never restricted
+ * anything, it only ADDED to what the categories already selected.
+ *
+ * `disabled_engines` does exclude, using SearXNG's `name__category` form, but
+ * an engine named explicitly in `engines` overrides it. So suspension requires
+ * both: remove from `engines` AND list here, for every category in play.
+ */
+export function buildDisabledEnginesParam(
+  suspended: ReadonlySet<string>,
+  categories: string[]
+): string {
+  if (suspended.size === 0 || categories.length === 0) return ''
+  const pairs: string[] = []
+  for (const engine of suspended) {
+    for (const category of categories) {
+      pairs.push(`${engine}__${category}`)
+    }
+  }
+  return pairs.join(',')
+}
