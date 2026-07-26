@@ -25,18 +25,32 @@ export interface EngineHealthState {
   firstBreachAt: number
   /** Epoch ms until which the engine is suspended; 0 when healthy. */
   suspendedUntil: number
+  /**
+   * Start of the most recent counted incident. Failures within debounceMs of
+   * this are the same incident and do not count again.
+   */
+  lastBreachAt?: number
 }
 
 export interface EngineHealthOptions {
   threshold: number
   windowMs: number
   cooldownMs: number
+  debounceMs: number
 }
 
 /** One CAPTCHA is noise; three inside the window is a pattern. */
 const DEFAULT_THRESHOLD = 3
 const DEFAULT_WINDOW_MS = 600_000 // 10 min
 const DEFAULT_COOLDOWN_MS = 1_800_000 // 30 min
+
+// One turn's searches all count as ONE incident. A research turn fires the
+// classifier's expansion variants plus follow-ups in parallel, so without this
+// three "breaches" land in the same second and the window stops meaning
+// "three separate incidents" — which is exactly how brave got suspended on
+// staging while it was working fine. Comfortably longer than a turn's search
+// burst, comfortably shorter than the window.
+const DEFAULT_DEBOUNCE_MS = 60_000 // 1 min
 
 export function engineHealthOptions(): EngineHealthOptions {
   const num = (raw: string | undefined, fallback: number) => {
@@ -48,7 +62,10 @@ export function engineHealthOptions(): EngineHealthOptions {
     windowMs:
       num(process.env.ENGINE_BREACH_WINDOW_S, DEFAULT_WINDOW_MS / 1000) * 1000,
     cooldownMs:
-      num(process.env.ENGINE_COOLDOWN_S, DEFAULT_COOLDOWN_MS / 1000) * 1000
+      num(process.env.ENGINE_COOLDOWN_S, DEFAULT_COOLDOWN_MS / 1000) * 1000,
+    debounceMs:
+      num(process.env.ENGINE_BREACH_DEBOUNCE_S, DEFAULT_DEBOUNCE_MS / 1000) *
+      1000
   }
 }
 
@@ -99,8 +116,21 @@ export function recordFailure(
     return {
       breaches: opts.threshold,
       firstBreachAt: now,
-      suspendedUntil: now + opts.cooldownMs
+      suspendedUntil: now + opts.cooldownMs,
+      lastBreachAt: now
     }
+  }
+
+  // Same incident as the last counted one — one turn's parallel searches all
+  // fail together, and that is ONE failure, not N. Returned unchanged so the
+  // anchor stays on the FIRST failure of the burst; anchoring to the latest
+  // would let a long burst walk the debounce forward and never record a
+  // second incident.
+  if (
+    state?.lastBreachAt !== undefined &&
+    now - state.lastBreachAt < opts.debounceMs
+  ) {
+    return state
   }
 
   const windowExpired = !state || now - state.firstBreachAt > opts.windowMs
@@ -113,7 +143,8 @@ export function recordFailure(
     suspendedUntil:
       breaches >= opts.threshold
         ? now + opts.cooldownMs
-        : (state?.suspendedUntil ?? 0)
+        : (state?.suspendedUntil ?? 0),
+    lastBreachAt: now
   }
 }
 

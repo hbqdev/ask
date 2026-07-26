@@ -19,8 +19,15 @@ import {
 // client: Ask already picks which engines to request, so it can stop asking for
 // the dead ones.
 
-const OPTS = { threshold: 3, windowMs: 600_000, cooldownMs: 1_800_000 }
+const OPTS = {
+  threshold: 3,
+  windowMs: 600_000,
+  cooldownMs: 1_800_000,
+  debounceMs: 60_000
+}
 const T0 = 1_000_000
+/** Comfortably past the debounce, so each call is a distinct incident. */
+const GAP = 61_000
 
 describe('parseUnresponsiveEngines', () => {
   it('reads the [name, reason] pair shape SearXNG actually returns', () => {
@@ -53,10 +60,10 @@ describe('recordFailure / isEngineSuspended', () => {
 
   it('suspends once the threshold is reached inside the window', () => {
     let s = recordFailure(undefined, T0, OPTS)
-    s = recordFailure(s, T0 + 1_000, OPTS)
-    expect(isEngineSuspended(s, T0 + 1_000)).toBe(false)
-    s = recordFailure(s, T0 + 2_000, OPTS)
-    expect(isEngineSuspended(s, T0 + 2_000)).toBe(true)
+    s = recordFailure(s, T0 + GAP, OPTS)
+    expect(isEngineSuspended(s, T0 + GAP)).toBe(false)
+    s = recordFailure(s, T0 + 2 * GAP, OPTS)
+    expect(isEngineSuspended(s, T0 + 2 * GAP)).toBe(true)
   })
 
   it('does not suspend when breaches are spread beyond the window', () => {
@@ -69,33 +76,86 @@ describe('recordFailure / isEngineSuspended', () => {
 
   it('lifts the suspension once the cooldown expires', () => {
     let s = recordFailure(undefined, T0, OPTS)
-    s = recordFailure(s, T0, OPTS)
-    s = recordFailure(s, T0, OPTS)
-    expect(isEngineSuspended(s, T0 + OPTS.cooldownMs - 1)).toBe(true)
-    expect(isEngineSuspended(s, T0 + OPTS.cooldownMs + 1)).toBe(false)
+    s = recordFailure(s, T0 + GAP, OPTS)
+    s = recordFailure(s, T0 + 2 * GAP, OPTS)
+    const suspendedAt = T0 + 2 * GAP
+    expect(isEngineSuspended(s, suspendedAt + OPTS.cooldownMs - 1)).toBe(true)
+    expect(isEngineSuspended(s, suspendedAt + OPTS.cooldownMs + 1)).toBe(false)
   })
 
   it('re-suspends on a single failure after a failed retry', () => {
     // The retry after cooldown IS the probe. If it fails, go straight back to
     // suspended rather than paying two more round trips to re-learn it.
     let s = recordFailure(undefined, T0, OPTS)
-    s = recordFailure(s, T0, OPTS)
-    s = recordFailure(s, T0, OPTS)
-    const afterCooldown = T0 + OPTS.cooldownMs + 1
+    s = recordFailure(s, T0 + GAP, OPTS)
+    s = recordFailure(s, T0 + 2 * GAP, OPTS)
+    const afterCooldown = T0 + 2 * GAP + OPTS.cooldownMs + 1
     s = recordFailure(s, afterCooldown, OPTS)
     expect(isEngineSuspended(s, afterCooldown)).toBe(true)
   })
 
   it('clears the count on success so a recovered engine is fully restored', () => {
     let s = recordFailure(undefined, T0, OPTS)
-    s = recordFailure(s, T0, OPTS)
+    s = recordFailure(s, T0 + GAP, OPTS)
     s = recordSuccess()
-    s = recordFailure(s, T0, OPTS)
-    expect(isEngineSuspended(s, T0)).toBe(false)
+    s = recordFailure(s, T0 + 2 * GAP, OPTS)
+    expect(isEngineSuspended(s, T0 + 2 * GAP)).toBe(false)
   })
 
   it('treats a missing record as healthy', () => {
     expect(isEngineSuspended(undefined, T0)).toBe(false)
+  })
+})
+
+// The window was meant to mean "three separate incidents". It did not.
+// A single research turn fires the classifier's 3-4 expansion variants plus
+// follow-ups in PARALLEL, so on staging brave, startpage, duckduckgo and
+// google cse all recorded three breaches with an IDENTICAL firstBreachAt —
+// same second. One transient failure burst inside one turn cost each engine a
+// full 30-minute suspension, and brave was suspended while working fine.
+//
+// Debouncing makes the window measure what it was supposed to: repeated
+// failures inside one turn are ONE incident.
+describe('breach debounce — a burst inside one turn counts once', () => {
+  it('ignores repeat failures inside the debounce window', () => {
+    let s = recordFailure(undefined, T0, OPTS)
+    s = recordFailure(s, T0 + 100, OPTS)
+    s = recordFailure(s, T0 + 200, OPTS)
+    s = recordFailure(s, T0 + 5_000, OPTS)
+    expect(s.breaches).toBe(1)
+    expect(isEngineSuspended(s, T0 + 5_000)).toBe(false)
+  })
+
+  it('still suspends when failures are genuinely spread out', () => {
+    let s = recordFailure(undefined, T0, OPTS)
+    s = recordFailure(s, T0 + GAP, OPTS)
+    s = recordFailure(s, T0 + 2 * GAP, OPTS)
+    expect(s.breaches).toBe(3)
+    expect(isEngineSuspended(s, T0 + 2 * GAP)).toBe(true)
+  })
+
+  it('does not let a burst push a nearly-suspended engine over the line', () => {
+    // Two real incidents, then a storm of parallel searches in one turn. The
+    // storm must not be the third strike.
+    let s = recordFailure(undefined, T0, OPTS)
+    s = recordFailure(s, T0 + GAP, OPTS)
+    for (let i = 0; i < 20; i++) {
+      s = recordFailure(s, T0 + GAP + 500 + i * 10, OPTS)
+    }
+    expect(s.breaches).toBe(2)
+    expect(isEngineSuspended(s, T0 + GAP + 1_000)).toBe(false)
+  })
+
+  it('keeps the debounced timestamp anchored to the FIRST failure of the burst', () => {
+    // Anchoring to the latest failure would let a long enough burst walk the
+    // debounce forward indefinitely and never record a second incident.
+    let s = recordFailure(undefined, T0, OPTS)
+    for (let i = 1; i <= 30; i++) {
+      s = recordFailure(s, T0 + i * 1_000, OPTS)
+    }
+    // 30s of burst, all one incident; a failure at T0+GAP is a NEW incident.
+    s = recordFailure(s, T0 + GAP, OPTS)
+    expect(s.breaches).toBe(2)
   })
 })
 
