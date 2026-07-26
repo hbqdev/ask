@@ -17,7 +17,14 @@ export class LatencyTracker {
   // cannot show when prose actually started. Measured on staging: first chunk
   // 13.5s, first sentence ~88s.
   private readonly streamParts: Record<string, number> = {}
+  // A research turn is multi-step and both original metrics were confounded
+  // by that. Counts make the step structure visible; lastSeen lets ingestion
+  // be measured from the LAST tool output, so a turn that adds a fetch step
+  // is not misread as slower prompt processing.
+  private readonly partCounts: Record<string, number> = {}
+  private readonly partLastSeen: Record<string, number> = {}
   private usage: { inputTokens?: number; outputTokens?: number } | null = null
+  private lastStepInputTokens: number | null = null
 
   constructor(
     private readonly meta: Meta,
@@ -42,14 +49,27 @@ export class LatencyTracker {
    * Repeats are ignored, so the emitted map is a timeline of firsts.
    */
   markStreamPart(type: string): void {
-    if (this.streamParts[type] === undefined) {
-      this.streamParts[type] = Math.round(this.now() - this.startedAt)
-    }
+    const at = Math.round(this.now() - this.startedAt)
+    if (this.streamParts[type] === undefined) this.streamParts[type] = at
+    this.partCounts[type] = (this.partCounts[type] ?? 0) + 1
+    this.partLastSeen[type] = at
   }
 
-  /** Record token usage for the turn. Absent counts are simply not emitted. */
-  markUsage(usage: { inputTokens?: number; outputTokens?: number }): void {
+  /**
+   * Record token usage for the turn. Absent counts are simply not emitted.
+   *
+   * `usage` is the SUM across steps (the AI SDK's totalUsage), so on its own
+   * it cannot answer "how big was the prompt" on a multi-step turn.
+   * `lastStepInputTokens` is the final step's input — the actual answering
+   * prompt, and the number to judge a prompt-size change by.
+   */
+  markUsage(
+    usage: { inputTokens?: number; outputTokens?: number },
+    lastStepInputTokens?: number
+  ): void {
     this.usage = usage
+    this.lastStepInputTokens =
+      typeof lastStepInputTokens === 'number' ? lastStepInputTokens : null
   }
 
   /** Emit the single per-turn line. */
@@ -61,6 +81,17 @@ export class LatencyTracker {
           ? null
           : Math.round(this.firstTokenAt - this.startedAt)
       const streamSeen = Object.keys(this.streamParts).length > 0
+      // Ingestion = last tool result → first prose. After the last tool
+      // output there is nothing left but the model reading and generating,
+      // so this isolates prompt processing from tool round trips.
+      const lastToolAt = this.partLastSeen['tool-output-available']
+      const textAt = this.streamParts['text-start']
+      const ingest =
+        typeof lastToolAt === 'number' &&
+        typeof textAt === 'number' &&
+        textAt >= lastToolAt
+          ? textAt - lastToolAt
+          : null
       this.sink(
         `[latency] ${JSON.stringify({
           chatId: this.meta.chatId ?? null,
@@ -68,9 +99,15 @@ export class LatencyTracker {
           modelId: this.meta.modelId ?? null,
           ...this.marks,
           ttft_ms: ttft,
+          steps: this.partCounts['start-step'] ?? 0,
+          tool_calls: this.partCounts['tool-input-available'] ?? 0,
+          ...(ingest !== null && { ingest_ms: ingest }),
           ...(streamSeen && { stream: this.streamParts }),
           ...(typeof this.usage?.inputTokens === 'number' && {
             prompt_tokens: this.usage.inputTokens
+          }),
+          ...(this.lastStepInputTokens !== null && {
+            last_prompt_tokens: this.lastStepInputTokens
           }),
           ...(typeof this.usage?.outputTokens === 'number' && {
             completion_tokens: this.usage.outputTokens

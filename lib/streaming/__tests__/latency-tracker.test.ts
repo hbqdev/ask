@@ -115,6 +115,84 @@ describe('LatencyTracker', () => {
     })
   })
 
+  // A research turn is multi-step, and both of the metrics used to judge the
+  // excerpts change turned out to be confounded by that:
+  //   - prompt_tokens came from totalUsage, which the AI SDK documents as the
+  //     SUM of all step usages, so it was never a prompt size.
+  //   - "search -> first prose" was measured first-tool to first-text, so a
+  //     turn that added a fetch step read as slower ingestion when it was
+  //     really just doing more round trips.
+  // These marks make step count explicit and measure ingestion from the LAST
+  // tool output, which is the point after which nothing but generation remains.
+  describe('multi-step accounting', () => {
+    it('counts steps and tool calls rather than only stamping the first', () => {
+      const lines: string[] = []
+      const t = new LatencyTracker(
+        { chatId: 'c1', mode: 'balanced' },
+        fakeClock(Array.from({ length: 40 }, (_, i) => i * 100)),
+        l => lines.push(l)
+      )
+      t.markStreamPart('start-step')
+      t.markStreamPart('tool-input-available')
+      t.markStreamPart('tool-output-available')
+      t.markStreamPart('start-step')
+      t.markStreamPart('tool-input-available')
+      t.markStreamPart('tool-output-available')
+      t.markStreamPart('start-step')
+      t.markStreamPart('text-start')
+      t.emit({})
+      const obj = JSON.parse(lines[0].slice('[latency] '.length))
+      expect(obj.steps).toBe(3)
+      expect(obj.tool_calls).toBe(2)
+    })
+
+    it('measures ingestion from the LAST tool output, not the first', () => {
+      const lines: string[] = []
+      // start=0; parts read 1000, 2000, 9000 (last tool out), 11000 (text)
+      const t = new LatencyTracker(
+        { chatId: 'c1', mode: 'balanced' },
+        fakeClock([0, 1000, 2000, 9000, 11000, 12000]),
+        l => lines.push(l)
+      )
+      t.markStreamPart('tool-output-available') // 1000 — first tool
+      t.markStreamPart('start-step') // 2000
+      t.markStreamPart('tool-output-available') // 9000 — last tool
+      t.markStreamPart('text-start') // 11000
+      t.emit({})
+      const obj = JSON.parse(lines[0].slice('[latency] '.length))
+      // 11000 - 9000, NOT 11000 - 1000.
+      expect(obj.ingest_ms).toBe(2000)
+    })
+
+    it('omits ingest_ms when the turn used no tools', () => {
+      const lines: string[] = []
+      const t = new LatencyTracker(
+        { chatId: 'c1', mode: 'balanced' },
+        fakeClock([0, 500, 3000]),
+        l => lines.push(l)
+      )
+      t.markStreamPart('text-start')
+      t.emit({})
+      const obj = JSON.parse(lines[0].slice('[latency] '.length))
+      expect(obj).not.toHaveProperty('ingest_ms')
+      expect(obj.steps).toBe(0)
+    })
+
+    it('omits ingest_ms rather than emitting a negative when text precedes the last tool', () => {
+      const lines: string[] = []
+      const t = new LatencyTracker(
+        { chatId: 'c1', mode: 'balanced' },
+        fakeClock([0, 1000, 5000, 9000]),
+        l => lines.push(l)
+      )
+      t.markStreamPart('text-start') // 1000 — prose began first
+      t.markStreamPart('tool-output-available') // 5000 — then a later tool call
+      t.emit({})
+      const obj = JSON.parse(lines[0].slice('[latency] '.length))
+      expect(obj).not.toHaveProperty('ingest_ms')
+    })
+  })
+
   // Prompt size is the leading explanation for the post-search gap (15 full
   // crawled pages go into the answering prompt), so the line has to carry it
   // or the next round of tuning is guesswork again.
@@ -131,6 +209,37 @@ describe('LatencyTracker', () => {
       const obj = JSON.parse(lines[0].slice('[latency] '.length))
       expect(obj.prompt_tokens).toBe(48000)
       expect(obj.completion_tokens).toBe(1200)
+    })
+
+    it('distinguishes the summed total from the last step actually sent', () => {
+      // prompt_tokens is the SUM across steps (AI SDK: "when there are
+      // multiple steps, the usage is the sum of all step usages"), so on its
+      // own it cannot answer "how big was the prompt". last_prompt_tokens is
+      // the final step's input — the real answering prompt.
+      const lines: string[] = []
+      const t = new LatencyTracker(
+        { chatId: 'c1', mode: 'balanced' },
+        fakeClock([0, 1000]),
+        l => lines.push(l)
+      )
+      t.markUsage({ inputTokens: 89_284, outputTokens: 3_577 }, 21_500)
+      t.emit({})
+      const obj = JSON.parse(lines[0].slice('[latency] '.length))
+      expect(obj.prompt_tokens).toBe(89284)
+      expect(obj.last_prompt_tokens).toBe(21500)
+    })
+
+    it('omits last_prompt_tokens when the last step usage is unavailable', () => {
+      const lines: string[] = []
+      const t = new LatencyTracker(
+        { chatId: 'c1', mode: 'balanced' },
+        fakeClock([0, 1000]),
+        l => lines.push(l)
+      )
+      t.markUsage({ inputTokens: 100, outputTokens: 10 })
+      t.emit({})
+      const obj = JSON.parse(lines[0].slice('[latency] '.length))
+      expect(obj).not.toHaveProperty('last_prompt_tokens')
     })
 
     it('omits token keys when usage is unavailable, rather than emitting zeros', () => {

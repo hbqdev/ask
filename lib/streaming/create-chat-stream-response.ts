@@ -481,16 +481,24 @@ export async function createChatStreamResponse(
             .catch(() => {})
         }
 
-        // Token usage sizes the answering prompt — the leading candidate for
-        // the gap between the search finishing and the first sentence. This
-        // settles independently of the UI stream, so onFinish awaits the
-        // handle below rather than assuming it already resolved.
-        usageRecorded = Promise.resolve(result.totalUsage)
-          .then(usage =>
-            latency.markUsage({
-              inputTokens: usage?.inputTokens,
-              outputTokens: usage?.outputTokens
-            })
+        // totalUsage is the SUM over steps, so it cannot size the prompt on a
+        // multi-step research turn; result.usage is the LAST step — the actual
+        // answering prompt. Both are recorded: the sum for cost, the last step
+        // for judging prompt-size changes. Settles independently of the UI
+        // stream, so onFinish awaits the handle below rather than assuming it
+        // already resolved.
+        usageRecorded = Promise.all([
+          Promise.resolve(result.totalUsage),
+          Promise.resolve(result.usage).catch(() => undefined)
+        ])
+          .then(([total, lastStep]) =>
+            latency.markUsage(
+              {
+                inputTokens: total?.inputTokens,
+                outputTokens: total?.outputTokens
+              },
+              lastStep?.inputTokens
+            )
           )
           .catch(() => {})
 
