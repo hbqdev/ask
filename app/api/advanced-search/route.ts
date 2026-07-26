@@ -135,17 +135,29 @@ const CRAWL4AI_CHUNK_TIMEOUT_MS = Math.max(
 )
 
 /**
- * degoog: OFF. It scrapes Google, Brave, Startpage and DDG from our residential
- * IP, and by 2026-07-25 every one of those was refusing it (Google 403,
- * Brave 429, Startpage + DDG CAPTCHA) — so it contributed almost nothing while
- * spending the per-IP reputation that SearXNG and ordinary browsing depend on.
- * Two degoog calls per search each fanned out to four engines, which is how ~25
+ * degoog: ON by default, set DEGOOG_ENABLED=false to kill it.
+ *
+ * It was OFF from 2026-07-25 because it scraped Google, Brave, Startpage and
+ * DDG from our residential IP — every one of those was refusing it (Google 403,
+ * Brave 429, Startpage + DDG CAPTCHA), so it contributed almost nothing while
+ * spending the per-IP reputation SearXNG and ordinary browsing depend on. ~25
  * test searches took Brave down for SearXNG too.
  *
- * Set DEGOOG_ENABLED=true to restore it; the client, merge layer and types are
- * all still in place.
+ * That coupling is gone: degoog egresses its own Mullvad tunnel
+ * (us-atl-wg-406) and Ask's SearXNG uses us-was-wg-001/002, so neither can
+ * spend the other's quota, and neither touches the residential IP.
+ *
+ * Kept because it is not redundant. 7 of its enabled engines — reddit, hacker
+ * news, lemmy, internet archive, wikimedia commons, nasa images, openverse —
+ * are sources SearXNG is never asked for, and merge-degoog.ts promotes exactly
+ * those ahead of mainstream results so they survive truncation. The
+ * overlapping ~60% dedupes away by normalized URL.
+ *
+ * The real gate now lives in fetchDegoogJson so this flag reaches the basic
+ * provider's fan-out too; this const only avoids building requests we would
+ * discard. Both must agree — hence the shared `!== 'false'` default.
  */
-const DEGOOG_ENABLED = process.env.DEGOOG_ENABLED === 'true'
+const DEGOOG_ENABLED = process.env.DEGOOG_ENABLED !== 'false'
 
 const CACHE_TTL = 3600 // Cache time-to-live in seconds (1 hour)
 const CACHE_EXPIRATION_CHECK_INTERVAL = 3600000 // 1 hour in milliseconds

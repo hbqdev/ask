@@ -52,6 +52,17 @@ export async function fetchDegoogJson(
 ): Promise<DegoogFetchResult | null> {
   const baseUrl = process.env.DEGOOG_API_URL
   if (!baseUrl) return null
+  // Single kill switch for BOTH fan-outs. The advanced route and the basic
+  // provider each build their own degoog requests, and the advanced one used
+  // to carry a private DEGOOG_ENABLED const — so "degoog is off" was only ever
+  // true for the first search of a turn while every follow-up still called it.
+  // Gating at the client means neither caller can drift again.
+  //
+  // Default ON, opt-out: degoog supplies 7 engines SearXNG is never asked for
+  // (reddit, hacker news, lemmy, internet archive, wikimedia commons, nasa
+  // images, openverse), and merge-degoog.ts exists specifically to promote
+  // them. An unset flag must not silently drop that.
+  if (process.env.DEGOOG_ENABLED === 'false') return null
 
   if (Date.now() < downUntil) {
     throw new Error('degoog is in circuit-breaker cooldown')
