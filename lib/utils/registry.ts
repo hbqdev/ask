@@ -7,6 +7,7 @@ import { createProviderRegistry, LanguageModel } from 'ai'
 import { createOllama } from 'ai-sdk-ollama'
 
 import { createTimeoutFetch } from './fetch-with-timeout'
+import { thinkEnabledForOllama } from './ollama-think'
 
 // Strip a trailing /v1 from the configured base URL, then re-append it,
 // so both shapes work for OpenAI-compatible hosts:
@@ -82,7 +83,7 @@ export function getModel(
         })
       : ollamaProvider
 
-    const lm = provider(modelId, { think: true })
+    const lm = provider(modelId, { think: thinkEnabledForOllama() })
 
     // Ollama's Chat API only accepts base64 in the images field, not URLs.
     // Override supportedUrls to force AI SDK to download images and convert

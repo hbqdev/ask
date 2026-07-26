@@ -14,11 +14,8 @@ vi.mock('@/lib/db/model-preference-actions', () => ({
 
 import { getModelForMode } from '@/lib/config/model-types'
 import { getPreferredChatModel } from '@/lib/db/model-preference-actions'
-import {
-  DEFAULT_MODEL,
-  selectModel,
-  thinkEnabledForOllama
-} from '@/lib/utils/model-selection'
+import { DEFAULT_MODEL, selectModel } from '@/lib/utils/model-selection'
+import { thinkEnabledForOllama } from '@/lib/utils/ollama-think'
 import { isProviderEnabled } from '@/lib/utils/registry'
 
 const mockIsCloudDeployment = vi.mocked(isCloudDeployment)
