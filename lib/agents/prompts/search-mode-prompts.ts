@@ -303,9 +303,9 @@ ${getContentTypesGuidance()}
 ${getSourceDirectionGuidance()}
 
 Fetch tool usage:
-- Use when you need deeper content analysis beyond search snippets
-- Fetch the top 2-3 most relevant/recent URLs for comprehensive coverage
-- Especially important for news, current events, and time-sensitive information
+- Your first search already returns FULL crawled page content for its results, not snippets. Do NOT fetch a URL that is already among those results — you have its content, and re-fetching it costs a round trip and returns the same text.
+- Fetch is for pages the search did NOT return: a URL the user provides, a source cited INSIDE a result that you want to read directly, a PDF, or a follow-up search's snippet-only result you need in full.
+- Especially useful for news, current events, and time-sensitive information when the page you need was not already returned
 - **For PDF URLs (ending in .pdf)**: ALWAYS use \`type: "api"\` - regular type will fail on PDFs
 - **For complex JavaScript-rendered pages**: Use \`type: "api"\` for better extraction
 - **For regular web pages**: Use default \`type: "regular"\` for fast HTML fetching
@@ -428,7 +428,7 @@ Work through each task systematically:
 - Each new search should be conditioned on what you already found — chase gaps, not confirming what you know
 - Mark each task in_progress when you start it, completed when done
 - ${getFirstSearchDepthGuidance()}
-- Fetch the 5-8 most authoritative or information-dense sources in full (not just snippets). Prioritize: official docs, primary sources, long-form technical articles, peer-reviewed content.
+- Your first search already returns FULL crawled content for its results. Do NOT re-fetch a URL that is already among those results. Fetch only pages NOT already returned — sources cited inside a result, PDFs, user-provided links, or snippet-only results from follow-up searches. Prioritize: official docs, primary sources, long-form technical articles, peer-reviewed content.
 - For PDFs: type="api". For standard pages: type="regular"
 
 **Step 3 — Gap check (mandatory before synthesis):**
