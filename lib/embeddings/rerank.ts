@@ -1,4 +1,8 @@
 import { crossEncoderScore } from '../utils/cross-encoder'
+import {
+  buildRerankTelemetry,
+  type RerankTelemetry
+} from '../utils/rerank-telemetry'
 
 import { splitText } from './split-text'
 import {
@@ -64,11 +68,21 @@ export type RerankedDoc<T> = {
  * The passage strategy and RerankedDoc shape are identical across rerankers;
  * only how a (query, passage) pair is scored differs.
  */
+/** Telemetry must never break a rerank. */
+function emitRerankTelemetry(t: RerankTelemetry): void {
+  try {
+    console.log(buildRerankTelemetry(t))
+  } catch {
+    // ignored
+  }
+}
+
 async function rerankByPassageScorer<T extends RerankableDoc>(
   docs: T[],
   query: string,
   topK: number,
-  scoreFn: (query: string, passages: string[]) => Promise<number[]>
+  scoreFn: (query: string, passages: string[]) => Promise<number[]>,
+  tier: RerankTelemetry['tier'] = 'cross-encoder'
 ): Promise<RerankedDoc<T>[]> {
   if (docs.length === 0) return []
 
@@ -81,7 +95,28 @@ async function rerankByPassageScorer<T extends RerankableDoc>(
 
   const flatPassages = passagesPerDoc.flat()
   if (flatPassages.length === 0) return []
-  const scores = await scoreFn(query, flatPassages)
+
+  // Timed here, where the passage count is known: rerank_ms alone cannot say
+  // whether the cost is per-passage compute or a fixed per-call cost such as
+  // a GPU waking from idle. ms_per_passage separates them.
+  const scoreStart = performance.now()
+  let scores: number[]
+  try {
+    scores = await scoreFn(query, flatPassages)
+  } catch (error) {
+    emitRerankTelemetry({
+      passages: flatPassages.length,
+      wallMs: performance.now() - scoreStart,
+      tier,
+      failed: true
+    })
+    throw error
+  }
+  emitRerankTelemetry({
+    passages: flatPassages.length,
+    wallMs: performance.now() - scoreStart,
+    tier
+  })
 
   let cursor = 0
   const keep = passagesPerSource()
@@ -131,11 +166,17 @@ export async function rerankByEmbedding<T extends RerankableDoc>(
   query: string,
   topK: number
 ): Promise<RerankedDoc<T>[]> {
-  return rerankByPassageScorer(docs, query, topK, async (q, passages) => {
-    const vectors = await embedTexts([q, ...passages], RERANK_MODEL)
-    const queryVec = vectors[0]
-    return vectors.slice(1).map(v => cosineSimilarity(queryVec, v))
-  })
+  return rerankByPassageScorer(
+    docs,
+    query,
+    topK,
+    async (q, passages) => {
+      const vectors = await embedTexts([q, ...passages], RERANK_MODEL)
+      const queryVec = vectors[0]
+      return vectors.slice(1).map(v => cosineSimilarity(queryVec, v))
+    },
+    'embedding'
+  )
 }
 
 /**
@@ -152,5 +193,11 @@ export async function rerankByCrossEncoder<T extends RerankableDoc>(
   query: string,
   topK: number
 ): Promise<RerankedDoc<T>[]> {
-  return rerankByPassageScorer(docs, query, topK, crossEncoderScore)
+  return rerankByPassageScorer(
+    docs,
+    query,
+    topK,
+    crossEncoderScore,
+    'cross-encoder'
+  )
 }
