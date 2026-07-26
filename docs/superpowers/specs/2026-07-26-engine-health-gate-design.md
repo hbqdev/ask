@@ -13,14 +13,26 @@ unresponsive_engines: [['brave', 'too many requests'], ['startpage', 'CAPTCHA']]
 results returned: 10
 ```
 
-Those two have failed continuously all session. Every advanced search still
-pays a round trip to both, and every attempt burns IP reputation against
-providers that are already blocking us — which is what caused the blocking in
-the first place.
+**Correction to an earlier reading of this evidence.** That measurement came
+from a direct query to SearXNG with no `engines` parameter, so it reflects
+SearXNG's full enabled set — not what Ask asks for. Ask pins its engines:
 
-`SEARXNG_ENGINES_ADVANCED` is `'bing,duckduckgo,wikipedia,google cse'`, and
-`google cse` is likewise IP-blocked from this host. So of four requested
-engines, one is dead on arrival on every single search.
+```
+SEARXNG_ENGINES_ADVANCED = 'bing,duckduckgo,wikipedia,google cse'
+SEARXNG_ENGINES_BASIC    = 'bing,google cse'
+```
+
+brave and startpage are **not in either list**, so Ask never requests them and
+they cost Ask nothing. The gate's universe is those four engines only.
+
+The real target is `google cse`, which IS pinned in both lists and IS
+IP-blocked from this host. So one of four engines is dead on arrival on every
+advanced search, and one of two on every basic search — and the basic path is
+~92% of engine load, so that is the larger share by a wide margin.
+
+This is a smaller win than the raw `unresponsive_engines` output suggested. It
+is still worth having: a blocked engine is a round trip of pure latency, and
+each attempt is another strike against an IP the provider already blocks.
 
 Enabling engines is not the fix on its own: bing and mojeek were enabled today
 and took results from 10 to 30, but brave/startpage/google-cse still sit in the
