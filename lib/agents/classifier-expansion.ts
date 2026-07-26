@@ -38,6 +38,13 @@ export async function resolveExpandedQueries({
 }): Promise<string[]> {
   if (!wantsExpansion) return []
 
+  // The off switch has to live HERE, not in expandQuery. Fusion demoted that
+  // function to a fallback which only runs when the classifier returns
+  // nothing, so a gate inside it silently stopped disabling anything.
+  // Expansion is 3x the engine load on every turn's first search, so this
+  // needs to be a real lever when engines start returning CAPTCHAs.
+  if (process.env.QUERY_EXPANSION_ENABLED === 'false') return []
+
   const fused = clean(fromClassifier ?? [])
   if (fused.length > 0) return fused
 

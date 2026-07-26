@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it } from 'vitest'
 
 import { resolveExpandedQueries } from '../classifier-expansion'
 
@@ -104,5 +104,66 @@ describe('resolveExpandedQueries', () => {
         fallback: async () => ['recovered']
       })
     ).resolves.toEqual(['recovered'])
+  })
+})
+
+// Fusing expansion into the classifier silently killed the off switch: the
+// QUERY_EXPANSION_ENABLED gate lives in expandQuery, which fusion demoted to a
+// fallback that only runs when the classifier returns nothing. Setting the flag
+// disabled the fallback and left the real expansion untouched.
+//
+// That matters operationally — expansion is 3x the engine load on every turn's
+// first search, and with SearXNG engines returning CAPTCHAs an emergency lever
+// to drop it is worth having.
+describe('QUERY_EXPANSION_ENABLED governs the fused path too', () => {
+  afterEach(() => {
+    delete process.env.QUERY_EXPANSION_ENABLED
+  })
+
+  it('returns [] and ignores classifier queries when expansion is disabled', async () => {
+    process.env.QUERY_EXPANSION_ENABLED = 'false'
+    await expect(
+      resolveExpandedQueries({
+        fromClassifier: ['a', 'b', 'c'],
+        wantsExpansion: true,
+        fallback: async () => ['should not be reached']
+      })
+    ).resolves.toEqual([])
+  })
+
+  it('does not call the fallback expander when disabled', async () => {
+    process.env.QUERY_EXPANSION_ENABLED = 'false'
+    let called = 0
+    await resolveExpandedQueries({
+      fromClassifier: [],
+      wantsExpansion: true,
+      fallback: async () => {
+        called++
+        return ['x']
+      }
+    })
+    expect(called).toBe(0)
+  })
+
+  it('expands normally when the flag is unset', async () => {
+    delete process.env.QUERY_EXPANSION_ENABLED
+    await expect(
+      resolveExpandedQueries({
+        fromClassifier: ['a'],
+        wantsExpansion: true,
+        fallback: async () => []
+      })
+    ).resolves.toEqual(['a'])
+  })
+
+  it('treats any value other than the exact string false as enabled', async () => {
+    process.env.QUERY_EXPANSION_ENABLED = 'no'
+    await expect(
+      resolveExpandedQueries({
+        fromClassifier: ['a'],
+        wantsExpansion: true,
+        fallback: async () => []
+      })
+    ).resolves.toEqual(['a'])
   })
 })
