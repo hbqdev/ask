@@ -45,8 +45,14 @@ services:
       # Kill switch: if the tunnel drops, SearXNG loses network rather than
       # falling back to the flagged residential IP without us noticing.
       FIREWALL: 'on'
-      # SearXNG's port has to be published HERE, not on the searxng service —
-      # a container using network_mode: service: has no ports of its own.
+      # The kill switch blocks INBOUND too, so Ask's requests to SearXNG get
+      # dropped unless the port is opened explicitly. Verified: without this,
+      # SearXNG answers /healthz on localhost inside the namespace but is
+      # unreachable from the compose network, and staging's searches return
+      # an empty body rather than an error.
+      FIREWALL_INPUT_PORTS: '8080'
+      # Let the LAN through so the fleet (.17 reranker, .160 embedder, .171
+      # granite) stays reachable and does not get routed over the tunnel.
       FIREWALL_OUTBOUND_SUBNETS: 192.168.50.0/24
     restart: unless-stopped
     healthcheck:
