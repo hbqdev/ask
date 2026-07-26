@@ -180,18 +180,17 @@ export async function createChatStreamResponse(
     const isRegenerate = trigger?.startsWith('regenerate') ?? false
     const bypassClassifier = containsUrl || isRegenerate
     const classifyStart = performance.now()
-    const classificationPromise: Promise<QueryClassification> =
-      bypassClassifier
-        ? Promise.resolve({
-            skipSearch: false,
-            standaloneQuery: latestMessageText,
-            needsRecent: false,
-            intent: 'general' as const,
-            // Bypassed turns never asked the model, so there are no fused
-            // expansions; the standalone expander supplies them.
-            expandedQueries: []
-          })
-        : classifyQuery({ messages: messagesToModel, abortSignal })
+    const classificationPromise: Promise<QueryClassification> = bypassClassifier
+      ? Promise.resolve({
+          skipSearch: false,
+          standaloneQuery: latestMessageText,
+          needsRecent: false,
+          intent: 'general' as const,
+          // Bypassed turns never asked the model, so there are no fused
+          // expansions; the standalone expander supplies them.
+          expandedQueries: []
+        })
+      : classifyQuery({ messages: messagesToModel, abortSignal })
 
     // Start recall speculatively on the raw message, concurrent with the
     // classifier, so a research turn whose standalone query matches the raw
