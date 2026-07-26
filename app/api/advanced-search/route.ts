@@ -714,6 +714,9 @@ async function advancedSearchXNGSearch(
       throw new Error('Invalid response structure from SearXNG')
     }
 
+    // Full crawled text for conversation HISTORY, set only when excerpting
+    // shrank what the model reads this turn. See rehydrate-full-content.ts.
+    let fullGeneralResults: SearXNGResult[] | null = null
     let generalResults = data.results.filter(
       (result: SearXNGResult) => result && !result.img_src
     )
@@ -971,19 +974,25 @@ async function advancedSearchXNGSearch(
         }[],
         minScore: number
       ) => {
-        generalResults = reranked
-          .filter(r => r.score >= minScore)
-          .map(r =>
-            excerptsEnabled
-              ? {
-                  ...r.doc.original,
-                  content: buildExcerptContent(
-                    r.topPassages,
-                    r.doc.original.content
-                  )
-                }
-              : r.doc.original
-          )
+        const kept = reranked.filter(r => r.score >= minScore)
+        generalResults = kept.map(r =>
+          excerptsEnabled
+            ? {
+                ...r.doc.original,
+                content: buildExcerptContent(
+                  r.topPassages,
+                  r.doc.original.content
+                )
+              }
+            : r.doc.original
+        )
+        // Full text for conversation HISTORY. The excerpt above is what the
+        // model reads this turn; this is what gets persisted, so a follow-up
+        // turn still has the depth to answer from context instead of searching
+        // again. Only populated when excerpting actually changed something.
+        fullGeneralResults = excerptsEnabled
+          ? kept.map(r => r.doc.original)
+          : null
       }
 
       // Bracketed rather than wrapped: the phase is two tiers with a fallback
@@ -1071,6 +1080,21 @@ async function advancedSearchXNGSearch(
           content: result.content || ''
         })
       ),
+      // Present only when excerpting shrank the payload. Consumers persist
+      // this instead of `results` so history keeps full depth.
+      ...(fullGeneralResults !== null
+        ? {
+            fullResults: (fullGeneralResults as SearXNGResult[])
+              .slice(0, maxResults)
+              .map(
+                (result: SearXNGResult): SearchResultItem => ({
+                  title: result.title || '',
+                  url: result.url || '',
+                  content: result.content || ''
+                })
+              )
+          }
+        : {}),
       query: data.query || query,
       images: Array.from(
         new Set([

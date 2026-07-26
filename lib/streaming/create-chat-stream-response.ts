@@ -30,6 +30,10 @@ import { extractIndexableText } from '../memory/extract-indexable-text'
 import { indexMessage } from '../memory/recall-index'
 import { getRecallInjection } from '../memory/recall-inject'
 import { saveCandidates } from '../memory/write'
+import {
+  type FullContentByToolCall,
+  rehydrateFullContent
+} from '../search/rehydrate-full-content'
 import { durableLatencySink } from '../telemetry/latency-store'
 import {
   getMaxAllowedTokens,
@@ -218,6 +222,10 @@ export async function createChatStreamResponse(
     // Resolves once token usage has been folded into the latency line; onFinish
     // awaits it so emit() never races the usage handler.
     let usageRecorded: Promise<void> = Promise.resolve()
+    // Full crawled text per search tool call, collected during the turn and
+    // swapped in just before persistence so conversation HISTORY keeps the
+    // depth a follow-up needs, while the live prompt only carried excerpts.
+    const fullContentSink: FullContentByToolCall = new Map()
 
     const stream = createUIMessageStream({
       execute: async ({ writer }) => {
@@ -469,7 +477,8 @@ export async function createChatStreamResponse(
           expandedQueriesPromise,
           userId,
           currentChatId: chatId,
-          recallBlock: recall.block
+          recallBlock: recall.block,
+          fullContentSink
         })
 
         llmStart = performance.now()
@@ -548,7 +557,10 @@ export async function createChatStreamResponse(
           // transform state got out of sync, the assembled message may
           // still contain the leading narration. Strip it here so the
           // DB row is clean even on a partial response.
-          const cleanedMessage = stripNarrationFromMessage(responseMessage)
+          const cleanedMessage = rehydrateFullContent(
+            stripNarrationFromMessage(responseMessage),
+            fullContentSink
+          )
 
           // Persist stream results to database
           await persistStreamResults(
