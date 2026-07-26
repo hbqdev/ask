@@ -4,6 +4,7 @@ import {
   type RerankTelemetry
 } from '../utils/rerank-telemetry'
 
+import { passagesPerDocForBudget } from './passage-budget'
 import { splitText } from './split-text'
 import {
   cosineSimilarity,
@@ -86,10 +87,15 @@ async function rerankByPassageScorer<T extends RerankableDoc>(
 ): Promise<RerankedDoc<T>[]> {
   if (docs.length === 0) return []
 
+  // Depth per doc is bounded by a TOTAL budget so a large doc set cannot blow
+  // the reranker's timeout. Trims passages per doc, never the doc list —
+  // every doc keeps at least one passage, so it still gets a score and can
+  // still be returned.
+  const perDocCap = passagesPerDocForBudget(docs.length, MAX_PASSAGES_PER_DOC)
   const passagesPerDoc = docs.map(doc =>
     splitText(doc.content, PASSAGE_MAX_TOKENS, PASSAGE_OVERLAP_TOKENS).slice(
       0,
-      MAX_PASSAGES_PER_DOC
+      perDocCap
     )
   )
 
