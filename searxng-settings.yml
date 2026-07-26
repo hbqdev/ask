@@ -23,7 +23,15 @@ server:
   http_protocol_version: '1.0'
   # POST queries are more secure as they don't show up in history but may cause
   # problems when using Firefox containers
-  method: 'POST'
+  # GET so the LAN UI (prod :3741, staging :3740) is usable and its result
+  # URLs are shareable. With POST, any /search?q=... returns 403 — verified
+  # from INSIDE the container too, so it was never the limiter or a proxy
+  # header, both of which we chased first.
+  #
+  # POST's benefit is keeping queries out of browser history. These instances
+  # are LAN-only diagnostic surfaces, so that is worth trading for a UI that
+  # actually opens.
+  method: 'GET'
   default_http_headers:
     X-Content-Type-Options: nosniff
     X-Download-Options: noopen
@@ -31,8 +39,16 @@ server:
     Referrer-Policy: no-referrer
 
 search:
+  # json for Ask, html for the LAN UI (prod :3741, staging :3740). Without
+  # html EVERY browser search returns 403 "You don't have the permission to
+  # access the requested resource" — by design, not a bug, and it fires before
+  # the search runs so nothing appears in the engine logs to explain it.
+  # Verified from inside the container too, which is what ruled out the
+  # limiter, the missing X-Forwarded-For header and the POST method, all of
+  # which look like the culprit and are not.
   formats:
     - json
+    - html
 
 # Enable discussion-intent engines (disabled in upstream defaults) so the
 # local fallback matches the primary instance for Ask's engine routing.
