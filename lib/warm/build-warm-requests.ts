@@ -34,14 +34,23 @@ export function buildWarmRequests(
 
   // Classifier (Ollama): a 1-token generate. keep_alive:-1 also re-pins the
   // model resident, so this doubles as eviction insurance.
-  const classifierBase =
-    env.CLASSIFIER_OLLAMA_BASE_URL || env.OLLAMA_BASE_URL || ''
+  // Warming only makes sense for a LOCAL model — a :cloud model has no GPU to
+  // wake, and pinging it is a billed inference call on every focus/keystroke
+  // window that warms nothing. When the classifier is cloud-hosted, warm the
+  // local host the memory extractor and fallback expander actually use.
+  const classifierIsCloud = Boolean(env.CLASSIFIER_MODEL_ID?.endsWith(':cloud'))
+  const classifierBase = classifierIsCloud
+    ? env.LOCAL_LLM_BASE_URL || ''
+    : env.CLASSIFIER_OLLAMA_BASE_URL || env.OLLAMA_BASE_URL || ''
+  const warmModel = classifierIsCloud
+    ? env.MEMORY_EXTRACTOR_MODEL_ID || 'granite4.1:8b'
+    : env.CLASSIFIER_MODEL_ID || 'granite4.1:8b'
   if (classifierBase) {
     requests.push({
       url: `${trimSlash(classifierBase)}/api/generate`,
       headers: JSON_HEADERS,
       body: JSON.stringify({
-        model: env.CLASSIFIER_MODEL_ID || 'granite4.1:8b',
+        model: warmModel,
         prompt: 'ok',
         stream: false,
         keep_alive: -1,

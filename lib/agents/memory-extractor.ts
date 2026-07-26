@@ -4,6 +4,7 @@ import { z } from 'zod'
 
 import type { MemoryCandidate } from '../memory/types'
 import { createTimeoutFetch } from '../utils/fetch-with-timeout'
+import { localLlmBaseUrl } from '../utils/local-llm-host'
 
 const MODEL_ID = process.env.MEMORY_EXTRACTOR_MODEL_ID ?? 'granite4.1:8b'
 const TIMEOUT_MS = 10_000
@@ -42,8 +43,7 @@ export async function extractMemories({
   standaloneQuery?: string
   abortSignal?: AbortSignal
 }): Promise<MemoryCandidate[]> {
-  const baseUrl =
-    process.env.CLASSIFIER_OLLAMA_BASE_URL || process.env.OLLAMA_BASE_URL
+  const baseUrl = localLlmBaseUrl()
   if (!baseUrl || !userMessage.trim()) return []
 
   try {
