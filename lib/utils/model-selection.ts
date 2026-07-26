@@ -13,6 +13,8 @@ import { Model } from '@/lib/types/models'
 import { SearchMode } from '@/lib/types/search'
 import { isProviderEnabled } from '@/lib/utils/registry'
 
+import { thinkEnabledForOllama } from './ollama-think'
+
 const MODE_FALLBACK_ORDER: SearchMode[] = ['speed', 'balanced', 'quality']
 const PROVIDER_LABELS: Record<string, string> = {
   openai: 'OpenAI',
@@ -23,23 +25,9 @@ const PROVIDER_LABELS: Record<string, string> = {
   'openai-compatible': 'OpenAI Compatible'
 }
 
-/**
- * Whether Ollama models reason before answering.
- *
- * Measured on prod: a 131.7s turn spent 85.4s between the search finishing and
- * the first word, having persisted ONE reasoning block of 38,684 characters
- * against an 8,730-character answer (13,862 completion tokens). Thinking was
- * unconditional, so a factual lookup paid the same deliberation as a research
- * synthesis — and it is larger than every pipeline stage combined, which is
- * also why turn-time variance has been so wide all along.
- *
- * Defaults ON: only the exact string 'false' disables it, so a typo cannot
- * silently change answer quality.
- */
-export function thinkEnabledForOllama(): boolean {
-  return process.env.OLLAMA_THINK !== 'false'
-}
-
+// NOTE: this providerOptions path is NOT what controls thinking —
+// ai-sdk-ollama reads `think` from model-level settings, so registry.ts is
+// the load-bearing site. Kept in sync so the two never disagree.
 function buildProviderOptions(
   providerId: string,
   _modelId: string
