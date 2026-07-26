@@ -13,26 +13,49 @@ unresponsive_engines: [['brave', 'too many requests'], ['startpage', 'CAPTCHA']]
 results returned: 10
 ```
 
-**Correction to an earlier reading of this evidence.** That measurement came
-from a direct query to SearXNG with no `engines` parameter, so it reflects
-SearXNG's full enabled set — not what Ask asks for. Ask pins its engines:
+Those two have failed continuously. Every search pays a round trip to both, and
+every attempt burns IP reputation against providers already blocking us — which
+is what caused the blocking in the first place.
+
+### The `engines` pin never restricted anything
+
+Ask pins its engines:
 
 ```
 SEARXNG_ENGINES_ADVANCED = 'bing,duckduckgo,wikipedia,google cse'
 SEARXNG_ENGINES_BASIC    = 'bing,google cse'
 ```
 
-brave and startpage are **not in either list**, so Ask never requests them and
-they cost Ask nothing. The gate's universe is those four engines only.
+brave, startpage and mojeek appear in _neither_ list — yet all three are
+queried on every Ask search. Measured from SearXNG's own logs during a single
+staging turn:
 
-The real target is `google cse`, which IS pinned in both lists and IS
-IP-blocked from this host. So one of four engines is dead on arrival on every
-advanced search, and one of two on every basic search — and the basic path is
-~92% of engine load, so that is the larger share by a wide margin.
+```
+8 startpage   8 startpage images   8 google cse   8 google cse images
+8 brave       6 mojeek             4 duckduckgo
+```
 
-This is a smaller win than the raw `unresponsive_engines` output suggested. It
-is still worth having: a blocked engine is a round trip of pure latency, and
-each attempt is another strike against an IP the provider already blocks.
+**SearXNG UNIONS `categories` with `engines`.** With `categories=general` every
+enabled general-category engine runs, and the `engines` pin only ADDS to that
+selection. It has never narrowed anything. This also means enabling an engine
+in `settings.yml` changes what Ask queries even when Ask does not name it —
+which is how today's bing/mojeek change took results from 10 to 30.
+
+So the gate needs a mechanism that actually excludes. Verified against staging,
+holding `q` constant across two queries:
+
+| request                                                                                                                   | unresponsive                       |
+| ------------------------------------------------------------------------------------------------------------------------- | ---------------------------------- |
+| `engines=bing,duckduckgo,wikipedia,google cse` + `disabled_engines=brave__general,startpage__general,google cse__general` | duckduckgo, **google cse**, mojeek |
+| `engines=bing,duckduckgo,wikipedia` + `disabled_engines=…,google cse__general,mojeek__general`                            | duckduckgo                         |
+
+`disabled_engines` (SearXNG's `name__category` form) does exclude — brave and
+startpage vanished immediately. But an engine named in `engines` **overrides**
+the disable, which is why `google cse` survived the first request and only
+disappeared once removed from both.
+
+**Suspension therefore requires both halves:** drop the engine from `engines`
+AND list it in `disabled_engines` for every category in play.
 
 Enabling engines is not the fix on its own: bing and mojeek were enabled today
 and took results from 10 to 30, but brave/startpage/google-cse still sit in the

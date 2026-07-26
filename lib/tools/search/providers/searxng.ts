@@ -1,4 +1,5 @@
 import {
+  buildDisabledEnginesParam,
   filterHealthyEngines,
   parseUnresponsiveEngines
 } from '@/lib/search/engine-health'
@@ -176,6 +177,19 @@ export class SearXNGSearchProvider extends BaseSearchProvider {
           }
           const categories = categoryList.join(',')
           url.searchParams.append('categories', categories)
+
+          // Removing a suspended engine from `engines` is not enough: SearXNG
+          // UNIONS categories with engines, so every enabled general engine
+          // runs regardless of the pin. `disabled_engines` is what actually
+          // excludes — but only for engines not also named in `engines`, hence
+          // both halves. See lib/search/engine-health.ts.
+          const disabled = buildDisabledEnginesParam(
+            suspendedEngines,
+            categoryList
+          )
+          if (disabled) {
+            url.searchParams.append('disabled_engines', disabled)
+          }
 
           // Apply search depth settings. An explicit time_range from the
           // recency classifier overrides the depth default in both modes.

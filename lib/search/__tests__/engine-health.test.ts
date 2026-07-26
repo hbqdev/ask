@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it } from 'vitest'
 
 import {
+  buildDisabledEnginesParam,
   filterHealthyEngines,
   isEngineSuspended,
   parseUnresponsiveEngines,
@@ -136,6 +137,58 @@ describe('filterHealthyEngines', () => {
 
   it('handles an empty requested list without inventing engines', () => {
     expect(filterHealthyEngines([], new Set(['brave']))).toEqual([])
+  })
+})
+
+// Dropping an engine from `engines` does NOT stop SearXNG calling it.
+// Measured on the live instance: SearXNG UNIONS `categories` with `engines`,
+// so with categories=general every enabled general engine runs regardless of
+// the pin. brave/startpage/mojeek were all being queried by Ask despite never
+// appearing in SEARXNG_ENGINES_ADVANCED.
+//
+// Verified against staging with one query, holding q constant:
+//   engines=bing,duckduckgo,wikipedia,google cse
+//     + disabled_engines=brave__general,startpage__general,google cse__general
+//     -> unresponsive: duckduckgo, google cse, mojeek   (brave/startpage gone,
+//        but google cse survived — naming it in `engines` overrides the disable)
+//   engines=bing,duckduckgo,wikipedia
+//     + disabled_engines=...,google cse__general,mojeek__general
+//     -> unresponsive: duckduckgo only
+// So suspension needs BOTH halves.
+describe('buildDisabledEnginesParam', () => {
+  it('emits name__category for every requested category', () => {
+    expect(
+      buildDisabledEnginesParam(new Set(['brave']), ['general', 'images'])
+    ).toBe('brave__general,brave__images')
+  })
+
+  it('covers every suspended engine', () => {
+    const out = buildDisabledEnginesParam(new Set(['brave', 'startpage']), [
+      'general'
+    ])
+    expect(out.split(',').sort()).toEqual([
+      'brave__general',
+      'startpage__general'
+    ])
+  })
+
+  it('preserves engine names containing spaces', () => {
+    // 'google cse' is the engine's real name; the space must survive so
+    // SearXNG matches it. URLSearchParams handles the encoding.
+    expect(
+      buildDisabledEnginesParam(new Set(['google cse']), ['general'])
+    ).toBe('google cse__general')
+  })
+
+  it('is empty when nothing is suspended', () => {
+    expect(buildDisabledEnginesParam(new Set(), ['general'])).toBe('')
+  })
+
+  it('is empty when no categories are in play', () => {
+    // The academic/social branches pin no engines and take no categories list
+    // from us; emitting a bare name__ would disable nothing and risk a parse
+    // error on SearXNG's side.
+    expect(buildDisabledEnginesParam(new Set(['brave']), [])).toBe('')
   })
 })
 
