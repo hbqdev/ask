@@ -1,6 +1,6 @@
 # Engine Health Gate — Design
 
-**Status:** proposed
+**Status:** implemented and verified on staging
 **Date:** 2026-07-26
 
 ## Problem
@@ -179,3 +179,37 @@ that fail silently still need to be caught by inspection, as presearch was.
 - `lib/tools/search/engines.ts` — filter the requested list through the gate
 - Telemetry: add `engines_suspended` to `[latency:search]` so suppression is
   visible rather than mysterious
+
+## Measured result (staging, 2026-07-26)
+
+Two turns in one chat, engine health state cleared first.
+
+**Turn 1** — gate learning. Every engine SearXNG named went to 3 breaches and
+suspended: brave, startpage, `startpage images`, `google cse`,
+`google cse images`, duckduckgo; mojeek reached 2. A single research turn fires
+enough searches (classifier expansion plus follow-ups) to cross the threshold
+on its own, so the gate converges within one turn rather than over a session.
+
+**Turn 2** — gate active. SearXNG logged **zero engine errors**, against turn
+1's 8x startpage, 8x brave, 8x `google cse`, 6x mojeek. The suspended engines
+were not called at all.
+
+Sources did not fall, which was the check that mattered:
+
+|            | turn 1 | turn 2 |
+| ---------- | ------ | ------ |
+| candidates | 46     | 61     |
+| crawled    | 41     | 56     |
+| returned   | 11     | 20     |
+
+Not a controlled A/B — the two turns ask different questions — but the guard
+this was checking for is a _drop_, and there is none.
+
+### Open question
+
+duckduckgo is now suspended too, and it is a pinned engine. That leaves bing
+carrying the general category alone until the 30-minute cooldown lifts. Worth
+watching: if bing then breaches, the never-strand guard fires and the original
+list goes out unchanged, so search still runs — but with every engine blocked
+that is a degraded state the gate cannot improve on. It is a signal to fix the
+IP reputation problem, not to tune the gate.
