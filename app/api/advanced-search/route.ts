@@ -7,10 +7,12 @@ import https from 'https'
 import { JSDOM, VirtualConsole } from 'jsdom'
 import { createClient } from 'redis'
 
+import type { RankedPassage } from '@/lib/embeddings/rerank'
 import {
   rerankByCrossEncoder,
   rerankByEmbedding
 } from '@/lib/embeddings/rerank'
+import { buildExcerptContent } from '@/lib/search/build-excerpt'
 import { StageTimer } from '@/lib/telemetry/stage-timer'
 import { SEARXNG_ENGINES_ADVANCED } from '@/lib/tools/search/engines'
 import { intentToCategory, type SearchIntent } from '@/lib/tools/search/intent'
@@ -864,13 +866,34 @@ async function advancedSearchXNGSearch(
         original: result
       }))
 
+      // Send the model each source's top-ranked passages rather than the whole
+      // page. Measured: a research turn's prompt is ~82k tokens against ~6k for
+      // a non-search turn on the same conversation, i.e. ~93% of the prompt is
+      // crawled page text, costing 6.6-13.7s of prompt processing before the
+      // first word appears. Source COUNT is unchanged — this trims bytes per
+      // source, not sources.
+      const excerptsEnabled = process.env.SEARCH_EXCERPTS_ENABLED === 'true'
       const applyReranked = (
-        reranked: { doc: { original: SearXNGResult }; score: number }[],
+        reranked: {
+          doc: { original: SearXNGResult }
+          score: number
+          topPassages: RankedPassage[]
+        }[],
         minScore: number
       ) => {
         generalResults = reranked
           .filter(r => r.score >= minScore)
-          .map(r => r.doc.original)
+          .map(r =>
+            excerptsEnabled
+              ? {
+                  ...r.doc.original,
+                  content: buildExcerptContent(
+                    r.topPassages,
+                    r.doc.original.content
+                  )
+                }
+              : r.doc.original
+          )
       }
 
       // Bracketed rather than wrapped: the phase is two tiers with a fallback
