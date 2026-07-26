@@ -38,6 +38,10 @@ export type SearchToolOptions = {
   // discovery beyond a single phrasing. A rejected/empty promise means
   // single-query search, exactly the pre-expansion behavior.
   expandedQueries?: Promise<string[]>
+  // Current chat id, forwarded to /api/advanced-search purely so its
+  // [latency:search] line can be joined to the [latency] turn line. Turns
+  // make multiple searches, so ordering does not identify them.
+  chatId?: string
   // Auto-detected intent for this turn (query classifier). Passed to both
   // search paths; additively routes to intent-specific engines.
   intent?: import('./search/intent').SearchIntent
@@ -341,6 +345,7 @@ export function createSearchTool(
               excludeDomains: exclude_domains,
               timeRange: toolOptions?.timeRange,
               intent: toolOptions?.intent,
+              chatId: toolOptions?.chatId,
               useOllama,
               ollamaMaxResults
             })
