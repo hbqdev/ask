@@ -408,7 +408,8 @@ export async function POST(request: Request) {
     intent,
     useOllama,
     ollamaMaxResults,
-    chatId
+    chatId,
+    stream: wantsStream
   } = await request.json()
 
   const SEARXNG_DEFAULT_DEPTH = process.env.SEARXNG_DEFAULT_DEPTH || 'basic'
@@ -446,25 +447,71 @@ export async function POST(request: Request) {
     }
     timer.set('cache', 'miss')
 
-    // If not cached, perform the search
-    const results = await advancedSearchXNGSearch(
-      query,
-      Math.min(maxResults, SEARXNG_MAX_RESULTS),
-      searchDepth || SEARXNG_DEFAULT_DEPTH,
-      Array.isArray(includeDomains) ? includeDomains : [],
-      Array.isArray(excludeDomains) ? excludeDomains : [],
-      effectiveTimeRange,
-      typeof intent === 'string' ? (intent as SearchIntent) : 'general',
-      Boolean(useOllama),
-      typeof ollamaMaxResults === 'number' ? ollamaMaxResults : 5,
-      timer
-    )
+    const runSearch = (onPreview?: (p: SearXNGSearchResults) => void) =>
+      advancedSearchXNGSearch(
+        query,
+        Math.min(maxResults, SEARXNG_MAX_RESULTS),
+        searchDepth || SEARXNG_DEFAULT_DEPTH,
+        Array.isArray(includeDomains) ? includeDomains : [],
+        Array.isArray(excludeDomains) ? excludeDomains : [],
+        effectiveTimeRange,
+        typeof intent === 'string' ? (intent as SearchIntent) : 'general',
+        Boolean(useOllama),
+        typeof ollamaMaxResults === 'number' ? ollamaMaxResults : 5,
+        timer,
+        onPreview
+      )
 
-    // Cache the results
-    await setCachedResults(cacheKey, results)
+    const finish = async (results: SearXNGSearchResults) => {
+      await setCachedResults(cacheKey, results)
+      timer.set('returned', results.results?.length ?? 0)
+      timer.emit()
+    }
 
-    timer.set('returned', results.results?.length ?? 0)
-    timer.emit()
+    // Streaming (opt-in via `stream: true`): NDJSON, one preview line as soon
+    // as the fan-out resolves (~2s) and one final line when crawl and rerank
+    // finish (~15-20s). Non-streaming callers get exactly today's behaviour.
+    if (wantsStream) {
+      const encoder = new TextEncoder()
+      const body = new ReadableStream<Uint8Array>({
+        async start(controller) {
+          const write = (obj: unknown) => {
+            try {
+              controller.enqueue(encoder.encode(`${JSON.stringify(obj)}\n`))
+            } catch {
+              // client hung up mid-search; the search itself still completes
+            }
+          }
+          try {
+            const results = await runSearch(preview =>
+              write({ type: 'preview', ...preview })
+            )
+            await finish(results)
+            write({ type: 'final', ...results })
+          } catch (error) {
+            console.error('Advanced search error (stream):', error)
+            write({
+              type: 'final',
+              results: [],
+              query,
+              images: [],
+              number_of_results: 0
+            })
+          } finally {
+            controller.close()
+          }
+        }
+      })
+      return new Response(body, {
+        headers: {
+          'Content-Type': 'application/x-ndjson; charset=utf-8',
+          'Cache-Control': 'no-store'
+        }
+      })
+    }
+
+    const results = await runSearch()
+    await finish(results)
     return NextResponse.json(results)
   } catch (error) {
     console.error('Advanced search error:', error)
@@ -492,8 +539,17 @@ async function advancedSearchXNGSearch(
   intent: SearchIntent = 'general',
   useOllama = false,
   ollamaMaxResults = 5,
-  timer: StageTimer = new StageTimer('latency:search')
+  timer: StageTimer = new StageTimer('latency:search'),
+  /**
+   * Called with the merged fan-out results BEFORE crawl and rerank — the
+   * candidates are known ~2s in, but this function does not return for
+   * another 15-20s. Lets the caller show sources immediately instead of
+   * leaving the user staring at nothing while results we already have sit
+   * unsent. Never throws into the search path.
+   */
+  onPreview?: (preview: SearXNGSearchResults) => void
 ): Promise<SearXNGSearchResults> {
+  const searchStartedAt = performance.now()
   if (!process.env.SEARXNG_API_URL && !process.env.SEARXNG_FALLBACK_API_URL) {
     throw new Error('SEARXNG_API_URL is not set in the environment variables')
   }
@@ -725,6 +781,27 @@ async function advancedSearchXNGSearch(
         0,
         maxResults * SEARXNG_CRAWL_MULTIPLIER
       )
+
+      // Everything below (crawl, quality filter, rerank) takes 15-20s. These
+      // candidates are already good enough to render as sources, so hand them
+      // over now; the caller replaces them when the enriched set arrives.
+      if (onPreview) {
+        try {
+          onPreview({
+            results: generalResults.slice(0, maxResults).map(r => ({
+              title: r.title || '',
+              url: r.url || '',
+              content: r.content || ''
+            })),
+            query,
+            images: [],
+            number_of_results: generalResults.length
+          })
+          timer.mark('preview_ms', performance.now() - searchStartedAt)
+        } catch {
+          // Telemetry/preview must never break a search.
+        }
+      }
 
       // Full-content enrichment: the self-hosted Crawl4AI server renders
       // every candidate in a real browser and returns clean markdown, in
