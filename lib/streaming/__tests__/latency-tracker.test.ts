@@ -64,4 +64,87 @@ describe('LatencyTracker', () => {
     expect(obj.ttft_ms).toBe(500)
     expect(obj.total_ms).toBe(999)
   })
+
+  // ttft_ms stamps the first chunk of ANY kind, which on a research turn is a
+  // tool call — not prose. The measured gap between that and the first visible
+  // sentence was ~46s, larger than the whole search pipeline, and nothing in
+  // the line accounted for it. These marks make that interval readable.
+  describe('stream part timeline', () => {
+    it('records the offset of each part type the first time it is seen', () => {
+      const lines: string[] = []
+      const t = new LatencyTracker(
+        { chatId: 'c1', mode: 'balanced' },
+        fakeClock([0, 300, 1200, 5000]),
+        l => lines.push(l)
+      )
+      t.markStreamPart('tool-input-start') // 300
+      t.markStreamPart('text-delta') // 1200
+      t.emit({}) // 5000
+      const obj = JSON.parse(lines[0].slice('[latency] '.length))
+      expect(obj.stream).toEqual({
+        'tool-input-start': 300,
+        'text-delta': 1200
+      })
+    })
+
+    it('keeps the FIRST offset for a repeated type, not the latest', () => {
+      const lines: string[] = []
+      const t = new LatencyTracker(
+        { chatId: 'c1', mode: 'balanced' },
+        fakeClock([0, 400, 9999, 5000]),
+        l => lines.push(l)
+      )
+      t.markStreamPart('text-delta') // 400
+      t.markStreamPart('text-delta') // must not read the clock again
+      t.emit({})
+      const obj = JSON.parse(lines[0].slice('[latency] '.length))
+      expect(obj.stream['text-delta']).toBe(400)
+    })
+
+    it('omits the stream key entirely when no parts were seen', () => {
+      const lines: string[] = []
+      const t = new LatencyTracker(
+        { chatId: 'c1', mode: 'balanced' },
+        fakeClock([0, 700]),
+        l => lines.push(l)
+      )
+      t.emit({})
+      expect(
+        JSON.parse(lines[0].slice('[latency] '.length))
+      ).not.toHaveProperty('stream')
+    })
+  })
+
+  // Prompt size is the leading explanation for the post-search gap (15 full
+  // crawled pages go into the answering prompt), so the line has to carry it
+  // or the next round of tuning is guesswork again.
+  describe('token usage', () => {
+    it('emits prompt and completion token counts when usage is known', () => {
+      const lines: string[] = []
+      const t = new LatencyTracker(
+        { chatId: 'c1', mode: 'balanced' },
+        fakeClock([0, 1000]),
+        l => lines.push(l)
+      )
+      t.markUsage({ inputTokens: 48_000, outputTokens: 1_200 })
+      t.emit({})
+      const obj = JSON.parse(lines[0].slice('[latency] '.length))
+      expect(obj.prompt_tokens).toBe(48000)
+      expect(obj.completion_tokens).toBe(1200)
+    })
+
+    it('omits token keys when usage is unavailable, rather than emitting zeros', () => {
+      const lines: string[] = []
+      const t = new LatencyTracker(
+        { chatId: 'c1', mode: 'balanced' },
+        fakeClock([0, 1000]),
+        l => lines.push(l)
+      )
+      t.markUsage({ inputTokens: undefined, outputTokens: undefined })
+      t.emit({})
+      const obj = JSON.parse(lines[0].slice('[latency] '.length))
+      expect(obj).not.toHaveProperty('prompt_tokens')
+      expect(obj).not.toHaveProperty('completion_tokens')
+    })
+  })
 })
