@@ -3,6 +3,7 @@ import { createOllama } from 'ai-sdk-ollama'
 import { z } from 'zod'
 
 import { createTimeoutFetch } from '../utils/fetch-with-timeout'
+import { localLlmBaseUrl } from '../utils/local-llm-host'
 
 // Same model as the classifier (same GPU host): one model, not two. The
 // expander previously ran on the smaller 3b for latency (~3.4s vs 8b's
@@ -65,8 +66,7 @@ export async function expandQuery({
     return []
   }
 
-  const expanderBaseUrl =
-    process.env.CLASSIFIER_OLLAMA_BASE_URL || process.env.OLLAMA_BASE_URL
+  const expanderBaseUrl = localLlmBaseUrl()
   if (!expanderBaseUrl || !standaloneQuery.trim()) {
     return []
   }
