@@ -520,11 +520,15 @@ full content, as required."
 
 - [ ] **Step 1: Add the flag to the staging compose environment**
 
-In `docker-compose.admin-feature.yaml`, inside the `ask` service's `environment:` block, add:
+In `docker-compose.admin-feature.yaml`, inside the `ask` service's `environment:` block, add a line so it reads:
 
 ```yaml
-- SEARCH_EXCERPTS_ENABLED=true
+environment:
+  UPLOAD_TTL_DAYS: '14'
+  SEARCH_EXCERPTS_ENABLED: 'true'
 ```
+
+Note this file uses **mapping** style (`KEY: 'value'`), not list style (`- KEY=value`). Mixing the two is a YAML parse error.
 
 - [ ] **Step 2: Rebuild staging**
 
