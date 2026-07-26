@@ -8,6 +8,10 @@ services:
     # with the base service's environment block.
     environment:
       UPLOAD_TTL_DAYS: '14'
+      # Send the answering model each source's top-ranked passages instead of
+      # the whole crawled page. Staging only — prod stays on full-page content
+      # until the A/B in the spec has been read.
+      SEARCH_EXCERPTS_ENABLED: 'true'
     ports: !override
       - '${ADMIN_FEATURE_HOST_PORT:-3739}:3000'
     volumes: !override
