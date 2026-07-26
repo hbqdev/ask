@@ -9,6 +9,28 @@ import {
 
 // Search mode system prompts
 
+/**
+ * What the first search of a turn actually hands back.
+ *
+ * This has to track SEARCH_EXCERPTS_ENABLED. When excerpts are on the model
+ * receives the most query-relevant passages of each crawled page, not the
+ * page — and a prompt that still claims "crawled in full" makes the model
+ * reason from false information about its own tools. Measured: every excerpts
+ * turn ran a second search and then fired the fetch-for-depth instruction
+ * (2, 1 and 3 fetch calls, against zero on the control).
+ *
+ * fetch-for-depth stays in both variants. Excerpts make it MORE useful, not
+ * less — it is how the model gets a whole page when passages genuinely are
+ * not enough. The point is that it should be a deliberate choice.
+ */
+function getFirstSearchDepthGuidance(): string {
+  const excerpts = process.env.SEARCH_EXCERPTS_ENABLED === 'true'
+  const whatYouGet = excerpts
+    ? 'its top results are crawled and reranked, and you receive the most relevant passages of each — an ellipsis marks text omitted between passages'
+    : 'its top results are crawled in full and reranked'
+  return `Your first search of a turn runs deep (${whatYouGet}); follow-up searches return snippets only. To read a specific promising result in full, call the fetch tool on its URL rather than repeating the search for more depth.`
+}
+
 function getSourceDirectionGuidance(): string {
   return `Source direction (include/exclude domains):
 - When the user signals a source preference, pass it to the search tool via \`include_domains\` / \`exclude_domains\`:
@@ -274,7 +296,7 @@ Search tool usage - UNDERSTAND THE DIFFERENCE:
   - You get relevant content immediately without needing fetch
   - Use this when the query has semantic meaning to match against
 
-Your first search of a turn runs deep (its top results are crawled in full and reranked); follow-up searches return snippets only. To read a specific promising result in full, call the fetch tool on its URL rather than repeating the search for more depth.
+${getFirstSearchDepthGuidance()}
 
 ${getContentTypesGuidance()}
 
@@ -405,7 +427,7 @@ Work through each task systematically:
 - Run 2-4 searches per angle with DIFFERENT query phrasings — vary keywords, try specific vs broad, include "critique of X" and "limitations of X" searches
 - Each new search should be conditioned on what you already found — chase gaps, not confirming what you know
 - Mark each task in_progress when you start it, completed when done
-- Your first search of a turn runs deep (its top results are crawled in full and reranked); follow-up searches return snippets only. To read a specific promising result in full, call the fetch tool on its URL rather than repeating the search for more depth.
+- ${getFirstSearchDepthGuidance()}
 - Fetch the 5-8 most authoritative or information-dense sources in full (not just snippets). Prioritize: official docs, primary sources, long-form technical articles, peer-reviewed content.
 - For PDFs: type="api". For standard pages: type="regular"
 

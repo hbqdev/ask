@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it } from 'vitest'
 
 import {
   getAdaptiveModePrompt,
@@ -70,5 +70,51 @@ describe('depth-tiering and fetch-for-depth guidance', () => {
       expect(prompt.toLowerCase()).toContain('first search')
       expect(prompt.toLowerCase()).toContain('snippets only')
     }
+  })
+})
+
+// The depth-tiering line promised "crawled in full". With SEARCH_EXCERPTS_ENABLED
+// that became false — the model receives the most query-relevant passages of each
+// crawled page, not the page. Measured consequence: every excerpts turn ran a
+// second search and then fired the fetch-for-depth instruction (2, 1 and 3 fetch
+// calls, against zero on the control), because the model was told it had full
+// pages and could see that it did not. The description has to track the flag.
+describe('depth description tracks SEARCH_EXCERPTS_ENABLED', () => {
+  afterEach(() => {
+    delete process.env.SEARCH_EXCERPTS_ENABLED
+  })
+
+  it('claims full-page crawling only when excerpts are OFF', () => {
+    delete process.env.SEARCH_EXCERPTS_ENABLED
+    for (const prompt of [getAdaptiveModePrompt(), getQualityModePrompt()]) {
+      expect(prompt).toContain('crawled in full')
+      expect(prompt).not.toContain('most relevant passages')
+    }
+  })
+
+  it('describes passages, not full pages, when excerpts are ON', () => {
+    process.env.SEARCH_EXCERPTS_ENABLED = 'true'
+    for (const prompt of [getAdaptiveModePrompt(), getQualityModePrompt()]) {
+      expect(prompt).toContain('most relevant passages')
+      expect(prompt).not.toContain('crawled in full')
+    }
+  })
+
+  it('keeps fetch-for-depth available in both modes — it is the escape hatch', () => {
+    // Excerpts make fetch MORE useful, not less: it is how the model gets a
+    // whole page when passages genuinely are not enough. The fix is that the
+    // model should reach for it deliberately, not because it was misinformed.
+    for (const value of [undefined, 'true']) {
+      if (value) process.env.SEARCH_EXCERPTS_ENABLED = value
+      else delete process.env.SEARCH_EXCERPTS_ENABLED
+      for (const prompt of [getAdaptiveModePrompt(), getQualityModePrompt()]) {
+        expect(prompt.toLowerCase()).toContain('fetch tool on its url')
+      }
+    }
+  })
+
+  it('treats any value other than the exact string true as off', () => {
+    process.env.SEARCH_EXCERPTS_ENABLED = 'yes'
+    expect(getAdaptiveModePrompt()).toContain('crawled in full')
   })
 })
