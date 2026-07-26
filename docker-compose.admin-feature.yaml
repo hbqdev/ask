@@ -8,10 +8,29 @@ services:
     # with the base service's environment block.
     environment:
       UPLOAD_TTL_DAYS: '14'
+      # staging gets its own SearXNG, isolated from prod's and from personal use
+      SEARXNG_API_URL: 'http://ask-searxng-admin-feature:8080'
       # Send the answering model each source's top-ranked passages instead of
       # the whole crawled page. Staging only — prod stays on full-page content
       # until the A/B in the spec has been read.
       SEARCH_EXCERPTS_ENABLED: 'true'
+      # Let the cross-encoder judge relevance instead of a word-count
+      # heuristic. Strict drops >50% of crawled pages, including spec tables
+      # and numbered procedures.
+      SEARCH_QUALITY_FILTER: 'strict'
+      # Classifier on a cloud model. Bake-off across six candidates on five
+      # ground-truth cases: glm-5.2 was both fastest (0.82s median) and the
+      # most accurate (5/5), against granite4.1:8b local at 2.19s and 3/5.
+      # Cloud models are proxied through the main Ollama host, not the
+      # dedicated classifier host.
+      CLASSIFIER_MODEL_ID: 'glm-5.2:cloud'
+      CLASSIFIER_OLLAMA_BASE_URL: 'http://192.168.50.231:11434'
+      # Staging crawls via NightFuryX (Threadripper 3970X, 64 threads, 115G
+      # free, load 0.12) instead of the app host (laptop i7-12650H, 16
+      # threads, ~10G free, 32 containers). Throughput there plateaued at
+      # ~4.1 pages/sec and 4->8 workers bought only 7%. Prod still uses the
+      # app-host instance.
+      CRAWL4AI_URL: 'http://192.168.50.17:11235'
     ports: !override
       - '${ADMIN_FEATURE_HOST_PORT:-3739}:3000'
     volumes: !override
