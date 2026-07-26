@@ -1,0 +1,68 @@
+use_default_settings: true
+server:
+  # Is overwritten by ${SEARXNG_PORT} and ${SEARXNG_BIND_ADDRESS}
+  port: 8888
+  bind_address: '0.0.0.0'
+  # public URL of the instance, to ensure correct inbound links. Is overwritten
+  # by ${SEARXNG_URL}.
+  base_url: false # "http://example.com/location"
+  # rate limit the number of request on the instance, block some bots.
+  # Is overwritten by ${SEARXNG_LIMITER}
+  limiter: false
+  # enable features designed only for public instances.
+  # Is overwritten by ${SEARXNG_PUBLIC_INSTANCE}
+  public_instance: false
+
+  # If your instance owns a /etc/searxng/settings.yml file, then set the following
+  # values there.
+
+  secret_key: 'ursecretkey' # Is overwritten by ${SEARXNG_SECRET}
+  # Proxy image results through SearXNG. Is overwritten by ${SEARXNG_IMAGE_PROXY}
+  image_proxy: false
+  # 1.0 and 1.1 are supported
+  http_protocol_version: '1.0'
+  # POST queries are more secure as they don't show up in history but may cause
+  # problems when using Firefox containers
+  method: 'POST'
+  default_http_headers:
+    X-Content-Type-Options: nosniff
+    X-Download-Options: noopen
+    X-Robots-Tag: noindex, nofollow
+    Referrer-Policy: no-referrer
+
+search:
+  formats:
+    - json
+
+# Enable discussion-intent engines (disabled in upstream defaults) so the
+# local fallback matches the primary instance for Ask's engine routing.
+engines:
+  - name: gentoo # timeout=10, niche distro engine, chronic slow responder
+    disabled: true
+  - name: hackernews
+    disabled: false
+  - name: lobste.rs
+    disabled: false
+  # bing is in SEARXNG_ENGINES_ADVANCED ('bing,duckduckgo,wikipedia,google cse')
+  # but ships DISABLED in upstream defaults — so Ask requested it on every
+  # advanced search and got nothing back. With brave rate-limited and startpage
+  # CAPTCHA'd from this IP, that left DuckDuckGo carrying the whole result set.
+  - name: bing
+    disabled: false
+  # Independent crawler with its own index — not a Google/Bing reseller, and it
+  # does not rate-limit residential IPs the way brave/startpage/google do. Adds
+  # a source of results that survives when the blocked engines do not.
+  - name: mojeek
+    disabled: false
+  # Measured 2026-07-26 and left DISABLED: qwant returns CAPTCHA from this IP
+  # (same as brave/startpage), and presearch returned 0 results without even
+  # reporting itself unresponsive. Both cost a round trip per search for
+  # nothing — an engine that hangs is worse than an absent one, because the
+  # search waits on it.
+
+# Bound per-engine timeout so one slow/hanging engine (e.g. DuckDuckGo
+# timing out under the 'it' category) can't hold the whole response past
+# Ask's 8s SearXNG fetch timeout and force an empty-result abort.
+outgoing:
+  request_timeout: 4.0
+  max_request_timeout: 5.0
