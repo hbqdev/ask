@@ -7,6 +7,7 @@ import {
 } from '@/lib/embeddings/transformers-embedding'
 import { getSearchSchemaForModel } from '@/lib/schema/search'
 import { SearchResults } from '@/lib/types'
+import { readNdjson } from '@/lib/utils/ndjson'
 import { isOllamaSearchConfigured } from '@/lib/utils/ollama-search-client'
 import {
   getGeneralSearchProviderType,
@@ -333,6 +334,11 @@ export function createSearchTool(
         ) {
           // Get the base URL using the centralized utility function
           const baseUrl = await getBaseUrlString()
+          // Default ON: the preview is strictly additive (an extra UI-only
+          // yield), and the final line is identical to today's response.
+          const streamPreview =
+            process.env.SEARCH_STREAM_PREVIEW !== 'false' &&
+            typeof ReadableStream !== 'undefined'
 
           const response = await fetch(`${baseUrl}/api/advanced-search`, {
             method: 'POST',
@@ -347,7 +353,12 @@ export function createSearchTool(
               intent: toolOptions?.intent,
               chatId: toolOptions?.chatId,
               useOllama,
-              ollamaMaxResults
+              ollamaMaxResults,
+              // NDJSON: a preview line as soon as the fan-out resolves (~2s),
+              // then the crawled+reranked line (~15-20s). Sources render on
+              // the preview instead of the user watching nothing until the
+              // end. Off => today's single JSON response.
+              stream: streamPreview
             })
           })
           if (!response.ok) {
@@ -355,7 +366,38 @@ export function createSearchTool(
               `Advanced search API error: ${response.status} ${response.statusText}`
             )
           }
-          searchResult = await response.json()
+
+          if (streamPreview && response.body) {
+            let finalResult: SearchResults | undefined
+            for await (const line of readNdjson(response.body)) {
+              const msg = line as { type?: string } & Partial<SearchResults>
+              if (msg?.type === 'preview') {
+                // Intermediate yields are UI-only — the model receives the
+                // FINAL yield — so showing preliminary sources here cannot
+                // put un-crawled content in front of the model.
+                yield {
+                  state: 'complete' as const,
+                  results: msg.results ?? [],
+                  images: [],
+                  query: filledQuery,
+                  number_of_results: msg.number_of_results ?? 0
+                }
+              } else if (msg?.type === 'final') {
+                finalResult = {
+                  results: msg.results ?? [],
+                  query: msg.query ?? filledQuery,
+                  images: msg.images ?? [],
+                  number_of_results: msg.number_of_results ?? 0
+                }
+              }
+            }
+            if (!finalResult) {
+              throw new Error('Advanced search stream ended with no final line')
+            }
+            searchResult = finalResult
+          } else {
+            searchResult = await response.json()
+          }
         } else {
           // Use the provider factory to get the appropriate search provider
           const searchProvider = createSearchProvider(searchAPI)
