@@ -3,7 +3,7 @@
 // This is the whole deliverable of the snippet gate's shadow phase: p95 of this
 // distribution sets SEARCH_SNIPPET_GATE_TOP_N, and if it comes back high the
 // gate does not ship at all. Pure, and separate from route.ts, matching
-// telemetry-tag.ts — the route itself cannot be unit-tested without mocking
+// lib/telemetry/search-tag.ts — the route itself cannot be unit-tested without mocking
 // SearXNG, Crawl4AI and the reranker together.
 
 export function buildReturnedRanks(

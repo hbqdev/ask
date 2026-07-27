@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
-import { buildSearchTelemetryTag } from '../telemetry-tag'
+import { buildSearchTelemetryTag } from '../search-tag'
 
 // [latency:search] had no chat or turn identifier, so a search could not be
 // joined to the turn that caused it. That blocked the intent-vs-crawl

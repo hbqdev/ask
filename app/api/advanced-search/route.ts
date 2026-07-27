@@ -15,6 +15,7 @@ import {
 import { buildExcerptContent } from '@/lib/search/build-excerpt'
 import { isQualityContent } from '@/lib/search/quality-content'
 import { runSnippetGate } from '@/lib/search/snippet-gate'
+import { buildSearchTelemetryTag } from '@/lib/telemetry/search-tag'
 import { StageTimer } from '@/lib/telemetry/stage-timer'
 import { SEARXNG_ENGINES_ADVANCED } from '@/lib/tools/search/engines'
 import { intentToCategory, type SearchIntent } from '@/lib/tools/search/intent'
@@ -59,7 +60,6 @@ import {
 import { withDeadline } from '@/lib/utils/with-deadline'
 
 import { buildReturnedRanks } from './returned-ranks'
-import { buildSearchTelemetryTag } from './telemetry-tag'
 
 /**
  * Maximum number of results to fetch from SearXNG.
