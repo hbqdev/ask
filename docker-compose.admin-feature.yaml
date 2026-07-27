@@ -47,6 +47,13 @@ services:
       # should have started with — it is the one knob that moves page count
       # directly, holding the query fixed.
       MAX_ENRICH_URLS: ${MAX_ENRICH_URLS:-100}
+      # Same passthrough for the candidate pool itself. This is the knob that
+      # reduces WORK rather than relocating it: MAX_ENRICH_URLS only decides
+      # which crawler a candidate goes to (Crawl4AI above the split, the legacy
+      # in-process scraper below it), so lowering it moves cost from crawl_ms
+      # into enrich_ms. Lowering the multiplier shrinks `candidates`, so pages
+      # never reach either crawler. Default 4 matches the route's fallback.
+      SEARXNG_CRAWL_MULTIPLIER: ${SEARXNG_CRAWL_MULTIPLIER:-4}
       # Re-enable degoog on the advanced path. It was switched off 2026-07-25
       # because it scraped Google/Brave/Startpage/DDG from our residential IP
       # and burned the reputation SearXNG depends on — see the comment on
