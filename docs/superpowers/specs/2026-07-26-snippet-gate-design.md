@@ -1,8 +1,19 @@
 # Pre-Crawl Snippet Gate — Design
 
 **Date:** 2026-07-26
-**Status:** Approved for implementation (operator approved: shadow first, then
-crawl cap; Tavily/Brave gating explicitly out of scope).
+**Status: NOT SHIPPED — measured, rejected 2026-07-27.**
+
+The gate works exactly as designed and makes turns **~3.2s slower**. Capping the
+crawl from 50 to 40 pages saved 184 ms, against the gate's own 2,613 ms cost.
+The premise — that crawl time is steeply superlinear in page count — did not
+survive direct manipulation. See "Phase 2 results" and "What this got wrong".
+
+The code is committed and inert (`SEARCH_SNIPPET_GATE` unset ⇒ no reranker call
+at all). It is kept, not reverted, because the `returned_ranks` telemetry is
+useful for any future work on source selection, and because the measurement
+harness is the expensive part to rebuild. Everything below the Phase 2 results
+is the original design, left as written so the reasoning that led here is
+legible.
 
 ## Goal
 
@@ -340,6 +351,78 @@ Flip staging to `on` with N from Phase 1. Prod follows only after the A/B.
 - fixed-question A/B, staging vs prod, surfaces the same sources
 - net saving beats the gate's own cost: the median turn must improve by more
   than the measured 1.65s
+
+### Phase 2 results (measured 2026-07-27, staging) — FAILED
+
+`off` vs `on` (TOP_N=40), same 17 questions, search cache cleared before each
+arm, exit IP rotated and engine health cleared before each arm. off n=14 (three
+turns tiered to basic and produced no advanced record), on n=17.
+
+| metric          |        OFF |         ON |      delta |
+| --------------- | ---------: | ---------: | ---------: |
+| candidates      |         56 |         45 |        −10 |
+| crawled         |         50 |         40 |        −10 |
+| **crawl_ms**    |     17,995 |     17,811 |   **−184** |
+| snippet_rank_ms |          — |      2,613 |     +2,613 |
+| rerank_ms       |      9,210 |      7,945 |     −1,266 |
+| **returned**    |     **14** |     **14** |      **0** |
+| **total_ms**    | **30,110** | **33,279** | **+3,170** |
+
+Mean `total_ms` 34,634 → 33,854 (−780); the mean improves only because of tail
+turns, while the median — the typical turn — gets materially worse.
+
+The ledger: spend 2.6s scoring, recover 1.3s of rerank and 0.2s of crawl.
+
+`returned` is identical, so there was no quality cost. There was no quality
+benefit either. The gate is simply slower.
+
+## What this got wrong
+
+**A cross-sectional correlation was treated as a response curve.** The design
+rests on bucketing 93 historical turns by page count and reading off a steep
+crawl_ms curve (10–19 pages → 8.7s, 60–69 → 53.7s). That correlation is real
+but not causal: turns that crawl more pages are also turns with harder queries,
+more marginal domains and slower pages. Cutting the page count directly does
+not walk backwards down that curve — measured, 10 fewer pages bought 184 ms.
+
+The check that would have caught it is cheap and was never run: force a lower
+`MAX_ENRICH_URLS` for a few turns and measure `crawl_ms` before building
+anything. One flag, no new code. Instead the curve was carried through a spec,
+a plan, four commits and three measurement arms.
+
+**The first A/B compared the wrong baseline.** shadow→on was reported as
+−4.56s, but shadow also pays the full scoring cost — it scores and declines to
+act. That comparison isolates the benefit of capping while holding the gate's
+cost constant in both arms, so it cannot answer "is the gate worth having".
+Only off→on can, and it reverses the sign.
+
+**Engine blocking was not checked until after results were reported.** The
+first two arms ran while our own load was suspending engines (276 CAPTCHA/403
+signals, 8 engines suspended mid-run), so part of the `candidates` drop
+attributed to the cap was engines dropping out. Engine health belongs in the
+pre-flight of any search A/B, not the post-mortem.
+
+**Two projections in this document were wrong by 5×–70×** and are retained
+above with their errors marked rather than deleted: 13.6s projected crawl
+saving vs 184 ms measured. Projections onto a bucket curve should not have been
+written in units that look like measurements.
+
+## What is kept
+
+- `lib/search/snippet-rank.ts`, `lib/search/snippet-gate.ts`,
+  `app/api/advanced-search/returned-ranks.ts` and their tests — inert with the
+  flag unset, no reranker call, no cost.
+- `returned_ranks` telemetry, which is the only direct evidence we have about
+  how well pre-crawl signals predict what survives to an answer.
+- `fleet-boot/rotate-mullvad.sh` and the gluetun control-server auth, which came
+  out of this work and are independently useful.
+
+## Where the latency actually is
+
+Unchanged by this work: crawl is ~18s of a ~30s turn. But it is **not** the page
+count. The lever is per-page crawl cost — sidecar concurrency, `chunkSize`, the
+`domcontentloaded` budget, and the tail of slow domains. That is a different
+spec, and it should open with the direct manipulation this one skipped.
 
 ## Risks
 
