@@ -25,6 +25,13 @@ services:
       # dedicated classifier host.
       CLASSIFIER_MODEL_ID: 'glm-5.2:cloud'
       CLASSIFIER_OLLAMA_BASE_URL: 'http://192.168.50.231:11434'
+      # Pre-crawl snippet gate, SHADOW: score candidates on title+snippet
+      # before the crawl and log where each returned source ranked, but crawl
+      # exactly what we crawl today. Phase 1 of
+      # docs/superpowers/specs/2026-07-26-snippet-gate-design.md — the
+      # returned_ranks distribution is what sets TOP_N, and it is only
+      # trustworthy while the gate changes nothing.
+      SEARCH_SNIPPET_GATE: 'shadow'
       # Re-enable degoog on the advanced path. It was switched off 2026-07-25
       # because it scraped Google/Brave/Startpage/DDG from our residential IP
       # and burned the reputation SearXNG depends on — see the comment on
