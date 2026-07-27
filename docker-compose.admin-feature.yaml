@@ -38,6 +38,13 @@ services:
       # measured 2.7s). Projected, not measured — that is what this phase is
       # for. Compare crawl_ms / returned / total_ms against the shadow run
       # before this goes anywhere near prod.
+      # Emits one [PAYLOAD] line per tool call with the tool name and a token
+      # breakdown (lib/utils/usage-logging.ts). Off by default and staging-only:
+      # the structured telemetry records tool_calls as a COUNT, so a 17-tool-call
+      # turn is opaque about which tools ran. At ~7s of model round-trip per
+      # step, knowing whether those were searches, fetches or todoWrite
+      # bookkeeping decides what is worth capping.
+      ENABLE_USAGE_LOGGING: 'true'
       SEARCH_SNIPPET_GATE: 'off'
       SEARCH_SNIPPET_GATE_TOP_N: '40'
       # Passthrough so the crawl budget can be swept from the shell without
