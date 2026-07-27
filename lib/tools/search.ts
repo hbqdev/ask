@@ -12,6 +12,8 @@ import {
   withBasicSearchCache
 } from '@/lib/search/basic-search-cache'
 import type { FullContentByToolCall } from '@/lib/search/rehydrate-full-content'
+import { buildSearchTelemetryTag } from '@/lib/telemetry/search-tag'
+import { StageTimer } from '@/lib/telemetry/stage-timer'
 import { SearchResultItem, SearchResults } from '@/lib/types'
 import { readNdjson } from '@/lib/utils/ndjson'
 import { isOllamaSearchConfigured } from '@/lib/utils/ollama-search-client'
@@ -22,6 +24,10 @@ import {
 import { getBaseUrlString } from '@/lib/utils/url'
 import { logToolPayload } from '@/lib/utils/usage-logging'
 
+import {
+  countSearchPayload,
+  routeEmitsSearchTelemetry
+} from './search/basic-telemetry'
 import {
   createSearchProvider,
   DEFAULT_PROVIDER,
@@ -358,11 +364,35 @@ export function createSearchTool(
         `Using search API: ${searchAPI}, Type: ${type}, Search Depth: ${effectiveSearchDepthForAPI}`
       )
 
+      // Does /api/advanced-search own this search? Used for BOTH the routing
+      // decision below and the telemetry decision, from one expression, so the
+      // two cannot drift into double-counting or a silent blind spot.
+      const routeReportsTelemetry = routeEmitsSearchTelemetry(
+        searchAPI,
+        effectiveSearchDepthForAPI
+      )
+
+      // Per-search timing for the paths the route never sees. Started here so
+      // it brackets exactly what the "Using search API" -> "completed search"
+      // log pair brackets, keeping the line and the logs mutually checkable.
+      const toolTimer = routeReportsTelemetry
+        ? null
+        : new StageTimer('latency:search', {
+            ...buildSearchTelemetryTag({ chatId: toolOptions?.chatId }),
+            depth: effectiveSearchDepthForAPI,
+            intent: toolOptions?.intent ?? 'general',
+            // Present only on tool-emitted lines — this is what tells the two
+            // emitters apart when reading the log.
+            provider: searchAPI
+          })
+
+      // The searxng branch cannot use this: its timing has to sit INSIDE
+      // withBasicSearchCache so a cache hit is not billed as search time.
+      const timeSearch = <T>(fn: () => Promise<T>): Promise<T> =>
+        toolTimer ? toolTimer.time('search_ms', fn) : fn()
+
       try {
-        if (
-          searchAPI === 'searxng' &&
-          effectiveSearchDepthForAPI === 'advanced'
-        ) {
+        if (routeReportsTelemetry) {
           // Get the base URL using the centralized utility function
           const baseUrl = await getBaseUrlString()
           // Default ON: the preview is strictly additive (an extra UI-only
@@ -447,40 +477,52 @@ export function createSearchTool(
             // This also covers Brave's free credits running out: its provider
             // swallows API errors and returns empty, and the merge then
             // degrades to SearXNG's results alone.
-            const [braveSettled, searxngSettled] = await Promise.allSettled([
-              searchProvider.search(
-                filledQuery,
-                effectiveMaxResults,
-                effectiveSearchDepthForAPI,
-                include_domains,
-                exclude_domains,
-                {
-                  type: type as 'general' | 'optimized',
-                  content_types: content_types as SearchContentType[]
-                }
-              ),
-              createSearchProvider('searxng').search(
-                filledQuery,
-                effectiveMaxResults,
-                effectiveSearchDepthForAPI,
-                include_domains,
-                exclude_domains,
-                {
-                  searchMode: search_mode as SearchModeOption,
-                  content_types: content_types as SearchContentType[],
-                  time_range: toolOptions?.timeRange,
-                  intent: toolOptions?.intent,
-                  useOllama,
-                  ollamaMaxResults
-                }
-              )
-            ])
+            const [braveSettled, searxngSettled] = await timeSearch(() =>
+              Promise.allSettled([
+                searchProvider.search(
+                  filledQuery,
+                  effectiveMaxResults,
+                  effectiveSearchDepthForAPI,
+                  include_domains,
+                  exclude_domains,
+                  {
+                    type: type as 'general' | 'optimized',
+                    content_types: content_types as SearchContentType[]
+                  }
+                ),
+                createSearchProvider('searxng').search(
+                  filledQuery,
+                  effectiveMaxResults,
+                  effectiveSearchDepthForAPI,
+                  include_domains,
+                  exclude_domains,
+                  {
+                    searchMode: search_mode as SearchModeOption,
+                    content_types: content_types as SearchContentType[],
+                    time_range: toolOptions?.timeRange,
+                    intent: toolOptions?.intent,
+                    useOllama,
+                    ollamaMaxResults
+                  }
+                )
+              ])
+            )
             const braveResult =
               braveSettled.status === 'fulfilled' ? braveSettled.value : null
             const searxngResult =
               searxngSettled.status === 'fulfilled'
                 ? searxngSettled.value
                 : null
+            // Which half of the merge actually answered. A silent Brave
+            // credit exhaustion degrades to SearXNG-only results that look
+            // fine and are quietly narrower, so record it rather than infer
+            // it from a count.
+            toolTimer?.set(
+              'merged',
+              [braveResult ? 'brave' : null, searxngResult ? 'searxng' : null]
+                .filter(Boolean)
+                .join('+') || 'none'
+            )
             if (braveSettled.status === 'rejected') {
               console.warn(
                 '[search] Brave general failed, continuing with SearXNG:',
@@ -509,42 +551,66 @@ export function createSearchTool(
             // bulk of engine load. Domain filters are part of the key via the
             // query string, and advanced never reaches here (it goes through
             // /api/advanced-search, which has its own cache).
+            // Cache outcome is inferred from whether the inner function ran,
+            // rather than plumbed out of withBasicSearchCache: that helper
+            // only invokes it on a miss, so the flag IS the outcome and no
+            // signature change (or its test churn) is needed.
+            let providerRan = false
+            let providerMs = 0
             searchResult = await withBasicSearchCache(
               basicSearchCacheKey(
                 `${filledQuery}|${search_mode}|${include_domains.join(',')}|${exclude_domains.join(',')}|${toolOptions?.intent ?? ''}`,
                 effectiveMaxResults,
                 toolOptions?.timeRange
               ),
-              () =>
-                searchProvider.search(
-                  filledQuery,
-                  effectiveMaxResults,
-                  effectiveSearchDepthForAPI,
-                  include_domains,
-                  exclude_domains,
-                  {
-                    searchMode: search_mode as SearchModeOption,
-                    content_types: content_types as SearchContentType[],
-                    time_range: toolOptions?.timeRange,
-                    intent: toolOptions?.intent,
-                    useOllama,
-                    ollamaMaxResults
-                  }
-                ),
+              async () => {
+                providerRan = true
+                const startedAt = performance.now()
+                try {
+                  return await searchProvider.search(
+                    filledQuery,
+                    effectiveMaxResults,
+                    effectiveSearchDepthForAPI,
+                    include_domains,
+                    exclude_domains,
+                    {
+                      searchMode: search_mode as SearchModeOption,
+                      content_types: content_types as SearchContentType[],
+                      time_range: toolOptions?.timeRange,
+                      intent: toolOptions?.intent,
+                      useOllama,
+                      ollamaMaxResults
+                    }
+                  )
+                } finally {
+                  // In `finally` so a failing-and-slow fan-out is still
+                  // visible in the numbers instead of vanishing.
+                  providerMs = performance.now() - startedAt
+                }
+              },
               redisCacheIO
             )
+            toolTimer?.set('cache', providerRan ? 'miss' : 'hit')
+            if (providerRan) toolTimer?.mark('search_ms', providerMs)
           } else {
-            searchResult = await searchProvider.search(
-              filledQuery,
-              effectiveMaxResults,
-              effectiveSearchDepthForAPI,
-              include_domains,
-              exclude_domains
+            searchResult = await timeSearch(() =>
+              searchProvider.search(
+                filledQuery,
+                effectiveMaxResults,
+                effectiveSearchDepthForAPI,
+                include_domains,
+                exclude_domains
+              )
             )
           }
         }
       } catch (error) {
         console.error('Search API error:', error)
+        // A failed search is exactly the case worth measuring — a slow
+        // timeout costs the turn the same as a slow success — so emit before
+        // rethrowing rather than losing the line.
+        toolTimer?.set('error', error instanceof Error ? error.name : 'unknown')
+        toolTimer?.emit()
         // Re-throw the error to let AI SDK handle it properly
         throw error instanceof Error ? error : new Error('Unknown search error')
       }
@@ -553,7 +619,13 @@ export function createSearchTool(
       // unique URLs appended after the main results so the primary
       // phrasing's ranking stays on top.
       if (variantResultsPromise) {
+        // Timed separately because the variants run CONCURRENTLY with the
+        // main search: this awaits whatever is still outstanding, so a large
+        // variant_wait_ms means the variants — not the main search — set the
+        // floor for this tool call.
+        const variantStart = performance.now()
         const variantResults = await variantResultsPromise
+        toolTimer?.mark('variant_wait_ms', performance.now() - variantStart)
         if (variantResults.length > 0) {
           const seenUrls = new Set((searchResult.results ?? []).map(r => r.url))
           const merged = [...(searchResult.results ?? [])]
@@ -563,9 +635,15 @@ export function createSearchTool(
               merged.push(r)
             }
           }
+          const added = merged.length - (searchResult.results?.length ?? 0)
           console.log(
-            `[search-expansion] merged ${merged.length - (searchResult.results?.length ?? 0)} variant results into "${filledQuery}"`
+            `[search-expansion] merged ${added} variant results into "${filledQuery}"`
           )
+          // Both numbers: `added` alone cannot distinguish "variants found
+          // nothing" from "variants found only duplicates", and those imply
+          // opposite fixes.
+          toolTimer?.set('variant_found', variantResults.length)
+          toolTimer?.set('variant_added', added)
           searchResult = { ...searchResult, results: merged }
         }
       }
@@ -581,6 +659,16 @@ export function createSearchTool(
       }
 
       console.log('completed search')
+
+      // Emitted here, alongside the log line the timeline script keys on, so
+      // the structured row and the log-derived timeline always agree.
+      if (toolTimer) {
+        const counts = countSearchPayload(searchResult)
+        toolTimer.set('returned', counts.returned)
+        toolTimer.set('images', counts.images)
+        toolTimer.set('videos', counts.videos)
+        toolTimer.emit()
+      }
 
       logToolPayload('search', query, {
         results: searchResult.results,
