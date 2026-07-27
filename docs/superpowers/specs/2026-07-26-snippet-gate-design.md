@@ -278,13 +278,54 @@ and prod. Behavior is provably unchanged; the only cost is one ~1.7s
 cross-encoder call per advanced search, which runs while nothing else is
 blocked on it.
 
-**Exit criterion:** ≥50 advanced-depth turns of `returned_ranks` collected.
-Set `SEARCH_SNIPPET_GATE_TOP_N` = p95 of observed returned ranks.
+**Exit criterion:** enough advanced-depth turns for the retention curve to
+converge. Set `SEARCH_SNIPPET_GATE_TOP_N` to the smallest N retaining ≥95% of
+returned sources.
 
-**Kill criterion:** if p95 of `returned_ranks` exceeds ~35, snippets are not
-predictive enough to spend the crawl budget on and Phase 2 does not ship. This
-is a real possible outcome. The cost of discovering it this way is one flag and
-one telemetry field, versus a quality regression discovered in use.
+**Kill criterion (corrected 2026-07-27):** if the smallest N retaining 95% of
+returned sources exceeds **75% of the median pool size**, snippets are not
+predictive enough to spend the crawl budget on and Phase 2 does not ship.
+
+The original criterion was an absolute rank — "if p95 of `returned_ranks`
+exceeds ~35" — and it was wrong. It was written against the then-current pool
+median of 40 candidates, so 35 meant "the bottom 12% of the pool". Re-enabling
+degoog on the advanced path the same day pushed the pool median to 60, at which
+point the identical number silently meant "the bottom 42%". The threshold moved
+without the question changing. A fraction of pool size is the invariant; an
+absolute rank is not.
+
+Two further corrections to how the exit number is read:
+
+- **p95 of the raw rank is meaningless when pool size varies.** Observed pools
+  ranged 40–80 within one session, so rank 30 is "top 75%" in one turn and "top
+  38%" in another. Use the retention curve — for each candidate N, what share of
+  the sources that actually reached the answer would still have been crawled.
+- **Retention is not quality.** Keeping 95% of source URLs does not prove the
+  answers hold up; the dropped 5% may be load-bearing on some queries. Only the
+  Phase 2 A/B settles that, which is why Phase 2 measures answers and not just
+  counts.
+
+### Phase 1 results (measured 2026-07-27, staging, n=17 turns / 227 sources)
+
+Converged: checkpoints at 7, 10, 14 and 17 turns agree within ~1pp at every N.
+Pool median 60 (min 40, max 80). Gate cost `snippet_rank_ms` median 2,725 ms.
+
+|  TOP_N | sources kept | turns fully covered | crawl pages | est. crawl saved |        net |
+| -----: | -----------: | ------------------: | ----------: | ---------------: | ---------: |
+|     20 |        58.6% |                  6% |     55 → 18 |                — |          — |
+|     30 |        82.4% |                 29% |     55 → 28 |            14.8s |     +12.0s |
+|     35 |        90.3% |                 53% |     55 → 32 |            13.6s |     +10.9s |
+| **40** |    **95.2%** |                 59% | **55 → 37** |        **13.6s** | **+10.9s** |
+|     45 |        97.8% |                   — |     55 → 41 |             4.3s |      +1.6s |
+|     50 |        98.7% |                 88% |           — |                — |          — |
+
+N=40 is the knee: 95% retention, ~10.9s net. N=45 buys 2.6pp more retention for
+9s of the saving. 40 is 67% of the median pool, inside the corrected threshold
+of 75%.
+
+Crawl savings above are **estimated** by projecting each turn's reduced page
+count onto the measured page-count/`crawl_ms` bucket curve. Phase 2 replaces
+them with measurements.
 
 ### Phase 2 — Enforce
 
@@ -292,9 +333,10 @@ Flip staging to `on` with N from Phase 1. Prod follows only after the A/B.
 
 **Success criteria:**
 
-- `crawl_ms` median falls materially — target the 10–19 page bucket (~8.7s)
-  from today's 30–39 bucket (~12.1s)
-- `returned` count unchanged (median 14, and the 20 cap still reachable)
+- `crawl_ms` median falls materially — from the shadow baseline of 20.5s at 55
+  pages toward the 30–39 page bucket (~12.1s)
+- `returned` count unchanged (shadow baseline median 13, and the 20 cap still
+  reachable)
 - fixed-question A/B, staging vs prod, surfaces the same sources
 - net saving beats the gate's own cost: the median turn must improve by more
   than the measured 1.65s
