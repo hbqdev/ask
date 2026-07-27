@@ -1,3 +1,4 @@
+import { checkBraveBudget, recordBraveCalls } from '@/lib/search/brave-budget'
 import {
   SearchImageItem,
   SearchResults,
@@ -5,6 +6,12 @@ import {
 } from '@/lib/types'
 
 import { SearchProvider } from './base'
+
+// Brave's API rejects count > 20. The merge client clamps; this provider used
+// to pass the model's max_results straight through, so any value above 20 made
+// Brave 400 — and because each sub-search swallows its own error, the search
+// "succeeded" with zero Brave results and silently degraded to SearXNG only.
+const BRAVE_MAX_COUNT = 20
 
 interface BraveWebResult {
   title?: string
@@ -80,22 +87,38 @@ export class BraveSearchProvider implements SearchProvider {
       number_of_results: 0
     }
 
-    // Execute searches in parallel for each content type
-    const promises: Promise<void>[] = []
+    // Brave rejects count > 20 (see BRAVE_MAX_COUNT).
+    const count = Math.min(maxResults, BRAVE_MAX_COUNT)
 
-    if (contentTypes.includes('web')) {
-      promises.push(this.searchWeb(query, maxResults, results))
+    // One API call per content type, so a ['web','video','image'] search costs
+    // THREE against the monthly quota. Budget-checked as a block, before any
+    // of them fire, so a search cannot straddle the cap.
+    const wanted = (['web', 'video', 'image'] as const).filter(t =>
+      contentTypes.includes(t)
+    )
+    if (wanted.length === 0) return results
+
+    const budget = await checkBraveBudget(wanted.length)
+    if (!budget.allowed) {
+      // Degrade quietly rather than throw: the caller merges Brave with
+      // SearXNG (merge-general.ts) and a null Brave half is already handled,
+      // so an exhausted quota costs breadth, not the search.
+      console.warn(
+        `[brave] monthly budget reached (${budget.used}/${budget.budget}), skipping ${wanted.length} call(s)`
+      )
+      return results
     }
 
-    if (contentTypes.includes('video')) {
-      promises.push(this.searchVideos(query, maxResults, results))
+    // Execute searches in parallel for each content type. Each resolves to
+    // whether it actually reached the API, so only real calls are billed — a
+    // Brave outage must not burn the month's quota.
+    const runners: Record<(typeof wanted)[number], () => Promise<boolean>> = {
+      web: () => this.searchWeb(query, count, results),
+      video: () => this.searchVideos(query, count, results),
+      image: () => this.searchImages(query, count, results)
     }
-
-    if (contentTypes.includes('image')) {
-      promises.push(this.searchImages(query, maxResults, results))
-    }
-
-    await Promise.all(promises)
+    const settled = await Promise.all(wanted.map(t => runners[t]()))
+    await recordBraveCalls(settled.filter(Boolean).length)
 
     // Update total count
     results.number_of_results = results.results.length
@@ -107,7 +130,7 @@ export class BraveSearchProvider implements SearchProvider {
     query: string,
     maxResults: number,
     results: SearchResults
-  ): Promise<void> {
+  ): Promise<boolean> {
     try {
       const response = await fetch(
         `https://api.search.brave.com/res/v1/web/search?q=${encodeURIComponent(
@@ -123,8 +146,12 @@ export class BraveSearchProvider implements SearchProvider {
       )
 
       if (!response.ok) {
-        console.error(`Brave web search failed: ${response.statusText}`)
-        throw new Error('Search failed')
+        // Not billed: a rejected request (429 quota, 400 bad count, 5xx) did
+        // not consume a successful call, and `false` keeps it off the counter.
+        console.error(
+          `Brave web search failed: ${response.status} ${response.statusText}`
+        )
+        return false
       }
 
       const data = await response.json()
@@ -135,8 +162,10 @@ export class BraveSearchProvider implements SearchProvider {
           description: result.description || 'No description available',
           url: result.url
         }))
+      return true
     } catch (error) {
       console.error('Brave web search error:', error)
+      return false
     }
   }
 
@@ -144,7 +173,7 @@ export class BraveSearchProvider implements SearchProvider {
     query: string,
     maxResults: number,
     results: SearchResults
-  ): Promise<void> {
+  ): Promise<boolean> {
     try {
       const response = await fetch(
         `https://api.search.brave.com/res/v1/videos/search?q=${encodeURIComponent(
@@ -160,8 +189,12 @@ export class BraveSearchProvider implements SearchProvider {
       )
 
       if (!response.ok) {
-        console.error(`Brave video search failed: ${response.statusText}`)
-        throw new Error('Search failed')
+        // Not billed: a rejected request (429 quota, 400 bad count, 5xx) did
+        // not consume a successful call, and `false` keeps it off the counter.
+        console.error(
+          `Brave video search failed: ${response.status} ${response.statusText}`
+        )
+        return false
       }
 
       const data = await response.json()
@@ -181,9 +214,11 @@ export class BraveSearchProvider implements SearchProvider {
             position: index
           }) as SerperSearchResultItem
       )
+      return true
     } catch (error) {
       console.error('Brave video search error:', error)
       results.videos = []
+      return false
     }
   }
 
@@ -191,7 +226,7 @@ export class BraveSearchProvider implements SearchProvider {
     query: string,
     maxResults: number,
     results: SearchResults
-  ): Promise<void> {
+  ): Promise<boolean> {
     try {
       const response = await fetch(
         `https://api.search.brave.com/res/v1/images/search?q=${encodeURIComponent(
@@ -207,8 +242,12 @@ export class BraveSearchProvider implements SearchProvider {
       )
 
       if (!response.ok) {
-        console.error(`Brave image search failed: ${response.statusText}`)
-        throw new Error('Search failed')
+        // Not billed: a rejected request (429 quota, 400 bad count, 5xx) did
+        // not consume a successful call, and `false` keeps it off the counter.
+        console.error(
+          `Brave image search failed: ${response.status} ${response.statusText}`
+        )
+        return false
       }
 
       const data = await response.json()
@@ -220,9 +259,11 @@ export class BraveSearchProvider implements SearchProvider {
             thumbnailUrl: this.getImageThumbnailUrl(result)
           }) as SearchImageItem
       )
+      return true
     } catch (error) {
       console.error('Brave image search error:', error)
       results.images = []
+      return false
     }
   }
 }
