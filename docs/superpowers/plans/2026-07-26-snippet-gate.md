@@ -1,5 +1,12 @@
 # Pre-Crawl Snippet Gate Implementation Plan
 
+> **OUTCOME: implemented, measured, NOT SHIPPED (2026-07-27).** All four tasks
+> completed and the gate works as specified — it is just slower. Capping the
+> crawl 50 -> 40 pages saved 184 ms against the gate's own 2,613 ms, for a net
+> +3.2s on the median turn. See the Phase 2 results in
+> `docs/superpowers/specs/2026-07-26-snippet-gate-design.md`. The code is kept
+> and inert (`SEARCH_SNIPPET_GATE` unset).
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Score search candidates on their title+snippet with the cross-encoder

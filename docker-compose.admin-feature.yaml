@@ -25,13 +25,21 @@ services:
       # dedicated classifier host.
       CLASSIFIER_MODEL_ID: 'glm-5.2:cloud'
       CLASSIFIER_OLLAMA_BASE_URL: 'http://192.168.50.231:11434'
-      # Pre-crawl snippet gate, SHADOW: score candidates on title+snippet
-      # before the crawl and log where each returned source ranked, but crawl
-      # exactly what we crawl today. Phase 1 of
-      # docs/superpowers/specs/2026-07-26-snippet-gate-design.md — the
-      # returned_ranks distribution is what sets TOP_N, and it is only
-      # trustworthy while the gate changes nothing.
-      SEARCH_SNIPPET_GATE: 'shadow'
+      # Pre-crawl snippet gate, ENFORCING. Phase 2 of
+      # docs/superpowers/specs/2026-07-26-snippet-gate-design.md.
+      #
+      # Phase 1 shadow ran 17 turns / 227 returned sources on staging and the
+      # retention curve converged (checkpoints at 7/10/14/17 within ~1pp).
+      # N=40 is the knee: it keeps 95.2% of the sources that actually reached
+      # an answer while cutting the crawl 55 -> 37 pages. N=45 buys 2.6pp more
+      # retention for 9s of the saving; N=35 gives up 5pp for nothing extra.
+      #
+      # Projected net ~+10.9s/turn (est. 13.6s less crawl against the gate's
+      # measured 2.7s). Projected, not measured — that is what this phase is
+      # for. Compare crawl_ms / returned / total_ms against the shadow run
+      # before this goes anywhere near prod.
+      SEARCH_SNIPPET_GATE: 'off'
+      SEARCH_SNIPPET_GATE_TOP_N: '40'
       # Re-enable degoog on the advanced path. It was switched off 2026-07-25
       # because it scraped Google/Brave/Startpage/DDG from our residential IP
       # and burned the reputation SearXNG depends on — see the comment on
