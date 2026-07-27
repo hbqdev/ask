@@ -53,6 +53,24 @@ services:
       # The WireGuard private key is account-wide and works on ANY Mullvad
       # server, so this can be changed to any hostname without regenerating
       # the key. If this server's IP gets blocked, pick another and note which.
+      # PINNED to one host, not a country. Engine blocks are per-IP, so letting
+      # gluetun pick any US server makes results unreproducible — observed
+      # three different exits across three reconnects (us-was, us-lax,
+      # us-qas-wg-308), each with its own block status. A/B comparisons are
+      # meaningless while the exit IP moves under us.
+      #
+      # This is prod and it is currently healthy on this exit (google cse went
+      # from fully IP-blocked to top contributor here), so it stays a single
+      # host. Set MULLVAD_SERVER to a comma-separated pool if you want
+      # fleet-boot/rotate-mullvad.sh to be able to move it — staging already
+      # runs a pool, see docker-compose.vpn.admin-feature.yaml.
+      #
+      # NEVER share a hostname with another stack: two WireGuard peers using
+      # the same account key on the SAME server fight over the route. us-was
+      # only has 001 and 002, and staging holds 002.
+      #
+      # The WireGuard key is account-wide and works on ANY Mullvad server, so
+      # this can be changed to any hostname without regenerating the key.
       SERVER_HOSTNAMES: ${MULLVAD_SERVER:-us-was-wg-001}
       # Kill switch: if the tunnel drops, SearXNG loses network rather than
       # falling back to the flagged residential IP without us noticing.
@@ -72,6 +90,11 @@ services:
     # it is inside this namespace.
     ports:
       - '3741:8080'
+    volumes:
+      # Grants the control-server routes rotate-mullvad.sh needs. Without this
+      # every /v1/* call is 401 on gluetun 3.40+. See the file for why the
+      # routes are unauthenticated.
+      - ./gluetun-auth.toml:/gluetun/auth/config.toml:ro
     restart: unless-stopped
     healthcheck:
       test: ['CMD', 'wget', '-qO-', 'https://ipinfo.io/ip']

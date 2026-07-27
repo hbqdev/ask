@@ -1,0 +1,23 @@
+# Gluetun control-server auth. Since 3.40 every control route is 401 unless a
+# role explicitly grants it, so this file is what makes rotate-mullvad.sh work.
+#
+# auth = "none" is deliberate and safe HERE, not laziness: the control server
+# listens on :8000 inside gluetun's own network namespace, and that port is
+# never published (the compose only publishes 3740/3741 -> 8080 for the SearXNG
+# UI). The only ways to reach it are from inside the namespace — which is just
+# SearXNG — or `docker exec`. Anyone with docker exec on this host can restart
+# the tunnel anyway, so an API key would guard nothing while adding a secret to
+# manage.
+#
+# Routes are enumerated rather than wildcarded so this grants exactly what
+# rotation needs: read the current exit IP, read tunnel state, stop and start
+# it. Nothing here can change which servers are eligible — that stays in
+# SERVER_HOSTNAMES in the compose.
+[[roles]]
+name = "rotator"
+routes = [
+  "GET /v1/publicip/ip",
+  "GET /v1/vpn/status",
+  "PUT /v1/vpn/status",
+]
+auth = "none"

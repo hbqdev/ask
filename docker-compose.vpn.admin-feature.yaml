@@ -7,13 +7,34 @@
 # loses egress. Pinning them to different hosts avoids that entirely.
 #
 # prod    -> us-was-wg-001 (185.213.193.36) — the exit that was measured good
-# staging -> us-was-wg-002
+# staging -> a us-chi POOL (see below)
+#
+# Staging gets a pool rather than a pin because staging is where the load that
+# gets us blocked actually happens: ~34 A/B turns on 2026-07-27 produced 276
+# CAPTCHA/403 signals and suspended 8 engines (brave, startpage, duckduckgo,
+# mojeek, google cse + their image variants, deviantart). Rotating the exit is
+# how that gets cleared without waiting out the block — see
+# fleet-boot/rotate-mullvad.sh.
+#
+# us-chi, not us-was: us-was has exactly TWO wireguard servers (001, 002) and
+# prod holds 001, so a us-was pool would eventually land staging on prod's
+# server. Two peers presenting the same account key to one server fight over
+# the route and the loser silently loses egress. us-chi has 19 servers and no
+# other stack uses it (degoog is us-atl-wg-406, public searxng us-atl-wg-404).
+#
+# Pin MULLVAD_SERVER_STAGING to a single host when running an A/B — a moving
+# exit IP means a moving block profile, which is exactly the confound that made
+# the first snippet-gate A/B unreliable.
 
 services:
   gluetun:
     container_name: ask-gluetun-admin-feature
     environment:
-      SERVER_HOSTNAMES: ${MULLVAD_SERVER_STAGING:-us-was-wg-002}
+      # Hostnames verified against gluetun's own /gluetun/servers/mullvad.json —
+      # Mullvad's numbering is not 001-based per city (us-chi starts at 201/301),
+      # and gluetun silently falls back rather than erroring on a name that does
+      # not exist, so a plausible-looking guess here fails quietly.
+      SERVER_HOSTNAMES: ${MULLVAD_SERVER_STAGING:-us-chi-wg-301,us-chi-wg-302,us-chi-wg-303,us-chi-wg-304,us-chi-wg-305,us-chi-wg-306}
     ports: !override
       - '3740:8080'
 
