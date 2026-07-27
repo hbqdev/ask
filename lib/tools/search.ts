@@ -123,27 +123,67 @@ export function resolveEffectiveDepth(opts: {
 // only URLs not already present are appended. Never throws.
 async function searchExpansionVariants(
   variants: string[],
-  timeRange: SearchToolOptions['timeRange']
+  timeRange: SearchToolOptions['timeRange'],
+  chatId?: string
 ): Promise<SearchResults['results']> {
   const searchAPI =
     (process.env.SEARCH_API as SearchProviderType) || DEFAULT_PROVIDER
-  const settled = await Promise.allSettled(
-    variants.map(v =>
-      // Cached: the classifier runs at temperature 0, so the same question
-      // yields the same variants every time and these repeat constantly.
-      withBasicSearchCache(
-        basicSearchCacheKey(v, 10, timeRange),
-        () =>
-          createSearchProvider(searchAPI).search(v, 10, 'basic', [], [], {
-            time_range: timeRange
-          }),
-        redisCacheIO
+  // Measured HERE rather than on the tool's own timer, because expansion
+  // only ever runs on the FIRST search of a turn — which in balanced and
+  // quality modes is the advanced search, whose telemetry belongs to the
+  // route and leaves the tool with no timer to record onto. Bolting these
+  // numbers there made them unrecordable in exactly the modes that use them.
+  //
+  // These ARE basic searches (N concurrent, one per variant), so they carry
+  // the same tag and a provider field like every other tool-emitted line.
+  const timer = new StageTimer('latency:search', {
+    ...buildSearchTelemetryTag({ chatId }),
+    depth: 'basic',
+    provider: searchAPI,
+    // Distinguishes these from the model's own follow-up searches, which are
+    // also basic and would otherwise be indistinguishable in aggregate.
+    kind: 'expansion'
+  })
+  timer.set('variants', variants.length)
+
+  let cacheMisses = 0
+  const settled = await timer.time('search_ms', () =>
+    Promise.allSettled(
+      variants.map(v =>
+        // Cached: the classifier runs at temperature 0, so the same question
+        // yields the same variants every time and these repeat constantly.
+        withBasicSearchCache(
+          basicSearchCacheKey(v, 10, timeRange),
+          () => {
+            cacheMisses++
+            return createSearchProvider(searchAPI).search(
+              v,
+              10,
+              'basic',
+              [],
+              [],
+              {
+                time_range: timeRange
+              }
+            )
+          },
+          redisCacheIO
+        )
       )
     )
   )
-  return settled.flatMap(s =>
+
+  const results = settled.flatMap(s =>
     s.status === 'fulfilled' ? (s.value.results ?? []) : []
   )
+  // Variants run CONCURRENTLY, so search_ms is the slowest one, not the sum.
+  // `failed` matters on its own: a variant that throws is swallowed here by
+  // design, which silently narrows discovery with nothing else to show for it.
+  timer.set('cache_misses', cacheMisses)
+  timer.set('failed', settled.filter(s => s.status === 'rejected').length)
+  timer.set('returned', results.length)
+  timer.emit()
+  return results
 }
 
 /**
@@ -307,7 +347,11 @@ export function createSearchTool(
         ])
           .then(variants =>
             variants.length > 0
-              ? searchExpansionVariants(variants, toolOptions.timeRange)
+              ? searchExpansionVariants(
+                  variants,
+                  toolOptions.timeRange,
+                  toolOptions.chatId
+                )
               : []
           )
           .catch(() => [])
