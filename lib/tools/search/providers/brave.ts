@@ -34,6 +34,21 @@ interface BraveVideoResult {
   publisher?: string
 }
 
+// Verified against a live /res/v1/news/search response 2026-07-27. Every field
+// is optional here on purpose: `breaking` is documented but was absent from the
+// sample, so nothing may be assumed present.
+interface BraveNewsResult {
+  title?: string
+  description?: string
+  url: string
+  age?: string
+  page_age?: string
+}
+
+// The shape merge-general.ts normalizes (`description` -> `content`), matching
+// what searchWeb already emits. Kept explicit so news and web stay in step.
+type BraveNewsItem = { title: string; description: string; url: string }
+
 interface BraveImageResult {
   title?: string
   source?: string
@@ -50,11 +65,29 @@ interface BraveImageResult {
   height?: number
 }
 
+/** Budget hooks, injectable so this provider is testable without a Redis. */
+export type BraveBudgetHooks = {
+  check: typeof checkBraveBudget
+  record: typeof recordBraveCalls
+}
+
 export class BraveSearchProvider implements SearchProvider {
   private apiKey: string | undefined
+  private budget: BraveBudgetHooks
 
-  constructor() {
+  // NOTE the production consequence of the default: the budget check fails
+  // CLOSED, so with no reachable Redis this provider returns nothing rather
+  // than spending unmetered against a paid quota. That is deliberate and
+  // matches the advanced-search merge path, but it does mean a Redis outage
+  // costs general-search breadth, not just telemetry.
+  constructor(
+    budget: BraveBudgetHooks = {
+      check: checkBraveBudget,
+      record: recordBraveCalls
+    }
+  ) {
     this.apiKey = process.env.BRAVE_SEARCH_API_KEY
+    this.budget = budget
   }
 
   private getImageThumbnailUrl(result: BraveImageResult): string {
@@ -90,15 +123,27 @@ export class BraveSearchProvider implements SearchProvider {
     // Brave rejects count > 20 (see BRAVE_MAX_COUNT).
     const count = Math.min(maxResults, BRAVE_MAX_COUNT)
 
-    // One API call per content type, so a ['web','video','image'] search costs
+    // News is staged separately rather than written into `results` directly:
+    // searchWeb ASSIGNS results.results, so a news handler that also assigned
+    // would race it under Promise.all and one would silently win. Combined
+    // deterministically after the fan-out instead.
+    const newsItems: BraveNewsItem[] = []
+
+    // One API call per content type, so a ['web','news','image'] search costs
     // THREE against the monthly quota. Budget-checked as a block, before any
     // of them fire, so a search cannot straddle the cap.
-    const wanted = (['web', 'video', 'image'] as const).filter(t =>
+    const runners = {
+      web: () => this.searchWeb(query, count, results),
+      video: () => this.searchVideos(query, count, results),
+      image: () => this.searchImages(query, count, results),
+      news: () => this.searchNews(query, count, newsItems)
+    } as const
+    const wanted = (['web', 'video', 'image', 'news'] as const).filter(t =>
       contentTypes.includes(t)
     )
     if (wanted.length === 0) return results
 
-    const budget = await checkBraveBudget(wanted.length)
+    const budget = await this.budget.check(wanted.length)
     if (!budget.allowed) {
       // Degrade quietly rather than throw: the caller merges Brave with
       // SearXNG (merge-general.ts) and a null Brave half is already handled,
@@ -112,13 +157,17 @@ export class BraveSearchProvider implements SearchProvider {
     // Execute searches in parallel for each content type. Each resolves to
     // whether it actually reached the API, so only real calls are billed — a
     // Brave outage must not burn the month's quota.
-    const runners: Record<(typeof wanted)[number], () => Promise<boolean>> = {
-      web: () => this.searchWeb(query, count, results),
-      video: () => this.searchVideos(query, count, results),
-      image: () => this.searchImages(query, count, results)
-    }
     const settled = await Promise.all(wanted.map(t => runners[t]()))
-    await recordBraveCalls(settled.filter(Boolean).length)
+    await this.budget.record(settled.filter(Boolean).length)
+
+    // News ahead of web: this branch only runs when the caller asked for news,
+    // and for that intent recency outranks Brave's general web ranking.
+    if (newsItems.length > 0) {
+      results.results = [
+        ...newsItems,
+        ...(results.results ?? [])
+      ] as SearchResults['results']
+    }
 
     // Update total count
     results.number_of_results = results.results.length
@@ -165,6 +214,70 @@ export class BraveSearchProvider implements SearchProvider {
       return true
     } catch (error) {
       console.error('Brave web search error:', error)
+      return false
+    }
+  }
+
+  /**
+   * Brave News. The reason this exists: the agent prompt explicitly directs
+   * "Today's news, current events, recent updates: content_types: ['news']"
+   * (lib/utils/search-config.ts), and this provider previously handled only
+   * web/video/image — so that exact request produced ZERO Brave results, no
+   * error, and silently fell back to SearXNG alone, whose news engines are the
+   * ones being CAPTCHA-blocked on our VPN egress. Brave's API is the one
+   * general source that cannot be IP-blocked, which is precisely what news
+   * queries need.
+   *
+   * Deliberately does NOT set `freshness`: the tool's recency signal
+   * (time_range, from the query classifier) is not plumbed through to this
+   * provider, and hardcoding a window here would silently drop older but still
+   * relevant coverage. Brave already ranks this endpoint by recency.
+   */
+  private async searchNews(
+    query: string,
+    maxResults: number,
+    out: BraveNewsItem[]
+  ): Promise<boolean> {
+    try {
+      const response = await fetch(
+        `https://api.search.brave.com/res/v1/news/search?q=${encodeURIComponent(
+          query
+        )}&count=${maxResults}`,
+        {
+          headers: {
+            Accept: 'application/json',
+            'Accept-Encoding': 'gzip',
+            'X-Subscription-Token': this.apiKey!
+          }
+        }
+      )
+
+      if (!response.ok) {
+        console.error(
+          `Brave news search failed: ${response.status} ${response.statusText}`
+        )
+        return false
+      }
+
+      const data = await response.json()
+      // Verified shape: { type, query, results: [{ title, url, description,
+      // age, page_age, profile, meta_url, thumbnail, extra_snippets }] }.
+      // Items without a url are dropped — the merge dedups on url, and an
+      // entry with none can never be cited.
+      for (const result of (data.results || []).slice(
+        0,
+        maxResults
+      ) as BraveNewsResult[]) {
+        if (!result?.url) continue
+        out.push({
+          title: result.title || 'No title',
+          description: result.description || 'No description available',
+          url: result.url
+        })
+      }
+      return true
+    } catch (error) {
+      console.error('Brave news search error:', error)
       return false
     }
   }
