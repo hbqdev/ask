@@ -14,6 +14,24 @@ services:
       ENABLE_AUTH: 'true'
       MORPHIC_CLOUD_DEPLOYMENT: 'false'
       LOCAL_REDIS_URL: redis://redis:6379
+      # Stated explicitly rather than left to the default. The gate in
+      # lib/utils/degoog-client.ts is opt-OUT (`!== 'false'`), so an unset var
+      # here would silently turn degoog on for prod's advanced path on the next
+      # deploy — a behaviour change nobody decided and nobody could later find.
+      #
+      # ON because degoog is not redundant: 7 of its enabled engines (reddit,
+      # hacker news, lemmy, internet archive, wikimedia commons, nasa images,
+      # openverse) are sources SearXNG is never asked for, and
+      # merge-degoog.ts promotes exactly those ahead of mainstream results so
+      # they survive truncation.
+      #
+      # It is not free — degoog inflates the candidate pool, and
+      # SEARXNG_CRAWL_MULTIPLIER shows candidates cost real crawl time on
+      # staging's crawler (mult 4 -> 76 candidates -> 15-35s fetch). Prod uses
+      # a DIFFERENT crawler (crawl4ai on the app host, not .17), so that curve
+      # does not transfer. Measure prod's own candidate/crawl response before
+      # tuning SEARXNG_CRAWL_MULTIPLIER here.
+      DEGOOG_ENABLED: 'true'
     ports:
       - '${HOST_PORT:-3738}:3000'
     volumes:

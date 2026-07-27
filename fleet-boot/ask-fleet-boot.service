@@ -1,0 +1,14 @@
+[Unit]
+Description=Ask fleet boot hardening (reconcile compose services + warm resident models)
+# docker.service / ollama.service are ignored on hosts where they don't exist.
+After=docker.service ollama.service network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+User=nightfury
+ExecStart=/home/nightfury/ask-fleet-boot.sh
+
+[Install]
+WantedBy=multi-user.target
