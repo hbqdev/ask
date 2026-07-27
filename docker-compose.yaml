@@ -32,6 +32,24 @@ services:
       # does not transfer. Measure prod's own candidate/crawl response before
       # tuning SEARXNG_CRAWL_MULTIPLIER here.
       DEGOOG_ENABLED: 'true'
+      # Candidate-pool cap = maxResults x this, so 2 -> 40 candidates crawled.
+      # Default is 4 (=80).
+      #
+      # On prod this is a TAIL CLAMP, not a median speedup: prod's candidate
+      # median is 36 (n=18), already under the cap, so roughly half of turns are
+      # untouched. What it removes is the top end - 60 and 77 candidate turns
+      # crawling 18.9-21.7s, against a worst recorded crawl of 63.8s.
+      #
+      # Measured on staging, 3 paired queries, mult 4 -> 2: -19.0s, -3.2s,
+      # -11.3s (median 88.1s -> 85.0s). Do NOT go to 1: starving the first
+      # search made the model issue 6 tool calls instead of 4 and the turn came
+      # out 19s SLOWER, because a model round-trip costs ~7s and dwarfs the
+      # crawl saved.
+      #
+      # 40 also lands exactly on crawl4ai's pool.max_pages semaphore (see
+      # crawl4ai/config.yml), so staying at or under it avoids queueing - which
+      # may be as much of the win as crawling fewer pages.
+      SEARXNG_CRAWL_MULTIPLIER: '2'
     ports:
       - '${HOST_PORT:-3738}:3000'
     volumes:
