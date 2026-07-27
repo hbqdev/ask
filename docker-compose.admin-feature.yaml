@@ -72,12 +72,31 @@ services:
       # fan-out itself is parallel and nearly free, but extra candidates feed
       # the crawler, which is already 55-70% of turn latency.
       DEGOOG_ENABLED: 'true'
-      # Staging crawls via NightFuryX (Threadripper 3970X, 64 threads, 115G
-      # free, load 0.12) instead of the app host (laptop i7-12650H, 16
-      # threads, ~10G free, 32 containers). Throughput there plateaued at
-      # ~4.1 pages/sec and 4->8 workers bought only 7%. Prod still uses the
-      # app-host instance.
-      CRAWL4AI_URL: 'http://192.168.50.17:11235'
+      # Staging used to crawl via NightFuryX (.17) on the theory that a
+      # Threadripper 3970X with 64 threads would beat the app host's laptop i7.
+      # Measured head-to-head 2026-07-27 — same 16 urls, same config, cache
+      # bypassed, 4 reps each, both returning 15/16 and ~940k chars — it does
+      # not:
+      #
+      #   app host   3199 / 2860 / 2535 / 2356 ms   median 2698   (5.0-6.8 pg/s)
+      #   .17        3289 / 8043 / 7057 / 3497 ms   median 5277   (2.0-4.9 pg/s)
+      #
+      # The app host is ~2x faster and far steadier, and .17 was idle at the
+      # time (load 0.68, 1.65G of 32G used) so it was not contention. Crawling
+      # is I/O-bound — it waits on remote servers, so extra cores buy nothing —
+      # and routing to .17 adds a LAN round trip carrying ~940KB of markdown per
+      # batch. The old "plateaued at ~4.1 pages/sec" note still reproduces for
+      # .17; the app host has simply moved past it.
+      #
+      # Matching prod also makes staging COMPARABLE to prod, which is the point
+      # of staging. Every crawl figure measured here before this date was
+      # inflated ~2x, with much worse variance (8043 vs 2356 ms on identical
+      # work), which is likely part of why the snippet gate A/B could not
+      # resolve its effect at n=14-17.
+      #
+      # .17 keeps the cross-encoder reranker on :8787, which IS compute-bound
+      # and where that box actually earns its place.
+      CRAWL4AI_URL: 'http://crawl4ai:11235'
     ports: !override
       - '${ADMIN_FEATURE_HOST_PORT:-3739}:3000'
     volumes: !override
