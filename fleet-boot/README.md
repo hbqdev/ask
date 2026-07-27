@@ -5,18 +5,18 @@ systemd `oneshot` unit, deployed to each WSL2 GPU box, that on boot:
 
 - **reconciles** the box's compose service(s) onto a fresh Docker network —
   fixes the WSL "network … not found" that `restart: unless-stopped` can't
-  recover from (it recreates a container *only* if it isn't running after
+  recover from (it recreates a container _only_ if it isn't running after
   `compose up -d`, so a healthy service is never reloaded), and
 - **warms** the GPU-resident Ollama model with a `keep_alive=-1` request so the
   first real request isn't a cold load (Ollama does not preload on boot).
 
 ## Per host
 
-| Host | IP | Boot actions |
-|---|---|---|
-| NightFuryX | 192.168.50.17 | reconcile `reranker-qwen` + `ingestor`, warm `qwen3-vl:4b` |
-| NightFuryS | 192.168.50.160 | reconcile `embedder` (preloads its own model) |
-| Serenity | 192.168.50.171 | warm `granite4.1:8b` |
+| Host       | IP             | Boot actions                                               |
+| ---------- | -------------- | ---------------------------------------------------------- |
+| NightFuryX | 192.168.50.17  | reconcile `reranker-qwen` + `ingestor`, warm `qwen3-vl:4b` |
+| NightFuryS | 192.168.50.160 | reconcile `embedder` (preloads its own model)              |
+| Serenity   | 192.168.50.171 | warm `granite4.1:8b`                                       |
 
 ## Files
 
