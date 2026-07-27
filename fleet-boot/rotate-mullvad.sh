@@ -45,11 +45,20 @@ ASK_BASE="-f docker-compose.yaml -f docker-compose.vpn.yaml"
 ASK_STAGING="-f docker-compose.yaml -f docker-compose.admin-feature.yaml -f docker-compose.vpn.yaml -f docker-compose.vpn.admin-feature.yaml"
 
 # name | gluetun container | redis (engine health, or -) | dir | compose args | project | dependent svc | env var for the server pool
+#
+# The env var MUST match the one that stack's compose actually interpolates
+# into SERVER_HOSTNAMES. degoog and public-searxng previously read
+# MULLVAD_SERVER_DEGOOG / MULLVAD_SERVER_PUBLIC here while their composes read
+# plain ${MULLVAD_SERVER} — so `city` and `pin` set a variable nothing consumed,
+# gluetun silently fell back to the compose default, and the script still
+# printed an exit IP as though the repool had worked. Three stacks sharing the
+# name MULLVAD_SERVER is safe because each runs `docker compose` from its own
+# directory with its own .env; the name is scoped by cwd, not global.
 TARGETS=(
   "ask-prod|ask-gluetun|ask-redis|$ASK|$ASK_BASE|ask-stack|searxng|MULLVAD_SERVER"
   "ask-staging|ask-gluetun-admin-feature|ask-redis-admin-feature|$ASK|$ASK_STAGING|ask-stack-admin-feature|searxng|MULLVAD_SERVER_STAGING"
-  "degoog|degoog-gluetun|-|$DEGOOG|-f docker-compose.yaml -f docker-compose.vpn.yaml|degoog|degoog|MULLVAD_SERVER_DEGOOG"
-  "public-searxng|searxng-gluetun|-|$PUBLIC_SEARXNG|-f docker-compose.yaml -f docker-compose.vpn.yaml|searxng|searxng|MULLVAD_SERVER_PUBLIC"
+  "degoog|degoog-gluetun|-|$DEGOOG|-f docker-compose.yaml -f docker-compose.vpn.yaml|degoog|degoog|MULLVAD_SERVER"
+  "public-searxng|searxng-gluetun|-|$PUBLIC_SEARXNG|-f docker-compose.yaml -f docker-compose.vpn.yaml|searxng|searxng|MULLVAD_SERVER"
 )
 
 VERB="${1:-status}"; shift || true
