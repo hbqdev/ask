@@ -40,6 +40,13 @@ services:
       # before this goes anywhere near prod.
       SEARCH_SNIPPET_GATE: 'off'
       SEARCH_SNIPPET_GATE_TOP_N: '40'
+      # Passthrough so the crawl budget can be swept from the shell without
+      # editing this file: MAX_ENRICH_URLS=20 docker compose ... up -d ask.
+      # Default 100 matches the route's own fallback, so an unset shell var
+      # changes nothing. Added for the crawl-cost experiment the snippet gate
+      # should have started with — it is the one knob that moves page count
+      # directly, holding the query fixed.
+      MAX_ENRICH_URLS: ${MAX_ENRICH_URLS:-100}
       # Re-enable degoog on the advanced path. It was switched off 2026-07-25
       # because it scraped Google/Brave/Startpage/DDG from our residential IP
       # and burned the reputation SearXNG depends on — see the comment on
