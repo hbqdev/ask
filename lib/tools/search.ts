@@ -389,10 +389,28 @@ export function createSearchTool(
         firstSearchDone,
         tieringEnabled
       })
-      // Mark the turn's first search consumed AFTER resolving its depth, so
-      // search #1 gets firstSearchDepth and #2+ tier down. (Dedup-skipped
-      // searches return before reaching this point and don't consume it.)
-      firstSearchDone = true
+      // Does this search actually run the advanced pipeline (crawl + snippet
+      // gate + cross-encoder rerank behind /api/advanced-search)? Same
+      // predicate that routes it, so the two cannot drift.
+      const usesAdvancedPipeline = routeEmitsSearchTelemetry(
+        searchAPI,
+        effectiveSearchDepthForAPI
+      )
+
+      // Consume the turn's ONE advanced slot only if this search actually used
+      // it. Previously this was set unconditionally, which meant a first
+      // search with type:'general' — routed to the Brave provider, never to
+      // /api/advanced-search — still burned the slot. Every later search then
+      // tiered to basic, so the turn silently got NO crawl, NO snippet gate
+      // and NO rerank at all. The balanced prompt actively recommends
+      // type="general" for current events, so this was reachable in normal use.
+      //
+      // Still at most one advanced search per turn: a general search leaves
+      // the slot unclaimed, the next optimized search claims it, and
+      // everything after that tiers down as before. Speed mode is unaffected
+      // (firstSearchDepth is 'basic' there, so the slot is never claimed and
+      // resolveEffectiveDepth returns 'basic' either way).
+      if (usesAdvancedPipeline) firstSearchDone = true
 
       // Ollama web search runs on EVERY executing search of the turn when
       // enabled (no per-turn cap). A dedup-skipped search returns earlier and
@@ -408,13 +426,11 @@ export function createSearchTool(
         `Using search API: ${searchAPI}, Type: ${type}, Search Depth: ${effectiveSearchDepthForAPI}`
       )
 
-      // Does /api/advanced-search own this search? Used for BOTH the routing
-      // decision below and the telemetry decision, from one expression, so the
-      // two cannot drift into double-counting or a silent blind spot.
-      const routeReportsTelemetry = routeEmitsSearchTelemetry(
-        searchAPI,
-        effectiveSearchDepthForAPI
-      )
+      // /api/advanced-search owns this search, so it emits the
+      // [latency:search] line itself and the tool must not emit a second one.
+      // Same value that decided the depth slot above — one expression drives
+      // routing, slot consumption and telemetry, so none can drift apart.
+      const routeReportsTelemetry = usesAdvancedPipeline
 
       // Per-search timing for the paths the route never sees. Started here so
       // it brackets exactly what the "Using search API" -> "completed search"
