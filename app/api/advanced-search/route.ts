@@ -14,6 +14,7 @@ import {
 } from '@/lib/embeddings/rerank'
 import { buildExcerptContent } from '@/lib/search/build-excerpt'
 import { isQualityContent } from '@/lib/search/quality-content'
+import { runSnippetGate } from '@/lib/search/snippet-gate'
 import { StageTimer } from '@/lib/telemetry/stage-timer'
 import { SEARXNG_ENGINES_ADVANCED } from '@/lib/tools/search/engines'
 import { intentToCategory, type SearchIntent } from '@/lib/tools/search/intent'
@@ -57,6 +58,7 @@ import {
 } from '@/lib/utils/tavily-search-client'
 import { withDeadline } from '@/lib/utils/with-deadline'
 
+import { buildReturnedRanks } from './returned-ranks'
 import { buildSearchTelemetryTag } from './telemetry-tag'
 
 /**
@@ -792,11 +794,30 @@ async function advancedSearchXNGSearch(
       )
     }
 
+    // Pre-crawl ranks, hoisted so the returned_ranks telemetry below can still
+    // see them after the advanced block closes. Empty unless the gate ran.
+    let snippetRankByUrl = new Map<string, number>()
+
     if (searchDepth === 'advanced') {
-      const candidates = generalResults.slice(
+      const pooledCandidates = generalResults.slice(
         0,
         maxResults * SEARXNG_CRAWL_MULTIPLIER
       )
+
+      // Pre-crawl relevance gate. `pooledCandidates` is in MERGE order —
+      // rank-interleaved per source — not relevance order, so without this the
+      // crawler spends its budget on whatever the merge happened to surface.
+      // Measured: 32 pages crawled to return 14, with crawl at 50-70% of the
+      // turn. Fails open to `pooledCandidates` on any error; see snippet-gate.ts.
+      const gate = await runSnippetGate(query, pooledCandidates, prefetchedUrls)
+      const candidates = gate.candidates
+      snippetRankByUrl = gate.rankByUrl
+      timer.set('snippet_gate', gate.status)
+      if (gate.status !== 'off') {
+        timer.set('snippet_rank_ms', Math.round(gate.rankMs))
+        timer.set('snippet_ranked', gate.ranked)
+        timer.set('snippet_capped', gate.capped)
+      }
 
       // Everything below (crawl, quality filter, rerank) takes 15-20s. These
       // candidates are already good enough to render as sources, so hand them
@@ -1079,6 +1100,16 @@ async function advancedSearchXNGSearch(
     }
 
     generalResults = generalResults.slice(0, maxResults)
+
+    // Where each source we actually returned ranked BEFORE the crawl. This is
+    // the entire basis for choosing SEARCH_SNIPPET_GATE_TOP_N, and it is only
+    // meaningful while the gate still changes nothing — hence shadow mode.
+    if (snippetRankByUrl.size > 0) {
+      timer.set(
+        'returned_ranks',
+        buildReturnedRanks(generalResults, snippetRankByUrl)
+      )
+    }
 
     const imageResults = (data.results || [])
       .filter((result: SearXNGResult) => result && result.img_src)
