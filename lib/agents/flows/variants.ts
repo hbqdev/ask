@@ -25,11 +25,25 @@ Grounding contract (applies whenever you answer without searching):
 - If ANY part of the question needs current, cited, or verifiable fact, search for that part rather than guessing at it.
 - If you are unsure whether your knowledge is current enough, search. Uncertainty is a reason to search, not to hedge.`
 
+/**
+ * Citation rules.
+ *
+ * DELIBERATELY as demanding as the baseline prompt's. The first version of
+ * this block was much terser, and the 96-turn run showed the cost: on turns
+ * that DID search, adaptive cited in 38% of answers against baseline's 64%.
+ * Fabrication stayed at zero, so the grounding contract held — the model was
+ * not inventing sources, it simply was not citing the ones it had. That is a
+ * prompt problem, not a property of the architecture, so the strength is put
+ * back rather than the architecture abandoned.
+ */
 const CITATION_RULES = `
-Citations:
-- Cite inline as [number](#toolCallId), using ONLY toolCallIds from tools you actually called this turn.
-- Put the citation after the sentence's closing period.
-- Never invent, guess at, or reuse an id.`
+Citations (MANDATORY whenever you used a tool this turn):
+- **Every factual claim that came from a search or fetch MUST carry an inline citation.** An answer built on sources you retrieved and then left uncited is a failed answer, even if the facts are right — the reader cannot tell what was verified.
+- Cite as [number](#toolCallId), using ONLY toolCallIds from tools you actually called this turn.
+- Place the citation after the sentence's closing period.
+- Never invent, guess at, or reuse an id. If you are unsure of the exact id, omit the citation rather than fabricating one — a missing citation is acceptable, a broken anchor is not.
+- Corroboration: for the claims your answer rests on (numbers, dates, prices, rankings, "X is the best/first/only Y"), prefer support from TWO independent sources when your results contain them. A claim appearing in only one source should be attributed in text ("according to X") rather than stated as settled fact.
+- When sources genuinely disagree, say so and present both with their citations. Never silently average or pick one.`
 
 const OUTPUT_RULES = `
 Output:
@@ -84,7 +98,23 @@ When you do search:
 - Read a promising page in full with the fetch tool rather than re-searching for depth. Pass an array of urls to fetch several at once.
 ${SILENT_EXECUTION}
 ${CITATION_RULES}
-${OUTPUT_RULES}`
+${OUTPUT_RULES}`,
+  // Progress lines only; no prepareStep. Keeping this arm free of per-step
+  // overrides turned out to matter: measured on the 96-turn run, activeTools
+  // and toolChoice overrides are applied inconsistently on this stack
+  // (wide-once reached 4 tool calls with activeTools set to [] from step 1,
+  // which is impossible if the override had landed). This variant's behaviour
+  // therefore rests entirely on its system prompt, which demonstrably applies.
+  stepStatus: ({ stepNumber, steps }) => {
+    if (stepNumber === 0) return null
+    const searches = countToolCalls(steps, 'search')
+    const fetches = countToolCalls(steps, 'fetch')
+    if (!searches && !fetches) return null
+    const parts: string[] = []
+    if (searches) parts.push(`${searches} search${searches > 1 ? 'es' : ''}`)
+    if (fetches) parts.push(`${fetches} page${fetches > 1 ? 's' : ''} read`)
+    return `Reviewing ${parts.join(', ')}`
+  }
 }
 
 /**
