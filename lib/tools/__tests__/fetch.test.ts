@@ -256,7 +256,14 @@ describe('fetchRegularData retry behavior', () => {
     await expect(
       fetchRegularData('https://example.com/blocked')
     ).rejects.toThrow('HTTP 403: Forbidden')
-    // maxRetries: 2 means 3 total attempts (1 initial + 2 retries)
-    expect(fetchMock).toHaveBeenCalledTimes(3)
+    // maxRetries: 1 means 2 total attempts (1 initial + 1 retry).
+    //
+    // Was 3. Reduced because the rescue chain is SERIAL — every plain-fetch
+    // attempt postpones Crawl4AI and FlareSolverr, the tiers that can actually
+    // clear a bot wall — and 3 attempts cost 31.5s worst case against 20.5s
+    // now. The documented recovery this retry exists for is "succeeds on a
+    // bare retry seconds later" (singular), which the transient-403 case above
+    // still covers at 2 attempts. Nothing measured required a third.
+    expect(fetchMock).toHaveBeenCalledTimes(2)
   }, 10000)
 })
