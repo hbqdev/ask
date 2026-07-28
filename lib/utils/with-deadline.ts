@@ -16,12 +16,22 @@ export function withDeadline<T>(
   ms: number,
   fallback: () => T
 ): Promise<T> {
-  return new Promise<T>(resolve => {
+  return new Promise<T>((resolve, reject) => {
     let settled = false
     const timer = setTimeout(() => {
       if (settled) return
       settled = true
-      resolve(fallback())
+      // `fallback()` is called INSIDE the try: a fallback that throws would
+      // otherwise escape into the timer callback with `settled` already true,
+      // so `resolve` would never be called and `work.then(finish)` would
+      // short-circuit on the settled check — leaving the promise permanently
+      // unsettled. A deadline helper that can hang is worse than no deadline,
+      // so a throwing fallback is contained and surfaces as a rejection.
+      try {
+        resolve(fallback())
+      } catch (error) {
+        reject(error)
+      }
     }, ms)
 
     const finish = (value: T) => {
@@ -31,6 +41,15 @@ export function withDeadline<T>(
       resolve(value)
     }
 
-    work.then(finish).catch(() => finish(fallback()))
+    work.then(finish).catch(() => {
+      if (settled) return
+      settled = true
+      clearTimeout(timer)
+      try {
+        resolve(fallback())
+      } catch (error) {
+        reject(error)
+      }
+    })
   })
 }

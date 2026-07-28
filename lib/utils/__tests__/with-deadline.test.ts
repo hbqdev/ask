@@ -43,3 +43,34 @@ describe('withDeadline', () => {
     vi.useRealTimers()
   })
 })
+
+// A fallback that throws used to leave the promise permanently unsettled:
+// `settled` was set before `fallback()` ran, so resolve() was never reached and
+// the work path short-circuited on the settled check. A deadline helper that
+// can hang is strictly worse than no deadline. lib/tools/fetch.ts passes
+// exactly such a fallback, to convert a timeout into a caught tool error.
+describe('withDeadline with a throwing fallback', () => {
+  it('rejects on timeout instead of hanging forever', async () => {
+    const never = new Promise<string>(() => {})
+    await expect(
+      withDeadline(never, 10, () => {
+        throw new Error('deadline hit')
+      })
+    ).rejects.toThrow('deadline hit')
+  })
+
+  it('rejects when the work fails and the fallback throws', async () => {
+    await expect(
+      withDeadline(Promise.reject(new Error('boom')), 1000, () => {
+        throw new Error('fallback threw')
+      })
+    ).rejects.toThrow('fallback threw')
+  })
+
+  it('still returns a normal fallback value on timeout', async () => {
+    const never = new Promise<string>(() => {})
+    await expect(withDeadline(never, 10, () => 'fell back')).resolves.toBe(
+      'fell back'
+    )
+  })
+})
