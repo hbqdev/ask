@@ -25,14 +25,25 @@
 #   rotate-mullvad.sh status                     # current exit IP for everything
 #   rotate-mullvad.sh rotate ask-staging --clear-health
 #   rotate-mullvad.sh rotate all
-#   rotate-mullvad.sh servers us-chi             # what hostnames exist
+#   rotate-mullvad.sh servers                    # US cities + who hosts them
+#   rotate-mullvad.sh servers us-chi             # hostnames + provider
 #   rotate-mullvad.sh pin ask-staging us-chi-wg-305
 #   rotate-mullvad.sh city ask-staging us-nyc    # repool to another city
+#   rotate-mullvad.sh city ask-prod us-nyc --isp Tzulo
 #   rotate-mullvad.sh health ask-staging         # suspended engines, no changes
+#
+# ON PROVIDERS: a city can host four of them (Dallas carries M247, DataPacket,
+# HostRoyale and Tzulo) and they do NOT behave alike against search engines.
+# Without --isp, `city` takes the lowest-numbered hostnames, which is an
+# arbitrary provider rather than a chosen one. This is optionality, not a
+# recommendation: no provider is immune, and the Atlanta addresses we burnt
+# through our own search volume were Tzulo.
 #
 # FLAGS
 #   --clear-health   also drop enginehealth:* for that stack (rotate/pin/city)
 #   --dry-run        print what would happen, change nothing
+#   --isp NAME       restrict city/servers to one hosting provider
+#   --count N        how many hosts to put in the pool (default 6)
 #
 set -uo pipefail
 
@@ -64,14 +75,48 @@ TARGETS=(
 VERB="${1:-status}"; shift || true
 ARG1="" ; ARG2=""
 CLEAR_HEALTH=false ; DRY_RUN=false
-for a in "$@"; do
-  case "$a" in
+ISP_FILTER="" ; POOL_SIZE=6
+while (( $# )); do
+  case "$1" in
     --clear-health) CLEAR_HEALTH=true ;;
     --dry-run)      DRY_RUN=true ;;
-    -*)             echo "unknown flag: $a" >&2; exit 2 ;;
-    *)              if [[ -z "$ARG1" ]]; then ARG1="$a"; else ARG2="$a"; fi ;;
+    --isp)          ISP_FILTER="${2:-}"; shift ;;
+    --isp=*)        ISP_FILTER="${1#*=}" ;;
+    --count)        POOL_SIZE="${2:-6}"; shift ;;
+    --count=*)      POOL_SIZE="${1#*=}" ;;
+    -*)             echo "unknown flag: $1" >&2; exit 2 ;;
+    *)              if [[ -z "$ARG1" ]]; then ARG1="$1"; else ARG2="$1"; fi ;;
   esac
+  shift
 done
+
+# City prefix (+ optional ISP) -> comma-separated hostname pool.
+#
+# Parses mullvad.json properly instead of grepping hostnames out of the raw
+# text, because a city can host SEVERAL providers and the provider is the thing
+# worth selecting on. Dallas carries M247, DataPacket, HostRoyale and Tzulo;
+# `city degoog us-dal` would take the first six hostnames numerically and land
+# on M247 every time, with no way to say otherwise.
+#
+# Uses python3 on the HOST (gluetun's image has no json tooling). Only `city`
+# and `servers` need it — `rotate`, the verb cron runs, does not.
+pool_for() { # gluetun-container, city-prefix, isp-or-empty, count
+  docker exec "$1" cat /gluetun/servers/mullvad.json 2>/dev/null | python3 -c "
+import sys, json
+prefix, isp, n = sys.argv[1], sys.argv[2], int(sys.argv[3])
+try:
+    d = json.load(sys.stdin)
+except Exception:
+    sys.exit(1)
+hosts = sorted(
+    s['hostname'] for s in d.get('servers', [])
+    if s.get('vpn') == 'wireguard'
+    and s.get('hostname', '').startswith(prefix + '-wg-')
+    and (not isp or (s.get('isp') or '').lower() == isp.lower())
+)
+print(','.join(hosts[:n]))
+" "$2" "$3" "$4" 2>/dev/null
+}
 
 lookup() { # name -> entry, or empty
   local want="$1"
@@ -180,18 +225,39 @@ servers)
   gluetun="ask-gluetun-admin-feature"
   running "$gluetun" || gluetun="ask-gluetun"
   running "$gluetun" || { echo "no gluetun container running to read the server list from" >&2; exit 1; }
-  if [[ -z "$city" ]]; then
-    echo "wireguard servers per US city (pass a city for hostnames):"
-    docker exec "$gluetun" sh -c \
-      'grep -o "us-[a-z]\{3\}-wg-[0-9]*" /gluetun/servers/mullvad.json | sed "s/-wg-[0-9]*//" | sort | uniq -c | sort -rn'
-  else
-    # Mullvad does NOT number from 001 per city (us-chi starts at 201/301) and
-    # gluetun falls back silently on a hostname that does not exist, so always
-    # read the real list before pinning.
-    docker exec "$gluetun" sh -c \
-      "grep -o '${city}-wg-[0-9]*' /gluetun/servers/mullvad.json | sort -u | tr '\n' ' '"
-    echo
-  fi
+  # Provider is shown because it is the axis worth choosing on: one city can
+  # host four of them, and they do not behave alike against search engines.
+  docker exec "$gluetun" cat /gluetun/servers/mullvad.json 2>/dev/null | \
+    CITY="$city" ISP="$ISP_FILTER" python3 -c "
+import sys, os, json
+from collections import defaultdict
+city, isp = os.environ.get('CITY',''), os.environ.get('ISP','')
+d = json.load(sys.stdin)
+srv = [s for s in d.get('servers', [])
+       if s.get('vpn') == 'wireguard' and s.get('country') == 'USA'
+       and (not isp or (s.get('isp') or '').lower() == isp.lower())]
+
+if not city:
+    by = defaultdict(lambda: defaultdict(int))
+    for s in srv:
+        by[s['hostname'].rsplit('-wg-', 1)[0]][s.get('isp') or '?'] += 1
+    print('%-10s %-5s %s' % ('CITY', 'N', 'PROVIDERS'))
+    for c in sorted(by, key=lambda k: -sum(by[k].values())):
+        tot = sum(by[c].values())
+        print('%-10s %-5d %s' % (c, tot,
+              ', '.join('%s x%d' % kv for kv in sorted(by[c].items(), key=lambda kv: -kv[1]))))
+    print()
+    print('Pass a city for hostnames, e.g. \`servers us-nyc\`. Filter with --isp Tzulo.')
+else:
+    hosts = sorted((s['hostname'], s.get('isp') or '?') for s in srv
+                   if s['hostname'].startswith(city + '-wg-'))
+    if not hosts:
+        print('no wireguard servers for %s%s' % (city, ' on isp ' + isp if isp else ''))
+    else:
+        print('%-18s %s' % ('HOSTNAME', 'PROVIDER'))
+        for h, i in hosts:
+            print('%-18s %s' % (h, i))
+" || echo "  (needs python3 on the host)"
   ;;
 
 rotate)
@@ -228,10 +294,15 @@ pin|city)
   IFS='|' read -r name gluetun redis dir compose proj dep envvar <<<"$entry"
 
   if [[ "$VERB" == "city" ]]; then
-    list=$(docker exec "$gluetun" sh -c \
-      "grep -o '${ARG2}-wg-[0-9]*' /gluetun/servers/mullvad.json | sort -u | head -6 | tr '\n' ','" 2>/dev/null)
-    value="${list%,}"
-    [[ -z "$value" ]] && { echo "no wireguard servers found for city '$ARG2'" >&2; exit 1; }
+    value=$(pool_for "$gluetun" "$ARG2" "$ISP_FILTER" "$POOL_SIZE")
+    if [[ -z "$value" ]]; then
+      if [[ -n "$ISP_FILTER" ]]; then
+        echo "no wireguard servers for city '$ARG2' on isp '$ISP_FILTER' — check \`$0 servers $ARG2\`" >&2
+      else
+        echo "no wireguard servers found for city '$ARG2'" >&2
+      fi
+      exit 1
+    fi
   else
     ok=$(docker exec "$gluetun" sh -c \
       "grep -c '\"$ARG2\"' /gluetun/servers/mullvad.json" 2>/dev/null)
