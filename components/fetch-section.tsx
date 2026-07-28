@@ -9,6 +9,7 @@ import {
 } from '@tabler/icons-react'
 
 import { toPublicErrorPayload } from '@/lib/errors/public-error'
+import { normalizeFetchUrls } from '@/lib/schema/fetch'
 import { SearchResults as SearchResultsType } from '@/lib/types'
 import type { ToolPart, UIDataTypes, UIMessage, UITools } from '@/lib/types/ai'
 import { cn } from '@/lib/utils'
@@ -34,7 +35,12 @@ export function FetchSection({
   isFirst = false,
   isLast = false
 }: FetchSectionProps) {
-  const url = tool.input?.url
+  // `url` is a string OR an array since fetch gained batching. The UI's
+  // single-page affordances (title, open-in-tab) use the first; the header
+  // reflects the count so a 4-url batch does not render as one page.
+  const rawUrl = tool.input?.url
+  const urls = rawUrl === undefined ? [] : normalizeFetchUrls(rawUrl)
+  const url = urls[0]
   const isLoading = status === 'submitted' || status === 'streaming'
   const isToolLoading =
     tool.state === 'input-streaming' || tool.state === 'input-available'
@@ -75,12 +81,17 @@ export function FetchSection({
   const getPageTitle = () => {
     if (title) return title
     if (!url) return 'Unknown URL'
-    try {
-      const domain = new URL(url).hostname
-      return domain.replace('www.', '')
-    } catch {
-      return url
+    const domainOf = (u: string) => {
+      try {
+        return new URL(u).hostname.replace('www.', '')
+      } catch {
+        return u
+      }
     }
+    if (urls.length > 1) {
+      return `${domainOf(url)} +${urls.length - 1} more`
+    }
+    return domainOf(url)
   }
 
   // Handle click to open URL
