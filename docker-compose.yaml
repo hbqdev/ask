@@ -32,24 +32,40 @@ services:
       # does not transfer. Measure prod's own candidate/crawl response before
       # tuning SEARXNG_CRAWL_MULTIPLIER here.
       DEGOOG_ENABLED: 'true'
-      # Candidate-pool cap = maxResults x this, so 2 -> 40 candidates crawled.
-      # Default is 4 (=80).
+      # Candidate-pool cap = maxResults x this, so 4 -> 80 candidates.
       #
-      # On prod this is a TAIL CLAMP, not a median speedup: prod's candidate
-      # median is 36 (n=18), already under the cap, so roughly half of turns are
-      # untouched. What it removes is the top end - 60 and 77 candidate turns
-      # crawling 18.9-21.7s, against a worst recorded crawl of 63.8s.
+      # RAISED 2 -> 4 on 2026-07-28 because the POOL COMPOSITION changed under
+      # it. External sources merge FIRST and so win the cap, and there are now
+      # four of them: Ollama 10 (raised from 5) + Brave 10 + Tavily 5 +
+      # LangSearch 10 = 35. At a 40 cap that left FIVE slots for SearXNG's ~291
+      # results and degoog's ~50 — the free self-hosted sources that measured
+      # the highest unique contribution (degoog 36-63 URLs no other source
+      # found, across three query types). The cap was silently evicting the
+      # best-yielding sources to make room for the metered ones.
       #
-      # Measured on staging, 3 paired queries, mult 4 -> 2: -19.0s, -3.2s,
-      # -11.3s (median 88.1s -> 85.0s). Do NOT go to 1: starving the first
-      # search made the model issue 6 tool calls instead of 4 and the turn came
-      # out 19s SLOWER, because a model round-trip costs ~7s and dwarfs the
-      # crawl saved.
+      # The earlier 4 -> 2 measurement (3 paired queries: -19.0s, -3.2s,
+      # -11.3s) predates that composition and predates Ollama-at-10, whose
+      # results are prefetched and therefore REMOVE pages from the crawler.
+      # Crawl at 80 is also cheaper than that measurement implied: a direct
+      # benchmark put 30-45 real pages at 4.5-10s, with wall-clock dominated by
+      # a few slow pages rather than by page count, and every concurrency shape
+      # tested returned the same usable count.
       #
-      # 40 also lands exactly on crawl4ai's pool.max_pages semaphore (see
-      # crawl4ai/config.yml), so staying at or under it avoids queueing - which
-      # may be as much of the win as crawling fewer pages.
-      SEARXNG_CRAWL_MULTIPLIER: '2'
+      # 4 is chosen over 3 because it is the ONLY pool size with real
+      # end-to-end evidence: all 25 turns of the 5-chat benchmark (median 60.0s,
+      # mean 54.7s) ran at 4 on staging. It also makes prod and staging
+      # comparable again, which is the point of having staging.
+      #
+      # Note 80 exceeds crawl4ai's pool.max_pages semaphore of 40 (see
+      # crawl4ai/config.yml), so the excess queues rather than running
+      # concurrently. That is a known cost, not an oversight; raising the
+      # semaphore is untested and shm is the resource that moved the knee last
+      # time.
+      #
+      # Do NOT go to 1: starving the first search made the model issue 6 tool
+      # calls instead of 4 and the turn came out 19s SLOWER, because a model
+      # round-trip costs ~7s and dwarfs the crawl saved.
+      SEARXNG_CRAWL_MULTIPLIER: '4'
     ports:
       - '${HOST_PORT:-3738}:3000'
     volumes:

@@ -514,25 +514,7 @@ async function fetchCrawl4aiData(url: string): Promise<SearchResultsType> {
 // them) → Firecrawl scrape (1 credit, last resort). Each tier only runs
 // when every cheaper tier has failed; if everything fails the last error
 // propagates to the graceful placeholder below.
-/**
- * The rescue chain under a hard overall deadline.
- *
- * Bounding each tier individually is not enough: the tiers are SERIAL, so
- * their timeouts add. This is the ceiling on the whole call, and it is what
- * stops one hostile URL from dominating a turn.
- */
 async function fetchWithRescueChain(url: string): Promise<SearchResultsType> {
-  return withDeadline(runRescueChain(url), FETCH_TOTAL_DEADLINE_MS, () => {
-    // Throwing hands control to the tool's own catch, which yields the
-    // graceful "Fetch failed" placeholder. The model then sees a normal
-    // failed fetch and moves on, instead of the turn stalling.
-    throw new Error(
-      `Fetch exceeded ${FETCH_TOTAL_DEADLINE_MS}ms for ${url} (all rescue tiers)`
-    )
-  })
-}
-
-async function runRescueChain(url: string): Promise<SearchResultsType> {
   let lastError: unknown
 
   try {
@@ -613,6 +595,20 @@ async function fetchPdfWithRescue(url: string): Promise<SearchResultsType> {
  * concurrently — the logic per url is unchanged.
  */
 async function fetchOneUrl(url: string): Promise<SearchResultsType> {
+  // The deadline lives HERE, at the per-url boundary, not inside the regular
+  // rescue chain. It was originally on fetchWithRescueChain, which left the
+  // YouTube-transcript and PDF branches completely unbounded — a prod turn then
+  // spent 56.1s in a single fetch call against a supposed 40s ceiling. Every
+  // path a url can take must be covered, not just the common one.
+  return withDeadline(routeOneUrl(url), FETCH_TOTAL_DEADLINE_MS, () => {
+    // Throwing hands control to the tool's own catch, which yields the
+    // graceful "Fetch failed" placeholder. The model then sees a normal failed
+    // fetch and moves on, instead of the turn stalling.
+    throw new Error(`Fetch exceeded ${FETCH_TOTAL_DEADLINE_MS}ms for ${url}`)
+  })
+}
+
+async function routeOneUrl(url: string): Promise<SearchResultsType> {
   if (isYoutubeUrl(url)) {
     try {
       return await fetchYoutubeTranscriptData(url)
