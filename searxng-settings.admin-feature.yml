@@ -61,6 +61,22 @@ search:
 # Enable discussion-intent engines (disabled in upstream defaults) so the
 # local fallback matches the primary instance for Ask's engine routing.
 engines:
+  # DISABLED 2026-07-28. SearXNG's wikipedia engine answers with an INFOBOX and
+  # never result rows — measured `results: 0` across four query shapes — and Ask
+  # reads only `data.results`, never `infoboxes`. So it costs a round trip on
+  # every advanced search to contribute literally nothing.
+  #
+  # Removing it from SEARXNG_ENGINES_ADVANCED was NOT enough and did nothing on
+  # its own: SearXNG UNIONS `categories` with `engines`, and Ask sends
+  # `categories=general`, so every enabled general engine runs regardless of the
+  # pin. Proved with the infobox as a tracer — `engines=` alone gives
+  # infoboxes=0, `engines=`+`categories=general` gives infoboxes=1 with the pin
+  # unchanged. Disabling here is what actually stops it.
+  #
+  # Left ENABLED on the public instance (searxng/settings.yml): infoboxes are
+  # real value in a browser UI, which is the one consumer that reads them.
+  - name: wikipedia
+    disabled: true
   - name: gentoo # timeout=10, niche distro engine, chronic slow responder
     disabled: true
   - name: hackernews
