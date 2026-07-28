@@ -71,7 +71,20 @@ services:
       #
       # The WireGuard key is account-wide and works on ANY Mullvad server, so
       # this can be changed to any hostname without regenerating the key.
-      SERVER_HOSTNAMES: ${MULLVAD_SERVER:-us-was-wg-001}
+      # Server selection: random across EVERY US wireguard server (214 of them,
+      # 20 cities) rather than a hand-picked pool. Hardcoding 6-8 hostnames
+      # gave poor entropy -- one rotation redrew the same host it was already
+      # on -- and encoded a guess about which addresses are "good" that the
+      # evidence never supported: the Atlanta hosts we burnt were the same
+      # provider as the ones answering cleanly. We burnt them through our own
+      # concentrated volume, not because of where they were.
+      #
+      # MULLVAD_SERVER stays supported and empty by default. gluetun applies
+      # the filters conjunctively, so setting it (via `rotate-mullvad.sh pin`
+      # or `city`) narrows within the country for debugging without editing
+      # this file.
+      SERVER_COUNTRIES: ${MULLVAD_COUNTRIES:-USA}
+      SERVER_HOSTNAMES: ${MULLVAD_SERVER:-}
       # Kill switch: if the tunnel drops, SearXNG loses network rather than
       # falling back to the flagged residential IP without us noticing.
       FIREWALL: 'on'

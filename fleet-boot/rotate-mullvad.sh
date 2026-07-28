@@ -128,8 +128,16 @@ lookup() { # name -> entry, or empty
 
 exit_ip() { docker exec "$1" wget -qO- --timeout=15 https://ipinfo.io/ip 2>/dev/null; }
 
-current_server() { # gluetun container -> SERVER_HOSTNAMES as configured
-  docker exec "$1" printenv SERVER_HOSTNAMES 2>/dev/null
+current_server() { # gluetun container -> the effective server filter
+  # Hostnames are empty by default now: every stack selects at random across a
+  # whole country (SERVER_COUNTRIES), so reporting only SERVER_HOSTNAMES would
+  # print a blank pool and read like a misconfiguration. Hostnames still win
+  # when set, because `pin` and `city` set exactly that.
+  local hosts countries
+  hosts=$(docker exec "$1" printenv SERVER_HOSTNAMES 2>/dev/null)
+  if [[ -n "$hosts" ]]; then echo "$hosts"; return; fi
+  countries=$(docker exec "$1" printenv SERVER_COUNTRIES 2>/dev/null)
+  echo "any:${countries:-?}"
 }
 
 ctl() { # container, method, path, body

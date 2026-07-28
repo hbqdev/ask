@@ -34,7 +34,20 @@ services:
       # Mullvad's numbering is not 001-based per city (us-chi starts at 201/301),
       # and gluetun silently falls back rather than erroring on a name that does
       # not exist, so a plausible-looking guess here fails quietly.
-      SERVER_HOSTNAMES: ${MULLVAD_SERVER_STAGING:-us-chi-wg-301,us-chi-wg-302,us-chi-wg-303,us-chi-wg-304,us-chi-wg-305,us-chi-wg-306}
+      # Server selection: random across EVERY US wireguard server (214 of them,
+      # 20 cities) rather than a hand-picked pool. Hardcoding 6-8 hostnames
+      # gave poor entropy -- one rotation redrew the same host it was already
+      # on -- and encoded a guess about which addresses are "good" that the
+      # evidence never supported: the Atlanta hosts we burnt were the same
+      # provider as the ones answering cleanly. We burnt them through our own
+      # concentrated volume, not because of where they were.
+      #
+      # MULLVAD_SERVER_STAGING stays supported and empty by default. gluetun applies
+      # the filters conjunctively, so setting it (via `rotate-mullvad.sh pin`
+      # or `city`) narrows within the country for debugging without editing
+      # this file.
+      SERVER_COUNTRIES: ${MULLVAD_COUNTRIES:-USA}
+      SERVER_HOSTNAMES: ${MULLVAD_SERVER_STAGING:-}
     ports: !override
       - '3740:8080'
 
