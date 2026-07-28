@@ -111,8 +111,55 @@ export function getMaxAllowedTokens(
       : (staticInfo?.outputTokens ?? PROBED_OUTPUT_RESERVE)
 
   const safetyBuffer = Math.floor(window * SAFETY_BUFFER_RATIO)
-  return Math.max(window - outputTokens - safetyBuffer, 1000)
+  const fitBudget = Math.max(window - outputTokens - safetyBuffer, 1000)
+
+  // Whichever binds first: fitting the window, or answering this decade.
+  const latencyBudget = getLatencyTokenBudget()
+  return latencyBudget === null ? fitBudget : Math.min(fitBudget, latencyBudget)
 }
+
+/**
+ * Second, latency-motivated ceiling on prompt size.
+ *
+ * The window-based budget above answers "will this fit?", which is a
+ * CORRECTNESS question. It says nothing about how long the model will spend
+ * READING what we send, and that turned out to be the dominant tail cost.
+ *
+ * Measured on 25 prod turns (kimi-k2.6:cloud), ingestion — last tool output to
+ * first token of prose — against prompt size:
+ *
+ *     ~20-27k tokens ->  3.5-5.6s   (120-184 ms per 1k)
+ *     ~70-89k tokens ->  9.9-34.6s  (384 ms per 1k)
+ *    128-166k tokens -> 70.2-80.5s  (422-627 ms per 1k)
+ *
+ * corr(prompt_tokens, ingest_ms) = +0.931, and the per-token rate itself
+ * degrades ~5x across that range, so the cost is superlinear rather than
+ * merely proportional.
+ *
+ * The window budget for kimi-k2.6 is 227,738 tokens. At the measured rate that
+ * is 96-143 SECONDS of reading before a word is generated. The worst turn we
+ * recorded used 166,150 tokens and spent 80.5s ingesting — comfortably INSIDE
+ * the budget, so truncation never fired. Nothing was broken; there simply was
+ * no latency dimension to the limit.
+ *
+ * 72k is chosen from the measurements above: it sits above the cluster that
+ * ingests in under 10s and below the region where the per-token rate collapses.
+ *
+ * THIS TRADES HISTORY FOR LATENCY, and that is a real cost, not a free win: on
+ * a long conversation, truncateMessages will drop middle turns (it keeps the
+ * first user message plus the most recent that fit). Raise or unset it when
+ * depth of recall matters more than time to first token. 0 or a negative value
+ * disables the latency ceiling entirely and restores window-only behaviour.
+ */
+export function getLatencyTokenBudget(): number | null {
+  const raw = process.env.MAX_CONTEXT_TOKENS
+  if (raw === undefined) return DEFAULT_LATENCY_TOKEN_BUDGET
+  const n = parseInt(raw, 10)
+  if (!Number.isFinite(n) || n <= 0) return null
+  return n
+}
+
+export const DEFAULT_LATENCY_TOKEN_BUDGET = 72_000
 
 /**
  * Extract text content from various message content types

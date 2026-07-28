@@ -1,15 +1,28 @@
 import { ModelMessage } from 'ai'
-import { describe, expect, test } from 'vitest'
+import { afterEach, beforeEach, describe, expect, test } from 'vitest'
 
 import { Model } from '@/lib/types/models'
 
 import {
+  DEFAULT_LATENCY_TOKEN_BUDGET,
   getMaxAllowedTokens,
   shouldTruncateMessages,
   truncateMessages
 } from '../context-window'
 
 describe('context-window', () => {
+  // The window-derived budget and the latency ceiling are separate concerns.
+  // These suites exercise the WINDOW arithmetic, so the latency ceiling is
+  // disabled here (0 = off) and covered by its own describe block below.
+  // Without this they would all collapse to the ceiling and stop testing the
+  // thing they were written for.
+  beforeEach(() => {
+    process.env.MAX_CONTEXT_TOKENS = '0'
+  })
+  afterEach(() => {
+    delete process.env.MAX_CONTEXT_TOKENS
+  })
+
   const mockModel: Model = {
     id: 'gpt-4o-mini',
     name: 'GPT-4o mini',
@@ -233,5 +246,67 @@ describe('context-window', () => {
       const resultWithoutModel = truncateMessages(messages, 1000)
       expect(resultWithoutModel).toBeDefined()
     })
+  })
+})
+
+// The window budget answers "will this fit?" — a correctness question. It says
+// nothing about how long the model spends READING what we send, which measured
+// as the dominant tail cost on prod.
+//
+// 25 prod turns on kimi-k2.6, ingestion vs prompt size:
+//    ~20-27k tokens ->  3.5-5.6s     (120-184 ms/1k)
+//    ~70-89k tokens ->  9.9-34.6s    (384 ms/1k)
+//   128-166k tokens -> 70.2-80.5s    (422-627 ms/1k)
+// corr = +0.931, and the per-token rate degrades ~5x, so cost is superlinear.
+//
+// kimi-k2.6's window budget is 227,738 tokens — 96-143s of reading. The worst
+// recorded turn used 166,150 and was comfortably INSIDE it, so truncation never
+// fired. Nothing was broken; the limit simply had no latency dimension.
+describe('latency token budget', () => {
+  const kimi: Model = {
+    id: 'kimi-k2.6:cloud',
+    name: 'kimi',
+    provider: 'Ollama',
+    providerId: 'ollama'
+  }
+
+  afterEach(() => {
+    delete process.env.MAX_CONTEXT_TOKENS
+  })
+
+  test('clamps a huge window down to the latency ceiling by default', () => {
+    delete process.env.MAX_CONTEXT_TOKENS
+    // Window arithmetic alone would allow 227,738.
+    expect(getMaxAllowedTokens(kimi, 262144)).toBe(DEFAULT_LATENCY_TOKEN_BUDGET)
+  })
+
+  test('honours an explicit override', () => {
+    process.env.MAX_CONTEXT_TOKENS = '40000'
+    expect(getMaxAllowedTokens(kimi, 262144)).toBe(40000)
+  })
+
+  test('0 disables the ceiling and restores window-only behaviour', () => {
+    // The escape hatch for conversations where recall depth beats latency.
+    process.env.MAX_CONTEXT_TOKENS = '0'
+    expect(getMaxAllowedTokens(kimi, 262144)).toBe(227738)
+  })
+
+  test('never RAISES a budget above what the window allows', () => {
+    // A generous ceiling must not let us overflow a small window — the
+    // correctness limit still binds.
+    process.env.MAX_CONTEXT_TOKENS = '900000'
+    const small: Model = { ...kimi, id: 'tiny:cloud' }
+    expect(getMaxAllowedTokens(small, 32000)).toBe(32000 - 8192 - 3200)
+  })
+
+  test('now actually triggers truncation on a prompt that used to pass', () => {
+    // 166k tokens previously sailed through and cost 80.5s of ingestion.
+    const huge: ModelMessage[] = [
+      { role: 'user', content: 'x'.repeat(4 * 120_000) }
+    ]
+    delete process.env.MAX_CONTEXT_TOKENS
+    expect(shouldTruncateMessages(huge, kimi, 262144)).toBe(true)
+    process.env.MAX_CONTEXT_TOKENS = '0'
+    expect(shouldTruncateMessages(huge, kimi, 262144)).toBe(false)
   })
 })
