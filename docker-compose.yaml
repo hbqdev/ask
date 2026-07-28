@@ -51,21 +51,32 @@ services:
       # a few slow pages rather than by page count, and every concurrency shape
       # tested returned the same usable count.
       #
-      # 4 is chosen over 3 because it is the ONLY pool size with real
-      # end-to-end evidence: all 25 turns of the 5-chat benchmark (median 60.0s,
-      # mean 54.7s) ran at 4 on staging. It also makes prod and staging
-      # comparable again, which is the point of having staging.
+      # REVERTED 4 -> 2 on 2026-07-28. The 4 above was argued from the 25-turn
+      # staging benchmark (median 60.0s), and that benchmark is NOT VALID for
+      # prod: staging ran every one of those turns on deepseek-v4-flash:cloud
+      # via a stale saved preference, while prod runs kimi-k2.6:cloud. The two
+      # models differ ~30x in prompt-processing rate — 36.1 vs 1098.3 ms per
+      # 1000 prompt tokens, measured from ingest_ms/prompt_tokens on each
+      # instance.
       #
-      # Note 80 exceeds crawl4ai's pool.max_pages semaphore of 40 (see
-      # crawl4ai/config.yml), so the excess queues rather than running
-      # concurrently. That is a known cost, not an oversight; raising the
-      # semaphore is untested and shm is the resource that moved the knee last
-      # time.
+      # That difference is what makes pool size expensive HERE and cheap there.
+      # More candidates -> more returned sources -> more context, and on prod
+      # every extra 1k prompt tokens costs about 1.1s before the model writes a
+      # word. A prod turn carrying 64k prompt tokens spends ~70s just reading.
+      # Crawl is not the binding cost on this model; context is.
+      #
+      # So 2 stands until there is a prod-side measurement on prod's own model.
+      # The pool-composition problem that motivated 4 is REAL and unresolved:
+      # external sources merge first and now total 35 (Ollama 10 + Brave 10 +
+      # Tavily 5 + LangSearch 10), leaving only 5 of 40 slots for SearXNG and
+      # degoog, which measured the highest unique contribution. Fixing that by
+      # widening the pool trades a retrieval problem for a much larger context
+      # problem on this model; fix it by ordering or per-source caps instead.
       #
       # Do NOT go to 1: starving the first search made the model issue 6 tool
       # calls instead of 4 and the turn came out 19s SLOWER, because a model
       # round-trip costs ~7s and dwarfs the crawl saved.
-      SEARXNG_CRAWL_MULTIPLIER: '4'
+      SEARXNG_CRAWL_MULTIPLIER: '2'
     ports:
       - '${HOST_PORT:-3738}:3000'
     volumes:
