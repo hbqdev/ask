@@ -6,6 +6,8 @@ export interface RetryOptions {
   maxDelayMs?: number
   backoffMultiplier?: number
   onRetry?: (error: any, attempt: number) => void
+  /** Return false to stop retrying immediately. Default: retry everything. */
+  shouldRetry?: (error: unknown) => boolean
 }
 
 export async function retryWithBackoff<T>(
@@ -17,7 +19,10 @@ export async function retryWithBackoff<T>(
     initialDelayMs = 100,
     maxDelayMs = 5000,
     backoffMultiplier = 2,
-    onRetry
+    onRetry,
+    // Default keeps the historical retry-everything behaviour for existing
+    // callers; opt in to skip errors that a retry cannot fix.
+    shouldRetry
   } = options
 
   let lastError: any
@@ -29,6 +34,12 @@ export async function retryWithBackoff<T>(
       lastError = error
 
       if (attempt === maxRetries) {
+        throw error
+      }
+
+      // A definitive error does not become less definitive on the third
+      // identical attempt — retrying it only delays the next rescue tier.
+      if (shouldRetry && !shouldRetry(error)) {
         throw error
       }
 

@@ -24,11 +24,45 @@ import {
 } from '@/lib/utils/flaresolverr'
 import { retryWithBackoff } from '@/lib/utils/retry'
 import { logToolPayload } from '@/lib/utils/usage-logging'
+import { withDeadline } from '@/lib/utils/with-deadline'
 
 const execFileAsync = promisify(execFile)
 
 const CONTENT_CHARACTER_LIMIT = 50000
 const TITLE_CHARACTER_LIMIT = 100
+
+/**
+ * Hard ceiling on ONE fetch tool call, covering the whole rescue chain.
+ *
+ * The chain is strictly serial — plain fetch → Crawl4AI → FlareSolverr →
+ * Tavily extract → Firecrawl — and each tier only runs because the previous
+ * one failed. Before this bound the arithmetic was: 31.5s (10s x 3 attempts +
+ * backoff) + 35s + 35s = 101.5s before even reaching the last two tiers, which
+ * had no timeout at all. Measured consequence: single turns spent 80.1s and
+ * 74.2s inside fetch, one of them across just 3 tool calls.
+ *
+ * 40s is deliberately above the sum of the two browser tiers (~35s each is
+ * their worst case, but their typical is a few seconds) so a genuinely slow
+ * page still gets rescued, while a hopeless one is abandoned long before it
+ * can dominate the turn.
+ *
+ * Note this bounds the CALLER's wait, not the underlying request: withDeadline
+ * resolves the fallback and lets the in-flight tier finish in the background.
+ * Per-tier AbortControllers below are what actually cancel work.
+ */
+const FETCH_TOTAL_DEADLINE_MS = Math.max(
+  5_000,
+  parseInt(process.env.FETCH_TOTAL_DEADLINE_MS || '40000', 10)
+)
+
+/**
+ * Per-tier timeout for the two tiers that had none: Tavily extract and
+ * Firecrawl. Both are LAST-RESORT tiers reached only after three cheaper ones
+ * failed, so the page has already signalled three times that it is unlikely to
+ * yield — spending unbounded time there is the worst trade in the chain. They
+ * are also the two PAID tiers.
+ */
+const FETCH_RESCUE_TIER_TIMEOUT_MS = 15_000
 
 // Matches youtube.com/watch, youtube.com/shorts, youtu.be, and m.youtube.com
 // variants. Anything else falls through to the regular/api fetch paths.
@@ -117,8 +151,46 @@ async function fetchWithRetry(url: string): Promise<Response> {
       }
       return response
     },
-    { maxRetries: 2, initialDelayMs: 500 }
+    {
+      // Was 2 (i.e. THREE attempts, because retryWithBackoff loops
+      // `attempt <= maxRetries`). Three identical plain-fetch attempts cost
+      // 31.5s to learn what the first two already said, and every second spent
+      // here delays the browser-based tiers that are the ones actually able to
+      // rescue a JS-rendered or bot-walled page. One retry keeps the original
+      // purpose -- those sites that intermittently 403 and succeed seconds
+      // later -- at 20.5s worst case instead of 31.5s.
+      maxRetries: 1,
+      initialDelayMs: 500,
+      shouldRetry: isRetryableFetchError
+    }
   )
+}
+
+/**
+ * Whether a plain-fetch failure could plausibly succeed on a retry.
+ *
+ * 404/410/401/400 are decisions, not hiccups: the server has told us what it
+ * thinks and will say it again. Retrying them burns 10s each and postpones
+ * Crawl4AI and FlareSolverr, the tiers that can actually clear a bot wall.
+ *
+ * 403 is the deliberate exception and must STAY retryable. It looks definitive
+ * but is measured flakiness here: verywellhealth.com, health.com and goodrx.com
+ * intermittently 403 a plain fetch and succeed on a bare retry seconds later
+ * (see the comment on fetchWithRetry, and the transient-403 case in
+ * fetch.test.ts). Treating it as final regressed that recovery.
+ *
+ * 408 and 429 are retryable too -- they explicitly mean "later". Non-HTTP
+ * failures (timeouts, DNS, resets) stay retryable, which is the flakiness this
+ * retry existed for in the first place.
+ */
+export function isRetryableFetchError(error: unknown): boolean {
+  const message = error instanceof Error ? error.message : String(error)
+  const match = message.match(/^HTTP (\d{3}):/)
+  if (!match) return true
+  const status = Number(match[1])
+  // 403 = bot-detection flakiness on real sites; 408/429 = "try later".
+  if (status === 403 || status === 408 || status === 429) return true
+  return status < 400 || status >= 500
 }
 
 // Shared HTML → SearchResults conversion for every tier of the fetch
@@ -224,7 +296,17 @@ async function fetchFirecrawlData(url: string): Promise<SearchResultsType> {
   }
 
   console.log(`[firecrawl] scrape rescue for ${url} (1 credit)`)
-  const { markdown, title } = await new FirecrawlClient(apiKey).scrape(url)
+  // Bounded: FirecrawlClient owns its own fetch and exposes no timeout, so the
+  // deadline is applied here. Last tier of a chain that had no ceiling at all.
+  const { markdown, title } = await withDeadline(
+    new FirecrawlClient(apiKey).scrape(url),
+    FETCH_RESCUE_TIER_TIMEOUT_MS,
+    () => {
+      throw new Error(
+        `Firecrawl scrape exceeded ${FETCH_RESCUE_TIER_TIMEOUT_MS}ms`
+      )
+    }
+  )
 
   const content =
     markdown.length > CONTENT_CHARACTER_LIMIT
@@ -337,13 +419,26 @@ async function fetchJinaReaderData(url: string): Promise<SearchResultsType> {
 async function fetchTavilyExtractData(url: string): Promise<SearchResultsType> {
   try {
     const apiKey = process.env.TAVILY_API_KEY
-    const response = await fetch('https://api.tavily.com/extract', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json'
-      },
-      body: JSON.stringify({ api_key: apiKey, urls: [url] })
-    })
+    // Bounded: this tier had no timeout, and it only runs after three cheaper
+    // tiers already failed on this URL.
+    const controller = new AbortController()
+    const timeoutId = setTimeout(
+      () => controller.abort(),
+      FETCH_RESCUE_TIER_TIMEOUT_MS
+    )
+    let response: Response
+    try {
+      response = await fetch('https://api.tavily.com/extract', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({ api_key: apiKey, urls: [url] }),
+        signal: controller.signal
+      })
+    } finally {
+      clearTimeout(timeoutId)
+    }
     const json = await response.json()
     if (!json.results || json.results.length === 0) {
       throw new Error('No results returned from content extraction service')
@@ -414,7 +509,25 @@ async function fetchCrawl4aiData(url: string): Promise<SearchResultsType> {
 // them) → Firecrawl scrape (1 credit, last resort). Each tier only runs
 // when every cheaper tier has failed; if everything fails the last error
 // propagates to the graceful placeholder below.
+/**
+ * The rescue chain under a hard overall deadline.
+ *
+ * Bounding each tier individually is not enough: the tiers are SERIAL, so
+ * their timeouts add. This is the ceiling on the whole call, and it is what
+ * stops one hostile URL from dominating a turn.
+ */
 async function fetchWithRescueChain(url: string): Promise<SearchResultsType> {
+  return withDeadline(runRescueChain(url), FETCH_TOTAL_DEADLINE_MS, () => {
+    // Throwing hands control to the tool's own catch, which yields the
+    // graceful "Fetch failed" placeholder. The model then sees a normal
+    // failed fetch and moves on, instead of the turn stalling.
+    throw new Error(
+      `Fetch exceeded ${FETCH_TOTAL_DEADLINE_MS}ms for ${url} (all rescue tiers)`
+    )
+  })
+}
+
+async function runRescueChain(url: string): Promise<SearchResultsType> {
   let lastError: unknown
 
   try {
