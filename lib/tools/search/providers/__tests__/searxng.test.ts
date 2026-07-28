@@ -57,7 +57,9 @@ describe('SearXNGSearchProvider', () => {
     const engines = new URL(fetchMock.mock.calls[0][0]).searchParams.get(
       'engines'
     )
-    expect(engines).toBe('bing,duckduckgo,wikipedia,google cse')
+    // wikipedia dropped 2026-07-28 — it returns infoboxes, never result rows,
+    // and Ask reads only `results`. See lib/tools/search/engines.ts.
+    expect(engines).toBe('bing,duckduckgo,google cse')
   })
 
   it('adds the videos category when content_types includes "video"', async () => {
