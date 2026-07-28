@@ -2,6 +2,7 @@ import { revalidateTag } from 'next/cache'
 import { cookies } from 'next/headers'
 
 import { loadChat } from '@/lib/actions/chat'
+import { GENERATION_TIMEOUT_MS } from '@/lib/agents/turn-budget'
 import {
   calculateConversationTurn,
   deriveQueryShape,
@@ -26,16 +27,27 @@ import { resetAllCounters } from '@/lib/utils/perf-tracking'
 import { isProviderEnabled } from '@/lib/utils/registry'
 
 // Only takes effect on Vercel's serverless runtime; this deployment runs as
-// a long-lived Node/Docker server, where Next.js ignores it entirely. Kept
-// in sync with GENERATION_TIMEOUT_MS below, which is the real enforcement
-// mechanism here — without it, a hung model or tool call had no ceiling at
-// all and would leave a request stuck (and un-logged) indefinitely, with
-// only the client's own eventual timeout ever surfacing an error.
+// a long-lived Node/Docker server, where Next.js ignores it entirely. Kept in
+// sync with GENERATION_TIMEOUT_MS, which is the real enforcement mechanism —
+// without it, a hung model or tool call had no ceiling at all and would leave
+// a request stuck (and un-logged) indefinitely, with only the client's own
+// eventual timeout ever surfacing an error.
 export const maxDuration = 300
-const GENERATION_TIMEOUT_MS = 300_000
+
+// The hard abort now lives in lib/agents/turn-budget.ts alongside the
+// retrieval deadline the researcher loop stops at, because the two must move
+// together: the loop has to give up retrieving with enough budget left to
+// actually write an answer. Defined in one place so raising this ceiling
+// cannot silently leave the loop with no room to finish.
+//
+// This abort is the LAST resort, not the mechanism. Reaching it still means a
+// turn produced nothing, which is the failure the budget exists to prevent.
 
 export async function POST(req: Request) {
   const startTime = performance.now()
+  // Origin for the turn's retrieval budget. Taken HERE, at route entry, so it
+  // shares a clock with the abort below — see lib/agents/turn-budget.ts.
+  const turnStartedAt = Date.now()
   // Aborts if the client disconnects (req.signal) OR generation runs past
   // GENERATION_TIMEOUT_MS, whichever comes first. This signal alone isn't
   // sufficient to stop an already-in-flight request to the model provider
@@ -222,6 +234,7 @@ export async function POST(req: Request) {
           chatId
         })
       : await createChatStreamResponse({
+          turnStartedAt,
           message,
           model: selectedModel,
           chatId,
