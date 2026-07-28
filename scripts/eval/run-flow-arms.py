@@ -22,7 +22,9 @@ from pathlib import Path
 
 ROOT = Path("/home/nightfury/selfhosted/ask")
 LAB = "http://192.168.50.231:3742"
-COMPOSE = ["-f", "docker-compose.yaml", "-f", "docker-compose.lab.yaml"]
+# Must include the VPN overlay — see the note in run-flow-conversations.py.
+COMPOSE = ["-f", "docker-compose.yaml", "-f", "docker-compose.lab.yaml",
+           "-f", "docker-compose.vpn.lab.yaml"]
 PROJ = "ask-stack-lab"
 ALL_ARMS = ["baseline", "adaptive", "router", "react-gap", "plan-execute", "wide-once"]
 # The route's own ceiling is 300s; stay under it so a timeout is attributable

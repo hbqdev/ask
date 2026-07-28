@@ -1,0 +1,75 @@
+# VPN overlay for the lab instance.
+#
+# WHY THIS EXISTS: the lab was built without one, so its SearXNG egressed from
+# the residential IP (73.162.193.80) while prod, staging, degoog and the public
+# instance all sit behind Mullvad tunnels. That is the exact address the
+# blocking work this session was protecting — Google answers it with "unusual
+# traffic from your network" — and roughly a hundred benchmark searches went
+# through it before I noticed.
+#
+# Two separate costs, and the second is the one that matters:
+#   1. Measurement: search quality from a flagged IP is degraded and noisy.
+#      All arms shared the confound so their RELATIVE ranking survives, but
+#      absolute figures from the first 96-turn run are suspect.
+#   2. Reputation: benchmark traffic was spending the residential IP's standing
+#      with the engines, which is the resource everything else depends on.
+#
+# Compose this AFTER docker-compose.lab.yaml:
+#   -f docker-compose.yaml -f docker-compose.lab.yaml -f docker-compose.vpn.lab.yaml
+
+services:
+  gluetun:
+    image: qmcgaw/gluetun:latest
+    container_name: ask-gluetun-lab
+    cap_add:
+      - NET_ADMIN
+    devices:
+      - /dev/net/tun:/dev/net/tun
+    environment:
+      VPN_SERVICE_PROVIDER: mullvad
+      VPN_TYPE: wireguard
+      WIREGUARD_PRIVATE_KEY: ${MULLVAD_PRIVATE_KEY:?set MULLVAD_PRIVATE_KEY in ask/.env}
+      WIREGUARD_ADDRESSES: ${MULLVAD_ADDRESSES:?set MULLVAD_ADDRESSES in ask/.env}
+      # Random across all US servers, same policy as every other stack.
+      SERVER_COUNTRIES: ${MULLVAD_COUNTRIES:-USA}
+      SERVER_HOSTNAMES: ${MULLVAD_SERVER_LAB:-}
+      FIREWALL: 'on'
+      # The SearXNG UI port, opened on the CONTAINER port (8080), not the host
+      # port. Getting this wrong binds the port but has the kill switch drop
+      # the traffic, and the process still answers on localhost — a silent
+      # failure that has already cost time once on another stack.
+      FIREWALL_INPUT_PORTS: '8080'
+      FIREWALL_OUTBOUND_SUBNETS: 192.168.50.0/24,172.16.0.0/12
+    volumes:
+      # Grants rotate-mullvad.sh's control-server access. Without it every
+      # control route 401s on gluetun >=3.40 and rotation fails.
+      - ./gluetun-auth.toml:/gluetun/auth/config.toml:ro
+    networks:
+      - default
+    ports:
+      - '${LAB_SEARXNG_PORT:-3743}:8080'
+    restart: unless-stopped
+    healthcheck:
+      test: ['CMD', 'wget', '-qO-', 'https://ipinfo.io/ip']
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      # Matches prod. Without it the first probe fires before the tunnel is up,
+      # and searxng's `condition: service_healthy` gate waits a full retry cycle
+      # for no reason.
+      start_period: 20s
+
+  searxng:
+    # Lives inside gluetun's namespace, so anything that addressed
+    # `ask-searxng-lab:8080` must now address `ask-gluetun-lab:8080`.
+    network_mode: service:gluetun
+    # A container inside another's namespace cannot own ports; gluetun above
+    # publishes 3743 on its behalf.
+    ports: !override []
+    depends_on:
+      gluetun:
+        condition: service_healthy
+
+  ask:
+    environment:
+      SEARXNG_API_URL: 'http://ask-gluetun-lab:8080'
