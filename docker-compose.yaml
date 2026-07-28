@@ -77,6 +77,27 @@ services:
       # calls instead of 4 and the turn came out 19s SLOWER, because a model
       # round-trip costs ~7s and dwarfs the crawl saved.
       SEARXNG_CRAWL_MULTIPLIER: '2'
+      # Let the cross-encoder judge relevance instead of a word-count heuristic.
+      #
+      # The strict rule is the single largest cut in the pipeline — measured at
+      # 42 crawled pages down to 18 usable — and it discards exactly the pages
+      # this engine is asked for: spec tables (almost no sentence-ending
+      # punctuation, so words-per-sentence explodes past the 30 ceiling) and
+      # numbered procedures (short imperative steps, so it falls under the 5
+      # floor). Re-measured 2026-07-28: a 337-char spec/price table and a
+      # perfectly ordinary 328-char prose article were both DROPPED by strict,
+      # the latter for being 49 words against a >50 threshold.
+      #
+      # `relaxed` was built and tested for precisely this and then never
+      # enabled anywhere — prod omitted the variable and the other two stacks
+      # set 'strict', which quality-content.ts treats as unset because it
+      # branches only on `=== 'relaxed'`. So the fix has been sitting dormant
+      # behind a value that looked like configuration.
+      #
+      # Cheap: crawling is bounded by remote-site tail latency, not page count
+      # (12 pages 9.1s vs 55 pages 13.1s), and the admitted pages are SHORT —
+      # roughly one passage each, ~42ms of rerank at 24 passages/sec.
+      SEARCH_QUALITY_FILTER: 'relaxed'
     ports:
       - '${HOST_PORT:-3738}:3000'
     volumes:
