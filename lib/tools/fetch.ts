@@ -11,7 +11,11 @@ import {
 } from 'youtube-transcript-plus'
 
 import { FirecrawlClient } from '@/lib/firecrawl'
-import { fetchSchema } from '@/lib/schema/fetch'
+import {
+  FETCH_MAX_URLS,
+  fetchSchema,
+  normalizeFetchUrls
+} from '@/lib/schema/fetch'
 import { SearchResults as SearchResultsType } from '@/lib/types'
 import { crawl4aiScrapeOne, isCrawl4aiConfigured } from '@/lib/utils/crawl4ai'
 import {
@@ -22,6 +26,7 @@ import {
   flaresolverrGet,
   isFlaresolverrConfigured
 } from '@/lib/utils/flaresolverr'
+import { mapWithConcurrency } from '@/lib/utils/map-with-concurrency'
 import { retryWithBackoff } from '@/lib/utils/retry'
 import { logToolPayload } from '@/lib/utils/usage-logging'
 import { withDeadline } from '@/lib/utils/with-deadline'
@@ -602,44 +607,82 @@ async function fetchPdfWithRescue(url: string): Promise<SearchResultsType> {
   }
 }
 
+/**
+ * Everything one URL goes through: YouTube transcript, PDF, or the bounded
+ * rescue chain. Extracted from the tool's execute() so a batch can run several
+ * concurrently — the logic per url is unchanged.
+ */
+async function fetchOneUrl(url: string): Promise<SearchResultsType> {
+  if (isYoutubeUrl(url)) {
+    try {
+      return await fetchYoutubeTranscriptData(url)
+    } catch (transcriptError) {
+      // No captions, transcripts disabled, video unavailable, etc. — fall back
+      // to the rescue chain so the model still gets the video page's
+      // title/description instead of a failed step.
+      console.error(
+        'YouTube transcript fetch failed, falling back to page fetch:',
+        transcriptError
+      )
+      return fetchWithRescueChain(url)
+    }
+  }
+  if (isPdfUrl(url)) return fetchPdfWithRescue(url)
+  return fetchWithRescueChain(url)
+}
+
 export const fetchTool = tool({
   description:
     'Fetch content from any URL — HTML pages, JavaScript-rendered pages, bot-protected pages, and PDFs are all handled automatically via an internal fallback chain, so there is no need to choose a fetch strategy. The "type" param is accepted for backward compatibility but both values behave identically. For YouTube URLs (youtube.com/watch, youtube.com/shorts, youtu.be), the tool fetches the video\'s transcript/captions instead of the HTML page, so the video\'s actual spoken content becomes available to cite.',
   inputSchema: fetchSchema,
   async *execute({ url, type: _type = 'regular' }) {
-    // Yield initial fetching state
+    const urls = normalizeFetchUrls(url)
+
+    // Yield initial fetching state. `url` echoes the caller's shape so the UI
+    // and persisted messages keep working for single-url calls.
     yield {
       state: 'fetching' as const,
-      url
+      url: urls.length === 1 ? urls[0] : urls
     }
 
     try {
-      let results: SearchResultsType
-
-      if (isYoutubeUrl(url)) {
-        try {
-          results = await fetchYoutubeTranscriptData(url)
-        } catch (transcriptError) {
-          // No captions, transcripts disabled, video unavailable, etc. —
-          // fall back to the rescue chain so the model still gets the
-          // video page's title/description instead of a failed step.
-          console.error(
-            'YouTube transcript fetch failed, falling back to page fetch:',
-            transcriptError
-          )
-          results = await fetchWithRescueChain(url)
-        }
-      } else if (isPdfUrl(url)) {
-        results = await fetchPdfWithRescue(url)
-      } else {
-        results = await fetchWithRescueChain(url)
+      if (urls.length === 0) {
+        throw new Error('No usable URL was provided')
       }
 
-      logToolPayload('fetch', url, { results: results.results })
+      // Concurrent, because the point of batching is to pay ONE model round
+      // trip instead of N. Bounded because these share the Crawl4AI and
+      // FlareSolverr backends with the crawl stage, where unbounded fan-out
+      // measured worse than bounded. Each url carries its own 40s deadline,
+      // so a batch costs about the slowest page, not the sum.
+      const settled = await mapWithConcurrency(urls, FETCH_MAX_URLS, u =>
+        fetchOneUrl(u)
+      )
+
+      const merged: SearchResultsType = { results: [], query: '', images: [] }
+      const failures: string[] = []
+      settled.forEach((outcome, i) => {
+        if (outcome instanceof Error) {
+          // A dead url in a batch must not lose the others' content.
+          failures.push(urls[i])
+          console.error(`[fetch] failed for ${urls[i]}:`, outcome.message)
+          return
+        }
+        merged.results.push(...outcome.results)
+        if (outcome.images?.length) merged.images.push(...outcome.images)
+      })
+
+      if (merged.results.length === 0) {
+        throw new Error(
+          `Fetch failed for all ${urls.length} URL(s): ${failures.join(', ')}`
+        )
+      }
+
+      logToolPayload('fetch', urls.join(' '), { results: merged.results })
 
       yield {
         state: 'complete' as const,
-        ...results
+        ...merged
       }
     } catch (error) {
       const message =

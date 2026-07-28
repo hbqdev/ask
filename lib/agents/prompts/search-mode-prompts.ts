@@ -141,6 +141,7 @@ Search requirement (MANDATORY, one narrow exception below):
  - If initial results are insufficient or stale, refine or split the query and search once more (or ask a clarifying question) before answering
 
 Fetch tool usage:
+- **Fetching several pages? Pass an ARRAY of urls in ONE fetch call.** They run concurrently, so 4 urls cost about the same wall-clock time as the slowest one, and you pay a single round trip instead of four. Do NOT make back-to-back fetch calls for urls you already know you want.
 - **ONLY use fetch tool when a URL is directly provided by the user in their query**
 - Do NOT use fetch to get more details from search results
 - This keeps responses fast and efficient
@@ -331,6 +332,7 @@ ${getContentTypesGuidance()}
 ${getSourceDirectionGuidance()}
 
 Fetch tool usage:
+- **Fetching several pages? Pass an ARRAY of urls in ONE fetch call.** They run concurrently, so 4 urls cost about the same wall-clock time as the slowest one, and you pay a single round trip instead of four. Do NOT make back-to-back fetch calls for urls you already know you want.
 - Your first search already returns FULL crawled page content for its results, not snippets. Do NOT fetch a URL that is already among those results — you have its content, and re-fetching it costs a round trip and returns the same text.
 - Fetch is for pages the search did NOT return: a URL the user provides, a source cited INSIDE a result that you want to read directly, a PDF, or a follow-up search's snippet-only result you need in full.
 - Especially useful for news, current events, and time-sensitive information when the page you need was not already returned
