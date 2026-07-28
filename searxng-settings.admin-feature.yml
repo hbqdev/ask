@@ -70,6 +70,15 @@ engines:
   # a source of results that survives when the blocked engines do not.
   - name: mojeek
     disabled: false
+  # DISABLED 2026-07-27. Startpage redirects to a CAPTCHA from every Mullvad
+  # exit we have used, and when it does it suspends for 3600s — the longest
+  # cooldown of any engine here, so one hit takes it out for the rest of the
+  # hour anyway. That makes it a round trip spent to return nothing on
+  # essentially every search. No loss of coverage: startpage is a Google
+  # reseller and `google cse` already serves that index from an endpoint that
+  # is not blocked from these IPs.
+  - name: startpage
+    disabled: true
   # Measured 2026-07-26 and left DISABLED: qwant returns CAPTCHA from this IP
   # (same as brave/startpage), and presearch returned 0 results without even
   # reporting itself unresponsive. Both cost a round trip per search for
