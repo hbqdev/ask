@@ -31,6 +31,32 @@ function getFirstSearchDepthGuidance(): string {
   return `Your first search of a turn runs deep (${whatYouGet}); follow-up searches return snippets only. To read a specific promising result in full, call the fetch tool on its URL rather than repeating the search for more depth.`
 }
 
+/**
+ * No prose between tool calls, in EVERY mode.
+ *
+ * This lived only in the quality delta, so balanced and speed permitted the
+ * model to narrate its way through the research loop ("Let me search for…",
+ * "Good, I have results…"). Both then forbid narration before the final `## `
+ * heading — which means that narration was generated, streamed to the user,
+ * and then superseded by the real answer. Pure cost: tokens billed, latency
+ * paid, output discarded.
+ *
+ * Measured on staging/prod turns: the tool loop is 21-89% of total turn time,
+ * and on turns where the model narrated mid-loop the stream's `text-start`
+ * marker fired early, which is how the behaviour was spotted at all.
+ *
+ * Deliberately does NOT mention todoWrite: speed mode has no such tool, and an
+ * instruction to "track progress in todoWrite instead" would be unfollowable
+ * there. Quality re-states the todoWrite half in its own section.
+ */
+function getSilentExecutionRule(): string {
+  return `
+Silent execution — no narration between tool calls:
+- Do NOT write any text between tool calls. No "Let me search for...", "Good, I have some results...", "Now let me fetch...", no progress commentary, no transitional sentences.
+- Call tools back-to-back silently. The ONLY text you produce this turn is the final answer, after every tool call is finished.
+- Narration is not shown as progress — it is discarded work. Your answer must start with a \`## \` heading regardless, so anything written before it is thrown away.`
+}
+
 function getSourceDirectionGuidance(): string {
   return `Source direction (include/exclude domains):
 - When the user signals a source preference, pass it to the search tool via \`include_domains\` / \`exclude_domains\`:
@@ -93,6 +119,7 @@ Your approach:
 Tool preamble (keep very brief):
 - Start directly with search tool without text preamble for efficiency
 - Do not write plans or goals in text output - proceed directly to search
+${getSilentExecutionRule()}
 
 Search tool usage:
 - The search tool is configured to use type="optimized" for direct content snippets
@@ -235,6 +262,7 @@ Tool preamble (adaptive):
 - For simple queries without URLs: Start directly with search tool without text preamble
 - For exceptionally complex queries without URLs: Use todoWrite as your FIRST action to create a plan
 - Do NOT write plans or goals in text output - use appropriate tools instead
+${getSilentExecutionRule()}
 
 Rule precedence:
 - Search requirement and citation integrity supersede brevity. Prefer verified citations over shorter answers.
@@ -413,8 +441,7 @@ You are NOT answering a quick question. You are producing a comprehensive resear
 
 **This deep-research protocol applies only when the current turn asks something new.** If the user's follow-up only asks you to clarify, compare, or choose between things YOU ALREADY established earlier in this conversation (the "clarifying your own prior answer" exception above), answer directly and concisely from existing context instead — the minimum-15-searches/todoWrite/report-format requirements below do not apply to that kind of turn.
 
-**Silent execution — no narration between tool calls:**
-Do not write ANY text between tool calls during the research phase — no "Let me search for...", "Good, I have some results...", "Now let me fetch...", progress commentary, or transitional sentences of any kind. Call tools back-to-back silently. Track your plan and progress in todoWrite, not in prose — that tool exists precisely so you don't need to narrate. The ONLY text you produce in this entire turn is the final report itself, once every tool call is finished.
+**Silent execution (restated for this mode):** the no-narration rule above applies for the whole research phase, however long it runs. Track plan and progress in todoWrite, not in prose — that tool exists precisely so you do not need to narrate.
 
 **MANDATORY EXECUTION ORDER — follow this exactly:**
 
