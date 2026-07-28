@@ -24,6 +24,7 @@ import {
   mergeDegoogIntoSearxngResults,
   resolveDegoogUrl
 } from '@/lib/tools/search/providers/merge-degoog'
+import { mergeLangSearchIntoSearxngResults } from '@/lib/tools/search/providers/merge-langsearch'
 import { mergeOllamaIntoSearxngResults } from '@/lib/tools/search/providers/merge-ollama'
 import { mergeTavilyIntoSearxngResults } from '@/lib/tools/search/providers/merge-tavily'
 import {
@@ -44,6 +45,11 @@ import {
   extractReadableContent,
   MIN_CONTENT_LENGTH
 } from '@/lib/utils/extract-content'
+import {
+  fetchLangSearch,
+  isLangSearchConfigured,
+  type LangSearchResult
+} from '@/lib/utils/langsearch-client'
 import {
   fetchOllamaSearch,
   type OllamaSearchResult
@@ -412,6 +418,81 @@ async function maybeFetchTavily(
   return results
 }
 
+// --- LangSearch merge budget ------------------------------------------------
+// Another block-immune general source, but metered DAILY rather than monthly:
+// the free tier is 1 QPS / 1000 requests per day. The daily limit is why this
+// budget key is per-day and why LangSearch is advanced-path only — the basic
+// path fans several searches out at once per turn and would trip 1 QPS on its
+// own.
+const LANGSEARCH_DAILY_BUDGET = Math.max(
+  0,
+  parseInt(process.env.LANGSEARCH_DAILY_BUDGET || '900', 10) || 0
+)
+const LANGSEARCH_MERGE_MAX_RESULTS = Math.max(
+  1,
+  parseInt(process.env.LANGSEARCH_MERGE_MAX_RESULTS || '10', 10)
+)
+
+function isLangSearchMergeEnabled(): boolean {
+  return (
+    isLangSearchConfigured() &&
+    process.env.LANGSEARCH_MERGE_ENABLED !== 'off' &&
+    LANGSEARCH_DAILY_BUDGET > 0
+  )
+}
+
+function currentLangSearchBudgetKey(): string {
+  // Per DAY, not per month — the provider's quota is daily.
+  return `langsearch:budget:${new Date().toISOString().slice(0, 10)}`
+}
+
+/**
+ * Fetch LangSearch for this advanced search IF enabled and under today's
+ * budget. Same contract as maybeFetchTavily: counts only SUCCESSFUL calls,
+ * never throws for budget/Redis reasons, and fails CLOSED when Redis is
+ * unavailable so a cache outage cannot blow the daily quota.
+ *
+ * Default budget is 900 rather than the documented 1000: exceeding the quota
+ * is worse than under-using it, and the counter only sees calls this instance
+ * made — prod and staging share one API key.
+ */
+async function maybeFetchLangSearch(
+  query: string,
+  timeRange?: 'day' | 'week' | 'month' | 'year'
+): Promise<LangSearchResult[] | null> {
+  if (!isLangSearchMergeEnabled()) return null
+  const rawClient = await initializeRedisClient()
+  if (!rawClient) return null
+  const client = rawClient as unknown as {
+    get(key: string): Promise<unknown>
+    incr(key: string): Promise<number>
+    expire(key: string, seconds: number): Promise<unknown>
+  }
+
+  const key = currentLangSearchBudgetKey()
+  let spent = 0
+  try {
+    spent = Number(await client.get(key)) || 0
+  } catch (error) {
+    console.warn('[langsearch] budget read failed, skipping:', error)
+    return null
+  }
+  if (spent >= LANGSEARCH_DAILY_BUDGET) return null
+
+  const results = await fetchLangSearch(query, LANGSEARCH_MERGE_MAX_RESULTS, {
+    timeRange
+  })
+
+  try {
+    const n = await client.incr(key)
+    // ~2 days so the per-day counter self-clears without piling up keys.
+    if (n === 1) await client.expire(key, 60 * 60 * 48)
+  } catch (error) {
+    console.warn('[langsearch] budget increment failed:', error)
+  }
+  return results
+}
+
 export async function POST(request: Request) {
   const {
     query,
@@ -632,7 +713,8 @@ async function advancedSearchXNGSearch(
       degoogImgSettled,
       ollamaSettled,
       tavilySettled,
-      braveSettled
+      braveSettled,
+      langSearchSettled
     ] = await timer.time('search_ms', () =>
       Promise.allSettled([
         fetchSearxngJson(buildUrl),
@@ -667,6 +749,14 @@ async function advancedSearchXNGSearch(
         // Brave API on the advanced path too — block-immune, budget-gated.
         searchDepth === 'advanced'
           ? maybeFetchBrave(query)
+          : Promise.resolve(null),
+        // LangSearch, also block-immune. Advanced only: its free tier is 1 QPS,
+        // which the basic path's concurrent fan-out would trip on its own.
+        searchDepth === 'advanced'
+          ? maybeFetchLangSearch(
+              query,
+              timeRange as 'day' | 'week' | 'month' | 'year' | undefined
+            )
           : Promise.resolve(null)
       ])
     )
@@ -719,6 +809,20 @@ async function advancedSearchXNGSearch(
       )
     }
 
+    const langSearchResults: LangSearchResult[] =
+      langSearchSettled.status === 'fulfilled' && langSearchSettled.value
+        ? (langSearchSettled.value as LangSearchResult[])
+        : []
+    if (langSearchSettled.status === 'rejected') {
+      console.warn(
+        '[langsearch] advanced web search failed, continuing without it:',
+        langSearchSettled.reason
+      )
+    }
+
+    // NOT extended with LangSearch urls: its `summary` is long but lossy
+    // (lowercased, punctuation space-separated), so those pages still get
+    // crawled for clean text. See merge-langsearch.ts.
     const prefetchedUrls = new Set(ollamaResults.map(r => r.url))
 
     const data = rawData as SearXNGResponse
@@ -779,6 +883,17 @@ async function advancedSearchXNGSearch(
       generalResults = mergeBraveIntoSearxngResults(
         generalResults,
         braveResults,
+        maxResults * SEARXNG_CRAWL_MULTIPLIER
+      )
+    }
+
+    // LangSearch: same treatment again — block-immune discovery, and its text
+    // is bounded and lossy rather than clean page content, so its URLs join the
+    // candidate pool and get crawled like Tavily's and Brave's.
+    if (langSearchResults.length > 0) {
+      generalResults = mergeLangSearchIntoSearxngResults(
+        generalResults,
+        langSearchResults,
         maxResults * SEARXNG_CRAWL_MULTIPLIER
       )
     }
