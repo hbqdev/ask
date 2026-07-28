@@ -28,13 +28,26 @@ Grounding contract (applies whenever you answer without searching):
 /**
  * Citation rules.
  *
- * DELIBERATELY as demanding as the baseline prompt's. The first version of
- * this block was much terser, and the 96-turn run showed the cost: on turns
- * that DID search, adaptive cited in 38% of answers against baseline's 64%.
- * Fabrication stayed at zero, so the grounding contract held — the model was
- * not inventing sources, it simply was not citing the ones it had. That is a
- * prompt problem, not a property of the architecture, so the strength is put
- * back rather than the architecture abandoned.
+ * As demanding as the baseline prompt's, but BE WARNED: strengthening this
+ * block did NOT measurably fix the citation gap, and the comment is kept at
+ * this length so nobody repeats the experiment thinking it is untried.
+ *
+ * Measured: on turns that DID search, adaptive cited in 38% of answers against
+ * baseline's 64%. Two hypotheses were tested and both failed.
+ *
+ *   1. "The rules are too terse." Strengthened them to match baseline's, with
+ *      corroboration and disagreement guidance. Re-ran the 9 search probes:
+ *      38% -> 25%. No improvement (n=8, so this is noise-level either way).
+ *   2. "It retrieves less, so it cites less." Inverted: across all 96 turns,
+ *      answers with <=3 tool calls cited 67% of the time and answers with >=6
+ *      cited 38%. MORE retrieval correlates with FEWER citations, and
+ *      adaptive's 6.0 average is close to baseline's 6.9 anyway.
+ *
+ * So the cause is unidentified. What IS established is the property that
+ * matters most: fabrication is 0/8 on turns that never searched — the model
+ * does not invent anchors when it answers from knowledge, which is the failure
+ * the grounding contract exists to prevent. The rules below are kept because
+ * they encode correct intent, not because they were shown to work.
  */
 const CITATION_RULES = `
 Citations (MANDATORY whenever you used a tool this turn):
