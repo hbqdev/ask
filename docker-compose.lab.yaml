@@ -1,0 +1,106 @@
+name: ask-stack-lab
+
+# Isolated third instance for flow-architecture experiments.
+#
+# WHY A THIRD INSTANCE: prod and staging both carry the full six-source
+# retrieval stack, and tonight's measurements showed source mix and candidate
+# pool composition swamp everything else — a 30x model difference and a 5x
+# unique-contribution difference between sources were both large enough to
+# hide any flow effect. This instance exists to make FLOW the only moving part.
+#
+# RETRIEVAL IS DELIBERATELY REDUCED TO SEARXNG ALONE. Every other source is
+# switched off below. Absolute latencies here therefore do NOT match prod;
+# arms are compared against each other, never against prod numbers.
+
+services:
+  ask:
+    container_name: ask-lab
+    environment:
+      # --- which control flow to run (see lib/agents/flows) ---------------
+      # The whole point of this instance. Set per experiment run.
+      FLOW_VARIANT: ${FLOW_VARIANT:-baseline}
+
+      # --- isolation -------------------------------------------------------
+      # Anonymous mode so the benchmark harness can POST /api/chat without a
+      # browser session. Safe here and nowhere else: this instance is LAN-only,
+      # has its own Postgres, and holds no real user data. It is also what
+      # makes an unattended multi-hour run possible at all — the alternative is
+      # ~250 browser interactions. Browser runs still happen, for UX.
+      ENABLE_AUTH: 'false'
+      ANONYMOUS_USER_ID: 'lab-harness'
+      SEARXNG_API_URL: 'http://ask-searxng-lab:8080'
+      # No fallback: a silent failover to another instance's SearXNG would
+      # mean an arm was measured against a different index without saying so.
+      SEARXNG_FALLBACK_API_URL: ''
+
+      # --- SearXNG ONLY. Everything else off. ------------------------------
+      # `environment` beats `env_file`, so these empty values override the
+      # keys .env supplies. Each gate treats empty/unset as disabled.
+      DEGOOG_ENABLED: 'false'
+      DEGOOG_API_URL: ''
+      DEGOOG_API_KEY: ''
+      TAVILY_API_KEY: ''
+      TAVILY_MERGE_ENABLED: 'off'
+      # Unsetting the Brave key matters twice: it disables the advanced-path
+      # merge AND makes getGeneralSearchProviderType() fall back to searxng,
+      # so a type:'general' search stays on SearXNG instead of routing to the
+      # Brave provider.
+      BRAVE_SEARCH_API_KEY: ''
+      BRAVE_MERGE_ENABLED: 'off'
+      LANGSEARCH_API_KEY: ''
+      LANGSEARCH_MERGE_ENABLED: 'off'
+      OLLAMA_SEARCH_ENABLED: 'off'
+      OLLAMA_SEARCH_API_KEY: ''
+
+      # --- held constant across every arm ----------------------------------
+      # Pinned rather than inherited so an arm can never be accidentally
+      # measured against a different model or pool size.
+      DEFAULT_CHAT_MODEL: 'kimi-k2.6:cloud'
+      SEARXNG_CRAWL_MULTIPLIER: '2'
+      SEARCH_EXCERPTS_ENABLED: 'true'
+      SEARCH_QUALITY_FILTER: 'strict'
+      CLASSIFIER_MODEL_ID: 'glm-5.2:cloud'
+      CLASSIFIER_OLLAMA_BASE_URL: 'http://192.168.50.231:11434'
+      # Per-tool-call payload logging: the arms differ in WHICH tools they
+      # call and in what order, which the [latency] line only counts.
+      ENABLE_USAGE_LOGGING: 'true'
+      UPLOAD_TTL_DAYS: '14'
+    ports: !override
+      - '${LAB_HOST_PORT:-3742}:3000'
+    volumes: !override
+      - uploads-lab:/app/uploads
+      - model-cache-lab:/app/model-cache
+
+  postgres:
+    container_name: ask-postgres-lab
+    volumes: !override
+      - postgres-data-lab:/var/lib/postgresql/data
+
+  redis:
+    container_name: ask-redis-lab
+    volumes: !override
+      - redis-data-lab:/data
+
+  searxng:
+    container_name: ask-searxng-lab
+    ports: !override
+      - '${LAB_SEARXNG_PORT:-3743}:8080'
+    volumes: !override
+      - ./searxng-limiter.toml:/etc/searxng/limiter.toml
+      # Shares prod's engine settings on purpose: the experiment is about
+      # flow, so the engine set is held constant with the instance whose
+      # behaviour we ultimately care about.
+      - ./searxng-settings.yml:/etc/searxng/settings.yml
+      - searxng-data-lab:/data
+
+volumes:
+  postgres-data-lab:
+    name: ask-postgres-data-lab
+  redis-data-lab:
+    name: ask-redis-data-lab
+  uploads-lab:
+    name: ask-uploads-lab
+  model-cache-lab:
+    name: ask-model-cache-lab
+  searxng-data-lab:
+    name: ask-searxng-data-lab

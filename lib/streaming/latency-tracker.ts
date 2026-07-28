@@ -96,6 +96,10 @@ export class LatencyTracker {
         `[latency] ${JSON.stringify({
           chatId: this.meta.chatId ?? null,
           mode: this.meta.mode,
+          // Which control-flow variant produced this turn. Without it a
+          // results file cannot be attributed to an arm after the fact, and
+          // arms are switched by restarting the container.
+          variant: process.env.FLOW_VARIANT || 'baseline',
           modelId: this.meta.modelId ?? null,
           ...this.marks,
           ttft_ms: ttft,
