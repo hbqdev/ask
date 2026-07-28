@@ -374,3 +374,36 @@ export function shouldTruncateMessages(
   )
   return totalTokens > maxTokens
 }
+
+// ---------------------------------------------------------------------------
+// MEASURED CONSEQUENCE — read before resuming this work.
+//
+// The open question left on this branch was whether enabling truncation shifts
+// cost into tiktoken encoding on the request path. It does, and the magnitude
+// is severe.
+//
+// A full test run on this branch took 14,487 SECONDS (4 hours). The same suite
+// on the branch without this change takes ~17s. A single test — the one
+// asserting that a 166k-token prompt now truncates — accounted for 14,484s of
+// it on its own.
+//
+// The cause is estimateTokenCount(): it runs the tiktoken encoder over EVERY
+// message, and truncateMessages() calls it per message per pass. While the
+// budget was 227,738 tokens that path essentially never executed, so the cost
+// never materialised. Lowering the budget to 72,000 makes it execute on
+// exactly the large-context turns this change was meant to speed up.
+//
+// So the change as written may trade ~70s of model ingestion for a large,
+// unmeasured amount of server-side CPU on the request path — and unlike
+// ingestion, that CPU blocks the Node event loop and therefore every other
+// concurrent request on the box.
+//
+// Resuming this needs, in order:
+//   1. a measurement of truncateMessages() wall-clock at ~70k and ~160k tokens
+//      on real message shapes, NOT a synthetic repeated-character fixture
+//      (that is what made the test pathological);
+//   2. a cheaper length estimate for the truncation decision — chars/4 is
+//      already the documented fallback and is probably sufficient to decide
+//      WHETHER to truncate, with tiktoken reserved for the final fit;
+//   3. only then, the latency budget itself.
+// ---------------------------------------------------------------------------
