@@ -37,7 +37,13 @@ services:
       # `environment` beats `env_file`, so these empty values override the
       # keys .env supplies. Each gate treats empty/unset as disabled.
       DEGOOG_ENABLED: 'false'
-      DEGOOG_API_URL: ''
+      # Stays DISABLED — the flow experiment is deliberately SearXNG-only, and
+      # turning degoog on here would change the conditions mid-run. The URL is
+      # wired anyway so enabling it is a one-word change: the lab has its own
+      # instance on :4447 with its own Mullvad exit, precisely so benchmark
+      # volume can never burn prod's degoog reputation. Lab is the heaviest
+      # search generator in the fleet, so it is the one that most needs its own.
+      DEGOOG_API_URL: 'http://192.168.50.231:4447'
       DEGOOG_API_KEY: ''
       TAVILY_API_KEY: ''
       TAVILY_MERGE_ENABLED: 'off'

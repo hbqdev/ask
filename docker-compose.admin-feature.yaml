@@ -79,6 +79,17 @@ services:
       # fan-out itself is parallel and nearly free, but extra candidates feed
       # the crawler, which is already 55-70% of turn latency.
       DEGOOG_ENABLED: 'true'
+      # Staging's OWN degoog instance, on its own Mullvad exit. Overrides the
+      # value in ask/.env, which both stacks share and which now points at
+      # prod's instance (:4445).
+      #
+      # Until 2026-07-28 every stack pointed at https://nogoog.hbqnexus.win —
+      # the PUBLIC instance — so Ask's scraping and strangers' searches shared
+      # one exit IP and one reputation, and each could get the other
+      # rate-limited. Same isolation the per-stack SearXNG instances already
+      # had. Going over the LAN also drops a Cloudflare round trip from every
+      # search.
+      DEGOOG_API_URL: 'http://192.168.50.231:4446'
       # Staging used to crawl via NightFuryX (.17) on the theory that a
       # Threadripper 3970X with 64 threads would beat the app host's laptop i7.
       # Measured head-to-head 2026-07-27 — same 16 urls, same config, cache

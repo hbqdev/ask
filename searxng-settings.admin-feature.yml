@@ -49,6 +49,14 @@ search:
   formats:
     - json
     - html
+  # WITHOUT THIS, DUCKDUCKGO IS DEAD — see the long note in
+  # searxng-settings.yml for the pinned-exit experiment behind it. Short
+  # version: SearXNG hands its default language to DDG as the `kl` region
+  # parameter, and with none set it sends `wt-wt`, which DDG always answers
+  # with a CAPTCHA. `'all'` behaves identically; per-engine `language:` is not
+  # a valid key. Not an English-only tax: measured on a Vietnamese query it
+  # went from 41 results to 55.
+  default_lang: 'en-US'
 
 # Enable discussion-intent engines (disabled in upstream defaults) so the
 # local fallback matches the primary instance for Ask's engine routing.

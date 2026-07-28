@@ -49,6 +49,27 @@ search:
   formats:
     - json
     - html
+  # WITHOUT THIS, DUCKDUCKGO IS DEAD. SearXNG passes the default language
+  # straight through as DDG's `kl` region parameter, and with no default set it
+  # sends `wt-wt` (no region), which DDG answers with a CAPTCHA every time. That
+  # is literally what prod's log says: `CAPTCHA (wt-wt) (suspended_time=0)`,
+  # 112 times in 72h. `default_lang: 'all'` is the same thing under another
+  # name and fails identically.
+  #
+  # Established 2026-07-28 on a throwaway instance with the exit IP PINNED
+  # (us-mkc-wg-004) so the address could not be the hidden variable — an
+  # earlier unpinned run redrew a random exit per arm and produced two
+  # contradictory "fixes". On one fixed IP: prod-verbatim 0 results (repeated
+  # first and last, both 0), +default_lang 10 results, +relaxed outgoing
+  # timeouts 0. Per-engine `language:` is not a valid key — the container
+  # refuses to boot.
+  #
+  # This is NOT an English-only tax. Measured on the Vietnamese probe query,
+  # en-US went from 41 results / 31 Vietnamese-script titles to 55 / 44: the
+  # query's own language drives what engines return, while this only sets the
+  # region handed to engines that demand one. Ask sends no language parameter
+  # of its own, so this setting governs every search.
+  default_lang: 'en-US'
 
 # Enable discussion-intent engines (disabled in upstream defaults) so the
 # local fallback matches the primary instance for Ask's engine routing.

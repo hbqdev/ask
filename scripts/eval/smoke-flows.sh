@@ -11,7 +11,8 @@
 set -uo pipefail
 
 LAB=http://192.168.50.231:3742
-COMPOSE="-f docker-compose.yaml -f docker-compose.lab.yaml"
+# Must include the VPN overlay — see the note in run-flow-conversations.py.
+COMPOSE="-f docker-compose.yaml -f docker-compose.lab.yaml -f docker-compose.vpn.lab.yaml"
 PROJ=ask-stack-lab
 Q="${1:-What is the difference between TCP and UDP?}"
 VARIANTS="baseline adaptive react-gap plan-execute wide-once"

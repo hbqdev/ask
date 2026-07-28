@@ -54,6 +54,11 @@ PUBLIC_SEARXNG=/home/nightfury/selfhosted/searxng
 
 ASK_BASE="-f docker-compose.yaml -f docker-compose.vpn.yaml"
 ASK_STAGING="-f docker-compose.yaml -f docker-compose.admin-feature.yaml -f docker-compose.vpn.yaml -f docker-compose.vpn.admin-feature.yaml"
+ASK_LAB="-f docker-compose.yaml -f docker-compose.lab.yaml -f docker-compose.vpn.lab.yaml"
+# The per-stack degoog instances all share one parameterised overlay; which
+# instance you get comes from the project name plus DEGOOG_INSTANCE/DEGOOG_PORT
+# in the environment, not from a different file.
+DEGOOG_INSTANCE_FILES="-f docker-compose.yaml -f docker-compose.vpn.yaml -f docker-compose.instance.yaml"
 
 # name | gluetun container | redis (engine health, or -) | dir | compose args | project | dependent svc | env var for the server pool
 #
@@ -68,7 +73,17 @@ ASK_STAGING="-f docker-compose.yaml -f docker-compose.admin-feature.yaml -f dock
 TARGETS=(
   "ask-prod|ask-gluetun|ask-redis|$ASK|$ASK_BASE|ask-stack|searxng|MULLVAD_SERVER"
   "ask-staging|ask-gluetun-admin-feature|ask-redis-admin-feature|$ASK|$ASK_STAGING|ask-stack-admin-feature|searxng|MULLVAD_SERVER_STAGING"
+  "ask-lab|ask-gluetun-lab|ask-redis-lab|$ASK|$ASK_LAB|ask-stack-lab|searxng|MULLVAD_SERVER_LAB"
   "degoog|degoog-gluetun|-|$DEGOOG|-f docker-compose.yaml -f docker-compose.vpn.yaml|degoog|degoog|MULLVAD_SERVER"
+  # Per-stack degoog instances (2026-07-28). Each has its own exit so one
+  # stack's volume cannot get another's address rate-limited. They share
+  # MULLVAD_SERVER_DEGOOG_INSTANCE only as a DEBUG pin — leave it empty in
+  # normal operation, because pinning all three to one hostname would put three
+  # WireGuard peers with the same account key on one server, where they fight
+  # over the route.
+  "degoog-prod|degoog-gluetun-prod|-|$DEGOOG|$DEGOOG_INSTANCE_FILES|degoog-prod|degoog|MULLVAD_SERVER_DEGOOG_INSTANCE"
+  "degoog-staging|degoog-gluetun-staging|-|$DEGOOG|$DEGOOG_INSTANCE_FILES|degoog-staging|degoog|MULLVAD_SERVER_DEGOOG_INSTANCE"
+  "degoog-lab|degoog-gluetun-lab|-|$DEGOOG|$DEGOOG_INSTANCE_FILES|degoog-lab|degoog|MULLVAD_SERVER_DEGOOG_INSTANCE"
   "public-searxng|searxng-gluetun|-|$PUBLIC_SEARXNG|-f docker-compose.yaml -f docker-compose.vpn.yaml|searxng|searxng|MULLVAD_SERVER"
 )
 
