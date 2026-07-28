@@ -34,6 +34,31 @@ function looksLikeError(text: string): boolean {
   return ERROR_MARKERS.some(marker => text.includes(marker))
 }
 
+// Scripts that do not put spaces between words: Han, kana, Thai. Splitting
+// these on whitespace returns ONE token for the whole page, so every length
+// threshold here reads a 900-character Chinese article as 1 word and drops it —
+// under strict AND relaxed alike, since relaxed still wants >25. Measured
+// before this existed: 900 chars of Chinese -> words=1 -> DROP either way.
+//
+// Nothing surfaced it. The gate has no counter, so pages leave silently and a
+// whole-language failure looks identical to "the crawl found nothing".
+const UNSEGMENTED = /[぀-ヿ㐀-䶿一-鿿豈-﫿฀-๿]/g
+
+/**
+ * Word count that does not collapse on unsegmented scripts. CJK averages
+ * roughly two characters per word, which is the conventional approximation and
+ * is accurate enough for a length floor — the point is that a long page reads
+ * as long, not that the count is exact.
+ */
+function countWords(text: string): number {
+  const dense = (text.match(UNSEGMENTED) || []).length
+  const spaced = text
+    .replace(UNSEGMENTED, ' ')
+    .split(/\s+/)
+    .filter(Boolean).length
+  return spaced + Math.ceil(dense / 2)
+}
+
 /**
  * Strict mode is the inherited behaviour, kept as the default so shipping this
  * module changes nothing on its own. `SEARCH_QUALITY_FILTER=relaxed` opts in.
@@ -41,7 +66,7 @@ function looksLikeError(text: string): boolean {
 export function isQualityContent(text: string): boolean {
   if (looksLikeError(text)) return false
 
-  const words = text.split(/\s+/).filter(Boolean).length
+  const words = countWords(text)
 
   if (process.env.SEARCH_QUALITY_FILTER === 'relaxed') {
     // Length only. Shape is the reranker's problem, and it is better at it.

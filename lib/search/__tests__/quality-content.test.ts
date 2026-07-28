@@ -75,6 +75,27 @@ describe('isQualityContent — relaxed', () => {
     expect(isQualityContent(prose)).toBe(true)
   })
 
+  it('accepts unsegmented scripts — CJK has no spaces to split on', () => {
+    // Regression. Every threshold here counts words via whitespace, so before
+    // countWords() a 900-character Chinese article scored words=1 and was
+    // dropped under BOTH strict and relaxed — an entire class of language
+    // silently discarded, with no counter anywhere to show it happening.
+    process.env.SEARCH_QUALITY_FILTER = 'relaxed'
+    const chinese = '这是一个关于最新稳定版内核发行版本的详细说明文档。'.repeat(
+      30
+    )
+    const japanese =
+      'これは最新の安定版カーネルに関する詳細な説明です。'.repeat(30)
+    expect(chinese).not.toMatch(/\s/)
+    expect(isQualityContent(chinese)).toBe(true)
+    expect(isQualityContent(japanese)).toBe(true)
+  })
+
+  it('does not let the CJK allowance rescue a genuinely tiny page', () => {
+    process.env.SEARCH_QUALITY_FILTER = 'relaxed'
+    expect(isQualityContent('这是一个短页面。')).toBe(false)
+  })
+
   it('still rejects a crawler error page', () => {
     // These are genuinely worthless and would waste a rerank slot.
     process.env.SEARCH_QUALITY_FILTER = 'relaxed'

@@ -17,7 +17,14 @@ services:
       # Let the cross-encoder judge relevance instead of a word-count
       # heuristic. Strict drops >50% of crawled pages, including spec tables
       # and numbered procedures.
-      SEARCH_QUALITY_FILTER: 'strict'
+      #
+      # Was 'strict' until 2026-07-28, which is a NO-OP: quality-content.ts
+      # branches on `=== 'relaxed'` and nothing else, so 'strict' takes the
+      # same path as unset. The comment above described the intended behaviour
+      # while the value silently did the opposite, and because prod merely
+      # omits the variable, all three stacks were running identical strict
+      # behaviour that looked deliberately configured on two of them.
+      SEARCH_QUALITY_FILTER: 'relaxed'
       # Classifier on a cloud model. Bake-off across six candidates on five
       # ground-truth cases: glm-5.2 was both fastest (0.82s median) and the
       # most accurate (5/5), against granite4.1:8b local at 2.19s and 3/5.

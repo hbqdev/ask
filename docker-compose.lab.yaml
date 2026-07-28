@@ -64,7 +64,9 @@ services:
       DEFAULT_CHAT_MODEL: 'kimi-k2.6:cloud'
       SEARXNG_CRAWL_MULTIPLIER: '2'
       SEARCH_EXCERPTS_ENABLED: 'true'
-      SEARCH_QUALITY_FILTER: 'strict'
+      # 'strict' here was a NO-OP — quality-content.ts branches only on
+      # `=== 'relaxed'`. See the note in docker-compose.admin-feature.yaml.
+      SEARCH_QUALITY_FILTER: 'relaxed'
       CLASSIFIER_MODEL_ID: 'glm-5.2:cloud'
       CLASSIFIER_OLLAMA_BASE_URL: 'http://192.168.50.231:11434'
       # Per-tool-call payload logging: the arms differ in WHICH tools they
