@@ -1,0 +1,11 @@
+{"probes":[
+ {"id":"p07","text":"What is the current stable version of PostgreSQL and what changed in it?","expectSearch":true},
+ {"id":"p08","text":"What are the latest reported figures for global EV sales this year?","expectSearch":true},
+ {"id":"p09","text":"How much does a Framework Laptop 16 cost right now?","expectSearch":true},
+ {"id":"p10","text":"Has anything significant changed in UK right-to-repair rules recently?","expectSearch":true},
+ {"id":"p11","text":"Compare the Anker Prime 27650 and the Ugreen Nexode 25000 power banks on capacity, output and price.","expectSearch":true,"mustMention":"mAh"},
+ {"id":"p12","text":"Which of Caddy, Traefik and nginx has the least painful automatic HTTPS setup, and why?","expectSearch":true},
+ {"id":"p13","text":"Is SQLite a reasonable choice for a web app with about 200 concurrent users?","expectSearch":true},
+ {"id":"p15","text":"cách khắc phục lỗi wifi tự ngắt kết nối trên windows 11","expectSearch":true},
+ {"id":"p16","text":"What is systemd-resolved and why do people disable it?","expectSearch":true}
+]}

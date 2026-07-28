@@ -8,6 +8,7 @@ import {
 import { randomUUID } from 'crypto'
 import { Langfuse } from 'langfuse'
 
+import { resolveFlowVariant } from '@/lib/agents/flows/variants'
 import { researcher } from '@/lib/agents/researcher'
 import { modelSupportsVision } from '@/lib/config/model-vision'
 import {
@@ -57,6 +58,7 @@ import { stripReasoningParts } from './helpers/strip-reasoning-parts'
 import { stripSpecFromMessages } from './helpers/strip-spec-from-messages'
 import { transformFileParts } from './helpers/transform-file-parts'
 import type { StreamContext } from './helpers/types'
+import { createFlowProgressEmitter, type ProgressWriter } from './flow-progress'
 import { LatencyTracker } from './latency-tracker'
 import { BaseStreamConfig } from './types'
 
@@ -485,19 +487,60 @@ export async function createChatStreamResponse(
         perfLog(
           `researchAgent.stream - Start: model=${context.modelId}, searchMode=${searchMode}, skipSearch=${classification.skipSearch}`
         )
+        // Server-generated progress lines for the research panel. The panel
+        // already renders `reasoning` parts and shows "Completed N steps"; it
+        // just had nothing to display, because the model emits ~1.9s of
+        // reasoning on a 90s turn. See lib/streaming/flow-progress.ts.
+        const flowProgress = createFlowProgressEmitter(
+          resolveFlowVariant(process.env.FLOW_VARIANT),
+          writer as unknown as ProgressWriter
+        )
+        const stepHooks =
+          flowProgress || isUsageLogging()
+            ? {
+                onStepFinish: (step: {
+                  usage?: unknown
+                  providerMetadata?: unknown
+                  toolCalls?: { toolName: string }[]
+                }) => {
+                  if (isUsageLogging()) {
+                    logUsage(
+                      { scope: 'step', modelId: context.modelId },
+                      step.usage as never,
+                      step.providerMetadata as never
+                    )
+                  }
+                  if (flowProgress) {
+                    stepIndex += 1
+                    // Accumulate the step BEFORE reporting: a status line that
+                    // says "1 search" has to be able to see that search. This
+                    // array was previously declared and never populated, which
+                    // silently made every tool-count-based status line return
+                    // null — the panel stayed empty and looked like the
+                    // emitter was broken rather than the input.
+                    recordedSteps.push({
+                      toolCalls: (
+                        (step as { toolCalls?: { toolName: string }[] })
+                          .toolCalls ?? []
+                      ).map(c => ({ toolName: c.toolName }))
+                    })
+                    flowProgress({
+                      stepNumber: stepIndex,
+                      steps: recordedSteps,
+                      skipSearch: Boolean(classification?.skipSearch)
+                    })
+                  }
+                }
+              }
+            : {}
+        let stepIndex = -1
+        const recordedSteps: { toolCalls?: { toolName: string }[] }[] = []
+
         const result = await researchAgent.stream({
           messages: modelMessages,
           abortSignal,
           experimental_transform: smoothAndStripNarration(),
-          ...(isUsageLogging() && {
-            onStepFinish: step => {
-              logUsage(
-                { scope: 'step', modelId: context.modelId },
-                step.usage,
-                step.providerMetadata
-              )
-            }
-          })
+          ...(stepHooks as object)
         })
         result.consumeStream()
 
