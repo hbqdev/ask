@@ -1,0 +1,123 @@
+{
+  "_comment": [
+    "Discriminating probe set for control-flow arms. Separate from questions.json,",
+    "which is mined from real prod history and is right for judging ANSWER QUALITY",
+    "but cannot test whether a flow made the right RETRIEVAL DECISION — every",
+    "mined question is one a real person asked a search engine, so nearly all of",
+    "them warrant searching.",
+    "",
+    "`expectSearch` is my judgement, not ground truth, and it is the weakest part",
+    "of this harness. It encodes: would a competent research assistant reach for",
+    "the web here? For the `false` cases the test is whether a flow can decline —",
+    "today's prompt forbids declining outright, so baseline is expected to fail",
+    "all of them, which is the point of measuring it.",
+    "",
+    "`mustMention` is a coarse groundedness check: a specific token the answer",
+    "should contain if it actually engaged with the question. Absence is a signal",
+    "to read the answer, not an automatic fail."
+  ],
+  "probes": [
+    {
+      "id": "p01",
+      "text": "What is the difference between TCP and UDP?",
+      "expectSearch": false,
+      "why": "textbook-stable; unchanged for decades",
+      "mustMention": "connection"
+    },
+    {
+      "id": "p02",
+      "text": "Explain what a closure is in JavaScript.",
+      "expectSearch": false,
+      "why": "language semantics, stable",
+      "mustMention": "scope"
+    },
+    {
+      "id": "p03",
+      "text": "Why does water expand when it freezes?",
+      "expectSearch": false,
+      "why": "settled physical chemistry",
+      "mustMention": "hydrogen"
+    },
+    {
+      "id": "p04",
+      "text": "What is 17% of 2,340?",
+      "expectSearch": false,
+      "why": "arithmetic; the calculate tool at most, never a web search",
+      "mustMention": "397"
+    },
+    {
+      "id": "p05",
+      "text": "Write a haiku about a broken printer.",
+      "expectSearch": false,
+      "why": "generative, no external fact exists to retrieve"
+    },
+    {
+      "id": "p06",
+      "text": "What does the acronym SOLID stand for in software design?",
+      "expectSearch": false,
+      "why": "fixed definition",
+      "mustMention": "Liskov"
+    },
+    {
+      "id": "p07",
+      "text": "What is the current stable version of PostgreSQL and what changed in it?",
+      "expectSearch": true,
+      "why": "versioned and moves"
+    },
+    {
+      "id": "p08",
+      "text": "What are the latest reported figures for global EV sales this year?",
+      "expectSearch": true,
+      "why": "current statistics"
+    },
+    {
+      "id": "p09",
+      "text": "How much does a Framework Laptop 16 cost right now?",
+      "expectSearch": true,
+      "why": "live pricing"
+    },
+    {
+      "id": "p10",
+      "text": "Has anything significant changed in UK right-to-repair rules recently?",
+      "expectSearch": true,
+      "why": "recent regulatory change, jurisdiction-specific"
+    },
+    {
+      "id": "p11",
+      "text": "Compare the Anker Prime 27650 and the Ugreen Nexode 25000 power banks on capacity, output and price.",
+      "expectSearch": true,
+      "why": "two named products, several attributes each; the case that should drive iteration",
+      "mustMention": "mAh"
+    },
+    {
+      "id": "p12",
+      "text": "Which of Caddy, Traefik and nginx has the least painful automatic HTTPS setup, and why?",
+      "expectSearch": true,
+      "why": "three entities, comparative judgement, current behaviour"
+    },
+    {
+      "id": "p13",
+      "text": "Is SQLite a reasonable choice for a web app with about 200 concurrent users?",
+      "expectSearch": true,
+      "why": "answerable from knowledge but genuinely improved by current sources; deliberately ambiguous"
+    },
+    {
+      "id": "p14",
+      "text": "Should I use tabs or spaces for indentation?",
+      "expectSearch": false,
+      "why": "opinion with no retrievable fact; a flow that searches this is over-retrieving"
+    },
+    {
+      "id": "p15",
+      "text": "cách khắc phục lỗi wifi tự ngắt kết nối trên windows 11",
+      "expectSearch": true,
+      "why": "non-English troubleshooting; the known retrieval gap, kept in deliberately"
+    },
+    {
+      "id": "p16",
+      "text": "What is systemd-resolved and why do people disable it?",
+      "expectSearch": true,
+      "why": "stable-ish, but the 'why people disable it' half is community opinion worth sourcing"
+    }
+  ]
+}

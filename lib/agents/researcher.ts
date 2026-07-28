@@ -1,3 +1,9 @@
+import type { FlowStep } from './flows/types'
+
+// Structural shapes for the two SDK callbacks, so the casts above stay
+// narrow and readable rather than `any`.
+type FlowStepArgs = { stepNumber: number; steps: readonly unknown[] }
+type FlowStopArgs = { steps: readonly unknown[] }
 import { stepCountIs, tool, ToolLoopAgent } from 'ai'
 
 import type { ResearcherTools } from '@/lib/types/agent'
@@ -22,6 +28,7 @@ import { SearchMode, SearchSources } from '../types/search'
 import { getModel } from '../utils/registry'
 import { isTracingEnabled } from '../utils/telemetry'
 
+import { resolveFlowVariant } from './flows/variants'
 import { IMAGE_TOOL_GUIDANCE } from './prompts/image-tool-guidance'
 import {
   getAdaptiveModePrompt,
@@ -510,19 +517,77 @@ The conversation history is background context, not a to-do list. Any topic from
       ...todoTools
     } as ResearcherTools
 
+    // Control-flow variant (lib/agents/flows). `baseline` is a no-op and is
+    // the control arm; every other variant reshapes the loop itself rather
+    // than tuning it. See flows/types.ts for what a variant may and may not do.
+    const flow = resolveFlowVariant(process.env.FLOW_VARIANT)
+    const flowPrompt = flow.buildPrompt?.({
+      basePrompt: systemPrompt,
+      searchMode,
+      skipSearch,
+      hasUrl: false
+    })
+    const effectiveSystemPrompt = flowPrompt ?? systemPrompt
+    const effectiveMaxSteps = flow.maxSteps ?? maxSteps
+    if (flow.id !== 'baseline') {
+      console.log(
+        `[flow] variant=${flow.id} maxSteps=${effectiveMaxSteps} (${flow.summary})`
+      )
+    }
+
     // Create ToolLoopAgent with all configuration
     const agent = new ToolLoopAgent({
       model: getModel(model, abortSignal),
-      instructions: `${systemPrompt}\nCurrent date and time: ${currentDate}`,
+      instructions: `${effectiveSystemPrompt}\nCurrent date and time: ${currentDate}`,
       tools,
       activeTools: activeToolsList,
-      // No toolChoice forcing and no dedicated "done" tool — matches upstream
-      // Morphic's proven pattern. The loop naturally stops the moment the
-      // model responds with plain text and no tool calls; forcing a tool
-      // call on every step (as a prior version did) left weaker models with
-      // no valid way to finish except an unfamiliar "stop" tool, causing
-      // them to loop on search/fetch instead of ever producing an answer.
-      stopWhen: stepCountIs(maxSteps),
+      // Per-step control. The SDK calls this before EVERY step including the
+      // first, which is what lets a variant force step 0 (plan-execute forces
+      // todoWrite, wide-once forces search) or strip tools afterwards.
+      //
+      // The single `as never` is deliberate and contained. The SDK types
+      // prepareStep against the researcher's concrete tool map, narrowing
+      // toolName to a literal union; a tool-agnostic variant registry cannot
+      // express that union without depending on the tool map, which is the
+      // coupling this indirection exists to avoid. Narrowing happens here, at
+      // one call site, rather than leaking SDK generics into every variant.
+      ...(flow.prepareStep && {
+        prepareStep: (({ stepNumber, steps }: FlowStepArgs) => {
+          const o = flow.prepareStep!({
+            stepNumber,
+            steps: steps as readonly FlowStep[],
+            skipSearch
+          })
+          // A variant's `system` REPLACES the instructions for that step, so
+          // the date has to be re-appended or the model silently loses it
+          // partway through a turn.
+          return (
+            o.system
+              ? {
+                  ...o,
+                  system: `${o.system}\nCurrent date and time: ${currentDate}`
+                }
+              : o
+          ) as never
+        }) as never
+      }),
+      // No toolChoice forcing by default and no dedicated "done" tool —
+      // matches upstream Morphic's proven pattern. The loop stops the moment
+      // the model responds with plain text and no tool calls; forcing a tool
+      // call on every step (as a prior version did) left weaker models with no
+      // valid way to finish except an unfamiliar "stop" tool, so they looped
+      // on search/fetch instead of ever answering. Variants that DO force a
+      // step do it for one specific step, never for all of them.
+      //
+      // stepCountIs compares with strict equality, so a variant's extra
+      // condition is listed alongside it rather than folded into it.
+      stopWhen: flow.shouldStop
+        ? ([
+            stepCountIs(effectiveMaxSteps),
+            (({ steps }: FlowStopArgs) =>
+              flow.shouldStop!(steps as readonly FlowStep[])) as never
+          ] as never)
+        : stepCountIs(effectiveMaxSteps),
       ...(modelConfig?.providerOptions && {
         providerOptions: modelConfig.providerOptions
       }),
@@ -534,6 +599,7 @@ The conversation history is background context, not a to-do list. Any topic from
           agentType: 'researcher',
           searchMode,
           skipSearch,
+          flowVariant: flow.id,
           ...(parentTraceId && {
             langfuseTraceId: parentTraceId,
             langfuseUpdateParent: false
