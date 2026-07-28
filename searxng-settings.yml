@@ -86,11 +86,26 @@ engines:
   # CAPTCHA'd from this IP, that left DuckDuckGo carrying the whole result set.
   - name: bing
     disabled: false
-  # Independent crawler with its own index — not a Google/Bing reseller, and it
-  # does not rate-limit residential IPs the way brave/startpage/google do. Adds
-  # a source of results that survives when the blocked engines do not.
+  # DISABLED 2026-07-28. The note below was written while this instance was on
+  # a residential IP and is no longer true of it: from behind Mullvad, mojeek
+  # answers HTTP 403 "access denied" (66 log lines in 72h, suspended_time=180),
+  # exactly like startpage.
+  #
+  # It also never reached Ask in the first place — Ask pins an explicit
+  # `engines=` list (lib/tools/search/engines.ts) that has never contained
+  # mojeek, so this only ever served the LAN browser UI, where it now costs a
+  # round trip to return nothing.
+  #
+  # Worth knowing when reading a probe: once suspended it reports 0 results
+  # with `unresponsive: none`, so it looks healthy-but-empty rather than
+  # blocked until the suspension lapses and it retries.
+  #
+  # Original rationale, kept because it becomes true again on a residential
+  # exit: independent crawler with its own index — not a Google/Bing reseller,
+  # and it does not rate-limit residential IPs the way brave/startpage/google
+  # do. Adds a source of results that survives when the blocked engines do not.
   - name: mojeek
-    disabled: false
+    disabled: true
   # DISABLED 2026-07-27. Startpage redirects to a CAPTCHA from every Mullvad
   # exit we have used, and when it does it suspends for 3600s — the longest
   # cooldown of any engine here, so one hit takes it out for the rest of the

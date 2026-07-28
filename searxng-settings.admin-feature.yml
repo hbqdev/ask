@@ -73,11 +73,13 @@ engines:
   # CAPTCHA'd from this IP, that left DuckDuckGo carrying the whole result set.
   - name: bing
     disabled: false
-  # Independent crawler with its own index — not a Google/Bing reseller, and it
-  # does not rate-limit residential IPs the way brave/startpage/google do. Adds
-  # a source of results that survives when the blocked engines do not.
+  # DISABLED 2026-07-28 — see the full note in searxng-settings.yml. Short
+  # version: behind Mullvad mojeek answers HTTP 403 "access denied", and Ask's
+  # pinned `engines=` list never contained it anyway, so it only ever cost the
+  # LAN browser UI a round trip. The rationale below describes its behaviour on
+  # a residential exit, which this instance no longer uses.
   - name: mojeek
-    disabled: false
+    disabled: true
   # DISABLED 2026-07-27. Startpage redirects to a CAPTCHA from every Mullvad
   # exit we have used, and when it does it suspends for 3600s — the longest
   # cooldown of any engine here, so one hit takes it out for the rest of the
