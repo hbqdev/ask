@@ -70,6 +70,12 @@ export type SearchToolOptions = {
   firstSearchDepth?: 'basic' | 'advanced'
 }
 
+// Ollama's web-search API clamps max_results to 10 server-side (verified by
+// requesting 20/50/100 and getting exactly 10 each time). Asking for more is
+// silently ignored, so the value is clamped here instead — an operator who
+// sets OLLAMA_SEARCH_MAX_RESULTS=50 should see 10, not believe they get 50.
+const OLLAMA_SEARCH_HARD_MAX = 10
+
 // Returns the index of the first prior query embedding whose cosine
 // similarity to `embedding` meets/exceeds `threshold`, or -1 if none. Used to
 // skip near-duplicate query reformulations within a single research turn.
@@ -418,9 +424,23 @@ export function createSearchTool(
       const useOllama =
         isOllamaSearchConfigured() &&
         process.env.OLLAMA_SEARCH_ENABLED !== 'off'
+      // Default 10, which is the API's hard ceiling — verified empirically
+      // 2026-07-28 by requesting 20, 50 and 100, all of which returned exactly
+      // 10. The previous default of 5 left half the results unused for an
+      // identical cost: Ollama meters per REQUEST, not per result, so asking
+      // for 5 and asking for 10 are the same call at the same price.
+      //
+      // Unlike every other source, raising this REDUCES work. Ollama returns
+      // full page content (~10k chars per result; 5 results measured 43.6k
+      // chars, 10 measured 102.8k), and its URLs are the only ones added to
+      // prefetchedUrls — so the crawler skips them. Five more results here are
+      // five fewer pages Crawl4AI has to fetch, and crawl is 55-70% of turn
+      // latency. It also costs no candidate-pool pressure for the same reason.
       const ollamaMaxEnv = Number(process.env.OLLAMA_SEARCH_MAX_RESULTS)
       const ollamaMaxResults =
-        Number.isFinite(ollamaMaxEnv) && ollamaMaxEnv > 0 ? ollamaMaxEnv : 5
+        Number.isFinite(ollamaMaxEnv) && ollamaMaxEnv > 0
+          ? Math.min(ollamaMaxEnv, OLLAMA_SEARCH_HARD_MAX)
+          : OLLAMA_SEARCH_HARD_MAX
 
       console.log(
         `Using search API: ${searchAPI}, Type: ${type}, Search Depth: ${effectiveSearchDepthForAPI}`
