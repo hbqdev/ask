@@ -75,16 +75,17 @@ export class LatencyTracker {
   /**
    * Emit the single per-turn line.
    *
-   * `needsRecent` rides alongside `skipSearch` because the two together are
-   * the retrieval gate (see shouldInjectRetrieval). With only skipSearch in
-   * the line, a gated turn and an injected turn were indistinguishable after
-   * the fact, and the classifier's freshness call could only be guessed at
-   * from downstream effects — which is exactly how it got blamed for a
-   * measurement artifact.
+   * `needsRecent` and `needsSources` ride alongside `skipSearch` because the
+   * three together ARE the retrieval gate (see shouldInjectRetrieval). With
+   * only skipSearch in the line, a gated turn and an injected turn were
+   * indistinguishable after the fact, and the classifier's call could only be
+   * guessed at from downstream effects — which is exactly how it got blamed
+   * for a measurement artifact.
    */
   emit(extra: {
     skipSearch?: boolean | null
     needsRecent?: boolean | null
+    needsSources?: boolean | null
   }): void {
     try {
       const total = Math.round(this.now() - this.startedAt)
@@ -130,7 +131,8 @@ export class LatencyTracker {
           }),
           total_ms: total,
           skipSearch: extra.skipSearch ?? null,
-          needsRecent: extra.needsRecent ?? null
+          needsRecent: extra.needsRecent ?? null,
+          needsSources: extra.needsSources ?? null
         })}`
       )
     } catch {

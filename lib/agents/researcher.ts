@@ -1,4 +1,4 @@
-import type { FlowStep } from './flows/types'
+import type { FlowStep, FlowStepOverrides } from './flows/types'
 
 // Structural shapes for the two SDK callbacks, so the casts above stay
 // narrow and readable rather than `any`.
@@ -29,6 +29,7 @@ import { getModel } from '../utils/registry'
 import { isTracingEnabled } from '../utils/telemetry'
 
 import {
+  applyAnswerStepReserve,
   buildProvisionedToolsNote,
   buildSourceBlock,
   type PipelineRetrieval,
@@ -338,6 +339,7 @@ export async function createResearcher({
   skipSearch = false,
   standaloneQuery,
   needsRecent = false,
+  needsSources = true,
   expandedQueriesPromise,
   // Auto-detected intent from the query classifier for this turn. Forwarded
   // to the search tool so both search paths additively route to
@@ -390,6 +392,12 @@ export async function createResearcher({
   // current/recent information — every search this turn makes narrows
   // SearXNG's time_range to prefer fresh pages.
   needsRecent?: boolean
+  // Set by the query classifier when this turn's answer draws on external
+  // facts at all — a GROUNDING signal, where needsRecent is a FRESHNESS one.
+  // Only the pipeline architecture reads it. Defaults to true because the
+  // conservative direction is to ground: a wrong `false` answers from
+  // parametric knowledge alone, a wrong `true` costs prompt tokens.
+  needsSources?: boolean
   // In-flight query reformulations (lib/agents/query-expander.ts) — the
   // first search of the turn also searches these variants and merges
   // unique results. Passed as a promise so expansion overlaps with prep.
@@ -626,21 +634,24 @@ The conversation history is background context, not a to-do list. Any topic from
     // site is what let it overlap the classifier and recall — by this point it
     // has usually already resolved, so the wait is near zero.
     let pipelineSourceBlock = ''
+    // How many sources the awaited retrieval returned, or null when this turn
+    // declined sources and never awaited it. Drives the last-resort `search`
+    // provisioning below, which must distinguish "asked and got nothing" from
+    // "never asked".
+    let sourcesRetrieved: number | null = null
     if (pipelineRetrievalPromise) {
       // Retrieval is now CONDITIONAL on the classifier, not unconditional.
       //
       // `skipSearch` covers turns answerable from the conversation itself.
-      // `needsRecent` covers turns whose answer depends on current facts. A
-      // turn that is neither — settled knowledge asked fresh, like "what is
-      // TCP" — gets no sources and answers from the model directly.
+      // `needsRecent` covers freshness and `needsSources` covers grounding —
+      // either one is enough to keep the sources. A turn that is none of the
+      // three (pure arithmetic, an image request, small talk) answers directly.
       //
-      // NOTE the known limitation, because it will show in the numbers:
-      // needsRecent is a FRESHNESS signal, not a needs-sources signal. A
-      // question like "compare Caddy, Traefik and nginx" is not time-sensitive
-      // yet is much better answered with sources, and this gate will decline
-      // to retrieve for it. Measuring that gap is the point of running the
-      // probe set against it rather than reasoning about it.
-      if (!shouldInjectRetrieval({ skipSearch, needsRecent })) {
+      // needsSources was added because gating on freshness alone inverted the
+      // saving: settled-knowledge questions were declined, and the last-resort
+      // rule then handed them `search` anyway, turning a saved source block
+      // into an extra model round trip.
+      if (!shouldInjectRetrieval({ skipSearch, needsRecent, needsSources })) {
         // The classifier says this turn is answerable from the conversation
         // itself. Retrieval already FIRED — it starts at t=0, before the
         // classifier returns — so the search is spent either way. What is
@@ -658,8 +669,9 @@ The conversation history is background context, not a to-do list. Any topic from
       } else {
         const retrieval = await pipelineRetrievalPromise
         pipelineSourceBlock = `\n\n${buildSourceBlock(retrieval)}`
+        sourcesRetrieved = retrieval.results?.results?.length ?? 0
         console.log(
-          `[pipeline] ${retrieval.results?.results?.length ?? 0} sources injected (retrieval took ${retrieval.ms}ms)`
+          `[pipeline] ${sourcesRetrieved} sources injected (retrieval took ${retrieval.ms}ms)`
         )
       }
     }
@@ -697,7 +709,9 @@ The conversation history is background context, not a to-do list. Any topic from
           intent,
           skipSearch,
           needsRecent,
-          imageGenAvailable
+          needsSources,
+          imageGenAvailable,
+          sourcesRetrieved
         })
       : undefined
 
@@ -746,33 +760,44 @@ The conversation history is background context, not a to-do list. Any topic from
       // express that union without depending on the tool map, which is the
       // coupling this indirection exists to avoid. Narrowing happens here, at
       // one call site, rather than leaking SDK generics into every variant.
-      // NOTE: an attempt to reserve the final step for prose by emptying
-      // activeTools at `stepNumber >= maxSteps - 1` made things WORSE —
-      // 0-character answers went from 1 of 12 to 4 of 13. Reverted. The
-      // step-budget problem below is real but this was not the fix.
+      // Wired whenever EITHER a variant wants per-step control or a pipeline
+      // turn needs its answer step reserved.
       //
-      // `maxSteps = tools.length + 1` assumes one call per provisioned tool,
-      // and a model can repeat one: the arithmetic probe called `calculate`
-      // twice, spent both steps of maxSteps=2, and wrote nothing. Raising the
-      // cap only moves the cliff. Whatever the real fix is, it must be
-      // verified to REDUCE empty answers rather than assumed to.
-      ...(flow.prepareStep && {
+      // The `flow.prepareStep &&` condition used to be the whole guard, and it
+      // is why the previous attempt to fix the empty-answer bug appeared to
+      // fail: the lab runs FLOW_VARIANT=baseline, baseline defines no
+      // prepareStep, so the spread evaluated to `{}` and the hook never
+      // reached the SDK. The failing run's own numbers show it — those turns
+      // still made a tool call on their second step, which cannot happen if
+      // activeTools had been emptied there. See applyAnswerStepReserve.
+      ...((flow.prepareStep || provisioning) && {
         prepareStep: (({ stepNumber, steps }: FlowStepArgs) => {
-          const o = flow.prepareStep!({
-            stepNumber,
-            steps: steps as readonly FlowStep[],
-            skipSearch
-          })
+          const o: FlowStepOverrides = flow.prepareStep
+            ? flow.prepareStep({
+                stepNumber,
+                steps: steps as readonly FlowStep[],
+                skipSearch
+              })
+            : {}
           // A variant's `system` REPLACES the instructions for that step, so
           // the date has to be re-appended or the model silently loses it
           // partway through a turn.
+          const withDate = o.system
+            ? {
+                ...o,
+                system: `${o.system}\nCurrent date and time: ${currentDate}`
+              }
+            : o
+          // Applied LAST so it wins over a variant's own activeTools: a
+          // variant tuning which tools are visible mid-loop is a preference,
+          // and having a step left to write the answer in is not.
           return (
-            o.system
-              ? {
-                  ...o,
-                  system: `${o.system}\nCurrent date and time: ${currentDate}`
-                }
-              : o
+            provisioning
+              ? applyAnswerStepReserve(withDate, {
+                  stepNumber,
+                  maxSteps: effectiveMaxSteps
+                })
+              : withDate
           ) as never
         }) as never
       }),

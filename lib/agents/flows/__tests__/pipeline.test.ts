@@ -5,6 +5,7 @@ import type { UIMessage } from '@/lib/types/ai'
 import { extractCitationMaps, processCitations } from '@/lib/utils/citation'
 
 import {
+  applyAnswerStepReserve,
   buildProvisionedToolsNote,
   buildRetrievalToolPart,
   buildSourceBlock,
@@ -62,29 +63,50 @@ function retrieval(over: Partial<PipelineRetrieval> = {}): PipelineRetrieval {
 // run where the gate declined on 9 of 16 probes was recorded as 16/16
 // searched — and the classifier was blamed for it.
 describe('shouldInjectRetrieval', () => {
-  it('injects only a turn that is both searchable and time-sensitive', () => {
+  it('injects a time-sensitive turn', () => {
     expect(
-      shouldInjectRetrieval({ skipSearch: false, needsRecent: true })
+      shouldInjectRetrieval({
+        skipSearch: false,
+        needsRecent: true,
+        needsSources: false
+      })
+    ).toBe(true)
+  })
+
+  it('injects a settled-knowledge turn that still wants grounding', () => {
+    // THE REGRESSION THIS FIXES. "compare Caddy, Traefik and nginx" and "what
+    // is TCP" are not time-sensitive, so freshness alone declined them — and
+    // the last-resort rule then handed them `search` anyway, converting a
+    // saved source block into an extra model round trip.
+    expect(
+      shouldInjectRetrieval({
+        skipSearch: false,
+        needsRecent: false,
+        needsSources: true
+      })
     ).toBe(true)
   })
 
   it('declines a turn answerable from the conversation itself', () => {
-    expect(shouldInjectRetrieval({ skipSearch: true, needsRecent: true })).toBe(
-      false
-    )
-  })
-
-  it('declines a settled-knowledge turn asked fresh', () => {
-    // "What is the difference between TCP and UDP" — not in the conversation,
-    // so skipSearch is false, but nothing about it changes month to month.
+    // skipSearch outranks both: the conversation already holds the answer.
     expect(
-      shouldInjectRetrieval({ skipSearch: false, needsRecent: false })
+      shouldInjectRetrieval({
+        skipSearch: true,
+        needsRecent: true,
+        needsSources: true
+      })
     ).toBe(false)
   })
 
-  it('declines when both signals say no', () => {
+  it('declines a turn that needs no external facts at all', () => {
+    // Pure arithmetic, an image request, small talk — nothing on the web
+    // makes the answer better, so the source block is pure prompt tax.
     expect(
-      shouldInjectRetrieval({ skipSearch: true, needsRecent: false })
+      shouldInjectRetrieval({
+        skipSearch: false,
+        needsRecent: false,
+        needsSources: false
+      })
     ).toBe(false)
   })
 })
@@ -105,7 +127,10 @@ describe('provisionTurnTools', () => {
       intent: 'general',
       skipSearch: false,
       needsRecent: true,
+      needsSources: true,
       imageGenAvailable: false,
+      // The normal case: sources were wanted and retrieval delivered.
+      sourcesRetrieved: 12,
       ...over
     })
   }
@@ -121,7 +146,26 @@ describe('provisionTurnTools', () => {
   })
 
   it('gives a conversation-referential turn nothing and one model call', () => {
-    const p = provision({ skipSearch: true, message: 'so you mean both, yes?' })
+    const p = provision({
+      skipSearch: true,
+      message: 'so you mean both, yes?',
+      sourcesRetrieved: null
+    })
+    expect(p.tools).toEqual([])
+    expect(p.maxSteps).toBe(1)
+  })
+
+  it('gives a settled-knowledge turn nothing — it was grounded before the call', () => {
+    // THE REGRESSION THIS FIXES. "what is TCP" used to land here with
+    // `search` and a two-step loop, because the freshness gate declined its
+    // sources and the escape hatch then handed it a way to go get them. With
+    // needsSources the sources are simply kept, and the turn is one model
+    // call with grounding — strictly faster AND strictly better sourced.
+    const p = provision({
+      message: 'what is the difference between TCP and UDP',
+      needsRecent: false,
+      needsSources: true
+    })
     expect(p.tools).toEqual([])
     expect(p.maxSteps).toBe(1)
   })
@@ -179,32 +223,46 @@ describe('provisionTurnTools', () => {
     expect(p.maxSteps).toBe(1)
   })
 
-  it('hands back search when the turn has no sources and nothing else', () => {
-    // "What is TCP" — not in the conversation (so not skippable), not
-    // time-sensitive (so shouldInjectRetrieval declined). Without this the
-    // model has neither sources nor any way to obtain them.
-    const p = provision({
-      message: 'what is the difference between TCP and UDP',
-      needsRecent: false
-    })
+  it('hands back search only when sources were wanted and retrieval returned none', () => {
+    // The genuine dead end: this turn asked for grounding, retrieval ran (and
+    // retried itself once), and still came back empty. Now the model has
+    // neither sources nor any way to obtain them.
+    const p = provision({ sourcesRetrieved: 0 })
     expect(p.tools).toEqual(['search'])
     expect(p.maxSteps).toBe(2)
   })
 
-  it('withholds the escape hatch when another capability already grounds the turn', () => {
-    // A URL turn bypasses the classifier (needsRecent=false), so no sources are
-    // injected — but `fetch` IS a way to get grounding, so `search` would only
-    // reopen the search-again loop.
+  it('withholds the last resort from a turn that never asked for sources', () => {
+    // sourcesRetrieved === null means the gate declined and nothing was
+    // awaited. Reading that as "asked and got nothing" is exactly the
+    // conflation that fired the escape hatch on every settled-knowledge turn.
+    const p = provision({
+      message: 'what is 17% of 4500',
+      needsRecent: false,
+      needsSources: false,
+      sourcesRetrieved: null
+    })
+    expect(p.tools).toEqual(['calculate'])
+  })
+
+  it('withholds the last resort when another capability already grounds the turn', () => {
+    // Retrieval came back empty, but `fetch` IS a way to get grounding, so
+    // `search` would only reopen the search-again loop.
     const p = provision({
       message: 'what does https://example.com/post say about rate limits',
-      needsRecent: false
+      sourcesRetrieved: 0
     })
     expect(p.tools).toEqual(['fetch'])
     expect(p.maxSteps).toBe(2)
   })
 
-  it('withholds the escape hatch from a conversation-referential turn', () => {
-    const p = provision({ skipSearch: true, needsRecent: false })
+  it('withholds the last resort from a conversation-referential turn', () => {
+    const p = provision({
+      skipSearch: true,
+      needsRecent: false,
+      needsSources: false,
+      sourcesRetrieved: null
+    })
     expect(p.tools).toEqual([])
   })
 
@@ -239,16 +297,22 @@ describe('provisionTurnTools', () => {
     ]) {
       for (const skipSearch of [true, false]) {
         for (const needsRecent of [true, false]) {
-          for (const imageGenAvailable of [true, false]) {
-            const p = provisionTurnTools({
-              message,
-              intent: 'general',
-              skipSearch,
-              needsRecent,
-              imageGenAvailable
-            })
-            expect(p.maxSteps).toBe(p.tools.length + 1)
-            expect(new Set(p.tools).size).toBe(p.tools.length)
+          for (const needsSources of [true, false]) {
+            for (const imageGenAvailable of [true, false]) {
+              for (const sourcesRetrieved of [null, 0, 12]) {
+                const p = provisionTurnTools({
+                  message,
+                  intent: 'general',
+                  skipSearch,
+                  needsRecent,
+                  needsSources,
+                  imageGenAvailable,
+                  sourcesRetrieved
+                })
+                expect(p.maxSteps).toBe(p.tools.length + 1)
+                expect(new Set(p.tools).size).toBe(p.tools.length)
+              }
+            }
           }
         }
       }
@@ -279,8 +343,15 @@ describe('provisionTurnTools', () => {
     // (which engines to add), and none of its values implies a tool.
     const p = provision({ intent: 'news' })
     expect(p.reason).toContain('intent=news')
-    expect(p.reason).toContain('sources=injected')
-    expect(provision({ needsRecent: false }).reason).toContain('sources=none')
+    expect(p.reason).toContain('sources=injected(12)')
+    expect(p.reason).toContain('needsSources=true')
+    expect(
+      provision({
+        needsRecent: false,
+        needsSources: false,
+        sourcesRetrieved: null
+      }).reason
+    ).toContain('sources=declined')
   })
 })
 
@@ -532,7 +603,9 @@ describe('provisionTurnTools — memory', () => {
     intent: 'general' as const,
     skipSearch: false,
     needsRecent: true,
-    imageGenAvailable: false
+    needsSources: true,
+    imageGenAvailable: false,
+    sourcesRetrieved: 12
   }
 
   it('provisions remember for an explicit memory request', () => {
@@ -564,6 +637,68 @@ describe('provisionTurnTools — memory', () => {
       expect(provisionTurnTools({ ...base, message }).tools).not.toContain(
         'recall' as never
       )
+    }
+  })
+})
+
+// The budget guarantee. Measured shape of every 0-character answer across two
+// probe runs: steps=2, tools=2 — the model spent its whole budget on tool
+// calls and the turn ended before a word was written. Every answer that had
+// prose made at most one tool call.
+describe('applyAnswerStepReserve', () => {
+  it('leaves every step but the last untouched', () => {
+    // maxSteps=3 (two tools + the answer): steps 0 and 1 may call tools.
+    expect(applyAnswerStepReserve({}, { stepNumber: 0, maxSteps: 3 })).toEqual(
+      {}
+    )
+    expect(applyAnswerStepReserve({}, { stepNumber: 1, maxSteps: 3 })).toEqual(
+      {}
+    )
+  })
+
+  it('empties activeTools on the last permitted step', () => {
+    // stepNumber is 0-indexed, so the last permitted step is maxSteps - 1.
+    // This is the step the arithmetic probe spent on a second `calculate`.
+    expect(applyAnswerStepReserve({}, { stepNumber: 2, maxSteps: 3 })).toEqual({
+      activeTools: []
+    })
+    expect(applyAnswerStepReserve({}, { stepNumber: 1, maxSteps: 2 })).toEqual({
+      activeTools: []
+    })
+  })
+
+  it('overrides a variant that would hand tools back on the final step', () => {
+    // Applied last, so a variant's per-step tool preference cannot spend the
+    // step reserved for prose. Everything else the variant set survives.
+    const out = applyAnswerStepReserve(
+      { system: 'variant prompt', activeTools: ['search'] },
+      { stepNumber: 1, maxSteps: 2 }
+    )
+    expect(out.activeTools).toEqual([])
+    expect(out.system).toBe('variant prompt')
+  })
+
+  it('is a no-op when no tools were provisioned', () => {
+    // maxSteps=1 is the one-call turn: the single step IS the answer, and
+    // there is nothing to reserve it from.
+    expect(applyAnswerStepReserve({}, { stepNumber: 0, maxSteps: 1 })).toEqual(
+      {}
+    )
+  })
+
+  it('leaves at least one tool-free step for every provisioned shape', () => {
+    // The invariant, not an example: with maxSteps = tools.length + 1, a model
+    // can call at most tools.length tools no matter how it distributes them,
+    // so a step always remains in which prose is the only thing it can emit.
+    for (let toolCount = 1; toolCount <= 5; toolCount++) {
+      const maxSteps = toolCount + 1
+      const toolFree = Array.from({ length: maxSteps }, (_, stepNumber) =>
+        applyAnswerStepReserve<{ activeTools?: string[] }>(
+          {},
+          { stepNumber, maxSteps }
+        )
+      ).filter(o => o.activeTools?.length === 0)
+      expect(toolFree.length).toBeGreaterThanOrEqual(1)
     }
   })
 })

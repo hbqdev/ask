@@ -20,9 +20,15 @@
 // and concluded needsRecent was true on all 16 probes when the same run's logs
 // show the gate declining on 9 of them. Decisions are cheap to log and
 // expensive to reconstruct.
+//
+// needsRecent and needsSources are both reported because the pipeline's
+// injection gate is `!skipSearch && (needsRecent || needsSources)` — logging
+// only one of them leaves it ambiguous which signal opened the gate, which is
+// exactly the reconstruction this line exists to make unnecessary.
 export type ClassifierDecision = {
   skipSearch: boolean
   needsRecent: boolean
+  needsSources: boolean
   intent: string
 }
 
@@ -58,6 +64,7 @@ export function buildClassifierTelemetry(t: ClassifierTelemetry): string {
     ...(t.decision && {
       skip_search: t.decision.skipSearch,
       needs_recent: t.decision.needsRecent,
+      needs_sources: t.decision.needsSources,
       intent: t.decision.intent
     })
   })}`

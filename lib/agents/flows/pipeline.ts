@@ -76,8 +76,20 @@ export type PipelineRetrieval = {
  *
  * Retrieval always FIRES (that is the speculative half of the architecture);
  * this decides whether the sources are kept or discarded. `skipSearch` covers
- * turns answerable from the conversation itself, `needsRecent` turns whose
- * answer depends on current facts.
+ * turns answerable from the conversation itself. The other two are separate
+ * signals on purpose:
+ *
+ *   * `needsRecent` is FRESHNESS — the answer depends on current facts.
+ *   * `needsSources` is GROUNDING — the answer draws on external facts at all,
+ *     fresh or not.
+ *
+ * Gating on freshness ALONE was measurably wrong. "compare Caddy, Traefik and
+ * nginx" and "what is TCP" are not time-sensitive, so needsRecent declined
+ * them — and because a turn with no sources and no other capability then got
+ * handed the `search` tool as a last resort, the saving was inverted into a
+ * whole extra model round trip (~10s) to re-fetch sources this architecture
+ * had ALREADY retrieved speculatively and thrown away. Freshness was never the
+ * question being asked here; grounding was.
  *
  * Exported as a predicate — rather than left inline at the one place that
  * gates — because the telemetry has to report the SAME decision the researcher
@@ -88,12 +100,14 @@ export type PipelineRetrieval = {
  */
 export function shouldInjectRetrieval({
   skipSearch,
-  needsRecent
+  needsRecent,
+  needsSources
 }: {
   skipSearch: boolean
   needsRecent: boolean
+  needsSources: boolean
 }): boolean {
-  return !skipSearch && needsRecent
+  return !skipSearch && (needsRecent || needsSources)
 }
 
 /**
@@ -107,12 +121,15 @@ export function shouldInjectRetrieval({
  *     execute.
  *   * `askQuestion` ends the turn with a question instead of an answer, which
  *     is a second round trip wearing a different name.
- *   * `remember` / `recall` are memory, orthogonal to answering. They are left
- *     out because they are not free: any tool call is a step, and both are
- *     already covered without one — the streaming layer resolves recall into
- *     `recallBlock` and getMemoryInjection resolves memories into the prompt
- *     BEFORE the model is called. Provisioning them would only buy the model a
- *     way to spend its single answer step re-fetching what it was handed.
+ *   * `recall` is left out because it is already covered without a step: the
+ *     streaming layer resolves it into `recallBlock` and getMemoryInjection
+ *     resolves memories into the prompt BEFORE the model is called.
+ *     Provisioning it would only buy the model a way to spend its answer step
+ *     re-fetching what it was already handed. `remember` IS listed, because
+ *     the symmetry is false — extraction runs after the turn, but a user who
+ *     says "remember I'm on Postgres 18" expects the assistant to act and
+ *     confirm, and without the tool that silently falls to a background
+ *     extractor with no acknowledgement either way.
  *
  * researcher.ts assigns the provisioned array to `(keyof ResearcherTools)[]`,
  * which is where a typo or a renamed tool is caught at compile time.
@@ -163,9 +180,6 @@ const IMAGE_REQUEST = new RegExp(
 const WEATHER_REQUEST =
   /\b(?:weather|forecast|temperature|humidity|how (?:hot|cold|warm)|rain(?:ing|fall)?|snow(?:ing)?|wind speed|uv index)\b/i
 
-// `+` and `-` require surrounding spaces so version strings, date ranges and
-// "COVID-19" are not read as sums. `convert` requires a nearby digit so
-// "convert this to TypeScript" is not read as a unit conversion.
 // Explicit "remember this about me" requests.
 //
 // `recall` is deliberately NOT provisionable: getRecallInjection already runs
@@ -179,6 +193,9 @@ const WEATHER_REQUEST =
 const REMEMBER_REQUEST =
   /\b(remember|keep in mind|note|save|store|don'?t forget)\b[^.?!]{0,40}\b(that |this |i |i'?m |i'?ve |my |me\b)/i
 
+// `+` and `-` require surrounding spaces so version strings, date ranges and
+// "COVID-19" are not read as sums. `convert` requires a nearby digit so
+// "convert this to TypeScript" is not read as a unit conversion.
 const ARITHMETIC_REQUEST =
   /\d\s*[*\/^×÷]\s*\d|\d\s+[+-]\s+\d|\b\d+(?:\.\d+)?\s*(?:%|percent)\s+of\b|\b(?:calculate|compute|square root|sqrt|factorial|multiplied by|divided by|sum of|average of)\b|\bconvert\b[^.?!]{0,24}\d/i
 
@@ -201,17 +218,25 @@ const ARITHMETIC_REQUEST =
  *
  * `search` is normally ABSENT — retrieval ran before the model was called, and
  * re-searching is the are-we-done judgement this architecture removes. It comes
- * back only as a LAST RESORT: a turn that is not conversation-referential, got
- * no sources (shouldInjectRetrieval declined), and was given no other
- * capability, has neither grounding nor any way to obtain it. A turn that got
- * `fetch` (its message carries a URL) does have a way, so it does not qualify.
+ * back only as a GENUINE last resort: this turn wanted sources, and retrieval
+ * came back with none even after its own internal retry. Then and only then
+ * does the model have neither grounding nor any way to obtain it.
+ *
+ * That condition used to be "wanted no sources and got none", which fired on
+ * every settled-knowledge question — "what is TCP" was handed `search` and a
+ * two-step loop. It was the single largest source of avoidable round trips in
+ * the architecture, and it fired precisely on the turns the freshness gate had
+ * just declined. Keying on the RETRIEVAL RESULT instead of on the gate's
+ * verdict is what makes it rare, which is what a last resort should be.
  */
 export function provisionTurnTools({
   message,
   intent,
   skipSearch,
   needsRecent,
-  imageGenAvailable
+  needsSources,
+  imageGenAvailable,
+  sourcesRetrieved
 }: {
   /** The user's raw message this turn — the only place capability cues exist. */
   message: string
@@ -221,11 +246,27 @@ export function provisionTurnTools({
   skipSearch: boolean
   /** Classifier: the answer depends on current facts. */
   needsRecent: boolean
+  /** Classifier: the answer draws on external facts, fresh or not. */
+  needsSources: boolean
   /** generateImage is registered for this turn (configured AND signed in). */
   imageGenAvailable: boolean
+  /**
+   * How many sources the awaited retrieval actually returned, or `null` when
+   * this turn declined sources and therefore never awaited it.
+   *
+   * The null case is NOT "zero": a turn that wanted no sources has no gap to
+   * fill, and treating "didn't ask" as "asked and got nothing" is exactly the
+   * conflation that made the escape hatch fire on every settled-knowledge
+   * question.
+   */
+  sourcesRetrieved: number | null
 }): TurnProvisioning {
   const text = message ?? ''
-  const sourcesInjected = shouldInjectRetrieval({ skipSearch, needsRecent })
+  const sourcesInjected = shouldInjectRetrieval({
+    skipSearch,
+    needsRecent,
+    needsSources
+  })
   const tools: PipelineToolName[] = []
   const why: string[] = []
 
@@ -254,9 +295,9 @@ export function provisionTurnTools({
     why.push('weather question')
   }
 
-  if (!skipSearch && !sourcesInjected && tools.length === 0) {
+  if (sourcesRetrieved === 0 && tools.length === 0) {
     tools.push('search')
-    why.push('escape hatch: no sources and nothing else to answer with')
+    why.push('last resort: sources wanted, retrieval returned none')
   }
 
   return {
@@ -264,9 +305,48 @@ export function provisionTurnTools({
     maxSteps: tools.length + 1,
     reason:
       `intent=${intent} skipSearch=${skipSearch} needsRecent=${needsRecent} ` +
-      `sources=${sourcesInjected ? 'injected' : 'none'} — ` +
+      `needsSources=${needsSources} ` +
+      `sources=${sourcesInjected ? `injected(${sourcesRetrieved ?? '?'})` : 'declined'} — ` +
       (why.length ? why.join(' + ') : 'no capability needed')
   }
+}
+
+/**
+ * Guarantee that the step budget can never be spent entirely on tool calls.
+ *
+ * MEASURED, not theorised. Across two probe runs every 0-character answer had
+ * the same shape — `steps=2, tools=2` — and every answer with prose had at
+ * most one tool call. With `maxSteps = tools.length + 1` a model that calls one
+ * tool twice consumes the whole budget and the turn ends before a word is
+ * written: the arithmetic probe called `calculate` twice and returned nothing.
+ *
+ * An earlier attempt at this was recorded in researcher.ts as having made
+ * things WORSE (0-character answers 1 of 12 -> 4 of 13) and was reverted. That
+ * conclusion was wrong: the guard never executed. researcher.ts wired
+ * `prepareStep` only when the active FLOW_VARIANT defined one, the lab runs
+ * `baseline`, and `baseline` defines none — so the spread evaluated to `{}` and
+ * no per-step hook reached the SDK at all. The proof is in the failing run's
+ * own numbers: those turns still show a tool call on their SECOND step, which
+ * is impossible if `activeTools` had been emptied there. The 1-vs-4 difference
+ * was run-to-run variance being read as an effect.
+ *
+ * Enforcement is `activeTools` rather than `toolChoice: 'none'` because the SDK
+ * applies `activeTools` before any provider sees the request, whereas
+ * `ai-sdk-ollama` silently drops `toolChoice` — its `getCallOptions` never
+ * destructures it, with no warning. A guarantee that depends on a provider
+ * honouring a hint is not a guarantee.
+ */
+export function applyAnswerStepReserve<T extends { activeTools?: string[] }>(
+  overrides: T,
+  { stepNumber, maxSteps }: { stepNumber: number; maxSteps: number }
+): T {
+  // maxSteps === 1 means no tools were provisioned: there is one step, it is
+  // the answer, and there is nothing to reserve it from.
+  if (maxSteps <= 1) return overrides
+  // stepNumber is 0-indexed, so the last permitted step is maxSteps - 1.
+  return stepNumber >= maxSteps - 1
+    ? { ...overrides, activeTools: [] }
+    : overrides
 }
 
 /**

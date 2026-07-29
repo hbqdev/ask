@@ -66,7 +66,8 @@ describe('classifyQuery', () => {
           input: {
             skipSearch: true,
             standaloneQuery: 'confirm the plan',
-            needsRecent: false
+            needsRecent: false,
+            needsSources: false
           }
         }
       ]
@@ -83,8 +84,37 @@ describe('classifyQuery', () => {
     expect(result).toEqual({
       skipSearch: true,
       standaloneQuery: 'confirm the plan',
-      needsRecent: false
+      needsRecent: false,
+      needsSources: false
     })
+  })
+
+  it('passes through needsSources independently of needsRecent', async () => {
+    // Grounding and freshness are separate signals: a settled-knowledge
+    // comparison is not time-sensitive but is still far better answered with
+    // sources. Collapsing the two is what made the pipeline's injection gate
+    // decline turns like this one.
+    mockGenerateText.mockResolvedValue({
+      toolCalls: [
+        {
+          toolName: 'classify',
+          input: {
+            skipSearch: false,
+            standaloneQuery: 'Compare Caddy, Traefik and nginx',
+            needsRecent: false,
+            needsSources: true,
+            intent: 'code'
+          }
+        }
+      ]
+    } as any)
+
+    const result = await classifyQuery({
+      messages: [userMsg('compare caddy traefik and nginx')]
+    })
+
+    expect(result.needsRecent).toBe(false)
+    expect(result.needsSources).toBe(true)
   })
 
   it('falls back to always-search using the raw latest message when the model call throws', async () => {
@@ -98,6 +128,10 @@ describe('classifyQuery', () => {
       skipSearch: false,
       standaloneQuery: 'what is the tallest mountain in South Korea',
       needsRecent: false,
+      // Grounding defaults ON: retrieval has already fired by the time this
+      // is read, so declining it would cost the turn its sources outright
+      // while a wrong `true` only costs prompt tokens.
+      needsSources: true,
       intent: 'general',
       // No fused expansions from a failed call — the caller falls back to
       // the standalone expander rather than narrowing the search.
@@ -127,6 +161,7 @@ describe('classifyQuery', () => {
       skipSearch: false,
       standaloneQuery: 'hello there',
       needsRecent: false,
+      needsSources: true,
       intent: 'general',
       // No fused expansions from a failed call — the caller falls back to
       // the standalone expander rather than narrowing the search.
@@ -146,6 +181,7 @@ describe('classifyQuery', () => {
       skipSearch: false,
       standaloneQuery: 'what time is it',
       needsRecent: false,
+      needsSources: true,
       intent: 'general',
       // No fused expansions from a failed call — the caller falls back to
       // the standalone expander rather than narrowing the search.
@@ -244,5 +280,6 @@ describe('classifyQuery', () => {
 
     expect(result.intent).toBe('general')
     expect(result.skipSearch).toBe(false)
+    expect(result.needsSources).toBe(true)
   })
 })
