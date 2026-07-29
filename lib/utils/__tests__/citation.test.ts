@@ -40,6 +40,70 @@ describe('processCitations', () => {
     )
   })
 
+  // A model that writes `[1]` without the anchor produces text that LOOKS
+  // cited and links nowhere — the anchored replacement never matches it.
+  // Measured on a 16-probe pipeline run: 1 of 14 sourced answers came back
+  // with 18 bare markers and zero anchored ones.
+  describe('bare citations with a single source of truth', () => {
+    it('resolves a bare [N] when there is exactly one citation map', () => {
+      const result = processCitations(
+        'PostgreSQL 18.4 fixed 11 CVEs. [1] It needs no dump and restore. [2]',
+        mockCitationMaps
+      )
+      expect(result).toBe(
+        'PostgreSQL 18.4 fixed 11 CVEs. [google](https://www.google.com) ' +
+          'It needs no dump and restore. [github](https://docs.github.com)'
+      )
+    })
+
+    it('refuses to guess when several searches each have their own map', () => {
+      // Two maps means a bare [1] could belong to either search. Attaching a
+      // real URL to a claim it may not support is worse than a dead marker.
+      const twoMaps = {
+        toolCall1: mockCitationMaps.toolCall1,
+        toolCall2: mockCitationMaps.toolCall1
+      }
+      const content = 'Ambiguous claim. [1]'
+      expect(processCitations(content, twoMaps)).toBe(content)
+    })
+
+    it('leaves array indexing alone', () => {
+      // The real false-positive risk: these answers routinely discuss code.
+      // A citation is never preceded by a word character.
+      const content = 'Use arr[1] and matches[2] to read them.'
+      expect(processCitations(content, mockCitationMaps)).toBe(content)
+    })
+
+    it('leaves code blocks and inline spans untouched', () => {
+      const content =
+        'Like so:\n```js\nconst x = list[1]\n```\nor inline `items[2]` here. [3]'
+      const result = processCitations(content, mockCitationMaps)
+      expect(result).toContain('const x = list[1]')
+      expect(result).toContain('`items[2]`')
+      expect(result).toContain(
+        '[stackoverflow](https://stackoverflow.com/questions/123)'
+      )
+    })
+
+    it('leaves a number with no matching source exactly as written', () => {
+      // Deleting it — as the anchored path does for an invalid citation —
+      // would silently edit prose that may never have been a citation.
+      const content = 'See footnote [47] below.'
+      expect(processCitations(content, mockCitationMaps)).toBe(content)
+    })
+
+    it('still resolves anchored citations in the same pass', () => {
+      const result = processCitations(
+        'Anchored [1](#toolCall1) and bare [2] together.',
+        mockCitationMaps
+      )
+      expect(result).toBe(
+        'Anchored [google](https://www.google.com) and bare ' +
+          '[github](https://docs.github.com) together.'
+      )
+    })
+  })
+
   it('handles citations with spaces', () => {
     const content = 'See [ 1 ](#toolCall1) for details'
     const result = processCitations(content, mockCitationMaps)
