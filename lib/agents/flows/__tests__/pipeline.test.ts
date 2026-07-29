@@ -5,9 +5,11 @@ import type { UIMessage } from '@/lib/types/ai'
 import { extractCitationMaps, processCitations } from '@/lib/utils/citation'
 
 import {
+  buildProvisionedToolsNote,
   buildRetrievalToolPart,
   buildSourceBlock,
   type PipelineRetrieval,
+  provisionTurnTools,
   shouldInjectRetrieval,
   startSpeculativeRetrieval
 } from '../pipeline'
@@ -84,6 +86,219 @@ describe('shouldInjectRetrieval', () => {
     expect(
       shouldInjectRetrieval({ skipSearch: true, needsRecent: false })
     ).toBe(false)
+  })
+})
+
+// The system decides which tools a turn gets; the model uses what it is given.
+// These tests pin the table that decision is specified by — and, above all,
+// that the step cap and the tool list are never stated independently of each
+// other, since a cap that disagrees with the list is the bug class the single
+// function exists to design out.
+describe('provisionTurnTools', () => {
+  // A searched, time-sensitive turn: the classifier's normal "go look this up"
+  // verdict, so retrieval was injected before the model was called.
+  function provision(
+    over: Partial<Parameters<typeof provisionTurnTools>[0]> = {}
+  ) {
+    return provisionTurnTools({
+      message: 'what changed in the latest postgres release',
+      intent: 'general',
+      skipSearch: false,
+      needsRecent: true,
+      imageGenAvailable: false,
+      ...over
+    })
+  }
+
+  it('gives a factual/news/code question nothing and exactly one model call', () => {
+    // Retrieval already happened. There is nothing left to call, and every
+    // extra permitted step is a step some model will find a way to spend.
+    for (const intent of ['general', 'news', 'code', 'academic'] as const) {
+      const p = provision({ intent })
+      expect(p.tools).toEqual([])
+      expect(p.maxSteps).toBe(1)
+    }
+  })
+
+  it('gives a conversation-referential turn nothing and one model call', () => {
+    const p = provision({ skipSearch: true, message: 'so you mean both, yes?' })
+    expect(p.tools).toEqual([])
+    expect(p.maxSteps).toBe(1)
+  })
+
+  it('gives a message containing a URL fetch, and two steps to use it', () => {
+    const p = provision({
+      message: 'summarise https://www.postgresql.org/docs/release/18.4/'
+    })
+    expect(p.tools).toEqual(['fetch'])
+    expect(p.maxSteps).toBe(2)
+  })
+
+  it('gives an arithmetic turn calculate', () => {
+    expect(provision({ message: "what's 17% of 4230" }).tools).toEqual([
+      'calculate'
+    ])
+    expect(provision({ message: 'compute (3 + 5) * 12 / 4' }).tools).toEqual([
+      'calculate'
+    ])
+    expect(provision({ message: 'convert 100 USD to EUR' }).tools).toEqual([
+      'calculate'
+    ])
+  })
+
+  it('gives a weather question get_weather', () => {
+    const p = provision({ message: "what's the weather in Tokyo tomorrow" })
+    expect(p.tools).toEqual(['get_weather'])
+    expect(p.maxSteps).toBe(2)
+  })
+
+  it('gives an image request generateImage even though the classifier skipped search', () => {
+    // The classifier is instructed to set skipSearch=true for a pure "draw me
+    // X" request. A skipSearch-implies-no-tools rule would strip the one tool
+    // the turn exists to use.
+    const p = provision({
+      message: 'draw me a picture of the Sydney Opera House',
+      skipSearch: true,
+      needsRecent: false,
+      imageGenAvailable: true
+    })
+    expect(p.tools).toEqual(['generateImage'])
+    expect(p.maxSteps).toBe(2)
+  })
+
+  it('never provisions generateImage when the tool is not registered', () => {
+    // Ephemeral turns and unconfigured deployments have no generateImage in the
+    // tool map; advertising it would name a tool the SDK cannot call.
+    const p = provision({
+      message: 'draw me a picture of the Sydney Opera House',
+      skipSearch: true,
+      needsRecent: false,
+      imageGenAvailable: false
+    })
+    expect(p.tools).toEqual([])
+    expect(p.maxSteps).toBe(1)
+  })
+
+  it('hands back search when the turn has no sources and nothing else', () => {
+    // "What is TCP" — not in the conversation (so not skippable), not
+    // time-sensitive (so shouldInjectRetrieval declined). Without this the
+    // model has neither sources nor any way to obtain them.
+    const p = provision({
+      message: 'what is the difference between TCP and UDP',
+      needsRecent: false
+    })
+    expect(p.tools).toEqual(['search'])
+    expect(p.maxSteps).toBe(2)
+  })
+
+  it('withholds the escape hatch when another capability already grounds the turn', () => {
+    // A URL turn bypasses the classifier (needsRecent=false), so no sources are
+    // injected — but `fetch` IS a way to get grounding, so `search` would only
+    // reopen the search-again loop.
+    const p = provision({
+      message: 'what does https://example.com/post say about rate limits',
+      needsRecent: false
+    })
+    expect(p.tools).toEqual(['fetch'])
+    expect(p.maxSteps).toBe(2)
+  })
+
+  it('withholds the escape hatch from a conversation-referential turn', () => {
+    const p = provision({ skipSearch: true, needsRecent: false })
+    expect(p.tools).toEqual([])
+  })
+
+  it('never provisions todoWrite, remember, recall or askQuestion', () => {
+    // todoWrite reopens the multi-step planning loop this architecture removes;
+    // memory is already resolved into the prompt before the model is called.
+    const shapes = [
+      provision(),
+      provision({ skipSearch: true }),
+      provision({ needsRecent: false }),
+      provision({ message: 'draw a logo', imageGenAvailable: true }),
+      provision({ message: 'weather in Oslo and 12 * 7' })
+    ]
+    for (const p of shapes) {
+      for (const banned of ['todoWrite', 'remember', 'recall', 'askQuestion']) {
+        expect(p.tools).not.toContain(banned)
+      }
+    }
+  })
+
+  it('keeps the step cap and the tool list in agreement on every shape', () => {
+    // The invariant, not an example of it: one step per provisioned capability
+    // plus the step that writes the answer. A cap below that strands a tool
+    // result with no prose; a cap above it buys steps nothing was provisioned
+    // for.
+    for (const message of [
+      'what is TCP',
+      'summarise https://example.com and 4 * 9',
+      "what's the weather in Oslo",
+      'draw me a picture of a cat',
+      'so you mean both?'
+    ]) {
+      for (const skipSearch of [true, false]) {
+        for (const needsRecent of [true, false]) {
+          for (const imageGenAvailable of [true, false]) {
+            const p = provisionTurnTools({
+              message,
+              intent: 'general',
+              skipSearch,
+              needsRecent,
+              imageGenAvailable
+            })
+            expect(p.maxSteps).toBe(p.tools.length + 1)
+            expect(new Set(p.tools).size).toBe(p.tools.length)
+          }
+        }
+      }
+    }
+  })
+
+  it('does not read ordinary technical prose as a capability cue', () => {
+    // False positives cost a permitted step the turn did not need, so the cues
+    // are verb-and-object rather than bare keywords.
+    const code = provision({
+      message:
+        'how does React render a component, and can I convert this class to hooks',
+      intent: 'code',
+      imageGenAvailable: true
+    })
+    expect(code.tools).toEqual([])
+    // Version strings and date ranges are not sums.
+    expect(
+      provision({ message: 'what is new in Postgres 18.4' }).tools
+    ).toEqual([])
+    expect(
+      provision({ message: 'summarise the 2024-2025 season' }).tools
+    ).toEqual([])
+  })
+
+  it('records the signals that produced the decision for the audit log', () => {
+    // Intent is reported, never acted on: SEARCH_INTENTS is a source taxonomy
+    // (which engines to add), and none of its values implies a tool.
+    const p = provision({ intent: 'news' })
+    expect(p.reason).toContain('intent=news')
+    expect(p.reason).toContain('sources=injected')
+    expect(provision({ needsRecent: false }).reason).toContain('sources=none')
+  })
+})
+
+describe('buildProvisionedToolsNote', () => {
+  it('cancels the loop prompts offer of tools this turn does not have', () => {
+    // DIRECT_ANSWER_PROMPT offers search/fetch/calculate as escape hatches and
+    // the search-mode prompts demand `search` first. With an empty provisioning
+    // both order the model to do the impossible.
+    const note = buildProvisionedToolsNote([])
+    expect(note).toMatch(/NO tools this turn/i)
+    expect(note).toMatch(/do NOT apply to this turn/i)
+    expect(note).toMatch(/`search`/)
+  })
+
+  it('names the tool a provisioned turn actually has', () => {
+    const note = buildProvisionedToolsNote(['fetch'])
+    expect(note).toContain('`fetch`')
+    expect(note).not.toMatch(/NO tools this turn/i)
   })
 })
 
