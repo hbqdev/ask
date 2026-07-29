@@ -29,8 +29,10 @@ import { getModel } from '../utils/registry'
 import { isTracingEnabled } from '../utils/telemetry'
 
 import {
+  buildProvisionedToolsNote,
   buildSourceBlock,
   type PipelineRetrieval,
+  provisionTurnTools,
   shouldInjectRetrieval
 } from './flows/pipeline'
 import { resolveFlowVariant } from './flows/variants'
@@ -357,10 +359,16 @@ export async function createResearcher({
   // raw user text before this function was called — and the model gets ONE
   // call with the sources in its prompt and no search tool. See
   // lib/agents/flows/pipeline.ts.
-  pipelineRetrievalPromise
+  pipelineRetrievalPromise,
+  // The user's RAW message for this turn. Read only by pipeline tool
+  // provisioning, which needs the words the user actually typed: a URL, an
+  // arithmetic expression or "draw me a…" are cues the classifier does not
+  // report (its intent enum is a source taxonomy, not a capability one).
+  latestMessageText
 }: {
   model: string
   pipelineRetrievalPromise?: Promise<PipelineRetrieval>
+  latestMessageText?: string
   modelConfig?: Model
   parentTraceId?: string
   searchMode?: SearchMode
@@ -544,7 +552,8 @@ export async function createResearcher({
     // images are persisted into that user's upload store, and
     // createGenerateImageTool requires a userId, so ephemeral/no-user turns
     // (create-ephemeral-chat-stream-response.ts) don't get the tool.
-    if (isImageGenEnabled() && userId) {
+    const imageGenAvailable = isImageGenEnabled() && Boolean(userId)
+    if (imageGenAvailable) {
       activeToolsList.push('generateImage')
     }
 
@@ -665,27 +674,56 @@ The conversation history is background context, not a to-do list. Any topic from
       skipSearch,
       hasUrl: false
     })
+    // SYSTEM-DRIVEN TOOL PROVISIONING — pipeline turns only.
+    //
+    // The loop path keeps its mode-based tool list untouched below. Here the
+    // SYSTEM reads the turn and hands the model exactly the capabilities it
+    // needs, with a step ceiling derived from that same list, so the shape of a
+    // turn stops being a property of whichever model is selected. Enforcement
+    // is `activeTools`, which the SDK applies before any provider sees the
+    // request — it holds for every model, unlike a prompt or toolChoice.
+    //
+    // The previous rule here (strip `search` and `fetch` when sources were
+    // injected, otherwise leave all nine tools and a ceiling of 50) is what
+    // this replaces. It left the two cases inverted: the turn that had sources
+    // was constrained, and the turn that had none — where the model has the
+    // most room to wander — kept every tool and every step.
+    const provisioning = pipelineRetrievalPromise
+      ? provisionTurnTools({
+          // standaloneQuery is the fallback, not the input: it is the
+          // classifier's REWRITE, and a rewrite can drop the URL or the
+          // expression that is the whole cue.
+          message: latestMessageText ?? standaloneQuery ?? '',
+          intent,
+          skipSearch,
+          needsRecent,
+          imageGenAvailable
+        })
+      : undefined
+
     const effectiveSystemPrompt =
-      (flowPrompt ?? systemPrompt) + pipelineSourceBlock
-    // No search tool under the pipeline architecture — retrieval is done. This
-    // is the enforcement point: `activeTools` is applied by the SDK before any
-    // provider sees the request, so it holds for every model rather than
-    // depending on one honouring toolChoice.
-    // `fetch` goes too. Leaving it in kept the loop alive: the first pipeline
-    // turn still ran 2 steps / 1 tool because the model reached for fetch to
-    // "read more", which is the same are-we-done judgment the architecture
-    // exists to remove — just wearing a different tool's name. One model call
-    // means no tools at all.
-    // Tools come off only when sources were actually injected. On a
-    // skipSearch turn the model has no sources AND would have no way to get
-    // any, which is worse than the loop it replaced — the escape hatch that
-    // DIRECT_ANSWER_PROMPT relies on has to survive.
-    const effectiveActiveTools =
-      pipelineRetrievalPromise &&
-      shouldInjectRetrieval({ skipSearch, needsRecent })
-        ? activeToolsList.filter(n => n !== 'search' && n !== 'fetch')
-        : activeToolsList
-    const effectiveMaxSteps = flow.maxSteps ?? maxSteps
+      (flowPrompt ?? systemPrompt) +
+      // Before the sources, so the retrieved block stays last in the prompt.
+      (provisioning ? buildProvisionedToolsNote(provisioning.tools) : '') +
+      pipelineSourceBlock
+
+    // Typed as the tool map's keys so a provisioned name that is not a
+    // registered tool is a compile error rather than a silently ignored entry.
+    const effectiveActiveTools: (keyof ResearcherTools)[] = provisioning
+      ? provisioning.tools
+      : activeToolsList
+    // On a pipeline turn the cap comes from the SAME call that chose the tools
+    // — a variant's ceiling would reintroduce exactly the disagreement between
+    // the two that this function exists to make impossible.
+    const effectiveMaxSteps = provisioning
+      ? provisioning.maxSteps
+      : (flow.maxSteps ?? maxSteps)
+
+    if (provisioning) {
+      console.log(
+        `[pipeline] provisioned tools=[${provisioning.tools.join(', ')}] maxSteps=${provisioning.maxSteps} — ${provisioning.reason}`
+      )
+    }
     if (flow.id !== 'baseline') {
       console.log(
         `[flow] variant=${flow.id} maxSteps=${effectiveMaxSteps} (${flow.summary})`
@@ -708,6 +746,16 @@ The conversation history is background context, not a to-do list. Any topic from
       // express that union without depending on the tool map, which is the
       // coupling this indirection exists to avoid. Narrowing happens here, at
       // one call site, rather than leaking SDK generics into every variant.
+      // NOTE: an attempt to reserve the final step for prose by emptying
+      // activeTools at `stepNumber >= maxSteps - 1` made things WORSE —
+      // 0-character answers went from 1 of 12 to 4 of 13. Reverted. The
+      // step-budget problem below is real but this was not the fix.
+      //
+      // `maxSteps = tools.length + 1` assumes one call per provisioned tool,
+      // and a model can repeat one: the arithmetic probe called `calculate`
+      // twice, spent both steps of maxSteps=2, and wrote nothing. Raising the
+      // cap only moves the cliff. Whatever the real fix is, it must be
+      // verified to REDUCE empty answers rather than assumed to.
       ...(flow.prepareStep && {
         prepareStep: (({ stepNumber, steps }: FlowStepArgs) => {
           const o = flow.prepareStep!({

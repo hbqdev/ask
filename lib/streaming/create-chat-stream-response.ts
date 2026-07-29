@@ -573,6 +573,9 @@ export async function createChatStreamResponse(
         const researchAgent = await researcher({
           model: context.modelId,
           pipelineRetrievalPromise,
+          // Pipeline tool provisioning reads the raw words: a URL, an
+          // expression or "draw me a…" are cues no classifier field carries.
+          latestMessageText,
           modelConfig: model,
           parentTraceId,
           searchMode,

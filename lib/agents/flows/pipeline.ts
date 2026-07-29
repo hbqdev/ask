@@ -97,6 +97,195 @@ export function shouldInjectRetrieval({
 }
 
 /**
+ * Every tool name this architecture is allowed to hand out.
+ *
+ * A closed list, not `keyof ResearcherTools`, because the omissions are the
+ * design:
+ *   * `todoWrite` is how a turn re-opens the multi-step planning loop this
+ *     architecture exists to remove. Under the pipeline, planning is the
+ *     system's job — a plan the model writes is a plan it then wants steps to
+ *     execute.
+ *   * `askQuestion` ends the turn with a question instead of an answer, which
+ *     is a second round trip wearing a different name.
+ *   * `remember` / `recall` are memory, orthogonal to answering. They are left
+ *     out because they are not free: any tool call is a step, and both are
+ *     already covered without one — the streaming layer resolves recall into
+ *     `recallBlock` and getMemoryInjection resolves memories into the prompt
+ *     BEFORE the model is called. Provisioning them would only buy the model a
+ *     way to spend its single answer step re-fetching what it was handed.
+ *
+ * researcher.ts assigns the provisioned array to `(keyof ResearcherTools)[]`,
+ * which is where a typo or a renamed tool is caught at compile time.
+ */
+export type PipelineToolName =
+  | 'search'
+  | 'fetch'
+  | 'calculate'
+  | 'get_weather'
+  | 'generateImage'
+
+export type TurnProvisioning = {
+  /** Exactly what the model may call this turn. */
+  tools: PipelineToolName[]
+  /** Ceiling on steps, derived from `tools` and never stated independently. */
+  maxSteps: number
+  /** One line for the audit log: which signals produced this set. */
+  reason: string
+}
+
+// CAPABILITY CUES ARE READ FROM THE MESSAGE TEXT, not from the classifier.
+//
+// SEARCH_INTENTS (lib/tools/search/intent.ts) is a SOURCE taxonomy — it picks
+// which SearXNG category to add on top of the baseline. general / code /
+// discussion / news / academic all describe where to look, and none of them
+// implies a capability: a "code" question needs no tool the pipeline has not
+// already run, and there is no arithmetic, weather or image intent to map. So
+// intent is recorded in the audit line and deliberately drives nothing.
+//
+// These patterns are tuned to prefer a false POSITIVE over a false negative.
+// A spurious tool costs one extra permitted step that the model will almost
+// certainly not spend; a missing one costs the turn its only way to answer.
+
+const URL_IN_MESSAGE = /https?:\/\/\S+/i
+
+// Verb-and-object, so "how does React render a component" and "draw a
+// conclusion" do not read as image requests.
+const IMAGE_SUBJECT =
+  '(?:image|picture|photo|photograph|drawing|illustration|painting|artwork|logo|icon|poster|wallpaper|portrait|avatar|comic|sketch|render)'
+const IMAGE_REQUEST = new RegExp(
+  `\\b(?:draw|sketch|paint|illustrate|render|generate|create|make|design|produce|edit|restyle|upscale|imagine)\\b[^.?!]{0,40}\\b${IMAGE_SUBJECT}\\b` +
+    `|\\b${IMAGE_SUBJECT}\\s+of\\b` +
+    `|\\bdraw\\s+(?:me|a|an|the)\\b`,
+  'i'
+)
+
+const WEATHER_REQUEST =
+  /\b(?:weather|forecast|temperature|humidity|how (?:hot|cold|warm)|rain(?:ing|fall)?|snow(?:ing)?|wind speed|uv index)\b/i
+
+// `+` and `-` require surrounding spaces so version strings, date ranges and
+// "COVID-19" are not read as sums. `convert` requires a nearby digit so
+// "convert this to TypeScript" is not read as a unit conversion.
+const ARITHMETIC_REQUEST =
+  /\d\s*[*\/^×÷]\s*\d|\d\s+[+-]\s+\d|\b\d+(?:\.\d+)?\s*(?:%|percent)\s+of\b|\b(?:calculate|compute|square root|sqrt|factorial|multiplied by|divided by|sum of|average of)\b|\bconvert\b[^.?!]{0,24}\d/i
+
+/**
+ * Decide what this turn may call, and how many steps that buys it.
+ *
+ * THE POINT OF THIS FUNCTION. Handing the model nine tools and a ceiling of 50
+ * steps makes the shape of a turn a property of the MODEL: on an identical
+ * probe set kimi-k2.6 made 19 tool calls and minimax-m3 made 3. Here the system
+ * reads the turn and hands over exactly the capabilities it needs; the model
+ * uses what it is given. Same flow on every model.
+ *
+ * Tools and cap are returned TOGETHER, from one place, because a cap that does
+ * not match the provisioned set is the bug class worth designing out: a ceiling
+ * of 50 with no tools wastes nothing but says nothing either, and a ceiling of
+ * 1 with a tool provisioned means the tool result can never be turned into
+ * prose. `maxSteps = tools.length + 1` — one step per capability, plus the step
+ * that writes the answer. With no tools that is exactly ONE model call, which
+ * is what most turns should be: retrieval already happened.
+ *
+ * `search` is normally ABSENT — retrieval ran before the model was called, and
+ * re-searching is the are-we-done judgement this architecture removes. It comes
+ * back only as a LAST RESORT: a turn that is not conversation-referential, got
+ * no sources (shouldInjectRetrieval declined), and was given no other
+ * capability, has neither grounding nor any way to obtain it. A turn that got
+ * `fetch` (its message carries a URL) does have a way, so it does not qualify.
+ */
+export function provisionTurnTools({
+  message,
+  intent,
+  skipSearch,
+  needsRecent,
+  imageGenAvailable
+}: {
+  /** The user's raw message this turn — the only place capability cues exist. */
+  message: string
+  /** Classifier's source taxonomy. Recorded, not acted on — see above. */
+  intent: SearchIntent
+  /** Classifier: answerable from the conversation itself. */
+  skipSearch: boolean
+  /** Classifier: the answer depends on current facts. */
+  needsRecent: boolean
+  /** generateImage is registered for this turn (configured AND signed in). */
+  imageGenAvailable: boolean
+}): TurnProvisioning {
+  const text = message ?? ''
+  const sourcesInjected = shouldInjectRetrieval({ skipSearch, needsRecent })
+  const tools: PipelineToolName[] = []
+  const why: string[] = []
+
+  // Checked BEFORE anything keyed on skipSearch: the classifier is instructed
+  // to set skipSearch=true for a pure "draw me X" request (it needs no web
+  // search), so a skipSearch-implies-no-tools rule would strip the one tool
+  // such a turn exists to use.
+  if (imageGenAvailable && IMAGE_REQUEST.test(text)) {
+    tools.push('generateImage')
+    why.push('image request')
+  }
+  if (URL_IN_MESSAGE.test(text)) {
+    tools.push('fetch')
+    why.push('url in message')
+  }
+  if (ARITHMETIC_REQUEST.test(text)) {
+    tools.push('calculate')
+    why.push('numeric computation')
+  }
+  if (WEATHER_REQUEST.test(text)) {
+    tools.push('get_weather')
+    why.push('weather question')
+  }
+
+  if (!skipSearch && !sourcesInjected && tools.length === 0) {
+    tools.push('search')
+    why.push('escape hatch: no sources and nothing else to answer with')
+  }
+
+  return {
+    tools,
+    maxSteps: tools.length + 1,
+    reason:
+      `intent=${intent} skipSearch=${skipSearch} needsRecent=${needsRecent} ` +
+      `sources=${sourcesInjected ? 'injected' : 'none'} — ` +
+      (why.length ? why.join(' + ') : 'no capability needed')
+  }
+}
+
+/**
+ * Tell the model, in the prompt, exactly what it was given.
+ *
+ * Not decoration. The prompts in force were written for the agentic loop and
+ * name tools this turn may not have: the search-mode prompts order `search`
+ * first, and DIRECT_ANSWER_PROMPT (the skipSearch prompt) offers
+ * `search`/`fetch`/`calculate` as escape hatches. `activeTools` makes those
+ * calls physically impossible, and a model told to do the impossible hedges,
+ * apologises and narrates about tools instead of answering — the same failure
+ * pipelineTurnHeader exists to prevent for sourced turns. This is that header's
+ * counterpart for the turns that get no source block.
+ */
+export function buildProvisionedToolsNote(
+  tools: readonly PipelineToolName[]
+): string {
+  const scope =
+    tools.length === 0
+      ? 'You have NO tools this turn. Every tool named anywhere above — `search`, `fetch`, `todoWrite`, `calculate`, `get_weather`, `generateImage` — has been removed, and any attempt to call one will not run.'
+      : `The ONLY tool available to you this turn is ${tools.map(t => `\`${t}\``).join(' and ')}. Every other tool named anywhere above — including \`search\`, \`fetch\` and \`todoWrite\` — has been removed, and any attempt to call one will not run.`
+
+  return [
+    '',
+    '',
+    '━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━',
+    'TOOLS FOR THIS TURN — THIS OVERRIDES EVERY EARLIER STATEMENT ABOUT TOOLS',
+    '━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━',
+    '',
+    scope,
+    '',
+    '- Instructions above that require, suggest or offer a removed tool do NOT apply to this turn. Ignore them.',
+    '- Do NOT mention tools, searching, browsing, or their absence in your answer, and do NOT apologise for not using one. Answer as though this were simply the work in front of you.'
+  ].join('\n')
+}
+
+/**
  * Fire retrieval immediately, on the raw user text.
  *
  * Deliberately NOT awaited by the caller — the returned promise is handed to
