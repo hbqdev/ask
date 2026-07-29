@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
+import { CLASSIFIER_TIMEOUT_MS } from '@/lib/agents/query-classifier'
 import type { SearchResults } from '@/lib/types'
 import type { UIMessage } from '@/lib/types/ai'
 import { extractCitationMaps, processCitations } from '@/lib/utils/citation'
@@ -444,6 +445,20 @@ describe('startInformedRetrieval', () => {
       query: 'who won the election'
     })
     expect(r.results?.results).toHaveLength(5)
+  })
+
+  it('waits longer than the classifier can possibly take', async () => {
+    // THE BUG THIS PINS. These were two independently chosen numbers: the
+    // pipeline gave up at 5s on a call already bounded at CLASSIFIER_TIMEOUT_MS
+    // (10s) that also falls back rather than rejecting. So the deadline could
+    // not prevent a hang — there cannot be one past 10s — and could only fire
+    // in the 5-10s window where the classifier WAS about to answer, discarding
+    // that turn's query rewrite and freshness window. It tripped on 1 turn in 8
+    // (classify_ms median 1525ms, spike 9069ms).
+    //
+    // Asserted as an inequality rather than a literal so raising the
+    // classifier's timeout cannot silently reintroduce it.
+    expect(CLASSIFY_WAIT_MS).toBeGreaterThan(CLASSIFIER_TIMEOUT_MS)
   })
 
   it('falls back to raw text rather than waiting forever', async () => {
