@@ -1,4 +1,4 @@
-import type { FlowStep } from './flows/types'
+import type { FlowStep, FlowStepOverrides } from './flows/types'
 
 // Structural shapes for the two SDK callbacks, so the casts above stay
 // narrow and readable rather than `any`.
@@ -35,6 +35,7 @@ import {
   getQualityModePrompt,
   SPEED_MODE_PROMPT
 } from './prompts/search-mode-prompts'
+import { applyAnswerDeadline } from './answer-deadline'
 
 // Used when the query classifier (lib/agents/query-classifier.ts) decides
 // this turn needs no new research — a pure clarification/confirmation about
@@ -619,6 +620,11 @@ The conversation history is background context, not a to-do list. Any topic from
       )
     }
 
+    // Wall clock for the answer deadline. Started here rather than passed in
+    // from the route: this is the point after which everything remaining is
+    // model round trips, which is what the deadline is protecting.
+    const turnStartedAt = Date.now()
+
     // Create ToolLoopAgent with all configuration
     const agent = new ToolLoopAgent({
       model: getModel(model, abortSignal),
@@ -635,26 +641,43 @@ The conversation history is background context, not a to-do list. Any topic from
       // express that union without depending on the tool map, which is the
       // coupling this indirection exists to avoid. Narrowing happens here, at
       // one call site, rather than leaking SDK generics into every variant.
-      ...(flow.prepareStep && {
-        prepareStep: (({ stepNumber, steps }: FlowStepArgs) => {
-          const o = flow.prepareStep!({
-            stepNumber,
-            steps: steps as readonly FlowStep[],
-            skipSearch
-          })
-          // A variant's `system` REPLACES the instructions for that step, so
-          // the date has to be re-appended or the model silently loses it
-          // partway through a turn.
-          return (
-            o.system
-              ? {
-                  ...o,
-                  system: `${o.system}\nCurrent date and time: ${currentDate}`
-                }
-              : o
-          ) as never
-        }) as never
-      }),
+      // Wired UNCONDITIONALLY now, not only when a variant wants per-step
+      // control. Every turn needs the answer deadline: measured on 80
+      // balanced-mode turns, two ran to route.ts's 300s ceiling at 17-18 steps
+      // and persisted NOTHING — five minutes of waiting for a blank page — with
+      // four more between 245s and 276s. See lib/agents/answer-deadline.ts.
+      prepareStep: (({ stepNumber, steps }: FlowStepArgs) => {
+        const variant: FlowStepOverrides = flow.prepareStep
+          ? flow.prepareStep({
+              stepNumber,
+              steps: steps as readonly FlowStep[],
+              skipSearch
+            })
+          : {}
+        // Applied LAST so it wins over a variant's own activeTools: which tools
+        // are visible mid-loop is a preference, having a step left to answer in
+        // is not.
+        const o = applyAnswerDeadline(variant, {
+          elapsedMs: Date.now() - turnStartedAt,
+          systemPrompt: effectiveSystemPrompt
+        })
+        if (o !== variant) {
+          console.log(
+            `[deadline] ${Math.round((Date.now() - turnStartedAt) / 1000)}s elapsed at step ${stepNumber} — tools removed, answering now`
+          )
+        }
+        // A `system` override REPLACES the instructions for that step, so the
+        // date has to be re-appended — whoever produced the override — or the
+        // model silently loses it partway through a turn.
+        return (
+          o.system
+            ? {
+                ...o,
+                system: `${o.system}\nCurrent date and time: ${currentDate}`
+              }
+            : o
+        ) as never
+      }) as never,
       // No toolChoice forcing by default and no dedicated "done" tool —
       // matches upstream Morphic's proven pattern. The loop stops the moment
       // the model responds with plain text and no tool calls; forcing a tool
