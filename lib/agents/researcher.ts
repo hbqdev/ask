@@ -744,11 +744,43 @@ The conversation history is background context, not a to-do list. Any topic from
       )
     }
 
+    // WITHHOLD unprovisioned tools from the MAP, not just from activeTools.
+    //
+    // activeTools is advertising only: the SDK consults it in
+    // prepareToolsAndToolChoice to decide which definitions reach the provider,
+    // then executes whatever comes back via `tools[toolCall.toolName]` against
+    // the FULL map. Measured on probe p09 — kimi-k2.6 called `search` on a turn
+    // where activeTools was empty and the SDK ran it, burning the turn's only
+    // step and returning zero characters.
+    //
+    // Removing the entry makes that call unexecutable rather than merely
+    // unhelpful, which is worth ~20-40s: a stray `search` that RUNS costs a full
+    // retrieval before achieving nothing. Verified safe rather than assumed —
+    // an unknown tool name does NOT throw out of the turn. The SDK catches it
+    // and returns a tool-call marked `dynamic: true, invalid: true, error`, so
+    // the loop continues and the reserved final step still writes the answer.
+    // (An empty map is also fine: prepareToolsAndToolChoice sends no tools at
+    // all when the map is empty, so there is nothing left to hallucinate.)
+    // The cast is a deliberate narrowing, not a papering-over. ResearcherTools
+    // names every tool the researcher CAN register, and the point here is to
+    // hand over fewer than that — a partial map is the intent. It is safe
+    // because nothing downstream enumerates the type's keys: the SDK only ever
+    // does `tools[name]` lookups and `Object.entries(tools)`, both of which are
+    // correct on a smaller object. `activeTools` is still typed against the full
+    // key union, which is what keeps a typo caught at compile time.
+    const effectiveTools = provisioning
+      ? (Object.fromEntries(
+          provisioning.tools
+            .map(name => [name, tools[name]] as const)
+            .filter(([, impl]) => impl != null)
+        ) as unknown as ResearcherTools)
+      : tools
+
     // Create ToolLoopAgent with all configuration
     const agent = new ToolLoopAgent({
       model: getModel(model, abortSignal),
       instructions: `${effectiveSystemPrompt}\nCurrent date and time: ${currentDate}`,
-      tools,
+      tools: effectiveTools,
       activeTools: effectiveActiveTools,
       // Per-step control. The SDK calls this before EVERY step including the
       // first, which is what lets a variant force step 0 (plan-execute forces
