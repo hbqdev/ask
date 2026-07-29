@@ -43,13 +43,18 @@
 // from reintroducing the serial preamble the speculative start was invented to
 // remove.
 //
-// One retrieval, not two: a second "refined" pass on top of the speculative one
-// would double load on the shared crawl4ai container, which is already the
-// fleet's scarcest resource and whose saturation produces 125-second stalls.
+// One DEEP retrieval, widened rather than repeated. A second advanced pass
+// would double load on the shared crawl4ai container — already the fleet's
+// scarcest resource, and its saturation produces 125-second stalls. So breadth
+// comes from the classifier's expandedQueries searched at BASIC depth alongside
+// the main query and merged by URL, which is exactly what the loop's first
+// search does (searchExpansionVariants) and what this architecture was missing:
+// it retrieved on ONE phrasing while the loop retrieved on up to four.
 
 import { generateId } from 'ai'
 
 import { CLASSIFIER_TIMEOUT_MS } from '@/lib/agents/query-classifier'
+import { searchExpansionVariants } from '@/lib/tools/search'
 import {
   resolveOllamaSearchOptions,
   runAdvancedSearch
@@ -93,24 +98,33 @@ export type PipelineRetrieval = {
 }
 
 /**
- * Does this turn's speculative retrieval reach the model's prompt?
+ * Do this turn's retrieved sources reach the model's prompt?
  *
- * Retrieval always FIRES (that is the speculative half of the architecture);
- * this decides whether the sources are kept or discarded. `skipSearch` covers
- * turns answerable from the conversation itself. The other two are separate
- * signals on purpose:
+ * `skipSearch` covers turns answerable from the conversation itself. The other
+ * two are separate signals on purpose:
  *
  *   * `needsRecent` is FRESHNESS — the answer depends on current facts.
- *   * `needsSources` is GROUNDING — the answer draws on external facts at all,
- *     fresh or not.
+ *   * `needsSources` is SPECIFICITY — the answer turns on a figure, version,
+ *     price or named-entity claim an expert could not state reliably from
+ *     memory.
  *
- * Gating on freshness ALONE was measurably wrong. "compare Caddy, Traefik and
- * nginx" and "what is TCP" are not time-sensitive, so needsRecent declined
- * them — and because a turn with no sources and no other capability then got
- * handed the `search` tool as a last resort, the saving was inverted into a
- * whole extra model round trip (~10s) to re-fetch sources this architecture
- * had ALREADY retrieved speculatively and thrown away. Freshness was never the
- * question being asked here; grounding was.
+ * BOTH DIRECTIONS OF THIS GATE HAVE NOW BEEN WRONG, which is why the current
+ * shape is stated carefully rather than confidently:
+ *
+ *   1. Freshness ALONE declined settled-knowledge turns, and the last-resort
+ *      rule then handed those same turns the `search` tool — converting a saved
+ *      source block into a whole extra model round trip. Fixed by keying the
+ *      last resort on the retrieval RESULT rather than on this gate's verdict.
+ *   2. Adding a liberal `needsSources` (default true, "would sources help?")
+ *      overcorrected. On 32 pairs a blind pairwise judge scored the pipeline
+ *      19-1 against the loop, with 11 of those losses on turns where it had MORE
+ *      sources and MORE citations — and six where the loop had NONE and won
+ *      anyway. Padding a stable-knowledge answer with citations to introductory
+ *      pages makes it worse. `needsSources` is now deliberately conservative and
+ *      defaults FALSE (see query-classifier.ts).
+ *
+ * The lesson both times: sources are not free, and "we already paid for the
+ * search" is an argument about cost, not about answer quality.
  *
  * Exported as a predicate — rather than left inline at the one place that
  * gates — because the telemetry has to report the SAME decision the researcher
@@ -471,6 +485,19 @@ export function runPipelineRetrieval(
     timeRange?: 'day' | 'week' | 'month' | 'year'
     intent?: SearchIntent
     chatId?: string
+    /**
+     * Alternative phrasings from the classifier, searched alongside the main
+     * query and merged by URL.
+     *
+     * NOT an optimisation — closing a measured deficit. This architecture was
+     * retrieving on ONE query while the loop's first search retrieves on up to
+     * four (searchExpansionVariants), and a blind judge scored it 0W-13L-3T on
+     * the current-facts probes. 11 of its 20 losses were turns where it had MORE
+     * sources and MORE citations than the loop, so what it lacked was breadth of
+     * DISCOVERY: different phrasings surface different pages, and one phrasing
+     * cannot find what it does not ask for.
+     */
+    expandedQueries?: string[]
   } = {}
 ): Promise<PipelineRetrieval> {
   const query = rawQuery.trim()
@@ -543,6 +570,20 @@ export function runPipelineRetrieval(
           { time_range: opts.timeRange, intent: opts.intent }
         )
 
+  // Variants run CONCURRENTLY with the main search, so breadth costs
+  // wall-clock only when a variant is slower than the deep-crawl it runs
+  // beside — which it rarely is, because variants search at BASIC depth
+  // (snippets, cached, no crawl). That is also why this does not multiply load
+  // on the shared crawl4ai container the way a second advanced pass would.
+  const variants: Promise<SearchResults['results']> = opts.expandedQueries
+    ?.length
+    ? searchExpansionVariants(
+        opts.expandedQueries,
+        opts.timeRange,
+        opts.chatId
+      ).catch(() => [])
+    : Promise.resolve([])
+
   return attempt()
     .then(async first => {
       if ((first?.results?.length ?? 0) > 0) return first
@@ -552,6 +593,34 @@ export function runPipelineRetrieval(
       } catch {
         return first
       }
+    })
+    .then(async main => {
+      const extra = await variants
+      if (extra.length === 0) return main
+      // Main results FIRST, then unique variant results. Order is not cosmetic:
+      // citations resolve positionally, so the deep-crawled and reranked pages
+      // must hold the low numbers the model reaches for most, and snippet-depth
+      // discoveries fill in behind them.
+      const seen = new Set((main?.results ?? []).map(r => r.url))
+      const merged = [...(main?.results ?? [])]
+      let added = 0
+      for (const r of extra) {
+        if (r?.url && !seen.has(r.url)) {
+          seen.add(r.url)
+          merged.push(r)
+          added++
+        }
+      }
+      if (added > 0) {
+        console.log(
+          `[pipeline] merged ${added} unique results from ${opts.expandedQueries?.length ?? 0} expansion variants`
+        )
+      }
+      return {
+        ...(main ?? { query: rawQuery, images: [], number_of_results: 0 }),
+        results: merged,
+        number_of_results: merged.length
+      } as SearchResults
     })
     .then(results => {
       const ms = Date.now() - startedAt
@@ -628,6 +697,7 @@ export function startInformedRetrieval({
     standaloneQuery?: string
     needsRecent?: boolean
     intent?: SearchIntent
+    expandedQueries?: string[]
   }>
   chatId?: string
 }): Promise<PipelineRetrieval> {
@@ -654,10 +724,12 @@ export function startInformedRetrieval({
     // instructed never to return it empty, and a blank query would silently
     // retrieve nothing at all.
     const query = c?.standaloneQuery?.trim() || rawQuery
+    const timeRange = c?.needsRecent ? 'month' : undefined
     return runPipelineRetrieval(query, {
       chatId,
-      timeRange: c?.needsRecent ? 'month' : undefined,
-      intent: c?.intent
+      timeRange,
+      intent: c?.intent,
+      expandedQueries: c?.expandedQueries
     })
   })
 }

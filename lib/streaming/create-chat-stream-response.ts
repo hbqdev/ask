@@ -198,10 +198,15 @@ export async function createChatStreamResponse(
           skipSearch: false,
           standaloneQuery: latestMessageText,
           needsRecent: false,
-          // A bypassed turn gets the same conservative default as a failed
-          // classification: ground it rather than answer from parametric
-          // knowledge alone.
-          needsSources: true,
+          // The two bypass reasons want OPPOSITE defaults, so they are not
+          // lumped together. A URL turn already has its source — the page the
+          // user pasted, reached with `fetch` — so adding a web source block
+          // only pads it, and padding measurably hurts (see needsSources in
+          // query-classifier.ts). A REGENERATE could be any question, and for
+          // an unknown question correctness outranks style: an ungrounded
+          // answer about a version or a price is wrong, where a needlessly
+          // sourced answer about a concept is merely worse written.
+          needsSources: !containsUrl,
           intent: 'general' as const,
           // Bypassed turns never asked the model, so there are no fused
           // expansions; the standalone expander supplies them.
