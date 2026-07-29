@@ -28,6 +28,7 @@ import { SearchMode, SearchSources } from '../types/search'
 import { getModel } from '../utils/registry'
 import { isTracingEnabled } from '../utils/telemetry'
 
+import { buildSourceBlock, type PipelineRetrieval } from './flows/pipeline'
 import { resolveFlowVariant } from './flows/variants'
 import { IMAGE_TOOL_GUIDANCE } from './prompts/image-tool-guidance'
 import {
@@ -347,9 +348,15 @@ export async function createResearcher({
   // Past-conversation excerpts, retrieved in the streaming layer (it owns the
   // resolved standaloneQuery and the stream writer). Appended to the system
   // prompt next to the feature-A memory block.
-  recallBlock
+  recallBlock,
+  // PIPELINE ARCHITECTURE. When set, retrieval already happened — fired on the
+  // raw user text before this function was called — and the model gets ONE
+  // call with the sources in its prompt and no search tool. See
+  // lib/agents/flows/pipeline.ts.
+  pipelineRetrievalPromise
 }: {
   model: string
+  pipelineRetrievalPromise?: Promise<PipelineRetrieval>
   modelConfig?: Model
   parentTraceId?: string
   searchMode?: SearchMode
@@ -601,6 +608,36 @@ The conversation history is background context, not a to-do list. Any topic from
       ...todoTools
     } as ResearcherTools
 
+    // PIPELINE: await the retrieval that started at t=0, fold the sources into
+    // the prompt, and take `search` away. Awaiting HERE rather than at the call
+    // site is what let it overlap the classifier and recall — by this point it
+    // has usually already resolved, so the wait is near zero.
+    let pipelineSourceBlock = ''
+    if (pipelineRetrievalPromise) {
+      if (skipSearch) {
+        // The classifier says this turn is answerable from the conversation
+        // itself. Retrieval already FIRED — it starts at t=0, before the
+        // classifier returns — so the search is spent either way. What is
+        // saved here is the context, which is the part that costs: turn
+        // latency tracks prompt_tokens at r=0.76, and a source block is ~9.6k
+        // tokens the model would otherwise read for nothing.
+        //
+        // Discarding rather than not-firing is the deliberate trade. Waiting
+        // for the classifier before retrieving would put ~1.2s of classify
+        // back on the critical path for EVERY turn, to save a parallel search
+        // on a minority of them.
+        console.log(
+          '[pipeline] skipSearch — retrieval discarded, no sources injected'
+        )
+      } else {
+        const retrieval = await pipelineRetrievalPromise
+        pipelineSourceBlock = `\n\n${buildSourceBlock(retrieval)}`
+        console.log(
+          `[pipeline] ${retrieval.results?.results?.length ?? 0} sources injected (retrieval took ${retrieval.ms}ms)`
+        )
+      }
+    }
+
     // Control-flow variant (lib/agents/flows). `baseline` is a no-op and is
     // the control arm; every other variant reshapes the loop itself rather
     // than tuning it. See flows/types.ts for what a variant may and may not do.
@@ -611,7 +648,25 @@ The conversation history is background context, not a to-do list. Any topic from
       skipSearch,
       hasUrl: false
     })
-    const effectiveSystemPrompt = flowPrompt ?? systemPrompt
+    const effectiveSystemPrompt =
+      (flowPrompt ?? systemPrompt) + pipelineSourceBlock
+    // No search tool under the pipeline architecture — retrieval is done. This
+    // is the enforcement point: `activeTools` is applied by the SDK before any
+    // provider sees the request, so it holds for every model rather than
+    // depending on one honouring toolChoice.
+    // `fetch` goes too. Leaving it in kept the loop alive: the first pipeline
+    // turn still ran 2 steps / 1 tool because the model reached for fetch to
+    // "read more", which is the same are-we-done judgment the architecture
+    // exists to remove — just wearing a different tool's name. One model call
+    // means no tools at all.
+    // Tools come off only when sources were actually injected. On a
+    // skipSearch turn the model has no sources AND would have no way to get
+    // any, which is worse than the loop it replaced — the escape hatch that
+    // DIRECT_ANSWER_PROMPT relies on has to survive.
+    const effectiveActiveTools =
+      pipelineRetrievalPromise && !skipSearch
+        ? activeToolsList.filter(n => n !== 'search' && n !== 'fetch')
+        : activeToolsList
     const effectiveMaxSteps = flow.maxSteps ?? maxSteps
     if (flow.id !== 'baseline') {
       console.log(
@@ -624,7 +679,7 @@ The conversation history is background context, not a to-do list. Any topic from
       model: getModel(model, abortSignal),
       instructions: `${effectiveSystemPrompt}\nCurrent date and time: ${currentDate}`,
       tools,
-      activeTools: activeToolsList,
+      activeTools: effectiveActiveTools,
       // Per-step control. The SDK calls this before EVERY step including the
       // first, which is what lets a variant force step 0 (plan-execute forces
       // todoWrite, wide-once forces search) or strip tools afterwards.

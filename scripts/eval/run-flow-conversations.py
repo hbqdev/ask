@@ -24,7 +24,10 @@ Usage:
 import argparse, json, os, subprocess, time, urllib.request, urllib.error
 from pathlib import Path
 
-ROOT = Path("/home/nightfury/selfhosted/ask")
+# Derived from THIS file — see the note in run-flow-arms.py. Hardcoding the
+# prod worktree made the runner rebuild the lab container from production's
+# checkout.
+ROOT = Path(__file__).resolve().parents[2]
 LAB = "http://192.168.50.231:3742"
 # The VPN overlay MUST be included in every compose invocation that recreates a
 # service. Omit it and compose happily rebuilds `ask` from the overlay-less
@@ -109,6 +112,8 @@ def sh(args, **kw):
 
 def set_arm(arm: str) -> None:
     env = {**os.environ, "FLOW_VARIANT": arm}
+    if os.environ.get("FLOW_ARCH"):
+        env["FLOW_ARCH"] = os.environ["FLOW_ARCH"]
     sh(["docker", "compose", *COMPOSE, "-p", PROJ, "up", "-d", "ask"], cwd=ROOT, env=env)
     for _ in range(60):
         try:

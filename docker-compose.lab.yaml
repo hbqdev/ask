@@ -20,6 +20,12 @@ services:
       # The whole point of this instance. Set per experiment run.
       FLOW_VARIANT: ${FLOW_VARIANT:-baseline}
 
+      # Which ARCHITECTURE to run. Deliberately a different switch from
+      # FLOW_VARIANT: the variants are knobs inside the agentic loop, whereas
+      # `pipeline` removes the loop — the system retrieves and the model gets
+      # one call with no search tool. Unset = the inherited morphic loop.
+      FLOW_ARCH: ${FLOW_ARCH:-}
+
       # --- isolation -------------------------------------------------------
       # Anonymous mode so the benchmark harness can POST /api/chat without a
       # browser session. Safe here and nowhere else: this instance is LAN-only,

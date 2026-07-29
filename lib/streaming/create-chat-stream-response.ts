@@ -8,6 +8,10 @@ import {
 import { randomUUID } from 'crypto'
 import { Langfuse } from 'langfuse'
 
+import {
+  pipelineArchEnabled,
+  startSpeculativeRetrieval
+} from '@/lib/agents/flows/pipeline'
 import { resolveFlowVariant } from '@/lib/agents/flows/variants'
 import { researcher } from '@/lib/agents/researcher'
 import { modelSupportsVision } from '@/lib/config/model-vision'
@@ -185,6 +189,22 @@ export async function createChatStreamResponse(
     const containsUrl = /https?:\/\/\S+/i.test(latestMessageText)
     const isRegenerate = trigger?.startsWith('regenerate') ?? false
     const bypassClassifier = containsUrl || isRegenerate
+
+    // PIPELINE ARCHITECTURE: retrieval starts HERE, on the raw text, before the
+    // classifier runs and before the model is called at all. This is the
+    // earliest point the user's words exist in this function, which is the
+    // whole reason it sits here rather than somewhere tidier.
+    //
+    // Deliberately not awaited. The promise goes to the researcher, which
+    // awaits it only when it needs to build the prompt — so retrieval and
+    // understanding run on the same clock instead of one behind the other.
+    // Under the agentic loop the first search could not even be ISSUED until
+    // classify (~1.2s), recall (~5.0s) and a model round trip (~7.7s to first
+    // token) had all completed.
+    const pipelineRetrievalPromise = pipelineArchEnabled()
+      ? startSpeculativeRetrieval(latestMessageText)
+      : undefined
+
     const classifyStart = performance.now()
     const classificationPromise: Promise<QueryClassification> = bypassClassifier
       ? Promise.resolve({
@@ -466,6 +486,7 @@ export async function createChatStreamResponse(
         // sources, and the classifier's decision for this turn.
         const researchAgent = await researcher({
           model: context.modelId,
+          pipelineRetrievalPromise,
           modelConfig: model,
           parentTraceId,
           searchMode,
