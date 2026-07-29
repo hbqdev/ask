@@ -646,44 +646,80 @@ describe('provisionTurnTools — memory', () => {
 // calls and the turn ended before a word was written. Every answer that had
 // prose made at most one tool call.
 describe('applyAnswerStepReserve', () => {
+  const SYS = 'BASE PROMPT WITH SOURCES'
+
   it('leaves every step but the last untouched', () => {
     // maxSteps=3 (two tools + the answer): steps 0 and 1 may call tools.
-    expect(applyAnswerStepReserve({}, { stepNumber: 0, maxSteps: 3 })).toEqual(
-      {}
-    )
-    expect(applyAnswerStepReserve({}, { stepNumber: 1, maxSteps: 3 })).toEqual(
-      {}
-    )
+    for (const stepNumber of [0, 1]) {
+      expect(
+        applyAnswerStepReserve(
+          {},
+          { stepNumber, maxSteps: 3, systemPrompt: SYS }
+        )
+      ).toEqual({})
+    }
   })
 
   it('empties activeTools on the last permitted step', () => {
     // stepNumber is 0-indexed, so the last permitted step is maxSteps - 1.
     // This is the step the arithmetic probe spent on a second `calculate`.
-    expect(applyAnswerStepReserve({}, { stepNumber: 2, maxSteps: 3 })).toEqual({
-      activeTools: []
-    })
-    expect(applyAnswerStepReserve({}, { stepNumber: 1, maxSteps: 2 })).toEqual({
-      activeTools: []
-    })
+    for (const args of [
+      { stepNumber: 2, maxSteps: 3, systemPrompt: SYS },
+      { stepNumber: 1, maxSteps: 2, systemPrompt: SYS }
+    ]) {
+      expect(
+        applyAnswerStepReserve<{ activeTools?: string[] }>({}, args).activeTools
+      ).toEqual([])
+    }
+  })
+
+  it('tells the model to answer, rather than only taking the tools away', () => {
+    // Removing the tools silently is not enough: when `calculate` rejected its
+    // expression the model spent the reserved step reasoning "let me try a
+    // different format" and emitted NO prose, because nothing told it the turn
+    // was over. The note is carried on the same step as the empty tool list.
+    const out = applyAnswerStepReserve<{ system?: string }>(
+      {},
+      { stepNumber: 1, maxSteps: 2, systemPrompt: SYS }
+    )
+    expect(out.system).toContain(SYS)
+    expect(out.system).toContain('FINAL STEP')
+    expect(out.system).toMatch(/do NOT propose retrying/i)
+  })
+
+  it('keeps the whole prompt, because `system` replaces rather than appends', () => {
+    // Sending only the note would drop the source block and every citation
+    // rule with it — the answer would lose its grounding on the last step.
+    const out = applyAnswerStepReserve<{ system?: string }>(
+      {},
+      { stepNumber: 1, maxSteps: 2, systemPrompt: SYS }
+    )
+    expect(out.system?.startsWith(SYS)).toBe(true)
   })
 
   it('overrides a variant that would hand tools back on the final step', () => {
     // Applied last, so a variant's per-step tool preference cannot spend the
-    // step reserved for prose. Everything else the variant set survives.
+    // step reserved for prose. A variant that replaced the prompt keeps its
+    // replacement — the note is appended to whichever prompt is in force.
     const out = applyAnswerStepReserve(
       { system: 'variant prompt', activeTools: ['search'] },
-      { stepNumber: 1, maxSteps: 2 }
+      { stepNumber: 1, maxSteps: 2, systemPrompt: SYS }
     )
     expect(out.activeTools).toEqual([])
-    expect(out.system).toBe('variant prompt')
+    expect(out.system?.startsWith('variant prompt')).toBe(true)
+    expect(out.system).not.toContain(SYS)
+    expect(out.system).toContain('FINAL STEP')
   })
 
   it('is a no-op when no tools were provisioned', () => {
     // maxSteps=1 is the one-call turn: the single step IS the answer, and
     // there is nothing to reserve it from.
-    expect(applyAnswerStepReserve({}, { stepNumber: 0, maxSteps: 1 })).toEqual(
-      {}
-    )
+    expect(
+      applyAnswerStepReserve(
+        {},
+        { stepNumber: 0, maxSteps: 1, systemPrompt: SYS }
+      )
+    ).toEqual({})
   })
 
   it('leaves at least one tool-free step for every provisioned shape', () => {
@@ -695,7 +731,7 @@ describe('applyAnswerStepReserve', () => {
       const toolFree = Array.from({ length: maxSteps }, (_, stepNumber) =>
         applyAnswerStepReserve<{ activeTools?: string[] }>(
           {},
-          { stepNumber, maxSteps }
+          { stepNumber, maxSteps, systemPrompt: SYS }
         )
       ).filter(o => o.activeTools?.length === 0)
       expect(toolFree.length).toBeGreaterThanOrEqual(1)

@@ -772,32 +772,42 @@ The conversation history is background context, not a to-do list. Any topic from
       // activeTools had been emptied there. See applyAnswerStepReserve.
       ...((flow.prepareStep || provisioning) && {
         prepareStep: (({ stepNumber, steps }: FlowStepArgs) => {
-          const o: FlowStepOverrides = flow.prepareStep
+          const variant: FlowStepOverrides = flow.prepareStep
             ? flow.prepareStep({
                 stepNumber,
                 steps: steps as readonly FlowStep[],
                 skipSearch
               })
             : {}
-          // A variant's `system` REPLACES the instructions for that step, so
-          // the date has to be re-appended or the model silently loses it
-          // partway through a turn.
-          const withDate = o.system
-            ? {
-                ...o,
-                system: `${o.system}\nCurrent date and time: ${currentDate}`
-              }
-            : o
-          // Applied LAST so it wins over a variant's own activeTools: a
-          // variant tuning which tools are visible mid-loop is a preference,
-          // and having a step left to write the answer in is not.
+          // Applied AFTER the variant so it wins: a variant tuning which tools
+          // are visible mid-loop is a preference, and having a step left to
+          // write the answer in is not.
+          const o = provisioning
+            ? applyAnswerStepReserve(variant, {
+                stepNumber,
+                maxSteps: effectiveMaxSteps,
+                systemPrompt: effectiveSystemPrompt
+              })
+            : variant
+          if (provisioning) {
+            // The reserve was believed once already to have been tried and
+            // failed, on the strength of an aggregate that never distinguished
+            // "fired and did not help" from "never ran". One line per step
+            // makes that unmistakable in the logs.
+            console.log(
+              `[pipeline] step ${stepNumber}/${effectiveMaxSteps - 1}: activeTools=[${(o.activeTools ?? provisioning.tools).join(', ')}]${o.system ? ' +final-step-note' : ''}`
+            )
+          }
+          // A `system` override REPLACES the instructions for that step, so the
+          // date has to be re-appended — whoever produced the override — or the
+          // model silently loses it partway through a turn.
           return (
-            provisioning
-              ? applyAnswerStepReserve(withDate, {
-                  stepNumber,
-                  maxSteps: effectiveMaxSteps
-                })
-              : withDate
+            o.system
+              ? {
+                  ...o,
+                  system: `${o.system}\nCurrent date and time: ${currentDate}`
+                }
+              : o
           ) as never
         }) as never
       }),
