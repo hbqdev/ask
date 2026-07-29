@@ -614,7 +614,20 @@ The conversation history is background context, not a to-do list. Any topic from
     // has usually already resolved, so the wait is near zero.
     let pipelineSourceBlock = ''
     if (pipelineRetrievalPromise) {
-      if (skipSearch) {
+      // Retrieval is now CONDITIONAL on the classifier, not unconditional.
+      //
+      // `skipSearch` covers turns answerable from the conversation itself.
+      // `needsRecent` covers turns whose answer depends on current facts. A
+      // turn that is neither — settled knowledge asked fresh, like "what is
+      // TCP" — gets no sources and answers from the model directly.
+      //
+      // NOTE the known limitation, because it will show in the numbers:
+      // needsRecent is a FRESHNESS signal, not a needs-sources signal. A
+      // question like "compare Caddy, Traefik and nginx" is not time-sensitive
+      // yet is much better answered with sources, and this gate will decline
+      // to retrieve for it. Measuring that gap is the point of running the
+      // probe set against it rather than reasoning about it.
+      if (skipSearch || !needsRecent) {
         // The classifier says this turn is answerable from the conversation
         // itself. Retrieval already FIRED — it starts at t=0, before the
         // classifier returns — so the search is spent either way. What is
@@ -664,7 +677,7 @@ The conversation history is background context, not a to-do list. Any topic from
     // any, which is worse than the loop it replaced — the escape hatch that
     // DIRECT_ANSWER_PROMPT relies on has to survive.
     const effectiveActiveTools =
-      pipelineRetrievalPromise && !skipSearch
+      pipelineRetrievalPromise && !skipSearch && needsRecent
         ? activeToolsList.filter(n => n !== 'search' && n !== 'fetch')
         : activeToolsList
     const effectiveMaxSteps = flow.maxSteps ?? maxSteps
