@@ -35,11 +35,6 @@ import {
   getQualityModePrompt,
   SPEED_MODE_PROMPT
 } from './prompts/search-mode-prompts'
-import {
-  ANSWER_DEADLINE_MS,
-  ANSWER_NOW_DIRECTIVE,
-  retrievalBudgetSpent
-} from './turn-budget'
 
 // Used when the query classifier (lib/agents/query-classifier.ts) decides
 // this turn needs no new research — a pure clarification/confirmation about
@@ -65,135 +60,6 @@ You are continuing an ongoing conversation. The user's latest message looks answ
 
 ${getRelatedQuestionsSpecPrompt()}
 `
-
-// Short-circuits a retrieval tool once the turn's budget is spent.
-//
-// The prepareStep deadline alone is NOT enough: prepareStep runs only BETWEEN
-// steps, so a single step whose tool calls run long blows the budget without
-// the check ever executing.
-//
-// KNOWN INSUFFICIENT — this bounds tools only, and tools are not where the
-// time goes. Reconstructed from lab Postgres across nine runs of the
-// current-events conversation, the dominant cost is the MODEL call: one
-// failing step spanned 268.5s containing a single `fetch`, which is
-// structurally capped near 45s (FETCH_MAX_URLS=5, 40s each). ~225s of it was
-// the model. Nothing here or in prepareStep bounds that.
-//
-// Second known gap: the deadline is only armed while awaiting a chunk. Once
-// this generator parks at `yield`, no timer is live — and fetchTool yields
-// {state:'fetching'} before doing any work, so the wrapper parks immediately.
-// A real fix needs one absolute timer armed at turn start that aborts the
-// in-flight model call, not a per-chunk race.
-function wrapToolWithBudget<T extends { execute?: unknown }>(
-  originalTool: T,
-  toolName: string,
-  startedAtMs: number
-): T {
-  const t = originalTool as unknown as {
-    description: string
-    inputSchema: unknown
-    toModelOutput?: unknown
-    execute?: (params: unknown, context: unknown) => unknown
-  }
-  return tool({
-    description: t.description,
-
-    inputSchema: t.inputSchema as any,
-
-    toModelOutput: t.toModelOutput as any,
-
-    async *execute(params: any, context: any) {
-      const emptyResult = (reason: string) => {
-        console.log(
-          `[budget] ${toolName} ${reason} after ${Math.round((Date.now() - startedAtMs) / 1000)}s`
-        )
-        // Shaped like a normal empty result so the model treats it as "this
-        // search found nothing" rather than an error worth retrying.
-        return {
-          state: 'complete' as const,
-          results: [],
-          images: [],
-          query: (params as { query?: string })?.query ?? '',
-          number_of_results: 0,
-          budgetExhausted: true
-        }
-      }
-
-      if (retrievalBudgetSpent(startedAtMs)) {
-        yield emptyResult('skipped — budget already spent')
-        return
-      }
-
-      const executeFunc = t.execute
-      if (!executeFunc) throw new Error(`${toolName} execute is not defined`)
-      const result = executeFunc(params, context)
-      const iterable =
-        result &&
-        typeof result === 'object' &&
-        Symbol.asyncIterator in (result as object)
-          ? (result as AsyncIterable<unknown>)
-          : (async function* () {
-              yield await result
-            })()
-
-      // Checking only at tool START is not enough either: a call that BEGINS
-      // before the deadline and then runs long consumes the budget from inside
-      // an execution already in flight. Racing each chunk bounds a slow host —
-      // but only while a chunk is actually being awaited (see the note above).
-      const iterator = iterable[Symbol.asyncIterator]()
-      const EXPIRED = Symbol('expired')
-      let timer: ReturnType<typeof setTimeout> | undefined
-      // The SDK treats the LAST yielded value as the tool's output, and the
-      // advanced-search path yields a preview chunk carrying real results
-      // before its final one. Yielding a synthetic empty on cutoff therefore
-      // THREW AWAY sources the call had already paid for — the opposite of
-      // this module's whole premise. Keep the best chunk seen and hand that
-      // back instead, falling back to empty only if nothing arrived.
-      let lastNonEmpty: unknown
-      const cutOff = () => {
-        if (lastNonEmpty) {
-          console.log(
-            `[budget] ${toolName} cut off after ${Math.round((Date.now() - startedAtMs) / 1000)}s — keeping partial results`
-          )
-          return { ...(lastNonEmpty as object), budgetExhausted: true }
-        }
-        return emptyResult('cut off mid-execution — budget spent')
-      }
-      try {
-        for (;;) {
-          const remaining = ANSWER_DEADLINE_MS - (Date.now() - startedAtMs)
-          if (remaining <= 0) {
-            yield cutOff()
-            return
-          }
-          const expiry = new Promise<typeof EXPIRED>(resolve => {
-            timer = setTimeout(() => resolve(EXPIRED), remaining)
-          })
-          const next = await Promise.race([iterator.next(), expiry])
-          if (timer) clearTimeout(timer)
-          if (next === EXPIRED) {
-            yield cutOff()
-            return
-          }
-          if (next.done) return
-          const chunk = next.value as { results?: unknown[] }
-          if (Array.isArray(chunk?.results) && chunk.results.length > 0) {
-            lastNonEmpty = next.value
-          }
-          yield next.value
-        }
-      } finally {
-        if (timer) clearTimeout(timer)
-        // Propagate cleanup inward. Without this, a consumer that abandons the
-        // wrapper mid-stream leaves the inner generator suspended forever and
-        // its own `finally` never runs. Not awaited: a queued return() is only
-        // honoured at the inner generator's next yield point, so awaiting it
-        // would block for the full remaining work rather than shedding it.
-        void iterator.return?.(undefined)
-      }
-    }
-  }) as unknown as T
-}
 
 /** Same query modulo case, surrounding space and internal run-length. */
 function normalizeQuery(q: string): string {
@@ -481,21 +347,9 @@ export async function createResearcher({
   // Past-conversation excerpts, retrieved in the streaming layer (it owns the
   // resolved standaloneQuery and the stream writer). Appended to the system
   // prompt next to the feature-A memory block.
-  recallBlock,
-  // Route-entry timestamp, NOT the time this function was called. The
-  // retrieval budget must share an origin with the route's hard abort, and
-  // everything between the two — body parse, auth, message conversion, the
-  // context-window probe, the classifier await and the recall await — runs
-  // before this point.
-  //
-  // Measured: taking the start here put the deadline at 293s of route time
-  // instead of 210s, leaving ~7s to write instead of 90s, and turns still died
-  // at the 300s abort with nothing persisted. An 83s preamble is not
-  // exceptional on a cold model.
-  turnStartedAt
+  recallBlock
 }: {
   model: string
-  turnStartedAt?: number
   modelConfig?: Model
   parentTraceId?: string
   searchMode?: SearchMode
@@ -729,18 +583,9 @@ The conversation history is background context, not a to-do list. Any topic from
     }
 
     // Build tools object with proper typing
-    // Falls back to now only if the caller did not supply the route-entry
-    // time; that path measures a shorter budget than intended but never a
-    // longer one, so it degrades safely.
-    const budgetStartedAt = turnStartedAt ?? Date.now()
-
     const tools: ResearcherTools = {
-      // search and fetch are the only tools that can burn the budget — they
-      // reach the network and, on a bad candidate pool, grind through failing
-      // hosts. calculate/recall/weather are bounded and local, so wrapping
-      // them would add indirection for nothing.
-      search: wrapToolWithBudget(searchTool, 'search', budgetStartedAt),
-      fetch: wrapToolWithBudget(fetchTool, 'fetch', budgetStartedAt),
+      search: searchTool,
+      fetch: fetchTool,
       askQuestion: askQuestionTool,
       calculate: calculateTool,
       get_weather: weatherTool,
@@ -790,59 +635,26 @@ The conversation history is background context, not a to-do list. Any topic from
       // express that union without depending on the tool map, which is the
       // coupling this indirection exists to avoid. Narrowing happens here, at
       // one call site, rather than leaking SDK generics into every variant.
-      // ALWAYS set, even for variants with no prepareStep of their own, because
-      // the retrieval deadline below is a safety net that every variant needs.
-      prepareStep: (({ stepNumber, steps }: FlowStepArgs) => {
-        // Deadline first, and it overrides the variant. Once the budget is
-        // spent the only acceptable next step is prose, so a variant that would
-        // force another tool here must not win — that is exactly the path that
-        // produced turns ending at 300s with nothing written.
-        if (retrievalBudgetSpent(budgetStartedAt)) {
-          // Logged unconditionally: a turn hitting this is already anomalous,
-          // and without the line there is no way to tell "the deadline fired
-          // and the answer was still slow" from "the deadline never fired",
-          // which are opposite bugs with the same symptom.
-          console.log(
-            `[budget] retrieval deadline hit at step ${stepNumber} after ${Math.round((Date.now() - budgetStartedAt) / 1000)}s — forcing answer`
-          )
-          return {
-            // `activeTools: []` is the load-bearing half. `toolChoice: 'none'`
-            // is NOT honoured by this deployment's default provider —
-            // ai-sdk-ollama's getCallOptions never destructures toolChoice and
-            // emits no warning, so the SDK computes it correctly and the
-            // provider silently drops it. The default model is Ollama-backed,
-            // so on its own this override did nothing at all and the loop kept
-            // calling tools straight through the deadline.
-            //
-            // activeTools is applied by the SDK BEFORE the provider is
-            // involved — prepareToolsAndToolChoice filters by name and sends
-            // an empty tool list — so it holds regardless of provider support.
-            // toolChoice stays for providers that do respect it.
-            activeTools: [],
-            toolChoice: 'none',
-            system: `${effectiveSystemPrompt}\n\n${ANSWER_NOW_DIRECTIVE}\nCurrent date and time: ${currentDate}`
-          } as never
-        }
-
-        if (!flow.prepareStep) return {} as never
-
-        const o = flow.prepareStep({
-          stepNumber,
-          steps: steps as readonly FlowStep[],
-          skipSearch
-        })
-        // A variant's `system` REPLACES the instructions for that step, so
-        // the date has to be re-appended or the model silently loses it
-        // partway through a turn.
-        return (
-          o.system
-            ? {
-                ...o,
-                system: `${o.system}\nCurrent date and time: ${currentDate}`
-              }
-            : o
-        ) as never
-      }) as never,
+      ...(flow.prepareStep && {
+        prepareStep: (({ stepNumber, steps }: FlowStepArgs) => {
+          const o = flow.prepareStep!({
+            stepNumber,
+            steps: steps as readonly FlowStep[],
+            skipSearch
+          })
+          // A variant's `system` REPLACES the instructions for that step, so
+          // the date has to be re-appended or the model silently loses it
+          // partway through a turn.
+          return (
+            o.system
+              ? {
+                  ...o,
+                  system: `${o.system}\nCurrent date and time: ${currentDate}`
+                }
+              : o
+          ) as never
+        }) as never
+      }),
       // No toolChoice forcing by default and no dedicated "done" tool —
       // matches upstream Morphic's proven pattern. The loop stops the moment
       // the model responds with plain text and no tool calls; forcing a tool
