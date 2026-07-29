@@ -337,7 +337,31 @@ export function provisionTurnTools({
 
   return {
     tools,
-    maxSteps: tools.length + 1,
+    // `Math.max(2, ...)` and not `tools.length + 1`, because activeTools turns
+    // out to be ADVERTISING rather than ENFORCEMENT.
+    //
+    // In the SDK, `activeTools` is consulted only by prepareToolsAndToolChoice,
+    // which filters which tool DEFINITIONS reach the provider. Execution is
+    // `tools[toolCall.toolName]` against the FULL tool map and never looks at
+    // activeTools; NoSuchToolError fires only when the name is absent from the
+    // map altogether. So a model can emit a call for a tool that was never
+    // offered, and the SDK will happily run it.
+    //
+    // MEASURED. Probe p09, a sourced turn provisioned with NO tools: the
+    // persisted message is step-start -> reasoning -> tool-search(basic) and no
+    // text part at all. kimi-k2.6 called `search` unprompted, the SDK executed
+    // it, and with a ceiling of 1 the loop stopped there — a zero-character
+    // answer after 32s. Several comments in this file previously asserted that
+    // activeTools "holds for every model, unlike a prompt"; that was wrong.
+    //
+    // A floor of 2 costs nothing in the normal case. maxSteps is a CEILING, not
+    // a target: the loop ends the moment a step produces text with no tool
+    // calls, so a well-behaved turn still finishes in one step. What the floor
+    // buys is that a stray call can never consume the only step, because
+    // applyAnswerStepReserve empties the last step's tools and attaches
+    // FINAL_STEP_NOTE — so there is always a step whose only possible output is
+    // prose.
+    maxSteps: Math.max(2, tools.length + 1),
     reason:
       `intent=${intent} skipSearch=${skipSearch} needsRecent=${needsRecent} ` +
       `needsSources=${needsSources} ` +
@@ -365,13 +389,20 @@ export function provisionTurnTools({
  * is impossible if `activeTools` had been emptied there. The 1-vs-4 difference
  * was run-to-run variance being read as an effect.
  *
- * Enforcement is `activeTools` rather than `toolChoice: 'none'` because the SDK
- * applies `activeTools` before any provider sees the request (`stepActiveTools
- * = prepareStepResult?.activeTools ?? activeTools`, then a filter over the tool
- * map — so an EMPTY array is honoured, not treated as "unset"), whereas
- * `ai-sdk-ollama` silently drops `toolChoice` — its `getCallOptions` never
- * destructures it, with no warning. A guarantee that depends on a provider
- * honouring a hint is not a guarantee.
+ * `activeTools` is used rather than `toolChoice: 'none'` because ai-sdk-ollama
+ * silently drops toolChoice — its getCallOptions never destructures it, with no
+ * warning.
+ *
+ * BUT activeTools IS NOT ENFORCEMENT, and this comment used to claim it was.
+ * The SDK consults it only in prepareToolsAndToolChoice, to decide which tool
+ * DEFINITIONS reach the provider. Execution is `tools[toolCall.toolName]`
+ * against the full tool map and never checks activeTools. A model that emits a
+ * call for a tool it was never offered gets that call EXECUTED. Measured on
+ * probe p09 — see the maxSteps note in provisionTurnTools.
+ *
+ * Which is why this reserve matters more, not less: emptying the last step's
+ * tools makes a stray call unlikely, and the accompanying FINAL_STEP_NOTE plus
+ * the floor of 2 steps is what makes prose certain even when one happens.
  *
  * TAKING THE TOOLS AWAY IS NOT ENOUGH ON ITS OWN. Observed on the arithmetic
  * turn: `calculate` rejected the expression, and the model spent its last step
