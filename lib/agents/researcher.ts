@@ -195,12 +195,37 @@ function wrapToolWithBudget<T extends { execute?: unknown }>(
   }) as unknown as T
 }
 
+/** Same query modulo case, surrounding space and internal run-length. */
+function normalizeQuery(q: string): string {
+  return q.trim().toLowerCase().replace(/\s+/g, ' ')
+}
+
+const URL_ONLY = /^https?:\/\/\S+$/i
+
 // Wraps the search tool to deduplicate results across calls within one request.
 // When the same URL appears in a later search, it's filtered out so the model
 // doesn't see redundant content.
+//
+// It also answers the question "why do tool-call counts vary so wildly between
+// models on identical input?". Measured on one turn: the first search returned
+// 92,631 bytes (it runs deep and crawls); every follow-up returns snippets, and
+// dedup then strips URLs already seen. `PostgreSQL 18.4` was issued three times
+// and returned 319 bytes each time; `PostgreSQL 18.4 release notes` returned
+// 2,643 bytes then 333 on repeat — 87% removed.
+//
+// A near-empty payload is indistinguishable from a genuinely empty search, so
+// the model reads suppression as failure and searches AGAIN. How hard it
+// retries is a per-model trait, which is the whole source of the variance:
+// kimi-k2.6 issued 17 searches on that turn (three verbatim repeats, one URL
+// sent as a query, one malformed), minimax-m3 issued 2-3 on the same probes.
+//
+// So the fix is to stop returning an ambiguous signal. A duplicate query gets
+// an explicit instruction instead of empty results, and dedup announces itself
+// rather than silently shrinking the list.
 function wrapSearchToolWithDedup<T extends ReturnType<typeof createSearchTool>>(
   originalTool: T,
-  seenUrls: Set<string>
+  seenUrls: Set<string>,
+  seenQueries: Map<string, number>
 ): T {
   return tool({
     description: originalTool.description,
@@ -212,6 +237,48 @@ function wrapSearchToolWithDedup<T extends ReturnType<typeof createSearchTool>>(
     async *execute(params: any, context: any) {
       const executeFunc = originalTool.execute
       if (!executeFunc) throw new Error('Search tool execute is not defined')
+
+      const rawQuery = String((params as { query?: unknown })?.query ?? '')
+      const key = normalizeQuery(rawQuery)
+
+      // A URL is not a query. Observed live: the model sent
+      // `https://www.postgresql.org/docs/release/18.4/` to `search`, which
+      // searches for the literal string and returns almost nothing — then it
+      // searched again. Name the right tool instead of burning the step.
+      if (URL_ONLY.test(rawQuery.trim())) {
+        console.log(
+          `[search] URL routed to guidance instead of search: ${rawQuery.slice(0, 80)}`
+        )
+        yield {
+          state: 'complete' as const,
+          results: [],
+          images: [],
+          query: rawQuery,
+          number_of_results: 0,
+          notice: `"${rawQuery}" is a URL, not a search query. Call the \`fetch\` tool with this URL to read the page. Do not search for it.`
+        }
+        return
+      }
+
+      const priorCount = key ? seenQueries.get(key) : undefined
+      if (priorCount !== undefined) {
+        console.log(
+          `[search] duplicate query short-circuited: "${rawQuery.slice(0, 60)}"`
+        )
+        yield {
+          state: 'complete' as const,
+          results: [],
+          images: [],
+          query: rawQuery,
+          number_of_results: 0,
+          duplicateQuery: true,
+          notice:
+            `You already ran this exact search earlier in this turn; it returned ${priorCount} result(s), which are still in the conversation above. ` +
+            `Re-running it cannot return anything new. To get more depth, call \`fetch\` on a specific URL from those results. ` +
+            `To explore a different angle, search a MATERIALLY different query. If you have enough to answer, answer now.`
+        }
+        return
+      }
 
       const result = executeFunc(params, context)
       const iterable =
@@ -226,13 +293,26 @@ function wrapSearchToolWithDedup<T extends ReturnType<typeof createSearchTool>>(
       for await (const chunk of iterable) {
         const c = chunk as { state?: string; results?: Array<{ url?: string }> }
         if (c.state === 'complete' && Array.isArray(c.results)) {
+          const before = c.results.length
           const deduped = c.results.filter(r => {
             if (!r.url) return true
             if (seenUrls.has(r.url)) return false
             seenUrls.add(r.url)
             return true
           })
-          yield { ...c, results: deduped }
+          if (key) seenQueries.set(key, before)
+          const removed = before - deduped.length
+          // Announce suppression. Silently handing back a shorter list is what
+          // made "already seen" look like "search failed".
+          const notice =
+            removed > 0
+              ? deduped.length === 0
+                ? `All ${before} result(s) for this query were already returned earlier in this turn, so none are repeated here. They remain in the conversation above — use \`fetch\` on one of those URLs for more depth rather than searching again.`
+                : `${removed} of ${before} result(s) were already returned earlier in this turn and have been omitted; the ${deduped.length} shown are new.`
+              : undefined
+          yield notice
+            ? { ...c, results: deduped, deduped: removed, notice }
+            : { ...c, results: deduped }
         } else {
           yield chunk
         }
@@ -491,6 +571,9 @@ export async function createResearcher({
     // Per-request URL dedup: same URL found by multiple searches won't be sent
     // to the model twice (redundant context wastes tokens and confuses citations).
     const seenUrls = new Set<string>()
+    // Normalized query -> how many results it returned the first time. Lets a
+    // repeat be answered with an instruction instead of an empty list.
+    const seenQueries = new Map<string, number>()
 
     let systemPrompt: string
     let activeToolsList: (keyof ResearcherTools)[] = []
@@ -513,7 +596,7 @@ export async function createResearcher({
       ]
       maxSteps = 10
       searchTool = wrapSearchToolForSources(
-        wrapSearchToolWithDedup(originalSearchTool, seenUrls),
+        wrapSearchToolWithDedup(originalSearchTool, seenUrls, seenQueries),
         sources
       )
     } else {
@@ -536,7 +619,8 @@ export async function createResearcher({
           searchTool = wrapSearchToolForSources(
             wrapSearchToolWithDedup(
               wrapSearchToolForQuickMode(originalSearchTool),
-              seenUrls
+              seenUrls,
+              seenQueries
             ),
             sources
           )
@@ -558,7 +642,7 @@ export async function createResearcher({
           )
           maxSteps = 100
           searchTool = wrapSearchToolForSources(
-            wrapSearchToolWithDedup(originalSearchTool, seenUrls),
+            wrapSearchToolWithDedup(originalSearchTool, seenUrls, seenQueries),
             sources
           )
           break
@@ -580,7 +664,7 @@ export async function createResearcher({
           )
           maxSteps = 50
           searchTool = wrapSearchToolForSources(
-            wrapSearchToolWithDedup(originalSearchTool, seenUrls),
+            wrapSearchToolWithDedup(originalSearchTool, seenUrls, seenQueries),
             sources
           )
           break

@@ -27,6 +27,11 @@ COMPOSE = ["-f", "docker-compose.yaml", "-f", "docker-compose.lab.yaml",
            "-f", "docker-compose.vpn.lab.yaml"]
 PROJ = "ask-stack-lab"
 ALL_ARMS = ["baseline", "adaptive", "router", "react-gap", "plan-execute", "wide-once"]
+# Which chat model the probes run against. Overridable because turn latency is
+# dominated by model round trips — each loop step is a full call carrying the
+# accumulated context — so the model is a first-class variable in any flow
+# comparison, not a fixed background condition.
+MODEL = os.environ.get("EVAL_MODEL", "kimi-k2.6:cloud")
 # The route's own ceiling is 300s; stay under it so a timeout is attributable
 # to the turn rather than to the client giving up first.
 TURN_TIMEOUT = 290
@@ -66,7 +71,7 @@ def post_turn(chat_id: str, text: str) -> tuple[int, float]:
     req = urllib.request.Request(LAB + "/api/chat", data=body, method="POST", headers={
         "Content-Type": "application/json",
         "Connection": "close",
-        "Cookie": "selectedModel=ollama:kimi-k2.6%3Acloud; searchMode=balanced",
+        "Cookie": f"selectedModel=ollama:{MODEL.replace(':', '%3A')}; searchMode=balanced",
     })
     t0 = time.time()
     try:
