@@ -76,9 +76,41 @@ export function startSpeculativeRetrieval(
   }
 
   const searchAPI = (process.env.SEARCH_API || 'searxng') as SearchProviderType
-  return createSearchProvider(searchAPI)
-    .search(query, PIPELINE_MAX_RESULTS, 'advanced', [], [], {
-      time_range: opts.timeRange
+
+  // ONE system-level retry when the first pass returns nothing.
+  //
+  // Measured: 7 of 16 probes retrieved zero sources, with retrieval_ms sitting
+  // at ~4000ms — exactly searxng's `outgoing.request_timeout: 4.0`. One of them
+  // asked for the current PostgreSQL version, which cannot be answered from
+  // parametric knowledge, and it was answered ungrounded.
+  //
+  // The loop recovered from this by searching again. Removing the loop removed
+  // that recovery, so it comes back as CODE. Deliberately NOT handed to the
+  // model: "did that work, should I try again?" is the exact judgment whose
+  // per-model variance this architecture exists to eliminate. A fixed retry
+  // behaves identically on every model; a model deciding does not.
+  //
+  // One retry, not a loop. If the second pass is also empty the honest outcome
+  // is an unsourced answer that says so, which buildSourceBlock handles.
+  const attempt = () =>
+    createSearchProvider(searchAPI).search(
+      query,
+      PIPELINE_MAX_RESULTS,
+      'advanced',
+      [],
+      [],
+      { time_range: opts.timeRange }
+    )
+
+  return attempt()
+    .then(async first => {
+      if ((first?.results?.length ?? 0) > 0) return first
+      console.log('[pipeline] first retrieval empty — retrying once')
+      try {
+        return await attempt()
+      } catch {
+        return first
+      }
     })
     .then(results => {
       const ms = Date.now() - startedAt
