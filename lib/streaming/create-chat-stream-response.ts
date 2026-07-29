@@ -12,7 +12,7 @@ import {
   buildRetrievalToolPart,
   pipelineArchEnabled,
   shouldInjectRetrieval,
-  startSpeculativeRetrieval
+  startInformedRetrieval
 } from '@/lib/agents/flows/pipeline'
 import { resolveFlowVariant } from '@/lib/agents/flows/variants'
 import { researcher } from '@/lib/agents/researcher'
@@ -192,24 +192,6 @@ export async function createChatStreamResponse(
     const isRegenerate = trigger?.startsWith('regenerate') ?? false
     const bypassClassifier = containsUrl || isRegenerate
 
-    // PIPELINE ARCHITECTURE: retrieval starts HERE, on the raw text, before the
-    // classifier runs and before the model is called at all. This is the
-    // earliest point the user's words exist in this function, which is the
-    // whole reason it sits here rather than somewhere tidier.
-    //
-    // Deliberately not awaited. The promise goes to the researcher, which
-    // awaits it only when it needs to build the prompt — so retrieval and
-    // understanding run on the same clock instead of one behind the other.
-    // Under the agentic loop the first search could not even be ISSUED until
-    // classify (~1.2s), recall (~5.0s) and a model round trip (~7.7s to first
-    // token) had all completed.
-    // chatId only — the classifier has not returned, so this turn's intent and
-    // recency are not knowable yet, and waiting for them is the one thing this
-    // call must not do. chatId costs nothing and joins the route's
-    // [latency:search] line to this turn's [latency] line.
-    const pipelineRetrievalPromise = pipelineArchEnabled()
-      ? startSpeculativeRetrieval(latestMessageText, { chatId })
-      : undefined
     const classifyStart = performance.now()
     const classificationPromise: Promise<QueryClassification> = bypassClassifier
       ? Promise.resolve({
@@ -226,6 +208,29 @@ export async function createChatStreamResponse(
           expandedQueries: []
         })
       : classifyQuery({ messages: messagesToModel, abortSignal })
+
+    // PIPELINE ARCHITECTURE: retrieval for this turn starts HERE — after the
+    // classification has been KICKED OFF but without awaiting it. It sits below
+    // the classifier rather than above it (where it used to be) because the
+    // classifier's output is what makes retrieval well-targeted, and passing
+    // the promise lets startInformedRetrieval wait for it under a deadline
+    // instead of the call site serialising on it.
+    //
+    // Moving it here is the fix for a measured quality loss, not a tidy-up: at
+    // t=0 there was nothing to pass but raw text, so the pipeline had no
+    // freshness window while the loop's search tool had one, and a blind judge
+    // scored it 1W-12L-4T on current-facts probes. See flows/pipeline.ts.
+    //
+    // Still deliberately not awaited. The promise goes to the researcher, which
+    // awaits it only when it needs to build the prompt, so retrieval overlaps
+    // recall and prompt assembly.
+    const pipelineRetrievalPromise = pipelineArchEnabled()
+      ? startInformedRetrieval({
+          rawQuery: latestMessageText,
+          classification: classificationPromise,
+          chatId
+        })
+      : undefined
 
     // Make retrieval visible in telemetry. Under this architecture retrieval
     // is NOT a tool call, so anything counting `tool-search` parts reports

@@ -9,10 +9,12 @@ import {
   buildProvisionedToolsNote,
   buildRetrievalToolPart,
   buildSourceBlock,
+  CLASSIFY_WAIT_MS,
   type PipelineRetrieval,
   provisionTurnTools,
+  runPipelineRetrieval,
   shouldInjectRetrieval,
-  startSpeculativeRetrieval
+  startInformedRetrieval
 } from '../pipeline'
 
 // Hoisted so the mock factories (which vitest lifts above the imports) can
@@ -373,7 +375,112 @@ describe('buildProvisionedToolsNote', () => {
   })
 })
 
-describe('startSpeculativeRetrieval', () => {
+// Retrieval used to fire at t=0 on raw text, which meant it could pass neither
+// timeRange nor intent — they do not exist yet. A blind pairwise judge scored
+// the pipeline 1W-12L-4T on the current-facts probes as a result: asked for
+// figures "this year" it retrieved and faithfully cited last year's. These
+// tests pin the three things the classifier now supplies, and pin that a
+// classifier which never answers cannot stall the turn.
+describe('startInformedRetrieval', () => {
+  beforeEach(() => {
+    runAdvancedSearch.mockReset()
+    providerSearch.mockReset()
+    runAdvancedSearch.mockResolvedValue({ results: results(5) })
+  })
+
+  afterEach(() => {
+    delete process.env.SEARCH_API
+  })
+
+  it('retrieves on the classifier rewrite, not the raw words', async () => {
+    // "and Germany?" retrieves for Germany rather than for two words.
+    await startInformedRetrieval({
+      rawQuery: 'and Germany?',
+      classification: Promise.resolve({
+        standaloneQuery: 'What is the capital of Germany?',
+        needsRecent: false,
+        intent: 'general' as const
+      }),
+      chatId: 'c1'
+    })
+    expect(runAdvancedSearch.mock.calls[0][0]).toMatchObject({
+      query: 'What is the capital of Germany?'
+    })
+  })
+
+  it('narrows to the last month when the turn needs current facts', async () => {
+    // The SAME mapping the loop's search tool uses, so the two cannot drift.
+    await startInformedRetrieval({
+      rawQuery: 'global EV sales this year',
+      classification: Promise.resolve({
+        standaloneQuery: 'global EV sales this year',
+        needsRecent: true,
+        intent: 'news' as const
+      })
+    })
+    expect(runAdvancedSearch.mock.calls[0][0]).toMatchObject({
+      timeRange: 'month',
+      intent: 'news'
+    })
+  })
+
+  it('leaves the window open for settled knowledge', async () => {
+    await startInformedRetrieval({
+      rawQuery: 'what is TCP',
+      classification: Promise.resolve({
+        standaloneQuery: 'what is TCP',
+        needsRecent: false
+      })
+    })
+    expect(runAdvancedSearch.mock.calls[0][0].timeRange).toBeUndefined()
+  })
+
+  it('falls back to raw text when the classifier rejects', async () => {
+    const r = await startInformedRetrieval({
+      rawQuery: 'who won the election',
+      classification: Promise.reject(new Error('classifier down'))
+    })
+    expect(runAdvancedSearch.mock.calls[0][0]).toMatchObject({
+      query: 'who won the election'
+    })
+    expect(r.results?.results).toHaveLength(5)
+  })
+
+  it('falls back to raw text rather than waiting forever', async () => {
+    // A hung classifier must delay UNDERSTANDING, never the turn. Without the
+    // deadline this change would reintroduce the serial preamble the whole
+    // architecture exists to remove.
+    vi.useFakeTimers()
+    try {
+      const p = startInformedRetrieval({
+        rawQuery: 'raw words',
+        classification: new Promise(() => {}) // never settles
+      })
+      await vi.advanceTimersByTimeAsync(CLASSIFY_WAIT_MS + 10)
+      await p
+      expect(runAdvancedSearch.mock.calls[0][0]).toMatchObject({
+        query: 'raw words'
+      })
+      expect(runAdvancedSearch.mock.calls[0][0].timeRange).toBeUndefined()
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('ignores a blank rewrite instead of retrieving nothing', async () => {
+    // The classifier is told never to return an empty standaloneQuery; if it
+    // does anyway, a blank query would silently retrieve zero sources.
+    await startInformedRetrieval({
+      rawQuery: 'real question here',
+      classification: Promise.resolve({ standaloneQuery: '   ' })
+    })
+    expect(runAdvancedSearch.mock.calls[0][0]).toMatchObject({
+      query: 'real question here'
+    })
+  })
+})
+
+describe('runPipelineRetrieval', () => {
   beforeEach(() => {
     runAdvancedSearch.mockReset()
     providerSearch.mockReset()
@@ -386,7 +493,7 @@ describe('startSpeculativeRetrieval', () => {
   it('routes through the advanced pipeline, not a bare provider search', async () => {
     runAdvancedSearch.mockResolvedValue({ results: results(5) })
 
-    const r = await startSpeculativeRetrieval('who won the election', {
+    const r = await runPipelineRetrieval('who won the election', {
       chatId: 'chat-1'
     })
 
@@ -412,7 +519,7 @@ describe('startSpeculativeRetrieval', () => {
     process.env.SEARCH_API = 'tavily'
     providerSearch.mockResolvedValue(results(3))
 
-    const r = await startSpeculativeRetrieval('anything')
+    const r = await runPipelineRetrieval('anything')
 
     expect(runAdvancedSearch).not.toHaveBeenCalled()
     expect(providerSearch).toHaveBeenCalledTimes(1)
@@ -427,7 +534,7 @@ describe('startSpeculativeRetrieval', () => {
       .mockResolvedValueOnce({ results: results(0) })
       .mockResolvedValueOnce({ results: results(4) })
 
-    const r = await startSpeculativeRetrieval('current postgres version')
+    const r = await runPipelineRetrieval('current postgres version')
 
     expect(runAdvancedSearch).toHaveBeenCalledTimes(2)
     expect(r.results?.results).toHaveLength(4)
@@ -435,7 +542,7 @@ describe('startSpeculativeRetrieval', () => {
 
   it('does not retry when the first pass returns results', async () => {
     runAdvancedSearch.mockResolvedValue({ results: results(2) })
-    await startSpeculativeRetrieval('anything')
+    await runPipelineRetrieval('anything')
     expect(runAdvancedSearch).toHaveBeenCalledTimes(1)
   })
 
@@ -444,7 +551,7 @@ describe('startSpeculativeRetrieval', () => {
     // turn down: this architecture has no second chance by construction.
     runAdvancedSearch.mockRejectedValue(new Error('crawl4ai is down'))
 
-    const r = await startSpeculativeRetrieval('anything')
+    const r = await runPipelineRetrieval('anything')
 
     expect(r.results).toBeNull()
     expect(r.error).toContain('crawl4ai is down')
@@ -452,7 +559,7 @@ describe('startSpeculativeRetrieval', () => {
   })
 
   it('short-circuits an empty query without searching', async () => {
-    const r = await startSpeculativeRetrieval('   ')
+    const r = await runPipelineRetrieval('   ')
     expect(runAdvancedSearch).not.toHaveBeenCalled()
     expect(r.results).toBeNull()
     expect(r.toolCallId).toBeTruthy()

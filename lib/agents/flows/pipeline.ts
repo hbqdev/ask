@@ -17,15 +17,35 @@
 //     round trip is ~10s and turn latency tracks prompt_tokens at r=0.76, so
 //     removing round trips is the single largest lever available.
 //
-// SPECULATIVE START is the other half. Retrieval is fired on the user's RAW
-// text before the classifier has returned — it does not wait to be understood.
-// Measured preamble before the old first search: classify ~1.2s, recall ~5.0s
-// (concurrent), first token ~7.7s. Starting at t=0 takes that off the critical
-// path entirely; by the time understanding lands, sources are already in hand.
+// RETRIEVAL WAITS TO BE UNDERSTOOD — BUT NOT FOR LONG.
 //
-// The cost is searches we might not have needed. That trade is deliberate: a
-// SearXNG query is cheap and parallel, a model round trip is ~10s and serial.
-// Spending the cheap resource to save the expensive one is the whole idea.
+// This started out as a SPECULATIVE start: retrieval fired at t=0 on the user's
+// RAW text, before the classifier returned, on the reasoning that the preamble
+// it skipped was expensive (classify ~1.2s, recall ~5.0s, first token ~7.7s).
+//
+// A 32-pair A/B against the loop showed that trade was WRONG, and why. Firing
+// before the classifier means the retrieval cannot know `timeRange` or `intent`
+// and must use raw text instead of the classifier's rewrite — the call site
+// literally had nothing else to pass. The loop's search tool gets
+// `timeRange: needsRecent ? 'month' : undefined`. So the pipeline was
+// structurally unable to filter for freshness, and a blind pairwise judge
+// scored it 3W-19L-9T overall and 1W-12L-4T on the current-facts probes
+// specifically. Asked for EV sales "this year", it answered with full-year 2025
+// figures and cited them faithfully; the loop answered with H1 2026.
+//
+// The assumption behind the trade also failed on measurement: classify_ms came
+// in at 1.4-2.2s (worst 4.8s) across that run, against a retrieval stage of
+// 20-40s. Paying ~2s to retrieve the RIGHT pages is obviously worth it.
+//
+// So retrieval now waits for the classifier, bounded by CLASSIFY_WAIT_MS, and
+// falls back to the old raw-text behaviour if that deadline passes. A hung
+// classifier delays understanding, never the turn. The bound is what keeps this
+// from reintroducing the serial preamble the speculative start was invented to
+// remove.
+//
+// One retrieval, not two: a second "refined" pass on top of the speculative one
+// would double load on the shared crawl4ai container, which is already the
+// fleet's scarcest resource and whose saturation produces 125-second stalls.
 
 import { generateId } from 'ai'
 
@@ -434,14 +454,17 @@ export function buildProvisionedToolsNote(
  *
  * Deliberately NOT awaited by the caller — the returned promise is handed to
  * the researcher, which awaits it only when it is ready to build the prompt.
- * That is what puts retrieval and understanding on the same clock instead of
- * one behind the other.
+ * That is what keeps retrieval overlapping recall and prompt assembly instead
+ * of running behind them.
+ *
+ * This is the MECHANISM. The policy — which query, and with what freshness
+ * window — belongs to startInformedRetrieval below.
  *
  * Never rejects. A failed retrieval must degrade to an unsourced answer, not
  * take the turn down: the old loop could at least try another tool, and this
  * architecture has no second chance by construction.
  */
-export function startSpeculativeRetrieval(
+export function runPipelineRetrieval(
   rawQuery: string,
   opts: {
     timeRange?: 'day' | 'week' | 'month' | 'year'
@@ -532,18 +555,102 @@ export function startSpeculativeRetrieval(
     .then(results => {
       const ms = Date.now() - startedAt
       console.log(
-        `[pipeline] speculative retrieval: ${results?.results?.length ?? 0} results in ${ms}ms`
+        `[pipeline] retrieval: ${results?.results?.length ?? 0} results in ${ms}ms` +
+          ` (q=${JSON.stringify(query)} range=${opts.timeRange ?? 'any'} intent=${opts.intent ?? 'general'})`
       )
       return { query, results, ms, toolCallId }
     })
     .catch((e: unknown) => {
       const ms = Date.now() - startedAt
       const error = e instanceof Error ? e.message : String(e)
-      console.log(
-        `[pipeline] speculative retrieval FAILED in ${ms}ms: ${error}`
-      )
+      console.log(`[pipeline] retrieval FAILED in ${ms}ms: ${error}`)
       return { query, results: null, ms, error, toolCallId }
     })
+}
+
+/**
+ * How long retrieval will wait for the classifier before giving up on it.
+ *
+ * Sized from measurement, not taste: classify_ms was 1.4-2.2s across a 32-pair
+ * run with a worst case of 4.8s, so 5s admits essentially every real
+ * classification while still bounding a hung one. The point of the bound is
+ * that a stuck classifier must delay UNDERSTANDING, never the turn — without it
+ * this change would reintroduce exactly the serial preamble the speculative
+ * start was invented to remove.
+ */
+export const CLASSIFY_WAIT_MS = 5000
+
+/**
+ * Retrieve for this turn, using the classifier's reading of it when that
+ * arrives in time.
+ *
+ * WHAT THIS FIXES. Retrieval used to fire at t=0 on raw text, which meant it
+ * could not pass `timeRange` or `intent` — they do not exist yet — so the
+ * pipeline had no freshness filter at all while the loop's search tool had one.
+ * A blind pairwise judge scored the pipeline 1W-12L-4T on the current-facts
+ * probes as a result: asked for figures "this year" it retrieved and faithfully
+ * cited last year's.
+ *
+ * Three things the classifier supplies, all of which change which pages come
+ * back:
+ *   * `standaloneQuery` — references and pronouns resolved, so a follow-up like
+ *     "and Germany?" retrieves for Germany rather than for two words.
+ *   * `needsRecent` -> timeRange 'month', the SAME mapping the loop's search
+ *     tool uses (researcher.ts), so the two paths cannot drift apart.
+ *   * `intent` -> one additive SearXNG category on top of the general baseline.
+ *
+ * Never rejects, and never waits forever: on classifier failure OR timeout it
+ * falls back to exactly the old behaviour (raw text, no freshness window),
+ * which is strictly better than no sources.
+ */
+export function startInformedRetrieval({
+  rawQuery,
+  classification,
+  chatId
+}: {
+  rawQuery: string
+  /**
+   * The in-flight classification. Taken as a PROMISE rather than a resolved
+   * value so the caller does not have to await it first — awaiting at the call
+   * site would serialise the classifier ahead of everything else on the turn,
+   * including recall.
+   */
+  classification: Promise<{
+    standaloneQuery?: string
+    needsRecent?: boolean
+    intent?: SearchIntent
+  }>
+  chatId?: string
+}): Promise<PipelineRetrieval> {
+  let timer: ReturnType<typeof setTimeout> | undefined
+  const deadline = new Promise<null>(resolve => {
+    timer = setTimeout(() => resolve(null), CLASSIFY_WAIT_MS)
+  })
+
+  return Promise.race([
+    // A classifier failure is not this function's problem to report — the
+    // streaming layer already logs it — so it degrades to the raw-text path.
+    classification.catch(() => null),
+    deadline
+  ]).then(c => {
+    // Always clear it: an un-cleared timer keeps the event loop alive in tests
+    // and holds the closure for the rest of the request in production.
+    if (timer) clearTimeout(timer)
+    if (!c) {
+      console.log(
+        `[pipeline] classifier not ready within ${CLASSIFY_WAIT_MS}ms — retrieving on raw text`
+      )
+    }
+    // standaloneQuery is preferred but never trusted blindly: the classifier is
+    // instructed never to return it empty, and a blank query would silently
+    // retrieve nothing at all.
+    const query = c?.standaloneQuery?.trim() || rawQuery
+    return runPipelineRetrieval(query, {
+      chatId,
+      timeRange: c?.needsRecent ? 'month' : undefined,
+      intent: c?.intent
+    })
+  })
 }
 
 /**
