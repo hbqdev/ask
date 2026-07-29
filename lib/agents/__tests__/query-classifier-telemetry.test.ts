@@ -95,13 +95,41 @@ describe('buildClassifierTelemetry', () => {
       modelMs: 850,
       model: 'glm-5.2:cloud',
       outcome: 'ok',
-      decision: { skipSearch: false, needsRecent: false, intent: 'code' }
+      decision: {
+        skipSearch: false,
+        needsRecent: false,
+        needsSources: true,
+        intent: 'code'
+      }
     })
     expect(JSON.parse(line.slice('[latency:classify] '.length))).toMatchObject({
       skip_search: false,
       needs_recent: false,
+      needs_sources: true,
       intent: 'code'
     })
+  })
+
+  it('reports needs_sources separately from needs_recent', () => {
+    // The pipeline gate is `!skipSearch && (needsRecent || needsSources)`, so
+    // a line carrying only needs_recent cannot say which signal opened it —
+    // and this exact turn shape (settled knowledge, worth grounding) is the
+    // one the freshness-only gate used to decline.
+    const line = buildClassifierTelemetry({
+      totalMs: 900,
+      modelMs: 850,
+      model: 'granite4.1:8b',
+      outcome: 'ok',
+      decision: {
+        skipSearch: false,
+        needsRecent: false,
+        needsSources: true,
+        intent: 'general'
+      }
+    })
+    const obj = JSON.parse(line.slice('[latency:classify] '.length))
+    expect(obj.needs_recent).toBe(false)
+    expect(obj.needs_sources).toBe(true)
   })
 
   it('omits the decision fields when there was no decision to report', () => {
@@ -114,6 +142,7 @@ describe('buildClassifierTelemetry', () => {
     const obj = JSON.parse(line.slice('[latency:classify] '.length))
     expect(obj).not.toHaveProperty('skip_search')
     expect(obj).not.toHaveProperty('needs_recent')
+    expect(obj).not.toHaveProperty('needs_sources')
     expect(obj).not.toHaveProperty('intent')
   })
 

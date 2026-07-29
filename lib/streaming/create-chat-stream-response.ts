@@ -216,6 +216,10 @@ export async function createChatStreamResponse(
           skipSearch: false,
           standaloneQuery: latestMessageText,
           needsRecent: false,
+          // A bypassed turn gets the same conservative default as a failed
+          // classification: ground it rather than answer from parametric
+          // knowledge alone.
+          needsSources: true,
           intent: 'general' as const,
           // Bypassed turns never asked the model, so there are no fused
           // expansions; the standalone expander supplies them.
@@ -547,7 +551,8 @@ export async function createChatStreamResponse(
           pipelineRetrievalPromise &&
           shouldInjectRetrieval({
             skipSearch: classification.skipSearch,
-            needsRecent: classification.needsRecent
+            needsRecent: classification.needsRecent,
+            needsSources: classification.needsSources
           })
         ) {
           // Never rejects by construction (see startSpeculativeRetrieval), and
@@ -585,6 +590,7 @@ export async function createChatStreamResponse(
           skipSearch: classification.skipSearch,
           standaloneQuery: classification.standaloneQuery,
           needsRecent: classification.needsRecent,
+          needsSources: classification.needsSources,
           intent: classification.intent,
           expandedQueriesPromise,
           userId,
@@ -703,7 +709,8 @@ export async function createChatStreamResponse(
           ])
           latency.emit({
             skipSearch: classification?.skipSearch ?? null,
-            needsRecent: classification?.needsRecent ?? null
+            needsRecent: classification?.needsRecent ?? null,
+            needsSources: classification?.needsSources ?? null
           })
           if (isAborted || !responseMessage) return
 

@@ -50,11 +50,12 @@ describe('LatencyTracker', () => {
     expect(obj.total_ms).toBe(900)
   })
 
-  it('carries both gate inputs, so a gated turn is distinguishable after the fact', () => {
+  it('carries all three gate inputs, so a gated turn is distinguishable after the fact', () => {
     // skipSearch alone cannot separate "answered from sources" from "the
-    // retrieval gate declined": on a settled-knowledge question skipSearch is
-    // false and the gate still declines. Reading only skipSearch is how a run
-    // that gated 9 of 16 probes was reported as gating none.
+    // retrieval gate declined", and skipSearch+needsRecent cannot separate a
+    // turn injected on GROUNDING from one that was declined outright. Reading
+    // too few of them is how a run that gated 9 of 16 probes was reported as
+    // gating none.
     const lines: string[] = []
     const t = new LatencyTracker(
       { chatId: 'c1', mode: 'balanced' },
@@ -63,16 +64,17 @@ describe('LatencyTracker', () => {
     )
     t.mark('pipeline_retrieved', 20)
     t.mark('pipeline_injected', 0)
-    t.emit({ skipSearch: false, needsRecent: false })
+    t.emit({ skipSearch: false, needsRecent: false, needsSources: true })
     expect(JSON.parse(lines[0].slice('[latency] '.length))).toMatchObject({
       skipSearch: false,
       needsRecent: false,
+      needsSources: true,
       pipeline_retrieved: 20,
       pipeline_injected: 0
     })
   })
 
-  it('reports needsRecent null when the turn never classified', () => {
+  it('reports the gate inputs as null when the turn never classified', () => {
     const lines: string[] = []
     const t = new LatencyTracker(
       { chatId: 'c1', mode: 'balanced' },
@@ -80,9 +82,9 @@ describe('LatencyTracker', () => {
       l => lines.push(l)
     )
     t.emit({ skipSearch: null })
-    expect(
-      JSON.parse(lines[0].slice('[latency] '.length)).needsRecent
-    ).toBeNull()
+    const line = JSON.parse(lines[0].slice('[latency] '.length))
+    expect(line.needsRecent).toBeNull()
+    expect(line.needsSources).toBeNull()
   })
 
   it('markFirstToken is idempotent (keeps the first stamp)', () => {
