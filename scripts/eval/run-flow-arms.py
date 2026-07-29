@@ -20,7 +20,13 @@ Usage:
 import argparse, json, os, subprocess, sys, time, urllib.request, urllib.error
 from pathlib import Path
 
-ROOT = Path("/home/nightfury/selfhosted/ask")
+# Derived from THIS file, never hardcoded. It used to name the prod worktree,
+# which meant `docker compose ... up -d ask` ran there — rebuilding the lab
+# container from production's checkout and silently dropping FLOW_ARCH, so a
+# run labelled `pipeline` actually measured the agentic loop. The results also
+# landed in the prod tree. Deriving it keeps the runner inside whichever
+# worktree it was invoked from.
+ROOT = Path(__file__).resolve().parents[2]
 LAB = "http://192.168.50.231:3742"
 # Must include the VPN overlay — see the note in run-flow-conversations.py.
 COMPOSE = ["-f", "docker-compose.yaml", "-f", "docker-compose.lab.yaml",
@@ -42,7 +48,13 @@ def sh(args, **kw):
 
 
 def set_arm(arm: str) -> None:
+    # FLOW_ARCH must survive the arm switch. `up -d ask` re-renders the
+    # compose environment, and the lab compose reads ${FLOW_ARCH:-}, so an arch
+    # set only on the earlier deploy would silently revert to the agentic loop
+    # partway through a run and mislabel every turn after it.
     env = {**os.environ, "FLOW_VARIANT": arm}
+    if os.environ.get("FLOW_ARCH"):
+        env["FLOW_ARCH"] = os.environ["FLOW_ARCH"]
     sh(["docker", "compose", *COMPOSE, "-p", PROJ, "up", "-d", "ask"], cwd=ROOT, env=env)
     for _ in range(60):
         try:
@@ -57,6 +69,10 @@ def set_arm(arm: str) -> None:
     got = sh(["docker", "exec", "ask-lab", "printenv", "FLOW_VARIANT"]).stdout.strip()
     if got != arm:
         raise SystemExit(f"arm mismatch: asked for {arm}, container reports {got!r}")
+    want_arch = os.environ.get("FLOW_ARCH", "")
+    got_arch = sh(["docker", "exec", "ask-lab", "printenv", "FLOW_ARCH"]).stdout.strip()
+    if got_arch != want_arch:
+        raise SystemExit(f"arch mismatch: asked for {want_arch!r}, container reports {got_arch!r}")
     sh(["docker", "exec", "ask-redis-lab", "redis-cli", "del", "latency:log"])
 
 
