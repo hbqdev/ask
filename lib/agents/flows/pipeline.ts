@@ -331,22 +331,68 @@ export function provisionTurnTools({
  * was run-to-run variance being read as an effect.
  *
  * Enforcement is `activeTools` rather than `toolChoice: 'none'` because the SDK
- * applies `activeTools` before any provider sees the request, whereas
+ * applies `activeTools` before any provider sees the request (`stepActiveTools
+ * = prepareStepResult?.activeTools ?? activeTools`, then a filter over the tool
+ * map — so an EMPTY array is honoured, not treated as "unset"), whereas
  * `ai-sdk-ollama` silently drops `toolChoice` — its `getCallOptions` never
  * destructures it, with no warning. A guarantee that depends on a provider
  * honouring a hint is not a guarantee.
+ *
+ * TAKING THE TOOLS AWAY IS NOT ENOUGH ON ITS OWN. Observed on the arithmetic
+ * turn: `calculate` rejected the expression, and the model spent its last step
+ * reasoning "the calculate tool didn't accept it, let me try a different
+ * format" — then emitted no prose at all, because as far as it was concerned
+ * the turn was not finished. A model that is silently prevented from acting
+ * does not infer that it should now answer; it has to be told. Hence the note.
  */
-export function applyAnswerStepReserve<T extends { activeTools?: string[] }>(
+export const FINAL_STEP_NOTE = [
+  '',
+  '',
+  '━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━',
+  'FINAL STEP — WRITE THE ANSWER NOW',
+  '━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━',
+  '',
+  'Your tools for this turn are used up and have been removed. Another tool call is impossible — it will not run, and this is your last step.',
+  '',
+  '- Write the complete final answer now, from the tool results already in this conversation.',
+  '- Do NOT describe what you were about to do, do NOT propose retrying in a different format, and do NOT ask to continue.',
+  '- Do NOT mention tools, their results, or their absence.',
+  '- If a tool failed or returned something unusable, work it out yourself and answer anyway, noting any genuine uncertainty in one short clause.'
+].join('\n')
+
+export function applyAnswerStepReserve<
+  T extends { activeTools?: string[]; system?: string }
+>(
   overrides: T,
-  { stepNumber, maxSteps }: { stepNumber: number; maxSteps: number }
+  {
+    stepNumber,
+    maxSteps,
+    systemPrompt
+  }: {
+    stepNumber: number
+    maxSteps: number
+    /**
+     * The turn's system prompt, needed because `system` here REPLACES the
+     * instructions for the step rather than adding to them — appending the
+     * note alone would silently drop the source block and every prompt rule
+     * with it.
+     */
+    systemPrompt: string
+  }
 ): T {
   // maxSteps === 1 means no tools were provisioned: there is one step, it is
   // the answer, and there is nothing to reserve it from.
   if (maxSteps <= 1) return overrides
-  // stepNumber is 0-indexed, so the last permitted step is maxSteps - 1.
-  return stepNumber >= maxSteps - 1
-    ? { ...overrides, activeTools: [] }
-    : overrides
+  // stepNumber is 0-indexed (the SDK passes `recordedSteps.length`), so the
+  // last permitted step is maxSteps - 1.
+  if (stepNumber < maxSteps - 1) return overrides
+  return {
+    ...overrides,
+    activeTools: [],
+    // A variant that already replaced the prompt keeps its replacement; the
+    // note is appended to whichever prompt is actually in force.
+    system: `${overrides.system ?? systemPrompt}${FINAL_STEP_NOTE}`
+  }
 }
 
 /**
