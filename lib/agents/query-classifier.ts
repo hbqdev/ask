@@ -284,7 +284,15 @@ export async function classifyQuery({
       inputTokens: usage?.inputTokens,
       outputTokens: usage?.outputTokens,
       model: CLASSIFIER_MODEL_ID,
-      outcome: ok ? 'ok' : 'empty'
+      outcome: ok ? 'ok' : 'empty',
+      ...(ok &&
+        classification && {
+          decision: {
+            skipSearch: classification.skipSearch,
+            needsRecent: classification.needsRecent,
+            intent: classification.intent
+          }
+        })
     })
 
     if (!ok || !classification) {

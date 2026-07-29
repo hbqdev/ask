@@ -50,6 +50,41 @@ describe('LatencyTracker', () => {
     expect(obj.total_ms).toBe(900)
   })
 
+  it('carries both gate inputs, so a gated turn is distinguishable after the fact', () => {
+    // skipSearch alone cannot separate "answered from sources" from "the
+    // retrieval gate declined": on a settled-knowledge question skipSearch is
+    // false and the gate still declines. Reading only skipSearch is how a run
+    // that gated 9 of 16 probes was reported as gating none.
+    const lines: string[] = []
+    const t = new LatencyTracker(
+      { chatId: 'c1', mode: 'balanced' },
+      fakeClock([0, 1000]),
+      l => lines.push(l)
+    )
+    t.mark('pipeline_retrieved', 20)
+    t.mark('pipeline_injected', 0)
+    t.emit({ skipSearch: false, needsRecent: false })
+    expect(JSON.parse(lines[0].slice('[latency] '.length))).toMatchObject({
+      skipSearch: false,
+      needsRecent: false,
+      pipeline_retrieved: 20,
+      pipeline_injected: 0
+    })
+  })
+
+  it('reports needsRecent null when the turn never classified', () => {
+    const lines: string[] = []
+    const t = new LatencyTracker(
+      { chatId: 'c1', mode: 'balanced' },
+      fakeClock([0, 1000]),
+      l => lines.push(l)
+    )
+    t.emit({ skipSearch: null })
+    expect(
+      JSON.parse(lines[0].slice('[latency] '.length)).needsRecent
+    ).toBeNull()
+  })
+
   it('markFirstToken is idempotent (keeps the first stamp)', () => {
     const lines: string[] = []
     const t = new LatencyTracker(

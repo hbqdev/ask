@@ -15,15 +15,16 @@ import type { FullContentByToolCall } from '@/lib/search/rehydrate-full-content'
 import { buildSearchTelemetryTag } from '@/lib/telemetry/search-tag'
 import { StageTimer } from '@/lib/telemetry/stage-timer'
 import { SearchResultItem, SearchResults } from '@/lib/types'
-import { readNdjson } from '@/lib/utils/ndjson'
-import { isOllamaSearchConfigured } from '@/lib/utils/ollama-search-client'
 import {
   getGeneralSearchProviderType,
   getSearchToolDescription
 } from '@/lib/utils/search-config'
-import { getBaseUrlString } from '@/lib/utils/url'
 import { logToolPayload } from '@/lib/utils/usage-logging'
 
+import {
+  resolveOllamaSearchOptions,
+  streamAdvancedSearch
+} from './search/advanced-search-client'
 import {
   countSearchPayload,
   routeEmitsSearchTelemetry
@@ -69,12 +70,6 @@ export type SearchToolOptions = {
   // fetch tool instead of re-running advanced crawls.
   firstSearchDepth?: 'basic' | 'advanced'
 }
-
-// Ollama's web-search API clamps max_results to 10 server-side (verified by
-// requesting 20/50/100 and getting exactly 10 each time). Asking for more is
-// silently ignored, so the value is clamped here instead — an operator who
-// sets OLLAMA_SEARCH_MAX_RESULTS=50 should see 10, not believe they get 50.
-const OLLAMA_SEARCH_HARD_MAX = 10
 
 // Returns the index of the first prior query embedding whose cosine
 // similarity to `embedding` meets/exceeds `threshold`, or -1 if none. Used to
@@ -421,26 +416,10 @@ export function createSearchTool(
       // Ollama web search runs on EVERY executing search of the turn when
       // enabled (no per-turn cap). A dedup-skipped search returns earlier and
       // never reaches here, so Ollama is only called for real searches.
-      const useOllama =
-        isOllamaSearchConfigured() &&
-        process.env.OLLAMA_SEARCH_ENABLED !== 'off'
-      // Default 10, which is the API's hard ceiling — verified empirically
-      // 2026-07-28 by requesting 20, 50 and 100, all of which returned exactly
-      // 10. The previous default of 5 left half the results unused for an
-      // identical cost: Ollama meters per REQUEST, not per result, so asking
-      // for 5 and asking for 10 are the same call at the same price.
-      //
-      // Unlike every other source, raising this REDUCES work. Ollama returns
-      // full page content (~10k chars per result; 5 results measured 43.6k
-      // chars, 10 measured 102.8k), and its URLs are the only ones added to
-      // prefetchedUrls — so the crawler skips them. Five more results here are
-      // five fewer pages Crawl4AI has to fetch, and crawl is 55-70% of turn
-      // latency. It also costs no candidate-pool pressure for the same reason.
-      const ollamaMaxEnv = Number(process.env.OLLAMA_SEARCH_MAX_RESULTS)
-      const ollamaMaxResults =
-        Number.isFinite(ollamaMaxEnv) && ollamaMaxEnv > 0
-          ? Math.min(ollamaMaxEnv, OLLAMA_SEARCH_HARD_MAX)
-          : OLLAMA_SEARCH_HARD_MAX
+      // Resolution lives in advanced-search-client.ts so the pipeline
+      // architecture's retrieval resolves it identically (see the note there
+      // on why a higher count is LESS work, not more).
+      const { useOllama, ollamaMaxResults } = resolveOllamaSearchOptions()
 
       console.log(
         `Using search API: ${searchAPI}, Type: ${type}, Search Depth: ${effectiveSearchDepthForAPI}`
@@ -473,78 +452,45 @@ export function createSearchTool(
 
       try {
         if (routeReportsTelemetry) {
-          // Get the base URL using the centralized utility function
-          const baseUrl = await getBaseUrlString()
-          // Default ON: the preview is strictly additive (an extra UI-only
-          // yield), and the final line is identical to today's response.
-          const streamPreview =
-            process.env.SEARCH_STREAM_PREVIEW !== 'false' &&
-            typeof ReadableStream !== 'undefined'
-
-          const response = await fetch(`${baseUrl}/api/advanced-search`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              query: filledQuery,
-              maxResults: effectiveMaxResults,
-              searchDepth: effectiveSearchDepthForAPI,
-              includeDomains: include_domains,
-              excludeDomains: exclude_domains,
-              timeRange: toolOptions?.timeRange,
-              intent: toolOptions?.intent,
-              chatId: toolOptions?.chatId,
-              useOllama,
-              ollamaMaxResults,
-              // NDJSON: a preview line as soon as the fan-out resolves (~2s),
-              // then the crawled+reranked line (~15-20s). Sources render on
-              // the preview instead of the user watching nothing until the
-              // end. Off => today's single JSON response.
-              stream: streamPreview
-            })
-          })
-          if (!response.ok) {
-            throw new Error(
-              `Advanced search API error: ${response.status} ${response.statusText}`
-            )
-          }
-
-          if (streamPreview && response.body) {
-            let finalResult: SearchResults | undefined
-            let finalFull: SearchResultItem[] | undefined
-            for await (const line of readNdjson(response.body)) {
-              const msg = line as { type?: string } & Partial<SearchResults>
-              if (msg?.type === 'preview') {
-                // Intermediate yields are UI-only — the model receives the
-                // FINAL yield — so showing preliminary sources here cannot
-                // put un-crawled content in front of the model.
-                yield {
-                  state: 'complete' as const,
-                  results: msg.results ?? [],
-                  images: [],
-                  query: filledQuery,
-                  number_of_results: msg.number_of_results ?? 0
-                }
-              } else if (msg?.type === 'final') {
-                finalFull = (msg as { fullResults?: SearchResultItem[] })
-                  .fullResults
-                finalResult = {
-                  results: msg.results ?? [],
-                  query: msg.query ?? filledQuery,
-                  images: msg.images ?? [],
-                  number_of_results: msg.number_of_results ?? 0
-                }
+          // NDJSON when the route is asked to stream: a preview line as soon
+          // as the fan-out resolves (~2s), then the crawled+reranked line
+          // (~15-20s). Sources render on the preview instead of the user
+          // watching nothing until the end. See advanced-search-client.ts.
+          let finalResult: SearchResults | undefined
+          let finalFull: SearchResultItem[] | undefined
+          for await (const msg of streamAdvancedSearch({
+            query: filledQuery,
+            maxResults: effectiveMaxResults,
+            searchDepth: effectiveSearchDepthForAPI,
+            includeDomains: include_domains,
+            excludeDomains: exclude_domains,
+            timeRange: toolOptions?.timeRange,
+            intent: toolOptions?.intent,
+            chatId: toolOptions?.chatId,
+            useOllama,
+            ollamaMaxResults
+          })) {
+            if (msg.type === 'preview') {
+              // Intermediate yields are UI-only — the model receives the
+              // FINAL yield — so showing preliminary sources here cannot
+              // put un-crawled content in front of the model.
+              yield {
+                state: 'complete' as const,
+                results: msg.results.results ?? [],
+                images: [],
+                query: filledQuery,
+                number_of_results: msg.results.number_of_results ?? 0
               }
+            } else {
+              finalResult = msg.results
+              finalFull = msg.fullResults
             }
-            if (!finalResult) {
-              throw new Error('Advanced search stream ended with no final line')
-            }
-            searchResult = finalResult
-            recordFull(finalFull)
-          } else {
-            const body = await response.json()
-            searchResult = body
-            recordFull(body?.fullResults)
           }
+          if (!finalResult) {
+            throw new Error('Advanced search returned no final result')
+          }
+          searchResult = finalResult
+          recordFull(finalFull)
         } else {
           // Use the provider factory to get the appropriate search provider
           const searchProvider = createSearchProvider(searchAPI)

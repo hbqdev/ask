@@ -179,9 +179,17 @@ def main() -> None:
             tools_used = tool_types(chat_id)
             # Under FLOW_ARCH=pipeline retrieval is a system stage, not a
             # tool call, so counting tool-search parts reports False on every
-            # turn. `pipeline_sources` is the equivalent signal from telemetry.
+            # turn. `pipeline_injected` is the equivalent signal from telemetry.
+            #
+            # It must be pipeline_injected and NOT the retrieved count. Under
+            # this architecture retrieval fires speculatively on every turn and
+            # is then kept or discarded by the gate, so the retrieved count is
+            # nonzero even on a turn the model was given nothing. Reading it as
+            # "searched" reported True on all 16 probes of the conditional run
+            # and produced the conclusion that the gate never fired — the same
+            # run's container logs show it firing on 9 of them.
             searched = any(t.startswith("tool-search") for t in tools_used) or (
-                (turn.get("pipeline_sources") or 0) > 0
+                (turn.get("pipeline_injected") or 0) > 0
             )
             rec = {
                 "arm": arm, "probe": p["id"], "question": p["text"],
@@ -191,6 +199,13 @@ def main() -> None:
                 "steps": turn.get("steps"), "tool_calls": turn.get("tool_calls"),
                 "searched": searched, "n_search_lines": len(tel["searches"]),
                 "tools_used": tools_used,
+                # The gate's inputs and its outcome, recorded rather than
+                # inferred, so a decision can be audited from the results file
+                # alone without going back to container logs.
+                "needsRecent": turn.get("needsRecent"),
+                "skipSearch": turn.get("skipSearch"),
+                "pipeline_retrieved": turn.get("pipeline_retrieved"),
+                "pipeline_injected": turn.get("pipeline_injected"),
                 "decision_correct": searched == p["expectSearch"],
                 "answer_chars": len(ans),
                 "has_heading": ans.lstrip().startswith("##"),

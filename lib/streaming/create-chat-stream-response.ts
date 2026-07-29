@@ -9,7 +9,9 @@ import { randomUUID } from 'crypto'
 import { Langfuse } from 'langfuse'
 
 import {
+  buildRetrievalToolPart,
   pipelineArchEnabled,
+  shouldInjectRetrieval,
   startSpeculativeRetrieval
 } from '@/lib/agents/flows/pipeline'
 import { resolveFlowVariant } from '@/lib/agents/flows/variants'
@@ -201,19 +203,13 @@ export async function createChatStreamResponse(
     // Under the agentic loop the first search could not even be ISSUED until
     // classify (~1.2s), recall (~5.0s) and a model round trip (~7.7s to first
     // token) had all completed.
+    // chatId only — the classifier has not returned, so this turn's intent and
+    // recency are not knowable yet, and waiting for them is the one thing this
+    // call must not do. chatId costs nothing and joins the route's
+    // [latency:search] line to this turn's [latency] line.
     const pipelineRetrievalPromise = pipelineArchEnabled()
-      ? startSpeculativeRetrieval(latestMessageText)
+      ? startSpeculativeRetrieval(latestMessageText, { chatId })
       : undefined
-    // Make retrieval visible in telemetry. Under this architecture retrieval
-    // is NOT a tool call, so anything counting `tool-search` parts reports
-    // "did not search" on every turn — which made decision accuracy
-    // unmeasurable rather than merely different. Recorded via .then so it
-    // never joins the critical path.
-    void pipelineRetrievalPromise?.then(r => {
-      latency.mark('pipeline_sources', r.results?.results?.length ?? 0)
-      latency.mark('pipeline_retrieval_ms', r.ms)
-    })
-
     const classifyStart = performance.now()
     const classificationPromise: Promise<QueryClassification> = bypassClassifier
       ? Promise.resolve({
@@ -226,6 +222,41 @@ export async function createChatStreamResponse(
           expandedQueries: []
         })
       : classifyQuery({ messages: messagesToModel, abortSignal })
+
+    // Make retrieval visible in telemetry. Under this architecture retrieval
+    // is NOT a tool call, so anything counting `tool-search` parts reports
+    // "did not search" on every turn — which made decision accuracy
+    // unmeasurable rather than merely different. Recorded via .then so it
+    // never joins the critical path.
+    //
+    // A `tool-search` part IS now synthesized further down, but only for the
+    // UI, and only on injected turns. These marks stay the telemetry of
+    // record: they distinguish "retrieved 20 and discarded them" from
+    // "retrieved nothing", which one synthesized part cannot.
+    //
+    // RETRIEVED and INJECTED are separate marks, and keeping them separate is
+    // the whole point: retrieval fires speculatively on every turn, so its
+    // result count says nothing about whether the model was given anything.
+    // A single `pipeline_sources` mark taken from the retrieval promise
+    // reported 20 on turns the gate had discarded, which is how a run where
+    // the gate fired on 9 of 16 probes was read as "the gate never fired".
+    // Anything asking "did this turn consult the web" must read
+    // pipeline_injected.
+    void (pipelineRetrievalPromise
+      ? Promise.all([pipelineRetrievalPromise, classificationPromise])
+          .then(([r, c]) => {
+            const retrieved = r.results?.results?.length ?? 0
+            latency.mark('pipeline_retrieved', retrieved)
+            latency.mark('pipeline_retrieval_ms', r.ms)
+            latency.mark(
+              'pipeline_injected',
+              shouldInjectRetrieval(c) ? retrieved : 0
+            )
+          })
+          .catch(() => {
+            // Telemetry must never break a turn.
+          })
+      : undefined)
 
     // Start recall speculatively on the raw message, concurrent with the
     // classifier, so a research turn whose standalone query matches the raw
@@ -491,6 +522,52 @@ export async function createChatStreamResponse(
           })
         }
 
+        // PIPELINE ARCHITECTURE: publish the retrieval as a `tool-search` part.
+        //
+        // Nothing downstream understands "retrieval" — citations, the sources
+        // panel, images and the inspector all key on a search TOOL CALL
+        // (lib/utils/citation.ts, components/render-message.tsx). This turn made
+        // none, so the part is synthesized from the retrieval and written into
+        // the UI message stream by hand. Two chunks, in this order, because the
+        // SDK assembles a tool part from them: `tool-input-available` creates
+        // the part, `tool-output-available` fills it in (it throws for an
+        // unknown toolCallId, so the input chunk is not optional).
+        //
+        // Only when the sources actually reached the model. A discarded
+        // retrieval is not provenance for an answer that never saw it, and
+        // showing one would claim the web was consulted when it was not — the
+        // exact confusion pipeline_injected exists to prevent in telemetry.
+        //
+        // Written BEFORE the agent stream is merged so the research panel is
+        // populated while the answer is still being generated, and so the part
+        // lands ahead of the answer text in the assembled message (which is
+        // what puts the sources accordion above the answer, and what the
+        // persisted row needs for citations to survive a reload).
+        if (
+          pipelineRetrievalPromise &&
+          shouldInjectRetrieval({
+            skipSearch: classification.skipSearch,
+            needsRecent: classification.needsRecent
+          })
+        ) {
+          // Never rejects by construction (see startSpeculativeRetrieval), and
+          // the researcher awaits this same settled promise a few lines below,
+          // so this await costs the turn nothing.
+          const retrieval = await pipelineRetrievalPromise
+          const part = buildRetrievalToolPart(retrieval)
+          writer.write({
+            type: 'tool-input-available',
+            toolCallId: part.toolCallId,
+            toolName: part.toolName,
+            input: part.input
+          })
+          writer.write({
+            type: 'tool-output-available',
+            toolCallId: part.toolCallId,
+            output: part.output
+          })
+        }
+
         // Get the researcher agent with parent trace ID, search mode,
         // sources, and the classifier's decision for this turn.
         const researchAgent = await researcher({
@@ -621,7 +698,10 @@ export async function createChatStreamResponse(
             usageRecorded,
             new Promise<void>(resolve => setTimeout(resolve, 1000))
           ])
-          latency.emit({ skipSearch: classification?.skipSearch ?? null })
+          latency.emit({
+            skipSearch: classification?.skipSearch ?? null,
+            needsRecent: classification?.needsRecent ?? null
+          })
           if (isAborted || !responseMessage) return
 
           // Clean the assembled responseMessage of any narration preamble

@@ -11,6 +11,21 @@
 // and reports generation rate — the constraint on local hardware, measured at
 // 22-24 tok/s on the P5000 — so a model or host swap is directly comparable.
 
+// The classification itself, not just its cost. Omitted when the call failed
+// or came back empty (there is no decision to report then).
+//
+// This line used to carry only timings, so the only way to ask "what did the
+// classifier decide" was to infer it from downstream behaviour. That inference
+// was made once, against a run whose downstream telemetry was itself wrong,
+// and concluded needsRecent was true on all 16 probes when the same run's logs
+// show the gate declining on 9 of them. Decisions are cheap to log and
+// expensive to reconstruct.
+export type ClassifierDecision = {
+  skipSearch: boolean
+  needsRecent: boolean
+  intent: string
+}
+
 export type ClassifierTelemetry = {
   totalMs: number
   modelMs: number
@@ -18,6 +33,7 @@ export type ClassifierTelemetry = {
   outputTokens?: number
   model: string
   outcome: 'ok' | 'failed' | 'empty'
+  decision?: ClassifierDecision
 }
 
 export function buildClassifierTelemetry(t: ClassifierTelemetry): string {
@@ -38,6 +54,11 @@ export function buildClassifierTelemetry(t: ClassifierTelemetry): string {
       })
     }),
     model: t.model,
-    outcome: t.outcome
+    outcome: t.outcome,
+    ...(t.decision && {
+      skip_search: t.decision.skipSearch,
+      needs_recent: t.decision.needsRecent,
+      intent: t.decision.intent
+    })
   })}`
 }
