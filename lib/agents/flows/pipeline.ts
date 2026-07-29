@@ -49,6 +49,7 @@
 
 import { generateId } from 'ai'
 
+import { CLASSIFIER_TIMEOUT_MS } from '@/lib/agents/query-classifier'
 import {
   resolveOllamaSearchOptions,
   runAdvancedSearch
@@ -571,14 +572,22 @@ export function runPipelineRetrieval(
 /**
  * How long retrieval will wait for the classifier before giving up on it.
  *
- * Sized from measurement, not taste: classify_ms was 1.4-2.2s across a 32-pair
- * run with a worst case of 4.8s, so 5s admits essentially every real
- * classification while still bounding a hung one. The point of the bound is
- * that a stuck classifier must delay UNDERSTANDING, never the turn — without it
- * this change would reintroduce exactly the serial preamble the speculative
- * start was invented to remove.
+ * DERIVED from the classifier's own timeout rather than chosen independently,
+ * because choosing independently was a bug. This was 5s while classifyQuery is
+ * bounded at CLASSIFIER_TIMEOUT_MS (10s) by createTimeoutFetch AND returns a
+ * fallback instead of rejecting — so a 5s deadline could not protect against a
+ * hang (there cannot be one past 10s) and could only fire in the 5-10s window
+ * where the classifier was about to answer. Measured effect: classify_ms median
+ * 1525ms with a spike to 9069ms, tripping the deadline on 1 turn in 8 and
+ * throwing away that turn's query rewrite and freshness window for nothing.
+ *
+ * The margin covers the scheduling gap between the fetch timing out inside
+ * classifyQuery and the fallback surfacing here, so the classifier's own
+ * fallback always wins the race and this deadline stays what it should be: a
+ * backstop against a caller passing an UNBOUNDED promise, not a participant in
+ * normal operation.
  */
-export const CLASSIFY_WAIT_MS = 5000
+export const CLASSIFY_WAIT_MS = CLASSIFIER_TIMEOUT_MS + 1000
 
 /**
  * Retrieve for this turn, using the classifier's reading of it when that

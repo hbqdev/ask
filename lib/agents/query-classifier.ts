@@ -33,7 +33,16 @@ const CLASSIFIER_MODEL_ID = process.env.CLASSIFIER_MODEL_ID ?? 'granite4.1:8b'
 // Short — this is a small structured-output call, not a research turn. If
 // it doesn't come back quickly, fall back rather than delay the real
 // response (see classifyQuery's catch block).
-const CLASSIFIER_TIMEOUT_MS = 10_000
+//
+// Exported because the pipeline architecture sizes its own wait-for-the-
+// classifier deadline from this value. Two independently chosen numbers there
+// meant the pipeline gave up at 5s on a call that is already bounded at 10s and
+// already falls back on its own — so the shorter deadline could only ever fire
+// in the 5-10s window where the classifier WAS going to answer, discarding a
+// good query rewrite and freshness window for no protection at all. Measured:
+// classify_ms median 1525ms with a spike to 9069ms, and that spike was enough
+// to trip it on 1 turn in 8.
+export const CLASSIFIER_TIMEOUT_MS = 10_000
 
 // How many trailing messages (both user and assistant) to show the
 // classifier. Wide enough that a follow-up referring to an EARLIER turn
