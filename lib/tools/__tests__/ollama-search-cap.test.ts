@@ -1,20 +1,20 @@
 import { afterEach, describe, expect, it } from 'vitest'
 
+import { resolveOllamaSearchOptions } from '../search/advanced-search-client'
+
 // Ollama's web-search API clamps max_results to 10 server-side: requesting 20,
 // 50 and 100 all returned exactly 10 (measured 2026-07-28). The default was 5,
 // which left half the results unused for an identical cost -- metering is per
 // REQUEST, not per result.
 //
-// This mirrors the resolution in lib/tools/search.ts. It is duplicated rather
-// than exported because the real one is computed inline inside the tool's
-// execute(), which cannot be called without a full tool-call context.
-const OLLAMA_SEARCH_HARD_MAX = 10
-
-function resolveOllamaMax(raw: string | undefined): number {
-  const n = Number(raw)
-  return Number.isFinite(n) && n > 0
-    ? Math.min(n, OLLAMA_SEARCH_HARD_MAX)
-    : OLLAMA_SEARCH_HARD_MAX
+// This exercises the REAL resolution. It used to duplicate it, because the
+// logic sat inline inside the search tool's execute() and could not be called
+// without a full tool-call context; it now lives in the shared advanced-search
+// client so the pipeline architecture's retrieval resolves it the same way.
+const resolveOllamaMax = (raw: string | undefined): number => {
+  if (raw === undefined) delete process.env.OLLAMA_SEARCH_MAX_RESULTS
+  else process.env.OLLAMA_SEARCH_MAX_RESULTS = raw
+  return resolveOllamaSearchOptions().ollamaMaxResults
 }
 
 describe('ollama max_results resolution', () => {

@@ -28,7 +28,11 @@ import { SearchMode, SearchSources } from '../types/search'
 import { getModel } from '../utils/registry'
 import { isTracingEnabled } from '../utils/telemetry'
 
-import { buildSourceBlock, type PipelineRetrieval } from './flows/pipeline'
+import {
+  buildSourceBlock,
+  type PipelineRetrieval,
+  shouldInjectRetrieval
+} from './flows/pipeline'
 import { resolveFlowVariant } from './flows/variants'
 import { IMAGE_TOOL_GUIDANCE } from './prompts/image-tool-guidance'
 import {
@@ -627,7 +631,7 @@ The conversation history is background context, not a to-do list. Any topic from
       // yet is much better answered with sources, and this gate will decline
       // to retrieve for it. Measuring that gap is the point of running the
       // probe set against it rather than reasoning about it.
-      if (skipSearch || !needsRecent) {
+      if (!shouldInjectRetrieval({ skipSearch, needsRecent })) {
         // The classifier says this turn is answerable from the conversation
         // itself. Retrieval already FIRED — it starts at t=0, before the
         // classifier returns — so the search is spent either way. What is
@@ -677,7 +681,8 @@ The conversation history is background context, not a to-do list. Any topic from
     // any, which is worse than the loop it replaced — the escape hatch that
     // DIRECT_ANSWER_PROMPT relies on has to survive.
     const effectiveActiveTools =
-      pipelineRetrievalPromise && !skipSearch && needsRecent
+      pipelineRetrievalPromise &&
+      shouldInjectRetrieval({ skipSearch, needsRecent })
         ? activeToolsList.filter(n => n !== 'search' && n !== 'fetch')
         : activeToolsList
     const effectiveMaxSteps = flow.maxSteps ?? maxSteps

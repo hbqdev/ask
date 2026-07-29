@@ -85,6 +85,38 @@ describe('buildClassifierTelemetry', () => {
     )
   })
 
+  it('records the decision, not just what it cost', () => {
+    // Timings alone made "what did the classifier decide" answerable only by
+    // inferring it from downstream behaviour. That inference was drawn once
+    // against a run whose downstream telemetry was itself wrong and concluded
+    // needsRecent was true on every probe, when it was not.
+    const line = buildClassifierTelemetry({
+      totalMs: 900,
+      modelMs: 850,
+      model: 'glm-5.2:cloud',
+      outcome: 'ok',
+      decision: { skipSearch: false, needsRecent: false, intent: 'code' }
+    })
+    expect(JSON.parse(line.slice('[latency:classify] '.length))).toMatchObject({
+      skip_search: false,
+      needs_recent: false,
+      intent: 'code'
+    })
+  })
+
+  it('omits the decision fields when there was no decision to report', () => {
+    const line = buildClassifierTelemetry({
+      totalMs: 10000,
+      modelMs: 0,
+      model: 'glm-5.2:cloud',
+      outcome: 'failed'
+    })
+    const obj = JSON.parse(line.slice('[latency:classify] '.length))
+    expect(obj).not.toHaveProperty('skip_search')
+    expect(obj).not.toHaveProperty('needs_recent')
+    expect(obj).not.toHaveProperty('intent')
+  })
+
   it('prefixes the line so it groups with the other latency lines', () => {
     const line = buildClassifierTelemetry({
       totalMs: 1,

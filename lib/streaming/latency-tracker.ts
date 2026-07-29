@@ -72,8 +72,20 @@ export class LatencyTracker {
       typeof lastStepInputTokens === 'number' ? lastStepInputTokens : null
   }
 
-  /** Emit the single per-turn line. */
-  emit(extra: { skipSearch?: boolean | null }): void {
+  /**
+   * Emit the single per-turn line.
+   *
+   * `needsRecent` rides alongside `skipSearch` because the two together are
+   * the retrieval gate (see shouldInjectRetrieval). With only skipSearch in
+   * the line, a gated turn and an injected turn were indistinguishable after
+   * the fact, and the classifier's freshness call could only be guessed at
+   * from downstream effects — which is exactly how it got blamed for a
+   * measurement artifact.
+   */
+  emit(extra: {
+    skipSearch?: boolean | null
+    needsRecent?: boolean | null
+  }): void {
     try {
       const total = Math.round(this.now() - this.startedAt)
       const ttft =
@@ -117,7 +129,8 @@ export class LatencyTracker {
             completion_tokens: this.usage.outputTokens
           }),
           total_ms: total,
-          skipSearch: extra.skipSearch ?? null
+          skipSearch: extra.skipSearch ?? null,
+          needsRecent: extra.needsRecent ?? null
         })}`
       )
     } catch {
