@@ -88,10 +88,10 @@ export async function createEphemeralChatStreamResponse(
           skipSearch: false,
           standaloneQuery: latestMessageText,
           needsRecent: false,
-          // A pasted URL is the least ambiguous grounding signal there is —
-          // the user is pointing at external content, so the sources belong
-          // in the prompt even though nothing here is time-sensitive.
-          needsSources: true,
+          // A pasted URL points at its OWN source, which `fetch` retrieves.
+          // Adding a web-search source block on top only pads the prompt, and
+          // padding measurably loses (see needsSources in query-classifier.ts).
+          needsSources: false,
           intent: 'general' as const
         })
       : classifyQuery({ messages, abortSignal })

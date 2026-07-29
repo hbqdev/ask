@@ -20,9 +20,19 @@ import {
 
 // Hoisted so the mock factories (which vitest lifts above the imports) can
 // close over these without a TDZ error.
-const { runAdvancedSearch, providerSearch } = vi.hoisted(() => ({
-  runAdvancedSearch: vi.fn(),
-  providerSearch: vi.fn()
+const { runAdvancedSearch, providerSearch, expansionVariants } = vi.hoisted(
+  () => ({
+    runAdvancedSearch: vi.fn(),
+    providerSearch: vi.fn(),
+    expansionVariants: vi.fn()
+  })
+)
+
+// Mocked rather than exercised: searchExpansionVariants owns real provider
+// calls, caching and its own telemetry, all covered where it lives. What
+// matters here is that the pipeline CALLS it and merges what it returns.
+vi.mock('@/lib/tools/search', () => ({
+  searchExpansionVariants: expansionVariants
 }))
 
 // The retrieval must go through /api/advanced-search — crawl, snippet gate and
@@ -386,6 +396,8 @@ describe('startInformedRetrieval', () => {
   beforeEach(() => {
     runAdvancedSearch.mockReset()
     providerSearch.mockReset()
+    expansionVariants.mockReset()
+    expansionVariants.mockResolvedValue([])
     runAdvancedSearch.mockResolvedValue({ results: results(5) })
   })
 
@@ -482,6 +494,98 @@ describe('startInformedRetrieval', () => {
     }
   })
 
+  // THE BREADTH DEFICIT. This architecture retrieved on ONE phrasing while the
+  // loop's first search retrieves on up to four. A blind judge scored it
+  // 0W-13L-3T on the current-facts probes, and 11 of its 20 losses were turns
+  // where it had MORE sources and MORE citations — so what it lacked was
+  // breadth of DISCOVERY, not volume.
+  describe('expansion variants', () => {
+    it('searches the classifier expansions alongside the main query', async () => {
+      await startInformedRetrieval({
+        rawQuery: 'ev sales',
+        classification: Promise.resolve({
+          standaloneQuery: 'global EV sales 2026',
+          needsRecent: true,
+          expandedQueries: ['worldwide EV registrations 2026', 'BEV volume H1']
+        }),
+        chatId: 'c1'
+      })
+      expect(expansionVariants).toHaveBeenCalledWith(
+        ['worldwide EV registrations 2026', 'BEV volume H1'],
+        // The SAME freshness window as the main query — variants that ignored
+        // it would widen discovery straight back into stale pages.
+        'month',
+        'c1'
+      )
+    })
+
+    it('does not call out at all when there are no expansions', async () => {
+      await startInformedRetrieval({
+        rawQuery: 'what is TCP',
+        classification: Promise.resolve({
+          standaloneQuery: 'what is TCP',
+          expandedQueries: []
+        })
+      })
+      expect(expansionVariants).not.toHaveBeenCalled()
+    })
+
+    it('appends only URLs the main search did not already find', async () => {
+      runAdvancedSearch.mockResolvedValue({ results: results(2) })
+      expansionVariants.mockResolvedValue([
+        // Duplicate of main result 1 — must not appear twice.
+        { title: 'dupe', url: 'https://example1.com/page', content: 'x' },
+        { title: 'fresh', url: 'https://brand-new.com/page', content: 'y' }
+      ])
+      const r = await startInformedRetrieval({
+        rawQuery: 'q',
+        classification: Promise.resolve({
+          standaloneQuery: 'q',
+          expandedQueries: ['v1']
+        })
+      })
+      const urls = (r.results?.results ?? []).map(x => x.url)
+      expect(urls).toEqual([
+        'https://example1.com/page',
+        'https://example2.com/page',
+        'https://brand-new.com/page'
+      ])
+      expect(r.results?.number_of_results).toBe(3)
+    })
+
+    it('keeps deep-crawled results in the low citation numbers', async () => {
+      // Order is not cosmetic: citations resolve POSITIONALLY, so the
+      // reranked, deep-crawled pages must hold the numbers the model reaches
+      // for most, with snippet-depth discoveries filling in behind them.
+      runAdvancedSearch.mockResolvedValue({ results: results(3) })
+      expansionVariants.mockResolvedValue([
+        { title: 'snippet', url: 'https://later.com/p', content: 'z' }
+      ])
+      const r = await startInformedRetrieval({
+        rawQuery: 'q',
+        classification: Promise.resolve({
+          standaloneQuery: 'q',
+          expandedQueries: ['v1']
+        })
+      })
+      expect(r.results?.results?.[0].url).toBe('https://example1.com/page')
+      expect(r.results?.results?.at(-1)?.url).toBe('https://later.com/p')
+    })
+
+    it('still returns the main results when every variant fails', async () => {
+      // Widening is a bonus; losing it must never cost the turn its sources.
+      expansionVariants.mockRejectedValue(new Error('all variants down'))
+      const r = await startInformedRetrieval({
+        rawQuery: 'q',
+        classification: Promise.resolve({
+          standaloneQuery: 'q',
+          expandedQueries: ['v1']
+        })
+      })
+      expect(r.results?.results).toHaveLength(5)
+    })
+  })
+
   it('ignores a blank rewrite instead of retrieving nothing', async () => {
     // The classifier is told never to return an empty standaloneQuery; if it
     // does anyway, a blank query would silently retrieve zero sources.
@@ -499,6 +603,8 @@ describe('runPipelineRetrieval', () => {
   beforeEach(() => {
     runAdvancedSearch.mockReset()
     providerSearch.mockReset()
+    expansionVariants.mockReset()
+    expansionVariants.mockResolvedValue([])
   })
 
   afterEach(() => {

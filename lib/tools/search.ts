@@ -122,7 +122,16 @@ export function resolveEffectiveDepth(opts: {
 // Widen the first search of a turn with expansion-variant results:
 // variants run at basic depth (snippets — discovery, not deep-crawl) and
 // only URLs not already present are appended. Never throws.
-async function searchExpansionVariants(
+//
+// EXPORTED for the pipeline architecture (lib/agents/flows/pipeline.ts), which
+// was ignoring expandedQueries entirely and therefore retrieving on ONE query
+// where this tool's first search retrieves on up to four. A blind judge scored
+// the pipeline 0W-13L-3T on the current-facts probes, and 11 of its 20 losses
+// were turns where it had MORE sources and MORE citations than the loop — so
+// the deficit was breadth of discovery, not volume. Sharing the function rather
+// than reimplementing it keeps the two paths from drifting on cache key, depth
+// or merge order.
+export async function searchExpansionVariants(
   variants: string[],
   timeRange: SearchToolOptions['timeRange'],
   chatId?: string
