@@ -1,0 +1,16 @@
+{"arm": "pipeline", "probe": "p01", "verdict": "win", "order1": "B", "order2": "A"}
+{"arm": "pipeline", "probe": "p02", "verdict": "loss", "order1": "A", "order2": "B"}
+{"arm": "pipeline", "probe": "p03", "verdict": "loss", "order1": "A", "order2": "B"}
+{"arm": "pipeline", "probe": "p04", "verdict": "tie", "order1": "TIE", "order2": "TIE"}
+{"arm": "pipeline", "probe": "p05", "verdict": "tie", "order1": "TIE", "order2": "TIE"}
+{"arm": "pipeline", "probe": "p06", "verdict": "tie", "order1": "A", "order2": "A"}
+{"arm": "pipeline", "probe": "p07", "verdict": "tie", "order1": "B", "order2": "B"}
+{"arm": "pipeline", "probe": "p08", "verdict": "win", "order1": "B", "order2": "A"}
+{"arm": "pipeline", "probe": "p09", "verdict": "loss", "order1": "A", "order2": "B"}
+{"arm": "pipeline", "probe": "p10", "verdict": "win", "order1": "B", "order2": "A"}
+{"arm": "pipeline", "probe": "p11", "verdict": "loss", "order1": "A", "order2": "B"}
+{"arm": "pipeline", "probe": "p12", "verdict": "tie", "order1": "A", "order2": "A"}
+{"arm": "pipeline", "probe": "p13", "verdict": "win", "order1": "B", "order2": "A"}
+{"arm": "pipeline", "probe": "p14", "verdict": "win", "order1": "B", "order2": "A"}
+{"arm": "pipeline", "probe": "p15", "verdict": "loss", "order1": "A", "order2": "B"}
+{"arm": "pipeline", "probe": "p16", "verdict": "win", "order1": "B", "order2": "A"}
