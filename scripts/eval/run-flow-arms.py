@@ -177,7 +177,12 @@ def main() -> None:
             ans = answer_text(chat_id)
             turn = tel["turn"] or {}
             tools_used = tool_types(chat_id)
-            searched = any(t.startswith("tool-search") for t in tools_used)
+            # Under FLOW_ARCH=pipeline retrieval is a system stage, not a
+            # tool call, so counting tool-search parts reports False on every
+            # turn. `pipeline_sources` is the equivalent signal from telemetry.
+            searched = any(t.startswith("tool-search") for t in tools_used) or (
+                (turn.get("pipeline_sources") or 0) > 0
+            )
             rec = {
                 "arm": arm, "probe": p["id"], "question": p["text"],
                 "expectSearch": p["expectSearch"], "http": code,
