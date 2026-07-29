@@ -17,9 +17,17 @@ like a result.
 Usage:
   analyze-arch-ab.py scripts/eval/results/arch-ab.jsonl
 """
-import argparse, json, statistics as st
+import argparse, json, re, statistics as st
 from collections import defaultdict
 from pathlib import Path
+
+# A citation only becomes a link if it carries an anchor: `[1](#toolCallId)`.
+# lib/utils/citation.ts leaves a BARE `[1]` untouched, so it renders as literal
+# text and the source behind it is unreachable. Counting `](#` alone reports
+# such an answer as having zero citations, which reads as "chose not to cite"
+# rather than "cited 18 times and every one is dead" — a very different defect.
+ANCHORED = re.compile(r"\[\d+\]\(#")
+BARE = re.compile(r"\[\d+\](?!\()")
 
 
 def med(xs):
@@ -91,6 +99,23 @@ def main() -> None:
         withsrc = sum(1 for s in src if s > 0)
         print(f"  {name:8} sources median {fmt(med(src))}  turns with sources {withsrc}/{len(src)}  "
               f"citations median {fmt(med(cited))}")
+
+    print("\n=== citation integrity (a dead marker is worse than no marker) ===")
+    for name, i in (("pipeline", 1), ("loop", 2)):
+        sourced = [pr[i] for pr in pairs if pr[i]["sources"] > 0]
+        all_dead, some_dead = [], 0
+        for r in sourced:
+            anchored = len(ANCHORED.findall(r["answer"]))
+            bare = len(BARE.findall(r["answer"]))
+            if bare and not anchored:
+                all_dead.append(r)
+            elif bare:
+                some_dead += 1
+        print(f"  {name:8} of {len(sourced)} sourced turns: "
+              f"{len(all_dead)} with EVERY citation dead, {some_dead} with some dead")
+        for r in all_dead:
+            print(f"             all-dead: {r['probe']} r{r['round']} "
+                  f"({len(BARE.findall(r['answer']))} bare markers, {r['sources']} sources)")
 
     # ---- failures --------------------------------------------------------
     print("\n=== failures ===")
