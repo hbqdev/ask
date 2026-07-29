@@ -204,6 +204,15 @@ export async function createChatStreamResponse(
     const pipelineRetrievalPromise = pipelineArchEnabled()
       ? startSpeculativeRetrieval(latestMessageText)
       : undefined
+    // Make retrieval visible in telemetry. Under this architecture retrieval
+    // is NOT a tool call, so anything counting `tool-search` parts reports
+    // "did not search" on every turn — which made decision accuracy
+    // unmeasurable rather than merely different. Recorded via .then so it
+    // never joins the critical path.
+    void pipelineRetrievalPromise?.then(r => {
+      latency.mark('pipeline_sources', r.results?.results?.length ?? 0)
+      latency.mark('pipeline_retrieval_ms', r.ms)
+    })
 
     const classifyStart = performance.now()
     const classificationPromise: Promise<QueryClassification> = bypassClassifier
