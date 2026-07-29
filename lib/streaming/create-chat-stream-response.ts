@@ -79,8 +79,7 @@ export async function createChatStreamResponse(
     isNewChat,
     searchMode,
     sources,
-    systemInstructions,
-    turnStartedAt
+    systemInstructions
   } = config
 
   // Verify that chatId is provided
@@ -467,9 +466,6 @@ export async function createChatStreamResponse(
         // sources, and the classifier's decision for this turn.
         const researchAgent = await researcher({
           model: context.modelId,
-          // Route-entry time, so the retrieval budget shares an origin with
-          // the route's hard abort rather than starting after the preamble.
-          turnStartedAt,
           modelConfig: model,
           parentTraceId,
           searchMode,
