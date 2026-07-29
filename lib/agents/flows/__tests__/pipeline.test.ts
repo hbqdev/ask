@@ -13,6 +13,7 @@ import {
   CLASSIFY_WAIT_MS,
   type PipelineRetrieval,
   provisionTurnTools,
+  RETRIEVAL_DEADLINE_MS,
   runPipelineRetrieval,
   shouldInjectRetrieval,
   startInformedRetrieval
@@ -596,6 +597,53 @@ describe('startInformedRetrieval', () => {
     expect(runAdvancedSearch.mock.calls[0][0]).toMatchObject({
       query: 'real question here'
     })
+  })
+})
+
+// Under the loop a stalled search costs one step and the model carries on.
+// Here the answer DEPENDS on the single retrieval, so a stall took the whole
+// turn down: probe p08 returned `wall 300.0s, steps=1, tool_calls=0,
+// sources=0` and a zero-character answer — it sat in retrieval until
+// route.ts's GENERATION_TIMEOUT_MS aborted everything, and that abort persists
+// nothing. Five minutes of waiting for a blank page.
+describe('runPipelineRetrieval — deadline', () => {
+  beforeEach(() => {
+    runAdvancedSearch.mockReset()
+    providerSearch.mockReset()
+    expansionVariants.mockReset()
+    expansionVariants.mockResolvedValue([])
+  })
+
+  it('gives up on a stalled retrieval and reports it', async () => {
+    vi.useFakeTimers()
+    try {
+      runAdvancedSearch.mockReturnValue(new Promise(() => {})) // never settles
+      const p = runPipelineRetrieval('q')
+      await vi.advanceTimersByTimeAsync(RETRIEVAL_DEADLINE_MS + 10)
+      const r = await p
+      // Degrades rather than throws: buildSourceBlock renders an honest "no
+      // sources were retrieved" prompt for exactly this shape, so the turn
+      // answers unsourced and says so.
+      expect(r.results).toBeNull()
+      expect(r.error).toMatch(/deadline/i)
+      expect(r.toolCallId).toBeTruthy()
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('sits above every real retrieval and below every observed stall', async () => {
+    // Healthy retrieval on this stack runs 10-40s with a worst legitimate
+    // completion of 71s; a crawler-saturation stall runs 110-140s. Asserted as
+    // a range so a later tweak has to confront that distribution.
+    expect(RETRIEVAL_DEADLINE_MS).toBeGreaterThan(71_000)
+    expect(RETRIEVAL_DEADLINE_MS).toBeLessThan(110_000)
+  })
+
+  it('leaves the model most of the turn budget to write in', async () => {
+    // route.ts aborts the whole turn at GENERATION_TIMEOUT_MS (300s). A
+    // deadline near that ceiling would be no deadline at all.
+    expect(RETRIEVAL_DEADLINE_MS).toBeLessThan(300_000 / 2)
   })
 })
 

@@ -584,7 +584,7 @@ export function runPipelineRetrieval(
       ).catch(() => [])
     : Promise.resolve([])
 
-  return attempt()
+  const retrieved: Promise<PipelineRetrieval> = attempt()
     .then(async first => {
       if ((first?.results?.length ?? 0) > 0) return first
       console.log('[pipeline] first retrieval empty — retrying once')
@@ -636,7 +636,61 @@ export function runPipelineRetrieval(
       console.log(`[pipeline] retrieval FAILED in ${ms}ms: ${error}`)
       return { query, results: null, ms, error, toolCallId }
     })
+
+  // The deadline is applied to the WHOLE chain above, main search and variant
+  // merge together, because either can be the thing that stalls. Racing rather
+  // than aborting: there is no cancellation path through the advanced-search
+  // route, so the in-flight work is abandoned to finish or fail on its own
+  // while the turn stops waiting for it. Wasteful, and far less wasteful than
+  // a five-minute blank page.
+  let deadlineTimer: ReturnType<typeof setTimeout> | undefined
+  const expired = new Promise<PipelineRetrieval>(resolve => {
+    deadlineTimer = setTimeout(() => {
+      const ms = Date.now() - startedAt
+      console.log(
+        `[pipeline] retrieval EXCEEDED ${RETRIEVAL_DEADLINE_MS}ms — answering unsourced`
+      )
+      resolve({
+        query,
+        results: null,
+        ms,
+        error: `retrieval deadline ${RETRIEVAL_DEADLINE_MS}ms exceeded`,
+        toolCallId
+      })
+    }, RETRIEVAL_DEADLINE_MS)
+  })
+
+  return Promise.race([retrieved, expired]).finally(() => {
+    // Without this the timer holds the event loop open for the rest of the
+    // deadline on every fast turn, which is most of them.
+    if (deadlineTimer) clearTimeout(deadlineTimer)
+  })
 }
+
+/**
+ * Ceiling on the whole retrieval stage, after which the turn answers unsourced.
+ *
+ * WHY THIS EXISTS. Under the loop a stalled search costs one step and the model
+ * carries on; under this architecture the answer DEPENDS on the single
+ * retrieval, so a stall took the entire turn down. Measured: probe p08 returned
+ * `wall 300.0s, steps=1, tool_calls=0, sources=0` and a ZERO-CHARACTER answer —
+ * it sat in retrieval until route.ts's GENERATION_TIMEOUT_MS (300s) aborted
+ * everything, and that abort persists nothing at all. The user waited five
+ * minutes for a blank page.
+ *
+ * 90s is chosen against the observed distribution rather than as a round
+ * number: healthy retrieval on this stack runs 10-40s, the worst legitimate
+ * completion seen was 71s, and a crawler-saturation stall runs 110-140s before
+ * the crawl stage gives up on its own. 90s therefore sits above every real
+ * retrieval and below every stall, and it leaves the model most of the 300s
+ * turn budget to actually write with.
+ *
+ * Degrading beats failing: buildSourceBlock already renders an honest "no
+ * sources were retrieved" prompt that tells the model to answer from its own
+ * knowledge and say so. An unsourced answer is a worse answer; a blank page is
+ * not an answer.
+ */
+export const RETRIEVAL_DEADLINE_MS = 90_000
 
 /**
  * How long retrieval will wait for the classifier before giving up on it.
