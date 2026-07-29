@@ -123,6 +123,7 @@ export type PipelineToolName =
   | 'calculate'
   | 'get_weather'
   | 'generateImage'
+  | 'remember'
 
 export type TurnProvisioning = {
   /** Exactly what the model may call this turn. */
@@ -165,6 +166,19 @@ const WEATHER_REQUEST =
 // `+` and `-` require surrounding spaces so version strings, date ranges and
 // "COVID-19" are not read as sums. `convert` requires a nearby digit so
 // "convert this to TypeScript" is not read as a unit conversion.
+// Explicit "remember this about me" requests.
+//
+// `recall` is deliberately NOT provisionable: getRecallInjection already runs
+// in the streaming layer and its output reaches the model as `recallBlock`
+// before the first token, so past-conversation context arrives without
+// spending a step. `remember` is a different case — memory EXTRACTION runs
+// automatically after the turn, but a user saying "remember I'm on Postgres
+// 18" expects the model to act on it and confirm. Without the tool that
+// request silently falls to a background extractor that may not catch it, and
+// the user is told nothing. That is a capability loss, not saved waste.
+const REMEMBER_REQUEST =
+  /\b(remember|keep in mind|note|save|store|don'?t forget)\b[^.?!]{0,40}\b(that |this |i |i'?m |i'?ve |my |me\b)/i
+
 const ARITHMETIC_REQUEST =
   /\d\s*[*\/^×÷]\s*\d|\d\s+[+-]\s+\d|\b\d+(?:\.\d+)?\s*(?:%|percent)\s+of\b|\b(?:calculate|compute|square root|sqrt|factorial|multiplied by|divided by|sum of|average of)\b|\bconvert\b[^.?!]{0,24}\d/i
 
@@ -226,6 +240,10 @@ export function provisionTurnTools({
   if (URL_IN_MESSAGE.test(text)) {
     tools.push('fetch')
     why.push('url in message')
+  }
+  if (REMEMBER_REQUEST.test(text)) {
+    tools.push('remember')
+    why.push('explicit memory request')
   }
   if (ARITHMETIC_REQUEST.test(text)) {
     tools.push('calculate')

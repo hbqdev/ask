@@ -526,3 +526,44 @@ describe('buildRetrievalToolPart', () => {
 afterEach(() => {
   vi.clearAllMocks()
 })
+
+describe('provisionTurnTools — memory', () => {
+  const base = {
+    intent: 'general' as const,
+    skipSearch: false,
+    needsRecent: true,
+    imageGenAvailable: false
+  }
+
+  it('provisions remember for an explicit memory request', () => {
+    // Without this the request silently falls to the post-turn extractor and
+    // the user is never told whether it was saved.
+    const r = provisionTurnTools({
+      ...base,
+      message: 'Remember that I run Postgres 18 in production.'
+    })
+    expect(r.tools).toContain('remember')
+    expect(r.maxSteps).toBe(r.tools.length + 1)
+  })
+
+  it('does not provision remember for an ordinary question', () => {
+    const r = provisionTurnTools({
+      ...base,
+      message: 'What changed in PostgreSQL 18?'
+    })
+    expect(r.tools).not.toContain('remember')
+  })
+
+  it('never provisions recall — it is injected, not called', () => {
+    // getRecallInjection runs in the streaming layer and reaches the model as
+    // recallBlock before the first token, so a tool step would buy nothing.
+    for (const message of [
+      'What did we discuss about Postgres last week?',
+      'Remember that I prefer Caddy.'
+    ]) {
+      expect(provisionTurnTools({ ...base, message }).tools).not.toContain(
+        'recall' as never
+      )
+    }
+  })
+})
