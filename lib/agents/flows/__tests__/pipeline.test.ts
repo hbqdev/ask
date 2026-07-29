@@ -155,7 +155,7 @@ describe('provisionTurnTools', () => {
     for (const intent of ['general', 'news', 'code', 'academic'] as const) {
       const p = provision({ intent })
       expect(p.tools).toEqual([])
-      expect(p.maxSteps).toBe(1)
+      expect(p.maxSteps).toBe(2)
     }
   })
 
@@ -166,7 +166,7 @@ describe('provisionTurnTools', () => {
       sourcesRetrieved: null
     })
     expect(p.tools).toEqual([])
-    expect(p.maxSteps).toBe(1)
+    expect(p.maxSteps).toBe(2)
   })
 
   it('gives a settled-knowledge turn nothing — it was grounded before the call', () => {
@@ -181,7 +181,7 @@ describe('provisionTurnTools', () => {
       needsSources: true
     })
     expect(p.tools).toEqual([])
-    expect(p.maxSteps).toBe(1)
+    expect(p.maxSteps).toBe(2)
   })
 
   it('gives a message containing a URL fetch, and two steps to use it', () => {
@@ -234,7 +234,7 @@ describe('provisionTurnTools', () => {
       imageGenAvailable: false
     })
     expect(p.tools).toEqual([])
-    expect(p.maxSteps).toBe(1)
+    expect(p.maxSteps).toBe(2)
   })
 
   it('hands back search only when sources were wanted and retrieval returned none', () => {
@@ -323,7 +323,15 @@ describe('provisionTurnTools', () => {
                   imageGenAvailable,
                   sourcesRetrieved
                 })
-                expect(p.maxSteps).toBe(p.tools.length + 1)
+                // A FLOOR of 2, not an exact fit: activeTools only controls
+                // what is advertised, so a model can emit a call for a tool it
+                // was never offered and the SDK will execute it against the
+                // full tool map. A ceiling of 1 turned one such stray call into
+                // a zero-character answer (probe p09). The floor costs nothing
+                // because the loop stops as soon as a step yields text with no
+                // tool calls.
+                expect(p.maxSteps).toBe(Math.max(2, p.tools.length + 1))
+                expect(p.maxSteps).toBeGreaterThanOrEqual(2)
                 expect(new Set(p.tools).size).toBe(p.tools.length)
               }
             }
@@ -947,6 +955,20 @@ describe('applyAnswerStepReserve', () => {
         applyAnswerStepReserve<{ activeTools?: string[] }>({}, args).activeTools
       ).toEqual([])
     }
+  })
+
+  it('reserves a prose step even on a turn provisioned with no tools', () => {
+    // THE p09 REGRESSION. A sourced turn gets tools=[] and, before the floor,
+    // maxSteps=1 — so when kimi-k2.6 emitted an unoffered `search` call (which
+    // the SDK executes, because activeTools only governs advertising) the loop
+    // stopped with no step left and returned zero characters. With the floor of
+    // 2 the reserve fires on step 1 and prose is the only possible output.
+    const out = applyAnswerStepReserve<{
+      activeTools?: string[]
+      system?: string
+    }>({}, { stepNumber: 1, maxSteps: 2, systemPrompt: 'SOURCES' })
+    expect(out.activeTools).toEqual([])
+    expect(out.system).toContain('FINAL STEP')
   })
 
   it('tells the model to answer, rather than only taking the tools away', () => {
