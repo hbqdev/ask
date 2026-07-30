@@ -75,6 +75,7 @@ const classifierSchema = z.object({
   skipSearch: z.boolean(),
   standaloneQuery: z.string(),
   needsRecent: z.boolean(),
+  needsSources: z.boolean(),
   intent: z.enum(SEARCH_INTENTS),
   // Fused query expansion. Previously a SECOND serial call to this same
   // model on this same host (6.6-12.3s), which could not start until this
@@ -102,6 +103,25 @@ export interface QueryClassification {
   // prices, versions, releases, schedules, "latest X"). Plumbs through to
   // SearXNG's time_range so this turn's searches prefer fresh pages.
   needsRecent: boolean
+  /**
+   * True when the answer turns on specifics a well-read expert could not
+   * state reliably from memory — a version, price, date, statistic, or a
+   * claim about a specific named product, paper or event.
+   *
+   * DELIBERATELY CONSERVATIVE. Measured on 46 blind pairwise judgements
+   * comparing this instance against one that gates on this flag: on the 18
+   * turns where THIS instance searched and the gated one did not, the gated
+   * one won 13-2. Searching a stable-knowledge question does not merely cost
+   * latency — it produces a worse answer, padded with citations to
+   * introductory pages. On turns where both searched, the gated instance lost
+   * 4-8, so this flag is the part of that experiment worth having and the
+   * rest is not.
+   *
+   * `needsRecent` is about FRESHNESS; this is about whether sources would
+   * IMPROVE the answer at all. They are independent: "what is TCP" is neither,
+   * "current PostgreSQL version" is both.
+   */
+  needsSources: boolean
   // The kind of sources most useful for this turn. Maps to ONE additive
   // SearXNG category (intentToCategory) on top of the always-on general
   // baseline — never replaces it. 'general' adds nothing. A wrong guess is
@@ -137,16 +157,26 @@ Only leave "general" when the intent is clearly one of the others. If uncertain,
 
 If uncertain about needsRecent, default to needsRecent=false.
 
+You also set needsSources: true ONLY when the answer depends on specifics a well-read expert could NOT state reliably from memory — a version number, price, date, statistic, release note, schedule, or a claim about a specific named product, company, person, paper or event that a careful reader would want a citation for. Set it false for knowledge that is stable and widely taught: definitions, concepts, how something works, established science and history, general programming or engineering knowledge, mathematics, opinions and preferences, writing and rewriting tasks, and anything about this conversation or about text the user supplied. When skipSearch=true, needsSources is always false — the conversation itself answers it.
+
+needsSources is about whether SOURCES WOULD IMPROVE THE ANSWER; needsRecent is about FRESHNESS (do the facts change over time). Sources are not free: a well-known topic answered from stable knowledge reads better than the same answer padded with citations to introductory web pages. So "what is TCP", "what does SOLID stand for" and "explain closures in JavaScript" are needsSources=false — a competent answer needs no page to point at. But "what is the current stable PostgreSQL version", "how much does a Framework Laptop 16 cost" and "does creatine improve recovery, any studies" are needsSources=true: each turns on a specific figure, price or body of evidence.
+
+If uncertain about needsSources, default to needsSources=false — an answer from stable knowledge is better than one padded with sources it did not need.
+
 Examples:
-1) Assistant said "Mount Fuji is the tallest mountain in Japan." User: "what about South Korea" -> South Korea is a NEW entity never mentioned -> skipSearch=false, needsRecent=false (geography is stable), intent="general", standaloneQuery="What is the tallest mountain in South Korea?"
-2) Assistant said "Option 1: X. Option 2: Y. Best practice: do both." User: "so you are saying to do both, right?" -> no new entity, already answered -> skipSearch=true, needsRecent=false, intent="general", standaloneQuery="Confirm: should I do both X and Y?"
-3) User: "hey how is it going" -> casual -> skipSearch=true, needsRecent=false, intent="general", standaloneQuery="greeting, no search needed"
-4) Assistant said "The capital of France is Paris." User: "and Germany?" -> Germany is a NEW entity -> skipSearch=false, needsRecent=false, intent="general", standaloneQuery="What is the capital of Germany?"
-5) User: "what's the latest stable version of Node.js" -> version info changes constantly and this is a software question -> skipSearch=false, needsRecent=true, intent="code", standaloneQuery="What is the latest stable version of Node.js?"
-6) User: "did anything major happen in AI this week" -> current events -> skipSearch=false, needsRecent=true, intent="news", standaloneQuery="Major AI news this week"
-7) User: "what mechanical keyboard do people actually recommend" -> opinions/community consensus -> skipSearch=false, needsRecent=false, intent="discussion", standaloneQuery="Recommended mechanical keyboards according to users"
-8) User: "does creatine actually improve muscle recovery, any studies" -> scientific evidence -> skipSearch=false, needsRecent=false, intent="academic", standaloneQuery="Does creatine improve muscle recovery (research evidence)?"
-9) User: "draw me a picture of the Sydney Opera House" -> pure image-generation request; names a new entity but the assistant's image tool handles it, no web search -> skipSearch=true, needsRecent=false, intent="general", standaloneQuery="Generate an image of the Sydney Opera House"
+1) Assistant said "Mount Fuji is the tallest mountain in Japan." User: "what about South Korea" -> South Korea is a NEW entity never mentioned -> skipSearch=false, needsRecent=false (geography is stable), needsSources=true (a specific named peak and height, not something to recall loosely), intent="general", standaloneQuery="What is the tallest mountain in South Korea?"
+2) Assistant said "Option 1: X. Option 2: Y. Best practice: do both." User: "so you are saying to do both, right?" -> no new entity, already answered -> skipSearch=true, needsRecent=false, needsSources=false, intent="general", standaloneQuery="Confirm: should I do both X and Y?"
+3) User: "hey how is it going" -> casual -> skipSearch=true, needsRecent=false, needsSources=false, intent="general", standaloneQuery="greeting, no search needed"
+4) Assistant said "The capital of France is Paris." User: "and Germany?" -> Germany is a NEW entity, so a search is allowed, but the fact itself is widely taught -> skipSearch=false, needsRecent=false, needsSources=false, intent="general", standaloneQuery="What is the capital of Germany?"
+5) User: "what's the latest stable version of Node.js" -> version info changes constantly and this is a software question -> skipSearch=false, needsRecent=true, needsSources=true, intent="code", standaloneQuery="What is the latest stable version of Node.js?"
+6) User: "did anything major happen in AI this week" -> current events -> skipSearch=false, needsRecent=true, needsSources=true, intent="news", standaloneQuery="Major AI news this week"
+7) User: "what mechanical keyboard do people actually recommend" -> opinions/community consensus -> skipSearch=false, needsRecent=false, needsSources=true (which specific models people currently recommend is not stable knowledge), intent="discussion", standaloneQuery="Recommended mechanical keyboards according to users"
+8) User: "does creatine actually improve muscle recovery, any studies" -> scientific evidence -> skipSearch=false, needsRecent=false, needsSources=true (research evidence), intent="academic", standaloneQuery="Does creatine improve muscle recovery (research evidence)?"
+9) User: "draw me a picture of the Sydney Opera House" -> pure image-generation request; names a new entity but the assistant's image tool handles it, no web search -> skipSearch=true, needsRecent=false, needsSources=false, intent="general", standaloneQuery="Generate an image of the Sydney Opera House"
+10) User: "what is 17% of 4500" -> pure arithmetic, no external fact involved -> skipSearch=false, needsRecent=false, needsSources=false, intent="general", standaloneQuery="What is 17% of 4500?"
+11) User: "what is the difference between TCP and UDP" -> a stable, widely taught concept; a competent answer needs no page to point at -> skipSearch=false, needsRecent=false, needsSources=false, intent="code", standaloneQuery="What is the difference between TCP and UDP?"
+12) User: "what does SOLID stand for in software design" -> established terminology -> skipSearch=false, needsRecent=false, needsSources=false, intent="code", standaloneQuery="What does SOLID stand for in software design?"
+13) User: "how much does a Framework Laptop 16 cost right now" -> a current price for a specific named product -> skipSearch=false, needsRecent=true, needsSources=true, intent="general", standaloneQuery="Current price of the Framework Laptop 16"
 
 standaloneQuery is always a short plain string, never empty, never a meta-question back to the user.`
 
@@ -206,6 +236,14 @@ export async function classifyQuery({
     skipSearch: false,
     standaloneQuery: latestMessage,
     needsRecent: false,
+    // TRUE here, even though the rule above defaults it FALSE, and the
+    // difference is deliberate: the rule applies when we know what was asked,
+    // this applies when we do not. For an unknown question correctness
+    // outranks style — an ungrounded answer about a version or a price is
+    // wrong, whereas a needlessly sourced answer about a concept is merely
+    // worse written. A classifier failure must never silently stop the turn
+    // from searching.
+    needsSources: true,
     intent: 'general',
     // No expansions from a failed call; the caller's fallback expander runs.
     expandedQueries: []

@@ -88,6 +88,10 @@ export async function createEphemeralChatStreamResponse(
           skipSearch: false,
           standaloneQuery: latestMessageText,
           needsRecent: false,
+          // Explicit rather than left to researcher()'s default, for the same
+          // reason as the non-ephemeral bypass: a URL turn must keep `fetch`
+          // advertised, and STABLE_KNOWLEDGE_PROMPT does not advertise it.
+          needsSources: true,
           intent: 'general' as const
         })
       : classifyQuery({ messages, abortSignal })
@@ -177,6 +181,7 @@ export async function createEphemeralChatStreamResponse(
           skipSearch: classification.skipSearch,
           standaloneQuery: classification.standaloneQuery,
           needsRecent: classification.needsRecent,
+          needsSources: classification.needsSources,
           intent: classification.intent,
           expandedQueriesPromise
         })

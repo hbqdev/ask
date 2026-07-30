@@ -62,6 +62,75 @@ You are continuing an ongoing conversation. The user's latest message looks answ
 ${getRelatedQuestionsSpecPrompt()}
 `
 
+// Sibling of DIRECT_ANSWER_PROMPT for a DIFFERENT situation, and the two must
+// not be merged. That one says "answerable from what has already been
+// established in this conversation" — true for a follow-up, false and actively
+// misleading for a brand-new question like "explain closures in JavaScript",
+// where the conversation contains no answer to draw on. Same structure and
+// same escape-hatch shape, different premise.
+//
+// WHY THIS EXISTS. A blind pairwise judge over 46 turns compared this
+// architecture against one that declines to retrieve on stable-knowledge
+// questions. On the 18 turns where this one searched and the other did not,
+// the other won 13-2. The cost of searching a settled question is not just
+// latency: the answer comes back padded with citations to introductory pages
+// and reads worse. The same run also showed the opposite where retrieval
+// genuinely matters (4-8 against, on turns where both searched), which is why
+// only the decision is ported here and not the architecture around it.
+//
+// Search stays IN the tool map rather than being withheld. Withholding is
+// strictly stronger — activeTools alone is advertising, not enforcement — but
+// this gate fires on a model's judgement about a live user's question, and the
+// failure mode of a wrong `false` is an ungrounded answer with no way back. The
+// escape hatch below is the same one skipSearch has relied on in production.
+const STABLE_KNOWLEDGE_PROMPT = `Instructions:
+
+Answer the user's question directly, from your own knowledge. This question was assessed as one a well-read expert can answer reliably without consulting sources — a concept, a definition, how something works, established science or history, general programming knowledge, mathematics, or a matter of judgement.
+
+- Do NOT search the web. A solid answer written from knowledge you already have is better than the same answer padded with citations to introductory pages.
+- Escape hatch — you still have tools, use one ONLY if actually required to answer correctly:
+  - If answering turns out to depend on a specific current fact you cannot state reliably — a version number, a price, a date, a statistic, a release note, or a claim about a specific named product or paper — run the \`search\` tool rather than guessing. If you do search, cite what you use (only toolCallIds from searches you actually executed this turn; never invent anchors).
+  - If the reply requires arithmetic, use \`calculate\` instead of doing mental math.
+- Do not add citations when you used no tools, and do not apologise for not searching or mention that you did not search. Just answer.
+- Be substantive: this is a full answer to a real question, not a summary. Cover the question properly.
+- Format as Markdown. Use headings only if they genuinely help organize a longer answer.
+- ALWAYS respond in the user's language.
+
+${getRelatedQuestionsSpecPrompt()}
+`
+
+/**
+ * Which of the three prompt/tool configurations this turn gets.
+ *
+ * Extracted as a pure function because it is the whole of the new behaviour
+ * and the rest of createResearcher is not reachable from a test — the agent
+ * keeps `instructions` and `activeTools` private, so the branch is otherwise
+ * unobservable. Ordering and the two-flag rule live here so both can be
+ * asserted directly.
+ */
+export type TurnMode = 'direct' | 'stable-knowledge' | 'research'
+
+export function resolveTurnMode({
+  skipSearch = false,
+  needsSources = true,
+  needsRecent = false
+}: {
+  skipSearch?: boolean
+  needsSources?: boolean
+  needsRecent?: boolean
+}): TurnMode {
+  // FIRST, and deliberately: "the conversation already answers this" is a
+  // stronger claim than "general knowledge answers this", and it comes with a
+  // prompt that reads the conversation rather than ignoring it.
+  if (skipSearch) return 'direct'
+  // BOTH flags. They are independent — freshness versus whether sources help
+  // at all — and needsRecent=true is an explicit statement that the answer
+  // decays with time, which parametric knowledge cannot serve however
+  // well-established the topic is.
+  if (!needsSources && !needsRecent) return 'stable-knowledge'
+  return 'research'
+}
+
 /** Same query modulo case, surrounding space and internal run-length. */
 function normalizeQuery(q: string): string {
   return q.trim().toLowerCase().replace(/\s+/g, ' ')
@@ -332,6 +401,7 @@ export async function createResearcher({
   skipSearch = false,
   standaloneQuery,
   needsRecent = false,
+  needsSources = true,
   expandedQueriesPromise,
   // Auto-detected intent from the query classifier for this turn. Forwarded
   // to the search tool so both search paths additively route to
@@ -372,6 +442,14 @@ export async function createResearcher({
   // current/recent information — every search this turn makes narrows
   // SearXNG's time_range to prefer fresh pages.
   needsRecent?: boolean
+  // Set by the query classifier when the answer turns on specifics that
+  // cannot be stated reliably from memory. False routes the turn to
+  // STABLE_KNOWLEDGE_PROMPT instead of the search-mode prompt.
+  //
+  // DEFAULTS TRUE, and that default is the safety property: every existing
+  // caller that does not pass this keeps searching exactly as before, so the
+  // gate can only ever engage where the classifier deliberately said no.
+  needsSources?: boolean
   // In-flight query reformulations (lib/agents/query-expander.ts) — the
   // first search of the turn also searches these variants and merges
   // unique results. Passed as a promise so expansion overlaps with prep.
@@ -435,7 +513,9 @@ export async function createResearcher({
     let maxSteps: number
     let searchTool = originalSearchTool
 
-    if (skipSearch) {
+    const turnMode = resolveTurnMode({ skipSearch, needsSources, needsRecent })
+
+    if (turnMode === 'direct') {
       systemPrompt = DIRECT_ANSWER_PROMPT
       // Escape-hatch tools (see DIRECT_ANSWER_PROMPT): available but the
       // prompt says to use them only when genuinely required. No todoWrite —
@@ -449,6 +529,24 @@ export async function createResearcher({
         'remember',
         'recall'
       ]
+      maxSteps = 10
+      searchTool = wrapSearchToolForSources(
+        wrapSearchToolWithDedup(originalSearchTool, seenUrls, seenQueries),
+        sources
+      )
+    } else if (turnMode === 'stable-knowledge') {
+      // A NEW question the classifier judged answerable without sources. See
+      // resolveTurnMode for why this is ordered after skipSearch and why it
+      // requires both flags.
+      console.log(
+        `[Researcher] Stable-knowledge mode: maxSteps=10, no search advertised, sources=${JSON.stringify(sources)}`
+      )
+      systemPrompt = STABLE_KNOWLEDGE_PROMPT
+      // Same escape-hatch shape as skipSearch: `search` is deliberately NOT in
+      // this list, so it is not advertised to the model, but it remains in the
+      // tools map below so a model that reaches for it anyway is executed
+      // rather than failing. That is the recovery path for a wrong `false`.
+      activeToolsList = ['calculate', 'get_weather', 'remember', 'recall']
       maxSteps = 10
       searchTool = wrapSearchToolForSources(
         wrapSearchToolWithDedup(originalSearchTool, seenUrls, seenQueries),
