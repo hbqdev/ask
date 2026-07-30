@@ -16,11 +16,25 @@
 // confirmed by reading its source). For those, the caller passes the actual
 // request's abortSignal here so a client disconnect still cuts the request
 // short instead of always running to the fixed timeoutMs ceiling.
+// `externalSignal` may be a FUNCTION, and that option is what makes stall
+// recovery work. The model object is built once per turn (getModel, inside
+// researcher()), so a signal passed by value is captured once and every later
+// HTTP request shares it — including the retry a stalled turn issues. The
+// consequence was measurable: the stall guard's abort never reached the
+// socket, so a stalled ollama request ran on to the 300s ceiling while the
+// retry was issued alongside it, two live generations for one turn.
+//
+// Resolving it per request instead means each attempt binds its OWN signal at
+// the moment it opens its connection. Aborting attempt 1 kills attempt 1's
+// request and nothing else — the listener registered below belongs to the
+// signal that was current when that request started.
 export function createTimeoutFetch(
   timeoutMs: number,
-  externalSignal?: AbortSignal
+  externalSignal?: AbortSignal | (() => AbortSignal | undefined)
 ): typeof fetch {
   return async (input, init) => {
+    const resolvedExternal =
+      typeof externalSignal === 'function' ? externalSignal() : externalSignal
     const controller = new AbortController()
     const timer = setTimeout(() => {
       controller.abort(
@@ -35,7 +49,7 @@ export function createTimeoutFetch(
     // - the caller's own signal (e.g. the AI SDK's per-call abortSignal, for
     //   providers that do forward it into fetch's init.signal)
     // - the externalSignal passed in above, for providers that don't
-    const signals = [init?.signal, externalSignal].filter(
+    const signals = [init?.signal, resolvedExternal].filter(
       (s): s is AbortSignal => s != null
     )
     for (const signal of signals) {
