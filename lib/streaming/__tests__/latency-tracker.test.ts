@@ -257,3 +257,40 @@ describe('LatencyTracker', () => {
     })
   })
 })
+
+// Regression: emit() once accepted needsRecent/needsSources in its parameter
+// type and then dropped them when building the payload. It typechecked, the
+// call site looked right, and the field was simply absent from the line — so
+// the retrieval gate's firing rate was unmeasurable while appearing wired up.
+// Assert the SERIALIZED output, not the signature.
+describe('LatencyTracker.emit — retrieval decision', () => {
+  it('serializes all three decision flags, not just skipSearch', () => {
+    const lines: string[] = []
+    const t = new LatencyTracker(
+      { chatId: 'c1', mode: 'balanced' },
+      undefined,
+      (l: string) => lines.push(l)
+    )
+    t.emit({ skipSearch: false, needsRecent: false, needsSources: false })
+    const payload = JSON.parse(lines[0].replace('[latency] ', ''))
+    expect(payload).toMatchObject({
+      skipSearch: false,
+      needsRecent: false,
+      needsSources: false
+    })
+  })
+
+  it('records absent flags as null rather than omitting them', () => {
+    const lines: string[] = []
+    const t = new LatencyTracker(
+      { chatId: 'c2', mode: 'balanced' },
+      undefined,
+      (l: string) => lines.push(l)
+    )
+    t.emit({ skipSearch: true })
+    const payload = JSON.parse(lines[0].replace('[latency] ', ''))
+    expect(payload.skipSearch).toBe(true)
+    expect(payload.needsRecent).toBeNull()
+    expect(payload.needsSources).toBeNull()
+  })
+})
