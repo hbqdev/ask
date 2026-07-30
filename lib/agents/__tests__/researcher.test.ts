@@ -4,6 +4,7 @@ import {
   createResearcher,
   getResearcherTools,
   getSourcesPromptAddendum,
+  resolveTurnMode,
   wrapSearchToolForSources
 } from '../researcher'
 
@@ -219,5 +220,77 @@ describe('createResearcher — generateImage tool registration', () => {
     process.env.REPLICATE_API_TOKEN = 'test-token'
     const agent = await createResearcher({ model: 'openai:gpt-4o' })
     expect(getResearcherTools(agent)).not.toHaveProperty('generateImage')
+  })
+})
+
+// The stable-knowledge gate. Ported from a flow-design experiment where a
+// blind pairwise judge, over 46 turns, found that on the 18 turns where this
+// architecture searched and a gated one did not, the gated one won 13-2 —
+// searching a settled question produces a worse answer, not just a slower one.
+//
+// Asserted through resolveTurnMode rather than createResearcher because the
+// agent keeps `instructions` and `activeTools` private, so the branch is
+// otherwise unobservable from a test.
+describe('resolveTurnMode', () => {
+  it('routes a settled-knowledge question away from search', () => {
+    // "explain closures in JavaScript" — the shape this gate exists for.
+    expect(
+      resolveTurnMode({
+        skipSearch: false,
+        needsSources: false,
+        needsRecent: false
+      })
+    ).toBe('stable-knowledge')
+  })
+
+  it('still searches when the answer decays, even if marked sourceless', () => {
+    // needsRecent and needsSources are independent, and needsRecent=true is an
+    // explicit statement that parametric knowledge goes stale. Gating on
+    // needsSources alone would have sent "latest Node.js version" to a prompt
+    // that tells the model not to search.
+    expect(
+      resolveTurnMode({
+        skipSearch: false,
+        needsSources: false,
+        needsRecent: true
+      })
+    ).toBe('research')
+  })
+
+  it('searches whenever sources are needed', () => {
+    for (const needsRecent of [false, true]) {
+      expect(
+        resolveTurnMode({ skipSearch: false, needsSources: true, needsRecent })
+      ).toBe('research')
+    }
+  })
+
+  it('lets skipSearch win over the stable-knowledge gate', () => {
+    // "answerable from this conversation" is a stronger claim than "answerable
+    // from general knowledge", and its prompt reads the conversation rather
+    // than ignoring it. Order matters here.
+    expect(
+      resolveTurnMode({
+        skipSearch: true,
+        needsSources: false,
+        needsRecent: false
+      })
+    ).toBe('direct')
+    expect(
+      resolveTurnMode({
+        skipSearch: true,
+        needsSources: true,
+        needsRecent: true
+      })
+    ).toBe('direct')
+  })
+
+  it('defaults to research when the caller passes nothing', () => {
+    // THE SAFETY PROPERTY. Every existing call site that does not know about
+    // needsSources — and the classifier's own failure fallback — must keep
+    // searching exactly as before. The gate may only engage where something
+    // deliberately said false.
+    expect(resolveTurnMode({})).toBe('research')
+    expect(resolveTurnMode({ skipSearch: false })).toBe('research')
   })
 })

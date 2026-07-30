@@ -98,6 +98,11 @@ describe('classifyQuery', () => {
       skipSearch: false,
       standaloneQuery: 'what is the tallest mountain in South Korea',
       needsRecent: false,
+      // TRUE on every failure path, opposite to the prompt's default of
+      // false. A classifier that could not answer must never be the reason a
+      // turn stops searching: an ungrounded answer about a version or price
+      // is wrong, where a needlessly sourced one is merely worse written.
+      needsSources: true,
       intent: 'general',
       // No fused expansions from a failed call — the caller falls back to
       // the standalone expander rather than narrowing the search.
@@ -127,6 +132,11 @@ describe('classifyQuery', () => {
       skipSearch: false,
       standaloneQuery: 'hello there',
       needsRecent: false,
+      // TRUE on every failure path, opposite to the prompt's default of
+      // false. A classifier that could not answer must never be the reason a
+      // turn stops searching: an ungrounded answer about a version or price
+      // is wrong, where a needlessly sourced one is merely worse written.
+      needsSources: true,
       intent: 'general',
       // No fused expansions from a failed call — the caller falls back to
       // the standalone expander rather than narrowing the search.
@@ -146,6 +156,11 @@ describe('classifyQuery', () => {
       skipSearch: false,
       standaloneQuery: 'what time is it',
       needsRecent: false,
+      // TRUE on every failure path, opposite to the prompt's default of
+      // false. A classifier that could not answer must never be the reason a
+      // turn stops searching: an ungrounded answer about a version or price
+      // is wrong, where a needlessly sourced one is merely worse written.
+      needsSources: true,
       intent: 'general',
       // No fused expansions from a failed call — the caller falls back to
       // the standalone expander rather than narrowing the search.

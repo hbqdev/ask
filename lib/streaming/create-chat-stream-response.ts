@@ -191,6 +191,17 @@ export async function createChatStreamResponse(
           skipSearch: false,
           standaloneQuery: latestMessageText,
           needsRecent: false,
+          // TRUE for BOTH bypass reasons, so a bypassed turn behaves exactly
+          // as it did before this gate existed. The gate may only engage where
+          // the classifier actually ran and deliberately said false.
+          //
+          // Worth stating why the obvious alternative is wrong: a URL turn
+          // looks like it needs no web sources — it already has its page. But
+          // needsSources=false routes to STABLE_KNOWLEDGE_PROMPT, which does
+          // not advertise `fetch`, and a URL turn's whole job is fetching that
+          // page. Retry likewise wants research: it is the user's override for
+          // a turn that came back wrong, and ungrounded is the usual reason.
+          needsSources: true,
           intent: 'general' as const,
           // Bypassed turns never asked the model, so there are no fused
           // expansions; the standalone expander supplies them.
@@ -475,6 +486,7 @@ export async function createChatStreamResponse(
           skipSearch: classification.skipSearch,
           standaloneQuery: classification.standaloneQuery,
           needsRecent: classification.needsRecent,
+          needsSources: classification.needsSources,
           intent: classification.intent,
           expandedQueriesPromise,
           userId,
