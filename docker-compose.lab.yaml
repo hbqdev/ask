@@ -70,7 +70,16 @@ services:
       # reputation of the instance real users depend on. Same software, same
       # settings — a separate exit, not a different source.
       DEGOOG_API_URL: 'http://192.168.50.231:4447'
-      DEGOOG_API_KEY: ''
+      # NOT blanked. It was, and that silently un-matched the stack this block
+      # claims to match: with an empty key every degoog call returned 401, the
+      # client tripped its circuit breaker, and lab ran the whole
+      # staging-vs-lab comparison on FOUR sources against staging's five.
+      # Measured after the fact: 5 x "degoog responded with 401" and 27 x
+      # "circuit-breaker cooldown" on lab in two hours, zero on prod and
+      # staging. Inherited from .env now, exactly as prod and staging inherit
+      # it — a separate exit is the intended difference, a missing credential
+      # is not.
+      DEGOOG_API_KEY: ${DEGOOG_API_KEY:-}
       TAVILY_MERGE_ENABLED: 'on'
       # Tavily, Brave and Langsearch keys now come from .env unset-overridden,
       # i.e. inherited exactly as staging inherits them. Ollama search stays
