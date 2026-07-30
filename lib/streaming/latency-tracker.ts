@@ -73,7 +73,11 @@ export class LatencyTracker {
   }
 
   /** Emit the single per-turn line. */
-  emit(extra: { skipSearch?: boolean | null }): void {
+  emit(extra: {
+    skipSearch?: boolean | null
+    needsRecent?: boolean | null
+    needsSources?: boolean | null
+  }): void {
     try {
       const total = Math.round(this.now() - this.startedAt)
       const ttft =
@@ -117,7 +121,13 @@ export class LatencyTracker {
             completion_tokens: this.usage.outputTokens
           }),
           total_ms: total,
-          skipSearch: extra.skipSearch ?? null
+          // All three, because together they determine which prompt/tool mode
+          // the turn got (resolveTurnMode in lib/agents/researcher.ts).
+          // skipSearch alone cannot tell "answered from knowledge on purpose"
+          // apart from "searched and found nothing".
+          skipSearch: extra.skipSearch ?? null,
+          needsRecent: extra.needsRecent ?? null,
+          needsSources: extra.needsSources ?? null
         })}`
       )
     } catch {

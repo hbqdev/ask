@@ -603,7 +603,17 @@ export async function createChatStreamResponse(
             usageRecorded,
             new Promise<void>(resolve => setTimeout(resolve, 1000))
           ])
-          latency.emit({ skipSearch: classification?.skipSearch ?? null })
+          // needsRecent and needsSources ride along because together with
+          // skipSearch they determine which of the three prompt/tool modes the
+          // turn got (resolveTurnMode). Without them a turn that answered
+          // without searching is indistinguishable from one that searched and
+          // found nothing, which makes the gate's real-world firing rate
+          // unmeasurable — and the gate is a behaviour change worth watching.
+          latency.emit({
+            skipSearch: classification?.skipSearch ?? null,
+            needsRecent: classification?.needsRecent ?? null,
+            needsSources: classification?.needsSources ?? null
+          })
           if (isAborted || !responseMessage) return
 
           // Clean the assembled responseMessage of any narration preamble
