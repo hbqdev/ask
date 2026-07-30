@@ -12,6 +12,7 @@ import {
   buildSourceBlock,
   CLASSIFY_WAIT_MS,
   DEFAULT_PIPELINE_SOURCE_CHARS,
+  PIPELINE_TAIL_SOURCE_CHARS,
   type PipelineRetrieval,
   pipelineSourceChars,
   provisionTurnTools,
@@ -783,8 +784,12 @@ describe('buildSourceBlock', () => {
         ]
       }
     })
-    expect(buildSourceBlock(long)).toContain('x'.repeat(1200))
-    expect(buildSourceBlock(long)).not.toContain('x'.repeat(1201))
+    // A single source is in the DEEP tier, so it gets the deep budget — this
+    // used to assert a flat 1200 for every source, which was the information
+    // loss the graduated budget replaced.
+    const block = buildSourceBlock(long)
+    expect(block).toContain('x'.repeat(DEFAULT_PIPELINE_SOURCE_CHARS))
+    expect(block).not.toContain('x'.repeat(DEFAULT_PIPELINE_SOURCE_CHARS + 1))
   })
 
   it('forbids citations outright when nothing was retrieved', () => {
@@ -1053,6 +1058,62 @@ describe('pipelineSourceChars', () => {
 
   it('defaults to the in-code budget when unset', () => {
     expect(pipelineSourceChars()).toBe(DEFAULT_PIPELINE_SOURCE_CHARS)
+  })
+
+  it('gives the reranked top tier far more room than the tail', () => {
+    // The two jobs sources do are different: the top results are what the
+    // answer is built from, the tail provides citation breadth. A flat budget
+    // forces starving the first to pay for the second.
+    const long = 'y'.repeat(9000)
+    const many: PipelineRetrieval = {
+      query: 'q',
+      ms: 1,
+      toolCallId: 'tc',
+      results: {
+        query: 'q',
+        images: [],
+        number_of_results: 20,
+        results: Array.from({ length: 20 }, (_, i) => ({
+          title: `T${i + 1}`,
+          url: `https://e${i + 1}.com/p`,
+          content: long
+        }))
+      }
+    }
+    const block = buildSourceBlock(many)
+    const section = (n: number) => {
+      const start = block.indexOf(`[${n}] T${n}`)
+      const next = block.indexOf(`[${n + 1}] T${n + 1}`)
+      return block.slice(start, next === -1 ? undefined : next)
+    }
+    // First source is in the deep tier, the twelfth is in the tail.
+    expect(section(1).length).toBeGreaterThan(PIPELINE_TAIL_SOURCE_CHARS + 1000)
+    expect(section(12).length).toBeLessThan(PIPELINE_TAIL_SOURCE_CHARS + 500)
+  })
+
+  it('carries more total evidence than the flat 1200-char budget it replaced', () => {
+    // The regression guard for the change itself: 1200 flat was ~300 tokens a
+    // source, barely more than the engine snippet the deep crawl existed to
+    // replace, and ~90% of what was crawled never reached the model.
+    const long = 'z'.repeat(9000)
+    const r: PipelineRetrieval = {
+      query: 'q',
+      ms: 1,
+      toolCallId: 'tc',
+      results: {
+        query: 'q',
+        images: [],
+        number_of_results: 20,
+        results: Array.from({ length: 20 }, (_, i) => ({
+          title: `T${i + 1}`,
+          url: `https://e${i + 1}.com/p`,
+          content: long
+        }))
+      }
+    }
+    const now = buildSourceBlock(r).length
+    const flatOld = 20 * 1200
+    expect(now).toBeGreaterThan(flatOld * 1.5)
   })
 
   it('honours a valid override', () => {

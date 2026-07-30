@@ -70,8 +70,49 @@ import type { SearchResults } from '@/lib/types'
 /** How many results the single retrieval pass asks for. */
 const PIPELINE_MAX_RESULTS = 20
 
-/** Default per-source content budget in the prompt. */
-export const DEFAULT_PIPELINE_SOURCE_CHARS = 1200
+/**
+ * Per-source content budget for the DEEP tier, in characters.
+ *
+ * WHY IT IS NO LONGER 1200. That figure was chosen when this architecture was
+ * written, justified on the grounds that "turn latency tracks prompt_tokens
+ * closely enough that an unbounded context is a latency bug" — an argument
+ * about COST, never validated against answer quality. Two things then made it
+ * indefensible:
+ *
+ *   * The latency it was protecting has been paid for many times over. The
+ *     pipeline runs at 19.3s median against the loop's 68.7s (32 paired
+ *     probes), so there is ~50s of headroom that did not exist when 1200 was
+ *     picked.
+ *   * It throws away work already done. The retrieval spends 20-40s on a deep
+ *     crawl and a cross-encoder rerank, and 1200 chars is roughly 300 tokens —
+ *     barely more than the engine snippet the crawl existed to replace. ~90% of
+ *     what was crawled was discarded before the model saw it.
+ *
+ * And the loop, which keeps beating this on quality, truncates nothing at all.
+ */
+export const DEFAULT_PIPELINE_SOURCE_CHARS = 4000
+
+/**
+ * How many sources get the deep budget before the tail is trimmed.
+ *
+ * GRADUATED rather than flat, because the two things sources do are not the
+ * same thing. The top results — the ones the cross-encoder ranked highest — are
+ * what the answer is actually built from, and they need room. The tail mostly
+ * provides citation breadth and corroboration, where a snippet is enough.
+ *
+ * A flat budget forces a choice between starving the top and paying full price
+ * for the tail. Position IS relevance here (the results arrive reranked), so
+ * spending unevenly is using information already in hand rather than guessing.
+ *
+ * 8 x 4000 + 12 x 1200 ≈ 46k chars ≈ 11k tokens of evidence, against ~24k
+ * chars ≈ 6k tokens before. Roughly double the evidence, concentrated where the
+ * reranker says it matters, and still far below the point where prompt size
+ * would erase a 3x speed advantage.
+ */
+export const PIPELINE_DEEP_SOURCES = 8
+
+/** Budget for sources past the deep tier — enough to cite and corroborate. */
+export const PIPELINE_TAIL_SOURCE_CHARS = 1200
 
 /**
  * How much of each source's text the model actually gets to read.
@@ -919,10 +960,13 @@ export function buildSourceBlock(retrieval: PipelineRetrieval): string {
     ].join('\n')
   }
 
+  const deepChars = pipelineSourceChars()
   const lines = rows.slice(0, PIPELINE_MAX_RESULTS).map((r, i) => {
-    const content = (r.content || '')
-      .replace(/\s+/g, ' ')
-      .slice(0, pipelineSourceChars())
+    // Results arrive reranked, so index IS relevance: the top tier gets room to
+    // be reasoned from, the tail gets enough to cite and corroborate.
+    const budget =
+      i < PIPELINE_DEEP_SOURCES ? deepChars : PIPELINE_TAIL_SOURCE_CHARS
+    const content = (r.content || '').replace(/\s+/g, ' ').slice(0, budget)
     return `[${i + 1}] ${r.title || '(untitled)'}\nURL: ${r.url}\n${content}`
   })
 
