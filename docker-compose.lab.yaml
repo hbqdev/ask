@@ -20,6 +20,13 @@ services:
       # The whole point of this instance. Set per experiment run.
       FLOW_VARIANT: ${FLOW_VARIANT:-baseline}
 
+      # Per-source content budget in the pipeline's prompt (chars). The loop's
+      # search tool does not truncate at all, so this is the one knob that
+      # controls whether the pipeline loses information the loop keeps — the
+      # leading suspect for its quality deficit. Set per experiment run;
+      # unset falls back to the in-code default.
+      PIPELINE_SOURCE_CHARS: ${PIPELINE_SOURCE_CHARS:-}
+
       # Which ARCHITECTURE to run. Deliberately a different switch from
       # FLOW_VARIANT: the variants are knobs inside the agentic loop, whereas
       # `pipeline` removes the loop — the system retrieves and the model gets

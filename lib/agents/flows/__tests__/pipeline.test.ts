@@ -11,7 +11,9 @@ import {
   buildRetrievalToolPart,
   buildSourceBlock,
   CLASSIFY_WAIT_MS,
+  DEFAULT_PIPELINE_SOURCE_CHARS,
   type PipelineRetrieval,
+  pipelineSourceChars,
   provisionTurnTools,
   RETRIEVAL_DEADLINE_MS,
   runPipelineRetrieval,
@@ -1034,5 +1036,55 @@ describe('applyAnswerStepReserve', () => {
       ).filter(o => o.activeTools?.length === 0)
       expect(toolFree.length).toBeGreaterThanOrEqual(1)
     }
+  })
+})
+
+// The loop's search tool does not truncate at all; this architecture caps every
+// source, so 20 sources is at most ~24k characters of evidence at the default
+// no matter how substantial the pages were. That is information the loop keeps
+// and this loses, and it is the leading unfalsified explanation for the
+// pipeline losing a blind judge on turns where it had MORE sources and MORE
+// citations. The knob exists to measure the speed-for-evidence exchange rate
+// rather than assume it.
+describe('pipelineSourceChars', () => {
+  afterEach(() => {
+    delete process.env.PIPELINE_SOURCE_CHARS
+  })
+
+  it('defaults to the in-code budget when unset', () => {
+    expect(pipelineSourceChars()).toBe(DEFAULT_PIPELINE_SOURCE_CHARS)
+  })
+
+  it('honours a valid override', () => {
+    process.env.PIPELINE_SOURCE_CHARS = '6000'
+    expect(pipelineSourceChars()).toBe(6000)
+  })
+
+  it('falls back to the default on junk rather than to unbounded', () => {
+    // A typo must not silently hand the model a 500k-token prompt.
+    for (const bad of ['', 'lots', '0', '-500', 'NaN']) {
+      process.env.PIPELINE_SOURCE_CHARS = bad
+      expect(pipelineSourceChars()).toBe(DEFAULT_PIPELINE_SOURCE_CHARS)
+    }
+  })
+
+  it('actually changes how much of a source reaches the prompt', () => {
+    const long = 'x'.repeat(5000)
+    const withLongContent: PipelineRetrieval = {
+      query: 'q',
+      ms: 1,
+      toolCallId: 'tc1',
+      results: {
+        query: 'q',
+        images: [],
+        number_of_results: 1,
+        results: [{ title: 'T', url: 'https://e.com/p', content: long }]
+      }
+    }
+    process.env.PIPELINE_SOURCE_CHARS = '1200'
+    const short = buildSourceBlock(withLongContent)
+    process.env.PIPELINE_SOURCE_CHARS = '5000'
+    const full = buildSourceBlock(withLongContent)
+    expect(full.length).toBeGreaterThan(short.length + 3000)
   })
 })
