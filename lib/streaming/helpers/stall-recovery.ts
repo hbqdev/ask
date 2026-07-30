@@ -117,8 +117,8 @@ export function withStallRecovery<T>(opts: {
             committed,
             silentMs: Date.now() - lastPartAt
           })
-          // Aborting is what unblocks the read below: the provider stream
-          // rejects or closes, and control returns to the catch.
+          // Unblocks the read below. NOTE it does NOT surface as an exception —
+          // see the read loop.
           ac.abort()
         }, stallMs)
       }
@@ -131,6 +131,30 @@ export function withStallRecovery<T>(opts: {
 
         for (;;) {
           const { done, value } = await reader.read()
+
+          // AN ABORT ARRIVES AS DATA, NOT AS AN EXCEPTION. ai@6 handles it in
+          // `abort()` (ai/dist/index.mjs:6910) by enqueuing `{type:'abort'}`
+          // and then calling controller.CLOSE — not controller.error — and
+          // toUIMessageStream forwards that part verbatim. So our own
+          // ac.abort() comes back through THIS loop: the abort part is read,
+          // then the next read reports done, and the stream ends cleanly.
+          //
+          // The first version of this function assumed the abort would throw,
+          // and put the retry in the catch below. Measured consequence: on lab
+          // chat mimdbjdrcd58pu8ucn8lyv2n the guard fired correctly
+          // (`[stall] stall … silentMs: 60001`) and then forwarded the abort
+          // part, re-armed, saw done, and closed — so the catch never ran and
+          // the retry was unreachable on the ONE failure mode this exists for.
+          // Zero `[stall] retry` events in 24h of logs, from a guard that was
+          // detecting stalls the whole time.
+          //
+          // Checked BEFORE `done` and before enqueueing: once our timer has
+          // fired, everything the source produces is debris. Leaving `stalled`
+          // false on an outer-signal abort (client disconnect, route ceiling)
+          // is deliberate — that path still forwards the abort part and closes,
+          // exactly as it does today.
+          if (stalled) break
+
           if (done) {
             disarm()
             controller.close()
@@ -141,24 +165,12 @@ export function withStallRecovery<T>(opts: {
           if (!committed && isCommitted(value)) committed = true
           controller.enqueue(value)
         }
+
+        lastError = new Error(
+          `generation stalled: no stream part for ${stallMs}ms`
+        )
       } catch (error) {
         lastError = error
-        const recoverable =
-          stalled && !committed && !cancelled && n < maxAttempts
-        if (recoverable) {
-          onEvent?.({ type: 'retry', attempt: n + 1 })
-          continue
-        }
-        if (cancelled) return
-        if (committed) {
-          // Partial prose beats an error the client renders as a failed turn:
-          // closing here lets onFinish persist what was actually written.
-          controller.close()
-          return
-        }
-        if (stalled) onEvent?.({ type: 'exhausted', attempts: n })
-        controller.error(error)
-        return
       } finally {
         disarm()
         // Release the provider stream. Best-effort: it is already aborted on
@@ -169,6 +181,25 @@ export function withStallRecovery<T>(opts: {
           /* nothing useful to do with a cancel failure */
         }
       }
+
+      // ONE recovery decision, reached from both the stall `break` above and
+      // the catch. Keeping it out of the catch is the whole point of the fix:
+      // the stall path never throws, so a decision that lives only in the
+      // catch can never run for a stall.
+      if (cancelled) return
+      if (stalled && !committed && n < maxAttempts) {
+        onEvent?.({ type: 'retry', attempt: n + 1 })
+        continue
+      }
+      if (committed) {
+        // Partial prose beats an error the client renders as a failed turn:
+        // closing here lets onFinish persist what was actually written.
+        controller.close()
+        return
+      }
+      if (stalled) onEvent?.({ type: 'exhausted', attempts: n })
+      controller.error(lastError ?? new Error('stall recovery failed'))
+      return
     }
 
     controller.error(lastError ?? new Error('stall recovery exhausted'))

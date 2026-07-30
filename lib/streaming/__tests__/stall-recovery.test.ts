@@ -3,7 +3,8 @@ import { describe, expect, it, vi } from 'vitest'
 import {
   isVisibleTextPart,
   type StallRecoveryEvent,
-  withStallRecovery} from '../helpers/stall-recovery'
+  withStallRecovery
+} from '../helpers/stall-recovery'
 
 type Part = { type: string }
 
@@ -105,6 +106,70 @@ describe('withStallRecovery', () => {
       'text-delta'
     ])
     expect(events.map(e => e.type)).toEqual(['stall', 'retry'])
+  })
+
+  // THE CASE THE FIRST VERSION OF THIS SUITE MISSED, and the reason a shipped
+  // guard detected stalls for a day without ever recovering from one.
+  //
+  // scriptedStream models an abort by REJECTING, which sends control to the
+  // catch. The real SDK does not do that: ai@6's abort() enqueues a
+  // `{type:'abort'}` part and then CLOSES the stream (ai/dist/index.mjs:6910),
+  // so the abort is delivered as data and the read loop sees a clean end. A
+  // guard whose retry lives in the catch is unreachable against a source that
+  // behaves this way, which is every real one.
+  function sdkAbortStream(opts: {
+    parts: Part[]
+    signal?: AbortSignal
+  }): ReadableStream<Part> {
+    const { parts, signal } = opts
+    let i = 0
+    return new ReadableStream<Part>({
+      async pull(controller) {
+        if (i < parts.length) return controller.enqueue(parts[i++])
+        // Silent until aborted, then abort-as-data followed by a clean close.
+        await new Promise<void>(resolve => {
+          if (signal?.aborted) return resolve()
+          signal?.addEventListener('abort', () => resolve(), { once: true })
+        })
+        controller.enqueue({ type: 'abort' })
+        controller.close()
+      }
+    })
+  }
+
+  it('retries when the source signals abort as DATA and closes cleanly', async () => {
+    const attempts: number[] = []
+    const events: StallRecoveryEvent[] = []
+    const out = await drain(
+      withStallRecovery<Part>({
+        attempt: async signal => {
+          const n = attempts.push(1)
+          return n === 1
+            ? sdkAbortStream({
+                parts: [{ type: 'reasoning-start' }],
+                signal
+              })
+            : scriptedStream({
+                parts: [{ type: 'text-start' }, { type: 'text-delta' }]
+              })
+        },
+        isCommitted: isVisibleTextPart,
+        stallMs: 40,
+        onEvent: e => events.push(e)
+      })
+    )
+
+    expect(attempts).toHaveLength(2)
+    expect(events.map(e => e.type)).toEqual(['stall', 'retry'])
+    // The abort part must NOT reach the client: once our timer has fired,
+    // everything the dead attempt produces is debris. Forwarding it made the
+    // turn look aborted to onFinish, which then persisted nothing.
+    expect(out.map(p => p.type)).toEqual([
+      'reasoning-start',
+      'text-start',
+      'text-delta'
+    ])
+    expect(out.some(p => p.type === 'abort')).toBe(false)
   })
 
   it('does NOT retry once prose has been committed, and keeps the partial', async () => {
