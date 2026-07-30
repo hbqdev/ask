@@ -10,6 +10,7 @@ import { Langfuse } from 'langfuse'
 
 import {
   buildRetrievalToolPart,
+  PIPELINE_MAX_RESULTS,
   pipelineArchEnabled,
   shouldInjectRetrieval,
   startInformedRetrieval
@@ -58,6 +59,7 @@ import { firstChunkTimer } from './helpers/first-chunk-timer'
 import { persistStreamResults } from './helpers/persist-stream-results'
 import { prepareMessages } from './helpers/prepare-messages'
 import { smoothAndStripNarration } from './helpers/smooth-and-strip-narration'
+import { isVisibleTextPart, withStallRecovery } from './helpers/stall-recovery'
 import { streamPartTimer } from './helpers/stream-part-timer'
 import { stripNarrationFromMessage } from './helpers/strip-narration-from-message'
 import { stripReasoningParts } from './helpers/strip-reasoning-parts'
@@ -262,9 +264,15 @@ export async function createChatStreamResponse(
             const retrieved = r.results?.results?.length ?? 0
             latency.mark('pipeline_retrieved', retrieved)
             latency.mark('pipeline_retrieval_ms', r.ms)
+            // Sliced the same way the prompt slices. RETRIEVED counts what
+            // came back from the merge; INJECTED must count what the model
+            // could actually read, and the two diverge whenever expansion
+            // variants push the merge past the cap — which was 17 of 22 turns.
             latency.mark(
               'pipeline_injected',
-              shouldInjectRetrieval(c) ? retrieved : 0
+              shouldInjectRetrieval(c)
+                ? Math.min(retrieved, PIPELINE_MAX_RESULTS)
+                : 0
             )
           })
           .catch(() => {
@@ -662,49 +670,90 @@ export async function createChatStreamResponse(
         let stepIndex = -1
         const recordedSteps: { toolCalls?: { toolName: string }[] }[] = []
 
-        const result = await researchAgent.stream({
-          messages: modelMessages,
-          abortSignal,
-          experimental_transform: smoothAndStripNarration(),
-          ...(stepHooks as object)
-        })
-        result.consumeStream()
+        // ONE generation attempt, factored out so stall recovery can run it
+        // twice. Everything stateful is created inside — notably
+        // smoothAndStripNarration(), whose transform carries per-stream state
+        // and would mis-strip a second attempt if it were shared.
+        const runAttempt = async (signal: AbortSignal | undefined) => {
+          const result = await researchAgent.stream({
+            messages: modelMessages,
+            abortSignal: signal,
+            experimental_transform: smoothAndStripNarration(),
+            ...(stepHooks as object)
+          })
+          result.consumeStream()
 
-        // Log the session-total usage once the stream settles (does not
-        // block the response; consumeStream above already drives it to
-        // completion).
-        if (isUsageLogging()) {
-          Promise.resolve(result.totalUsage)
-            .then(usage =>
-              logUsage({ scope: 'total', modelId: context.modelId }, usage)
+          // Log the session-total usage once the stream settles (does not
+          // block the response; consumeStream above already drives it to
+          // completion).
+          if (isUsageLogging()) {
+            Promise.resolve(result.totalUsage)
+              .then(usage =>
+                logUsage({ scope: 'total', modelId: context.modelId }, usage)
+              )
+              .catch(() => {})
+          }
+
+          // totalUsage is the SUM over steps, so it cannot size the prompt on
+          // a multi-step research turn; result.usage is the LAST step — the
+          // actual answering prompt. Both are recorded: the sum for cost, the
+          // last step for judging prompt-size changes. Settles independently
+          // of the UI stream, so onFinish awaits the handle below rather than
+          // assuming it already resolved.
+          //
+          // REASSIGNED per attempt: onFinish runs after the stream settles, so
+          // it reads the attempt that actually produced the answer. A stalled
+          // first attempt never reports usage at all — which is exactly how
+          // the 328s turn showed up in telemetry as last_prompt_tokens: null.
+          usageRecorded = Promise.all([
+            Promise.resolve(result.totalUsage),
+            Promise.resolve(result.usage).catch(() => undefined)
+          ])
+            .then(([total, lastStep]) =>
+              latency.markUsage(
+                {
+                  inputTokens: total?.inputTokens,
+                  outputTokens: total?.outputTokens
+                },
+                lastStep?.inputTokens
+              )
             )
             .catch(() => {})
+
+          return result.toUIMessageStream({ sendStart: false })
         }
 
-        // totalUsage is the SUM over steps, so it cannot size the prompt on a
-        // multi-step research turn; result.usage is the LAST step — the actual
-        // answering prompt. Both are recorded: the sum for cost, the last step
-        // for judging prompt-size changes. Settles independently of the UI
-        // stream, so onFinish awaits the handle below rather than assuming it
-        // already resolved.
-        usageRecorded = Promise.all([
-          Promise.resolve(result.totalUsage),
-          Promise.resolve(result.usage).catch(() => undefined)
-        ])
-          .then(([total, lastStep]) =>
-            latency.markUsage(
-              {
-                inputTokens: total?.inputTokens,
-                outputTokens: total?.outputTokens
-              },
-              lastStep?.inputTokens
-            )
-          )
-          .catch(() => {})
+        // Stall recovery is PIPELINE-ONLY, and the restriction is load-bearing
+        // rather than caution: under the loop a silent stream usually means a
+        // tool is running (crawl_ms of 125s has been measured), so no
+        // inactivity threshold can separate a stall from healthy work. Under
+        // the pipeline retrieval is already finished, no tool is in flight,
+        // and the prompt is fully determined — silence means the provider
+        // stopped, and re-issuing sends the identical request.
+        const generated = pipelineArchEnabled()
+          ? withStallRecovery({
+              // AbortSignal.any so a real client disconnect or the 300s
+              // ceiling still ends the turn; the guard only adds a reason.
+              attempt: signal =>
+                runAttempt(
+                  abortSignal ? AbortSignal.any([abortSignal, signal]) : signal
+                ),
+              isCommitted: isVisibleTextPart,
+              onEvent: event => {
+                console.log(
+                  `[stall] ${event.type} ${JSON.stringify({ chatId, ...event })}`
+                )
+                // Counted so the next run can answer the question this fix is
+                // built on an n of 1 for: does regenerating actually recover?
+                if (event.type === 'retry') latency.mark('stall_retries', 1)
+                if (event.type === 'exhausted')
+                  latency.mark('stall_exhausted', 1)
+              }
+            })
+          : await runAttempt(abortSignal)
 
         writer.merge(
-          result
-            .toUIMessageStream({ sendStart: false })
+          generated
             .pipeThrough(firstChunkTimer(() => latency.markFirstToken()))
             .pipeThrough(streamPartTimer(type => latency.markStreamPart(type)))
         )
