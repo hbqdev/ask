@@ -92,27 +92,29 @@ const PIPELINE_MAX_RESULTS = 20
  */
 export const DEFAULT_PIPELINE_SOURCE_CHARS = 4000
 
-/**
- * How many sources get the deep budget before the tail is trimmed.
- *
- * GRADUATED rather than flat, because the two things sources do are not the
- * same thing. The top results — the ones the cross-encoder ranked highest — are
- * what the answer is actually built from, and they need room. The tail mostly
- * provides citation breadth and corroboration, where a snippet is enough.
- *
- * A flat budget forces a choice between starving the top and paying full price
- * for the tail. Position IS relevance here (the results arrive reranked), so
- * spending unevenly is using information already in hand rather than guessing.
- *
- * 8 x 4000 + 12 x 1200 ≈ 46k chars ≈ 11k tokens of evidence, against ~24k
- * chars ≈ 6k tokens before. Roughly double the evidence, concentrated where the
- * reranker says it matters, and still far below the point where prompt size
- * would erase a 3x speed advantage.
- */
-export const PIPELINE_DEEP_SOURCES = 8
-
-/** Budget for sources past the deep tier — enough to cite and corroborate. */
-export const PIPELINE_TAIL_SOURCE_CHARS = 1200
+// THE GRADUATED TIER IS GONE, and measuring it is what removed it.
+//
+// It split sources into a deep tier (8 x 4000) and a tail (12 x 1200) on the
+// theory that the top-ranked results need room to be reasoned from while the
+// tail only needs enough to cite. That reasoning was sound and the premise was
+// not: it assumed pages large enough for the split to matter. Measured over 81
+// crawled sources on this stack:
+//
+//   median 2,558 chars   p90 3,118   max 3,499
+//   exceeded the old 1200 cap: 76/81 (93%)
+//   exceeded a 4000 cap:        0/81 (0%)
+//
+// So a flat 4000 truncates NOTHING — it is simply "keep what was crawled",
+// which is exactly what the loop's search tool does and what this architecture
+// was uniquely losing. The tier would only ever have applied to pages this
+// crawler does not produce, while still cutting ~53% from the twelve sources in
+// the tail. Two budgets that never diverge are one budget with extra ways to be
+// wrong.
+//
+// This also corrects a figure asserted earlier without measuring: the 1200 cap
+// was said to discard "~90% of what was crawled". At a median of 2,558 it
+// discarded ~53%. The cap was real and binding; the number was not measured
+// before it was claimed.
 
 /**
  * How much of each source's text the model actually gets to read.
@@ -960,12 +962,11 @@ export function buildSourceBlock(retrieval: PipelineRetrieval): string {
     ].join('\n')
   }
 
-  const deepChars = pipelineSourceChars()
+  // One budget for every source. At 4000 against a measured max of 3,499 this
+  // truncates nothing in practice — it is a bound against a pathological page,
+  // not a content policy.
+  const budget = pipelineSourceChars()
   const lines = rows.slice(0, PIPELINE_MAX_RESULTS).map((r, i) => {
-    // Results arrive reranked, so index IS relevance: the top tier gets room to
-    // be reasoned from, the tail gets enough to cite and corroborate.
-    const budget =
-      i < PIPELINE_DEEP_SOURCES ? deepChars : PIPELINE_TAIL_SOURCE_CHARS
     const content = (r.content || '').replace(/\s+/g, ' ').slice(0, budget)
     return `[${i + 1}] ${r.title || '(untitled)'}\nURL: ${r.url}\n${content}`
   })

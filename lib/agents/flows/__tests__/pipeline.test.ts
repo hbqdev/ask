@@ -12,7 +12,6 @@ import {
   buildSourceBlock,
   CLASSIFY_WAIT_MS,
   DEFAULT_PIPELINE_SOURCE_CHARS,
-  PIPELINE_TAIL_SOURCE_CHARS,
   type PipelineRetrieval,
   pipelineSourceChars,
   provisionTurnTools,
@@ -1060,12 +1059,13 @@ describe('pipelineSourceChars', () => {
     expect(pipelineSourceChars()).toBe(DEFAULT_PIPELINE_SOURCE_CHARS)
   })
 
-  it('gives the reranked top tier far more room than the tail', () => {
-    // The two jobs sources do are different: the top results are what the
-    // answer is built from, the tail provides citation breadth. A flat budget
-    // forces starving the first to pay for the second.
-    const long = 'y'.repeat(9000)
-    const many: PipelineRetrieval = {
+  it('truncates nothing the crawler actually produces', () => {
+    // Measured over 81 crawled sources: median 2,558 chars, max 3,499. So the
+    // budget is a bound against a pathological page, not a content policy —
+    // every real source reaches the model whole, which is what the loop does
+    // and what this architecture was uniquely losing.
+    const realistic = 'y'.repeat(3499)
+    const r: PipelineRetrieval = {
       query: 'q',
       ms: 1,
       toolCallId: 'tc',
@@ -1076,19 +1076,18 @@ describe('pipelineSourceChars', () => {
         results: Array.from({ length: 20 }, (_, i) => ({
           title: `T${i + 1}`,
           url: `https://e${i + 1}.com/p`,
-          content: long
+          content: realistic
         }))
       }
     }
-    const block = buildSourceBlock(many)
-    const section = (n: number) => {
+    const block = buildSourceBlock(r)
+    // Every source, not just the first few, survives intact.
+    for (const n of [1, 8, 12, 20]) {
       const start = block.indexOf(`[${n}] T${n}`)
       const next = block.indexOf(`[${n + 1}] T${n + 1}`)
-      return block.slice(start, next === -1 ? undefined : next)
+      const section = block.slice(start, next === -1 ? undefined : next)
+      expect(section.length).toBeGreaterThan(3499)
     }
-    // First source is in the deep tier, the twelfth is in the tail.
-    expect(section(1).length).toBeGreaterThan(PIPELINE_TAIL_SOURCE_CHARS + 1000)
-    expect(section(12).length).toBeLessThan(PIPELINE_TAIL_SOURCE_CHARS + 500)
   })
 
   it('carries more total evidence than the flat 1200-char budget it replaced', () => {
