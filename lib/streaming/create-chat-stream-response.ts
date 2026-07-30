@@ -745,6 +745,15 @@ export async function createChatStreamResponse(
                 )
                 // Counted so the next run can answer the question this fix is
                 // built on an n of 1 for: does regenerating actually recover?
+                //
+                // DETECTION is marked separately from recovery, and that
+                // separation is not cosmetic: for a full day the guard was
+                // detecting stalls and never retrying, and telemetry could not
+                // show it because only `retry` was marked. A guard abort and a
+                // client disconnect both emit stream:{abort:N} and nothing
+                // else, so without this the two are indistinguishable outside
+                // the logs.
+                if (event.type === 'stall') latency.mark('stall_detected', 1)
                 if (event.type === 'retry') latency.mark('stall_retries', 1)
                 if (event.type === 'exhausted')
                   latency.mark('stall_exhausted', 1)
