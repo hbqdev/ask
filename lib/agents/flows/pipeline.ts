@@ -70,6 +70,38 @@ import type { SearchResults } from '@/lib/types'
 /** How many results the single retrieval pass asks for. */
 const PIPELINE_MAX_RESULTS = 20
 
+/** Default per-source content budget in the prompt. */
+export const DEFAULT_PIPELINE_SOURCE_CHARS = 1200
+
+/**
+ * How much of each source's text the model actually gets to read.
+ *
+ * THE SUSPECT THIS EXISTS TO TEST. The loop's search tool does not truncate at
+ * all — the model sees full crawled pages. This architecture caps every source
+ * at 1200 characters, so 20 sources is at most ~24k characters of evidence no
+ * matter how substantial the pages were. That is INFORMATION LOSS relative to
+ * the loop, and it is the leading unfalsified explanation for the strangest
+ * result in the A/B: the pipeline losing a blind quality judge on turns where it
+ * had MORE sources and MORE citations than the loop. Twenty shallow excerpts can
+ * carry less usable evidence than ten full pages.
+ *
+ * Read from the environment, and NOT because configurability is a virtue here.
+ * Turn latency tracks prompt_tokens at r=0.76, so this knob trades speed for
+ * evidence and the exchange rate has to be measured rather than assumed. An env
+ * var means an arm can be re-run by restarting the container instead of
+ * rebuilding it, which is the difference between testing this today and
+ * testing it eventually.
+ *
+ * Invalid or missing values fall back to the default rather than to "unbounded":
+ * a typo must not silently hand the model a 500k-token prompt.
+ */
+export function pipelineSourceChars(): number {
+  const raw = Number(process.env.PIPELINE_SOURCE_CHARS)
+  return Number.isFinite(raw) && raw > 0
+    ? Math.floor(raw)
+    : DEFAULT_PIPELINE_SOURCE_CHARS
+}
+
 /**
  * Is the pipeline architecture active? Separate from FLOW_VARIANT because the
  * variants are knobs INSIDE the loop, and this removes the loop. Keeping them
@@ -887,11 +919,10 @@ export function buildSourceBlock(retrieval: PipelineRetrieval): string {
     ].join('\n')
   }
 
-  const PER_SOURCE_CHARS = 1200
   const lines = rows.slice(0, PIPELINE_MAX_RESULTS).map((r, i) => {
     const content = (r.content || '')
       .replace(/\s+/g, ' ')
-      .slice(0, PER_SOURCE_CHARS)
+      .slice(0, pipelineSourceChars())
     return `[${i + 1}] ${r.title || '(untitled)'}\nURL: ${r.url}\n${content}`
   })
 

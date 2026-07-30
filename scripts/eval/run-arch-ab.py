@@ -60,6 +60,13 @@ def set_arch(arm: str) -> None:
     follows, which has happened before and is invisible in the output."""
     arch = ARCHES[arm]
     env = {**os.environ, "FLOW_ARCH": arch, "FLOW_VARIANT": "baseline"}
+    # Knobs under test must survive the arm switch. `up -d ask` re-renders the
+    # compose environment, so anything set only on the initial deploy silently
+    # reverts partway through a run and mislabels every turn after it — which
+    # has happened before with FLOW_ARCH.
+    for knob in ("PIPELINE_SOURCE_CHARS",):
+        if os.environ.get(knob):
+            env[knob] = os.environ[knob]
     sh(["docker", "compose", *COMPOSE, "-p", PROJ, "up", "-d", "ask"], cwd=ROOT, env=env)
     for _ in range(90):
         try:
@@ -224,7 +231,14 @@ def main() -> None:
                     # a low character count.
                     "empty": len(ans.strip()) == 0,
                     "citations": ans.count("](#"),
+                    # BOTH, because prompt_tokens alone cannot compare the arms.
+                    # It is totalUsage.inputTokens — the SUM over steps — so a
+                    # 6-18 step loop turn counts every step's prompt again and
+                    # looks like it fed the model far more context than it did.
+                    # last_prompt_tokens is the FINAL step: the actual answering
+                    # prompt, and the only number comparable to a 1-step turn.
                     "prompt_tokens": turn.get("prompt_tokens"),
+                    "last_prompt_tokens": turn.get("last_prompt_tokens"),
                     "skipSearch": turn.get("skipSearch"),
                     "needsSources": turn.get("needsSources"),
                     "crawler_mem_pct": mem_before,
