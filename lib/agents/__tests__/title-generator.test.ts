@@ -1,13 +1,21 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 vi.mock('ai', () => ({ generateText: vi.fn() }))
 vi.mock('../../utils/registry', () => ({ getModel: vi.fn(() => 'model') }))
 vi.mock('../../utils/telemetry', () => ({
   isTracingEnabled: vi.fn(() => false)
 }))
+// The local provider. Returns a tagged marker so a test can assert WHICH model
+// generateText was handed — the whole point of moving titles off the chat model
+// is that the expensive one is no longer called.
+vi.mock('ai-sdk-ollama', () => ({
+  createOllama: vi.fn(() => (id: string) => `local:${id}`)
+}))
 
 import { generateText } from 'ai'
+import { createOllama } from 'ai-sdk-ollama'
 
+import { getModel } from '../../utils/registry'
 import { generateChatTitle } from '../title-generator'
 
 const gen = (text: string) =>
@@ -81,5 +89,82 @@ describe('generateChatTitle', () => {
   it('falls back when the model throws', async () => {
     vi.mocked(generateText).mockRejectedValue(new Error('model down'))
     await expect(call('what is kubernetes')).resolves.toBe('what is kubernetes')
+  })
+})
+
+// Titling is a 3-5 word transformation of one sentence, and it was spending a
+// frontier cloud call per new chat — 523 chats in a week, ~13% of that week's
+// kimi-k2.6 volume, to produce a sidebar label. These assert WHICH model is
+// asked, because that is the entire change; the title text is unaffected.
+describe('generateChatTitle — model selection', () => {
+  const ENV = { ...process.env }
+  beforeEach(() => {
+    vi.resetAllMocks()
+    process.env = { ...ENV }
+    delete process.env.LOCAL_LLM_BASE_URL
+    delete process.env.TITLE_USE_CHAT_MODEL
+    delete process.env.TITLE_MODEL_ID
+  })
+  afterEach(() => {
+    process.env = ENV
+  })
+
+  it('uses the LOCAL model and never the chat model when a local host exists', async () => {
+    process.env.LOCAL_LLM_BASE_URL = 'http://local:11434'
+    gen('Closures In JavaScript')
+
+    await expect(call('explain closures in javascript')).resolves.toBe(
+      'Closures In JavaScript'
+    )
+
+    expect(createOllama).toHaveBeenCalledWith(
+      expect.objectContaining({ baseURL: 'http://local:11434' })
+    )
+    // The saving only exists if the expensive path is genuinely not taken.
+    expect(getModel).not.toHaveBeenCalled()
+    expect(vi.mocked(generateText).mock.calls[0][0].model).toBe(
+      'local:granite4.1:8b'
+    )
+  })
+
+  it('honours TITLE_MODEL_ID', async () => {
+    process.env.LOCAL_LLM_BASE_URL = 'http://local:11434'
+    process.env.TITLE_MODEL_ID = 'qwen3-vl:4b'
+    gen('Some Title')
+    await call('hello there')
+    expect(vi.mocked(generateText).mock.calls[0][0].model).toBe(
+      'local:qwen3-vl:4b'
+    )
+  })
+
+  it('falls back to the chat model when NO local host is configured', async () => {
+    // A deployment without a local Ollama must keep getting titles rather than
+    // silently losing them to an unreachable host.
+    delete process.env.LOCAL_LLM_BASE_URL
+    delete process.env.OLLAMA_BASE_URL
+    delete process.env.CLASSIFIER_OLLAMA_BASE_URL
+    gen('Some Title')
+    await call('hello there')
+    expect(getModel).toHaveBeenCalled()
+    expect(createOllama).not.toHaveBeenCalled()
+  })
+
+  it('TITLE_USE_CHAT_MODEL=true restores the old behaviour without a redeploy', async () => {
+    process.env.LOCAL_LLM_BASE_URL = 'http://local:11434'
+    process.env.TITLE_USE_CHAT_MODEL = 'true'
+    gen('Some Title')
+    await call('hello there')
+    expect(getModel).toHaveBeenCalled()
+    expect(createOllama).not.toHaveBeenCalled()
+  })
+
+  it('degrades to the user opening words when the local host is down', async () => {
+    // The pre-existing fallback already covered a cloud failure; moving to a
+    // local model must not turn a miss into a broken chat.
+    process.env.LOCAL_LLM_BASE_URL = 'http://local:11434'
+    vi.mocked(generateText).mockRejectedValue(new Error('ECONNREFUSED'))
+    await expect(call('what is the tallest mountain in Japan')).resolves.toBe(
+      'what is the tallest mountain in Japan'
+    )
   })
 })

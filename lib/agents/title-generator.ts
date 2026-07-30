@@ -1,7 +1,39 @@
 import { generateText } from 'ai'
+import { createOllama } from 'ai-sdk-ollama'
 
+import { createTimeoutFetch } from '../utils/fetch-with-timeout'
+import { localLlmBaseUrl } from '../utils/local-llm-host'
 import { getModel } from '../utils/registry'
 import { isTracingEnabled } from '../utils/telemetry'
+
+/**
+ * Titles are written by a LOCAL model, not the user's chat model.
+ *
+ * WHY. Titling is a 3-5 word transformation of one sentence, and it was
+ * spending a frontier cloud call on every new chat: 523 chats in one week, so
+ * 523 billed kimi-k2.6 requests whose entire output was a sidebar label. That
+ * was ~13% of the week's kimi volume, for the least demanding task in the app.
+ *
+ * granite4.1:8b on the local host is already resident for the memory extractor
+ * and pinned warm by keep-warm.sh, so this costs nothing and adds no cold
+ * start. If the local host is unreachable the catch below returns the user's
+ * own opening words — the same fallback that already covered a cloud failure,
+ * so the downside of a miss is a duller title, never a broken chat.
+ *
+ * TITLE_MODEL_ID overrides the model; TITLE_USE_CHAT_MODEL=true restores the
+ * old behaviour without a redeploy, for the case where a local host does not
+ * exist at all.
+ */
+// Read per call, not at module load. A module-level `process.env` read freezes
+// the value at import, which would have made the override above a lie: it
+// promises a change without a redeploy and a frozen constant cannot deliver
+// one. Costs nothing — this runs once per new chat.
+function titleModelId(): string {
+  return process.env.TITLE_MODEL_ID || 'granite4.1:8b'
+}
+// Titling one sentence is fast; a local model that has not answered in 8s is
+// not going to produce a better title than the user's own words.
+const TITLE_TIMEOUT_MS = 8_000
 
 /**
  * A generated title is meant to be 3-5 words ("no more than 10"). Anything
@@ -39,8 +71,21 @@ export async function generateChatTitle({
   try {
     const systemPrompt = `System: You are an AI assistant specialized in creating very short, concise, and informative titles for chat conversations based on the user's first message. The title should ideally be 3-5 words long, and no more than 10 words. Only output the title itself, with no prefixes, labels, or quotation marks.`
 
+    // Local when a local host is configured, otherwise the chat model — a
+    // deployment with no local Ollama must not lose titles entirely.
+    const localBase = localLlmBaseUrl()
+    const useLocal =
+      Boolean(localBase) && process.env.TITLE_USE_CHAT_MODEL !== 'true'
+    const titleModel = useLocal
+      ? createOllama({
+          baseURL: localBase,
+          fetch: createTimeoutFetch(TITLE_TIMEOUT_MS, abortSignal)
+        })(titleModelId(), { think: false, keep_alive: -1 })
+      : getModel(modelId)
+    const effectiveModelId = useLocal ? titleModelId() : modelId
+
     const { text: generatedTitle } = await generateText({
-      model: getModel(modelId),
+      model: titleModel,
       system: systemPrompt,
       prompt: userMessageContent,
       abortSignal,
@@ -48,7 +93,7 @@ export async function generateChatTitle({
         isEnabled: isTracingEnabled(),
         functionId: 'title-generation',
         metadata: {
-          modelId: modelId,
+          modelId: effectiveModelId,
           agentType: 'title-generator',
           promptLength: userMessageContent.length,
           ...(parentTraceId && {
