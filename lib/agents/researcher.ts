@@ -336,6 +336,7 @@ export async function createResearcher({
   sources = ['web'],
   systemInstructions,
   abortSignal,
+  modelSignal,
   skipSearch = false,
   standaloneQuery,
   needsRecent = false,
@@ -377,6 +378,22 @@ export async function createResearcher({
   sources?: SearchSources
   systemInstructions?: string
   abortSignal?: AbortSignal
+  /**
+   * Signal handed to the provider's fetch, resolved PER REQUEST when passed as
+   * a function.
+   *
+   * Separate from `abortSignal` because the agent is constructed once per turn
+   * while the pipeline may run the model call twice: stall recovery abandons a
+   * dead generation and reissues it with a new AbortController. Binding the
+   * turn's signal at construction meant the guard's abort never reached the
+   * socket, so the stalled request ran on to the 300s ceiling beside its own
+   * retry. A getter lets each attempt bind its own signal without rebuilding
+   * the agent — rebuilding would drag `await pipelineRetrievalPromise` back
+   * inside the guard's clock, which is exactly what the guard must not time.
+   *
+   * Defaults to `abortSignal`, so every existing caller is unaffected.
+   */
+  modelSignal?: AbortSignal | (() => AbortSignal | undefined)
   // Set by the query classifier (lib/agents/query-classifier.ts) when this
   // turn is a pure clarification about the conversation's own prior answer
   // and needs no new research. Bypasses search-mode tool/prompt selection
@@ -778,7 +795,7 @@ The conversation history is background context, not a to-do list. Any topic from
 
     // Create ToolLoopAgent with all configuration
     const agent = new ToolLoopAgent({
-      model: getModel(model, abortSignal),
+      model: getModel(model, modelSignal ?? abortSignal),
       instructions: `${effectiveSystemPrompt}\nCurrent date and time: ${currentDate}`,
       tools: effectiveTools,
       activeTools: effectiveActiveTools,

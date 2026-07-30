@@ -593,6 +593,12 @@ export async function createChatStreamResponse(
 
         // Get the researcher agent with parent trace ID, search mode,
         // sources, and the classifier's decision for this turn.
+        // Which attempt's signal the provider fetch should bind. Reassigned by
+        // runAttempt below; read through the `modelSignal` getter at request
+        // time rather than captured here, because the agent is built once and
+        // stall recovery may run the model call twice.
+        let currentAttemptSignal: AbortSignal | undefined = abortSignal
+
         const researchAgent = await researcher({
           model: context.modelId,
           pipelineRetrievalPromise,
@@ -605,6 +611,10 @@ export async function createChatStreamResponse(
           sources,
           systemInstructions,
           abortSignal,
+          // A getter, not the signal itself — see modelSignal in researcher.ts.
+          // This is the one thing that lets the stall guard's abort actually
+          // reach the provider socket.
+          modelSignal: () => currentAttemptSignal,
           skipSearch: classification.skipSearch,
           standaloneQuery: classification.standaloneQuery,
           needsRecent: classification.needsRecent,
@@ -675,6 +685,12 @@ export async function createChatStreamResponse(
         // smoothAndStripNarration(), whose transform carries per-stream state
         // and would mis-strip a second attempt if it were shared.
         const runAttempt = async (signal: AbortSignal | undefined) => {
+          // Published for the provider fetch BEFORE the call opens its
+          // connection, so this attempt's request binds this attempt's signal.
+          // Without it the guard could abandon a generation but not cancel it:
+          // the stalled ollama request kept running to the 300s ceiling while
+          // the retry ran alongside it.
+          currentAttemptSignal = signal
           const result = await researchAgent.stream({
             messages: modelMessages,
             abortSignal: signal,

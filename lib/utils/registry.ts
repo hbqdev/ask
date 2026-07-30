@@ -60,7 +60,12 @@ export const registry = createProviderRegistry(providers)
 
 export function getModel(
   model: string,
-  abortSignal?: AbortSignal
+  // A FUNCTION here resolves per HTTP request rather than once at model
+  // construction. The pipeline's stall recovery needs that: it retries a dead
+  // generation with a fresh AbortController, and a signal captured when the
+  // model was built would leave the first attempt's socket running against
+  // ollama-cloud until the 300s ceiling, concurrent with the retry.
+  abortSignal?: AbortSignal | (() => AbortSignal | undefined)
 ): LanguageModel {
   // For Ollama models, bypass the registry to pass model-level settings
   // that ai-sdk-ollama requires (think, supportedUrls override).
