@@ -642,6 +642,49 @@ describe('runPipelineRetrieval — deadline', () => {
     }
   })
 
+  it('salvages resolved expansion results rather than answering unsourced', async () => {
+    // The chain awaits `variants` only AFTER the main search settles, so when
+    // the MAIN search is what stalls the variant results sit resolved and
+    // unread. Measured on chat ovd3r52d: three turns logged expansion
+    // `returned: 24-30` within ~1.7s and then "retrieval EXCEEDED 90000ms —
+    // answering unsourced" with pipeline_retrieved: 0. Snippet-depth results
+    // are a downgrade from a crawled page and are not close to a downgrade
+    // from nothing, which cannot be cited at all.
+    vi.useFakeTimers()
+    try {
+      runAdvancedSearch.mockReturnValue(new Promise(() => {})) // never settles
+      expansionVariants.mockResolvedValue([
+        { url: 'https://a.example', title: 'A', content: 'a' },
+        { url: 'https://b.example', title: 'B', content: 'b' }
+      ])
+
+      const p = runPipelineRetrieval('q', { expandedQueries: ['q alt'] })
+      await vi.advanceTimersByTimeAsync(RETRIEVAL_DEADLINE_MS + 10)
+      const r = await p
+
+      expect(r.results?.results).toHaveLength(2)
+      expect(r.results?.results?.[0]?.url).toBe('https://a.example')
+      // Still reported as a deadline miss — salvaging is a degradation, and
+      // telemetry that hid it would make the stall invisible.
+      expect(r.error).toMatch(/deadline/i)
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('still answers unsourced when nothing at all resolved in time', async () => {
+    vi.useFakeTimers()
+    try {
+      runAdvancedSearch.mockReturnValue(new Promise(() => {}))
+      expansionVariants.mockReturnValue(new Promise(() => {}))
+      const p = runPipelineRetrieval('q', { expandedQueries: ['q alt'] })
+      await vi.advanceTimersByTimeAsync(RETRIEVAL_DEADLINE_MS + 10)
+      expect((await p).results).toBeNull()
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
   it('sits above every real retrieval and below every observed stall', async () => {
     // Healthy retrieval on this stack runs 10-40s with a worst legitimate
     // completion of 71s; a crawler-saturation stall runs 110-140s. Asserted as

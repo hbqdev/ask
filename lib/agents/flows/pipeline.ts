@@ -67,8 +67,20 @@ import {
 } from '@/lib/tools/search/providers'
 import type { SearchResults } from '@/lib/types'
 
-/** How many results the single retrieval pass asks for. */
-const PIPELINE_MAX_RESULTS = 20
+/**
+ * How many results the single retrieval pass asks for, AND the hard ceiling on
+ * how many ever reach the model.
+ *
+ * Exported because telemetry has to slice the same way the prompt does. The
+ * retrieval merges expansion-variant results in behind the main ones and can
+ * hand back 45 — but buildSourceBlock and buildRetrievalToolPart both take
+ * `slice(0, PIPELINE_MAX_RESULTS)`, so 20 is what the model reads and what the
+ * citations resolve against. Marking `pipeline_injected` from the pre-slice
+ * count reported 45 on 17 of 22 measured turns, overstating by up to 2.4x the
+ * one number whose documented job is answering "what did the model actually
+ * get".
+ */
+export const PIPELINE_MAX_RESULTS = 20
 
 /**
  * Per-source content budget for the DEEP tier, in characters.
@@ -681,13 +693,29 @@ export function runPipelineRetrieval(
   // beside — which it rarely is, because variants search at BASIC depth
   // (snippets, cached, no crawl). That is also why this does not multiply load
   // on the shared crawl4ai container the way a second advanced pass would.
+  //
+  // SALVAGE holds whatever the variants returned, the moment they return it.
+  // The chain below awaits `variants` only AFTER the main search settles, so
+  // on a turn where the main search is the thing that stalls the variant
+  // results are sitting resolved and unread when the deadline fires. Measured
+  // on chat ovd3r52d: three turns logged `expansion … returned: 24-30` within
+  // ~1.7s and then `retrieval EXCEEDED 90000ms — answering unsourced` with
+  // pipeline_retrieved: 0. Twenty-odd usable sources were thrown away to
+  // answer from parametric knowledge instead.
+  //
+  // Snippet-depth results are a real downgrade from a crawled and reranked
+  // page — which is exactly why they are the FALLBACK and never displace the
+  // main results on a healthy turn. Against the alternative on a stalled one,
+  // they are not close: an unsourced answer cannot cite anything.
+  let salvage: SearchResults['results'] = []
   const variants: Promise<SearchResults['results']> = opts.expandedQueries
     ?.length
-    ? searchExpansionVariants(
-        opts.expandedQueries,
-        opts.timeRange,
-        opts.chatId
-      ).catch(() => [])
+    ? searchExpansionVariants(opts.expandedQueries, opts.timeRange, opts.chatId)
+        .then(r => {
+          salvage = r ?? []
+          return salvage
+        })
+        .catch(() => [])
     : Promise.resolve([])
 
   const retrieved: Promise<PipelineRetrieval> = attempt()
@@ -753,12 +781,25 @@ export function runPipelineRetrieval(
   const expired = new Promise<PipelineRetrieval>(resolve => {
     deadlineTimer = setTimeout(() => {
       const ms = Date.now() - startedAt
+      const rescued = salvage.slice(0, PIPELINE_MAX_RESULTS)
       console.log(
-        `[pipeline] retrieval EXCEEDED ${RETRIEVAL_DEADLINE_MS}ms — answering unsourced`
+        `[pipeline] retrieval EXCEEDED ${RETRIEVAL_DEADLINE_MS}ms — ` +
+          (rescued.length
+            ? `answering from ${rescued.length} salvaged expansion results`
+            : 'answering unsourced')
       )
       resolve({
         query,
-        results: null,
+        // Degrade in stages rather than straight to nothing: snippet-depth
+        // variant results if any resolved, and only then null.
+        results: rescued.length
+          ? {
+              query,
+              results: rescued,
+              images: [],
+              number_of_results: rescued.length
+            }
+          : null,
         ms,
         error: `retrieval deadline ${RETRIEVAL_DEADLINE_MS}ms exceeded`,
         toolCallId
