@@ -292,7 +292,23 @@ export async function classifyQuery({
         // otherwise the default 5-minute idle timeout unloads it and the next
         // classification pays a cold-load penalty. Harmless for cloud models.
         model: provider(CLASSIFIER_MODEL_ID, { think: false, keep_alive: -1 }),
-        system: CLASSIFIER_SYSTEM_PROMPT,
+        // THE CLASSIFIER HAS TO KNOW WHAT YEAR IT IS. It writes the search
+        // queries this turn will run — standaloneQuery and expandedQueries —
+        // and without a date it dates them from its training data. Observed
+        // directly on lab, asked "what is happening with AI regulation right
+        // now" in July 2026: "latest AI regulation developments in the United
+        // States 2025", "EU AI Act implementation updates 2025", "recent AI
+        // regulation developments in other countries 2025". Three queries, all
+        // pinned to last year.
+        //
+        // Worse than merely unhelpful: it fights needsRecent, which narrows
+        // SearXNG's time_range to the past month. The freshness window asks for
+        // this month while the query text asks for last year.
+        //
+        // The answering model has had this all along (researcher.ts appends
+        // "Current date and time"). Only the classifier was blind, and it is
+        // the one writing the queries.
+        system: `${CLASSIFIER_SYSTEM_PROMPT}\n\nCurrent date and time: ${new Date().toLocaleString()}`,
         prompt: `Conversation so far:\n${history}\n\nLatest message: ${latestMessage}`,
         temperature: 0,
         abortSignal,
