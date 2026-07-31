@@ -90,20 +90,43 @@ ${getRelatedQuestionsSpecPrompt()}
 // criteria were the same predicate list needsSources is built from — a
 // version, a price, a date, a statistic, a named product — which made it a
 // tautology: it could only fire where the classifier had already said yes, and
-// so could never catch the classifier being wrong. The added clause below
-// covers the measured blind spot: a question that names nothing specific whose
-// ANSWER must name specific tools ("what are my options, what breaks, how do I
-// verify"). On the lab run that justified this gate, that shape was its worst
-// topic — 0W-2L-1T — while the 13 wins were concept explanations.
+// so could never catch the classifier being wrong. The clause about an
+// operation on the user's OWN system covers the measured blind spot: a
+// question that names nothing specific whose ANSWER must name specific tools.
+//
+// AND THE PROHIBITION IS GONE, because advertising the tool was necessary and
+// not sufficient. With `search` correctly advertised but the prompt still
+// opening "Do NOT search the web", staging returned tool_calls=0 on both
+// blind-spot probes: given a prohibition and an exception, the model takes the
+// prohibition. So the wording is now a preference ("PREFER your own
+// knowledge") followed by an affirmative instruction ("SEARCH FIRST … when"),
+// which is the entire difference between a hatch that exists and one that
+// fires.
+//
+// WHAT THAT COST, measured on lab before porting: nothing detectable. The
+// three concept controls that are 5/5 stable on both arms — TCP vs UDP, SOLID,
+// bloom filters — all still answered with 0 tool calls and 0 sources under the
+// softened wording, while "size a home battery for a 6kW array" went from 0
+// sources on staging to 37 on lab. That is 4 turns, not a judged run: it
+// establishes that softening does not flip concept questions into searching,
+// NOT that the answers are better.
+//
+// The gate's verdict is also less stable than the 13-2 implies. Over 5
+// repetitions per question at temperature 0, 4 of 12 questions flipped on this
+// prompt and 5 of 12 on lab's, concentrated entirely in the operational class
+// — several are effectively coin flips. Under an unstable gate the cost of a
+// wrong verdict dominates, and a recoverable wrong verdict beats an
+// unrecoverable one.
 const STABLE_KNOWLEDGE_PROMPT = `Instructions:
 
-Answer the user's question directly, from your own knowledge. This question was assessed as one a well-read expert can answer reliably without consulting sources — a concept, a definition, how something works, established science or history, general programming knowledge, mathematics, or a matter of judgement.
+Answer the user's question directly. This question was assessed as one a well-read expert can usually answer without consulting sources — a concept, a definition, how something works, established science or history, general programming knowledge, mathematics, or a matter of judgement.
 
-- Do NOT search the web. A solid answer written from knowledge you already have is better than the same answer padded with citations to introductory pages.
-- Escape hatch — you still have tools, use one ONLY if actually required to answer correctly:
-  - If answering turns out to depend on a specific current fact you cannot state reliably — a version number, a price, a date, a statistic, a release note, or a claim about a specific named product or paper — run the \`search\` tool rather than guessing. If you do search, cite what you use (only toolCallIds from searches you actually executed this turn; never invent anchors).
-  - If a correct answer would have to name specific third-party tools, products or versions for an operation the user is about to carry out on their own system — a migration, cutover, upgrade, backup or restore strategy, hardware sizing, or a capacity decision — search for what is actually used and actually current, rather than listing what you remember. The question naming nothing specific does not mean the answer names nothing specific: "what are my options and what breaks" is exactly the case where the ANSWER is a list of named tools with version-dependent caveats.
-  - If the reply requires arithmetic, use \`calculate\` instead of doing mental math.
+- PREFER your own knowledge. On a settled topic a clean answer beats the same answer padded with citations to introductory pages, so do not search merely to have sources to point at.
+- SEARCH FIRST, before answering, when the answer genuinely turns on something you cannot state reliably from memory:
+  - a version number, a price, a date, a statistic, a release note, or a claim about a specific named product, company, person or paper;
+  - or when a correct answer would have to name specific third-party tools, products or versions for an operation the user is about to carry out on their own system — a migration, cutover, upgrade, backup or restore strategy, hardware sizing, or a capacity decision. A question naming nothing specific does not mean the ANSWER names nothing specific: "what are my options and what breaks" is exactly the case where the answer is a list of named tools with version-dependent caveats.
+  If you search, cite what you use (only toolCallIds from searches you actually executed this turn; never invent anchors).
+- If the reply requires arithmetic, use \`calculate\` instead of doing mental math.
 - Do not add citations when you used no tools, and do not apologise for not searching or mention that you did not search. Just answer.
 - Be substantive: this is a full answer to a real question, not a summary. Cover the question properly.
 - Format as Markdown. Use headings only if they genuinely help organize a longer answer.
