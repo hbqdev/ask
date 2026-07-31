@@ -78,55 +78,19 @@ ${getRelatedQuestionsSpecPrompt()}
 // genuinely matters (4-8 against, on turns where both searched), which is why
 // only the decision is ported here and not the architecture around it.
 //
-// Search is advertised AND kept in the tool map. This comment previously said
-// it "stays in the tool map rather than being withheld … the same escape hatch
-// skipSearch has relied on in production", and that was wrong in a way worth
-// recording: skipSearch lists 'search' in activeToolsList and this branch did
-// not, so the hatch was described as working while being unreachable. ai@6
-// filters the tool definitions sent to the provider by activeTools, so the
-// model was told to reach for something it was never shown.
-//
-// The hatch also has to name a case the CLASSIFIER's rule does not. Its
-// criteria were the same predicate list needsSources is built from — a
-// version, a price, a date, a statistic, a named product — which made it a
-// tautology: it could only fire where the classifier had already said yes, and
-// so could never catch the classifier being wrong. The clause about an
-// operation on the user's OWN system covers the measured blind spot: a
-// question that names nothing specific whose ANSWER must name specific tools.
-//
-// AND THE PROHIBITION IS GONE, because advertising the tool was necessary and
-// not sufficient. With `search` correctly advertised but the prompt still
-// opening "Do NOT search the web", staging returned tool_calls=0 on both
-// blind-spot probes: given a prohibition and an exception, the model takes the
-// prohibition. So the wording is now a preference ("PREFER your own
-// knowledge") followed by an affirmative instruction ("SEARCH FIRST … when"),
-// which is the entire difference between a hatch that exists and one that
-// fires.
-//
-// WHAT THAT COST, measured on lab before porting: nothing detectable. The
-// three concept controls that are 5/5 stable on both arms — TCP vs UDP, SOLID,
-// bloom filters — all still answered with 0 tool calls and 0 sources under the
-// softened wording, while "size a home battery for a 6kW array" went from 0
-// sources on staging to 37 on lab. That is 4 turns, not a judged run: it
-// establishes that softening does not flip concept questions into searching,
-// NOT that the answers are better.
-//
-// The gate's verdict is also less stable than the 13-2 implies. Over 5
-// repetitions per question at temperature 0, 4 of 12 questions flipped on this
-// prompt and 5 of 12 on lab's, concentrated entirely in the operational class
-// — several are effectively coin flips. Under an unstable gate the cost of a
-// wrong verdict dominates, and a recoverable wrong verdict beats an
-// unrecoverable one.
+// Search stays IN the tool map rather than being withheld. Withholding is
+// strictly stronger — activeTools alone is advertising, not enforcement — but
+// this gate fires on a model's judgement about a live user's question, and the
+// failure mode of a wrong `false` is an ungrounded answer with no way back. The
+// escape hatch below is the same one skipSearch has relied on in production.
 const STABLE_KNOWLEDGE_PROMPT = `Instructions:
 
-Answer the user's question directly. This question was assessed as one a well-read expert can usually answer without consulting sources — a concept, a definition, how something works, established science or history, general programming knowledge, mathematics, or a matter of judgement.
+Answer the user's question directly, from your own knowledge. This question was assessed as one a well-read expert can answer reliably without consulting sources — a concept, a definition, how something works, established science or history, general programming knowledge, mathematics, or a matter of judgement.
 
-- PREFER your own knowledge. On a settled topic a clean answer beats the same answer padded with citations to introductory pages, so do not search merely to have sources to point at.
-- SEARCH FIRST, before answering, when the answer genuinely turns on something you cannot state reliably from memory:
-  - a version number, a price, a date, a statistic, a release note, or a claim about a specific named product, company, person or paper;
-  - or when a correct answer would have to name specific third-party tools, products or versions for an operation the user is about to carry out on their own system — a migration, cutover, upgrade, backup or restore strategy, hardware sizing, or a capacity decision. A question naming nothing specific does not mean the ANSWER names nothing specific: "what are my options and what breaks" is exactly the case where the answer is a list of named tools with version-dependent caveats.
-  If you search, cite what you use (only toolCallIds from searches you actually executed this turn; never invent anchors).
-- If the reply requires arithmetic, use \`calculate\` instead of doing mental math.
+- Do NOT search the web. A solid answer written from knowledge you already have is better than the same answer padded with citations to introductory pages.
+- Escape hatch — you still have tools, use one ONLY if actually required to answer correctly:
+  - If answering turns out to depend on a specific current fact you cannot state reliably — a version number, a price, a date, a statistic, a release note, or a claim about a specific named product or paper — run the \`search\` tool rather than guessing. If you do search, cite what you use (only toolCallIds from searches you actually executed this turn; never invent anchors).
+  - If the reply requires arithmetic, use \`calculate\` instead of doing mental math.
 - Do not add citations when you used no tools, and do not apologise for not searching or mention that you did not search. Just answer.
 - Be substantive: this is a full answer to a real question, not a summary. Cover the question properly.
 - Format as Markdown. Use headings only if they genuinely help organize a longer answer.
@@ -144,27 +108,6 @@ ${getRelatedQuestionsSpecPrompt()}
  * unobservable. Ordering and the two-flag rule live here so both can be
  * asserted directly.
  */
-/**
- * Tools ADVERTISED on a stable-knowledge turn.
- *
- * Exported so the one thing that broke here is assertable. `search` belongs in
- * this list: ai@6 filters the tool definitions sent to the provider by
- * activeTools, so omitting it made the prompt's escape hatch unreachable while
- * a comment claimed it worked. A test can check a list; it cannot read
- * ToolLoopAgent's private settings.
- *
- * No `fetch` and no `todoWrite`: a turn answerable from general knowledge has
- * no URL to read and no multi-step plan to write, and both were absent before
- * this branch existed.
- */
-export const STABLE_KNOWLEDGE_TOOLS = [
-  'search',
-  'calculate',
-  'get_weather',
-  'remember',
-  'recall'
-] as const
-
 export type TurnMode = 'direct' | 'stable-knowledge' | 'research'
 
 export function resolveTurnMode({
@@ -596,32 +539,14 @@ export async function createResearcher({
       // resolveTurnMode for why this is ordered after skipSearch and why it
       // requires both flags.
       console.log(
-        // Says what is actually advertised. It read "no search advertised"
-        // until the escape hatch was fixed, which was true when written and
-        // silently became a lie — the same class of drift as the comment that
-        // hid this bug in the first place.
-        `[Researcher] Stable-knowledge mode: maxSteps=10, tools=[${STABLE_KNOWLEDGE_TOOLS.join(', ')}], prompt says do-not-search with an escape hatch, sources=${JSON.stringify(sources)}`
+        `[Researcher] Stable-knowledge mode: maxSteps=10, no search advertised, sources=${JSON.stringify(sources)}`
       )
       systemPrompt = STABLE_KNOWLEDGE_PROMPT
       // Same escape-hatch shape as skipSearch: `search` is deliberately NOT in
       // this list, so it is not advertised to the model, but it remains in the
       // tools map below so a model that reaches for it anyway is executed
       // rather than failing. That is the recovery path for a wrong `false`.
-      // `search` IS advertised, and leaving it out was a bug rather than a
-      // policy. The comment above this branch claimed the escape hatch was
-      // "the same shape skipSearch has used in production" — it was not:
-      // skipSearch lists 'search' here (see the branch above) and this one did
-      // not. ai@6 filters the tool definitions sent to the provider by
-      // activeTools (ai/dist/index.mjs:1790), so the model was told to use an
-      // escape hatch it could not see, and reaching it would have required
-      // inventing an unadvertised tool name. The one prod turn that fired this
-      // gate came back tool_calls=0, steps=1.
-      //
-      // Advertising it does not weaken the gate: the prompt still says not to
-      // search, and this branch is only reached when the classifier judged the
-      // turn answerable without sources. It restores a recovery path for the
-      // case the classifier gets wrong, which is the whole point of a hatch.
-      activeToolsList = [...STABLE_KNOWLEDGE_TOOLS]
+      activeToolsList = ['calculate', 'get_weather', 'remember', 'recall']
       maxSteps = 10
       searchTool = wrapSearchToolForSources(
         wrapSearchToolWithDedup(originalSearchTool, seenUrls, seenQueries),
