@@ -78,11 +78,23 @@ ${getRelatedQuestionsSpecPrompt()}
 // genuinely matters (4-8 against, on turns where both searched), which is why
 // only the decision is ported here and not the architecture around it.
 //
-// Search stays IN the tool map rather than being withheld. Withholding is
-// strictly stronger — activeTools alone is advertising, not enforcement — but
-// this gate fires on a model's judgement about a live user's question, and the
-// failure mode of a wrong `false` is an ungrounded answer with no way back. The
-// escape hatch below is the same one skipSearch has relied on in production.
+// Search is advertised AND kept in the tool map. This comment previously said
+// it "stays in the tool map rather than being withheld … the same escape hatch
+// skipSearch has relied on in production", and that was wrong in a way worth
+// recording: skipSearch lists 'search' in activeToolsList and this branch did
+// not, so the hatch was described as working while being unreachable. ai@6
+// filters the tool definitions sent to the provider by activeTools, so the
+// model was told to reach for something it was never shown.
+//
+// The hatch also has to name a case the CLASSIFIER's rule does not. Its
+// criteria were the same predicate list needsSources is built from — a
+// version, a price, a date, a statistic, a named product — which made it a
+// tautology: it could only fire where the classifier had already said yes, and
+// so could never catch the classifier being wrong. The added clause below
+// covers the measured blind spot: a question that names nothing specific whose
+// ANSWER must name specific tools ("what are my options, what breaks, how do I
+// verify"). On the lab run that justified this gate, that shape was its worst
+// topic — 0W-2L-1T — while the 13 wins were concept explanations.
 const STABLE_KNOWLEDGE_PROMPT = `Instructions:
 
 Answer the user's question directly, from your own knowledge. This question was assessed as one a well-read expert can answer reliably without consulting sources — a concept, a definition, how something works, established science or history, general programming knowledge, mathematics, or a matter of judgement.
@@ -90,6 +102,7 @@ Answer the user's question directly, from your own knowledge. This question was 
 - Do NOT search the web. A solid answer written from knowledge you already have is better than the same answer padded with citations to introductory pages.
 - Escape hatch — you still have tools, use one ONLY if actually required to answer correctly:
   - If answering turns out to depend on a specific current fact you cannot state reliably — a version number, a price, a date, a statistic, a release note, or a claim about a specific named product or paper — run the \`search\` tool rather than guessing. If you do search, cite what you use (only toolCallIds from searches you actually executed this turn; never invent anchors).
+  - If a correct answer would have to name specific third-party tools, products or versions for an operation the user is about to carry out on their own system — a migration, cutover, upgrade, backup or restore strategy, hardware sizing, or a capacity decision — search for what is actually used and actually current, rather than listing what you remember. The question naming nothing specific does not mean the answer names nothing specific: "what are my options and what breaks" is exactly the case where the ANSWER is a list of named tools with version-dependent caveats.
   - If the reply requires arithmetic, use \`calculate\` instead of doing mental math.
 - Do not add citations when you used no tools, and do not apologise for not searching or mention that you did not search. Just answer.
 - Be substantive: this is a full answer to a real question, not a summary. Cover the question properly.
@@ -108,6 +121,27 @@ ${getRelatedQuestionsSpecPrompt()}
  * unobservable. Ordering and the two-flag rule live here so both can be
  * asserted directly.
  */
+/**
+ * Tools ADVERTISED on a stable-knowledge turn.
+ *
+ * Exported so the one thing that broke here is assertable. `search` belongs in
+ * this list: ai@6 filters the tool definitions sent to the provider by
+ * activeTools, so omitting it made the prompt's escape hatch unreachable while
+ * a comment claimed it worked. A test can check a list; it cannot read
+ * ToolLoopAgent's private settings.
+ *
+ * No `fetch` and no `todoWrite`: a turn answerable from general knowledge has
+ * no URL to read and no multi-step plan to write, and both were absent before
+ * this branch existed.
+ */
+export const STABLE_KNOWLEDGE_TOOLS = [
+  'search',
+  'calculate',
+  'get_weather',
+  'remember',
+  'recall'
+] as const
+
 export type TurnMode = 'direct' | 'stable-knowledge' | 'research'
 
 export function resolveTurnMode({
@@ -546,7 +580,21 @@ export async function createResearcher({
       // this list, so it is not advertised to the model, but it remains in the
       // tools map below so a model that reaches for it anyway is executed
       // rather than failing. That is the recovery path for a wrong `false`.
-      activeToolsList = ['calculate', 'get_weather', 'remember', 'recall']
+      // `search` IS advertised, and leaving it out was a bug rather than a
+      // policy. The comment above this branch claimed the escape hatch was
+      // "the same shape skipSearch has used in production" — it was not:
+      // skipSearch lists 'search' here (see the branch above) and this one did
+      // not. ai@6 filters the tool definitions sent to the provider by
+      // activeTools (ai/dist/index.mjs:1790), so the model was told to use an
+      // escape hatch it could not see, and reaching it would have required
+      // inventing an unadvertised tool name. The one prod turn that fired this
+      // gate came back tool_calls=0, steps=1.
+      //
+      // Advertising it does not weaken the gate: the prompt still says not to
+      // search, and this branch is only reached when the classifier judged the
+      // turn answerable without sources. It restores a recovery path for the
+      // case the classifier gets wrong, which is the whole point of a hatch.
+      activeToolsList = [...STABLE_KNOWLEDGE_TOOLS]
       maxSteps = 10
       searchTool = wrapSearchToolForSources(
         wrapSearchToolWithDedup(originalSearchTool, seenUrls, seenQueries),
