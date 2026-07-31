@@ -69,6 +69,73 @@ You are continuing an ongoing conversation. The user's latest message looks answ
 ${getRelatedQuestionsSpecPrompt()}
 `
 
+// EXPERIMENT (lab only): the stable-knowledge gate with a SOFTENED prohibition.
+//
+// staging/prod run the same gate with a hard "Do NOT search the web" followed
+// by an "escape hatch — use ONLY if actually required". Measured on staging:
+// that hatch never fires. Two questions the classifier marks needsSources=false
+// but whose answers plainly need current specifics — sizing a home battery for
+// a 6kW array, and zero-downtime schema migrations — both returned tool_calls=0
+// with `search` correctly advertised. Given a prohibition and an exception, the
+// model takes the prohibition.
+//
+// So this arm removes the prohibition rather than decorating it further:
+//   - "Do NOT search the web"          -> "PREFER your own knowledge"
+//   - "Escape hatch … ONLY if required" -> "SEARCH FIRST, before answering, when…"
+//
+// The affirmative framing is the whole treatment. WHAT IT RISKS is the reason
+// this runs in lab: the gate's justification is 13W-2L on concept questions, and
+// a prompt that searches too readily gives that back. The control arm is
+// staging, which keeps the hard prohibition.
+const STABLE_KNOWLEDGE_PROMPT = `Instructions:
+
+Answer the user's question directly. This question was assessed as one a well-read expert can usually answer without consulting sources — a concept, a definition, how something works, established science or history, general programming knowledge, mathematics, or a matter of judgement.
+
+- PREFER your own knowledge. On a settled topic a clean answer beats the same answer padded with citations to introductory pages, so do not search merely to have sources to point at.
+- SEARCH FIRST, before answering, when the answer genuinely turns on something you cannot state reliably from memory:
+  - a version number, a price, a date, a statistic, a release note, or a claim about a specific named product, company, person or paper;
+  - or when a correct answer would have to name specific third-party tools, products or versions for an operation the user is about to carry out on their own system — a migration, cutover, upgrade, backup or restore strategy, hardware sizing, or a capacity decision. A question naming nothing specific does not mean the ANSWER names nothing specific: "what are my options and what breaks" is exactly the case where the answer is a list of named tools with version-dependent caveats.
+  If you search, cite what you use (only toolCallIds from searches you actually executed this turn; never invent anchors).
+- If the reply requires arithmetic, use \`calculate\` instead of doing mental math.
+- Do not add citations when you used no tools, and do not apologise for not searching or mention that you did not search. Just answer.
+- Be substantive: this is a full answer to a real question, not a summary. Cover the question properly.
+- Format as Markdown. Use headings only if they genuinely help organize a longer answer.
+- ALWAYS respond in the user's language.
+
+${getRelatedQuestionsSpecPrompt()}
+`
+
+/** Advertised on a stable-knowledge turn. `search` must be here or the
+ * instruction above points at a tool ai@6 never sends to the provider. */
+export const STABLE_KNOWLEDGE_TOOLS = [
+  'search',
+  'calculate',
+  'get_weather',
+  'remember',
+  'recall'
+] as const
+
+export type TurnMode = 'direct' | 'stable-knowledge' | 'research'
+
+/** Pure so the branch order and the two-flag rule are assertable; the agent
+ * keeps instructions and activeTools private. */
+export function resolveTurnMode({
+  skipSearch = false,
+  needsSources = true,
+  needsRecent = false
+}: {
+  skipSearch?: boolean
+  needsSources?: boolean
+  needsRecent?: boolean
+}): TurnMode {
+  // "the conversation already answers this" outranks "general knowledge does".
+  if (skipSearch) return 'direct'
+  // BOTH flags: needsRecent=true says the answer decays with time, which
+  // parametric knowledge cannot serve however settled the topic.
+  if (!needsSources && !needsRecent) return 'stable-knowledge'
+  return 'research'
+}
+
 /** Same query modulo case, surrounding space and internal run-length. */
 function normalizeQuery(q: string): string {
   return q.trim().toLowerCase().replace(/\s+/g, ' ')
@@ -492,6 +559,20 @@ export async function createResearcher({
         'remember',
         'recall'
       ]
+      maxSteps = 10
+      searchTool = wrapSearchToolForSources(
+        wrapSearchToolWithDedup(originalSearchTool, seenUrls, seenQueries),
+        sources
+      )
+    } else if (
+      resolveTurnMode({ skipSearch, needsSources, needsRecent }) ===
+      'stable-knowledge'
+    ) {
+      console.log(
+        `[Researcher] Stable-knowledge mode (SOFTENED): maxSteps=10, tools=[${STABLE_KNOWLEDGE_TOOLS.join(', ')}], sources=${JSON.stringify(sources)}`
+      )
+      systemPrompt = STABLE_KNOWLEDGE_PROMPT
+      activeToolsList = [...STABLE_KNOWLEDGE_TOOLS]
       maxSteps = 10
       searchTool = wrapSearchToolForSources(
         wrapSearchToolWithDedup(originalSearchTool, seenUrls, seenQueries),
