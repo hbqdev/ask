@@ -96,6 +96,29 @@ const classifierSchema = z.object({
     .max(3)
     .describe(
       'Up to 3 ALTERNATIVE phrasings of standaloneQuery for parallel web search, each approaching the question differently. Empty array when skipSearch is true.'
+    ),
+  // THE RETRIEVAL PLAN. Distinct from expandedQueries in the way that matters:
+  // those are rephrasings of ONE information need, for search recall. These are
+  // DIFFERENT information needs. "Anker vs Ugreen on warranty, GaN, and price"
+  // is one query with three rephrasings under the old field and three
+  // sub-questions under this one.
+  //
+  // Measured on prod over 14 days: 214 of 214 searches within multi-search
+  // turns were DISTINCT queries, up to 12 in a single turn. The model is
+  // already decomposing at runtime; this asks the classifier to declare that
+  // decomposition up front, where it can be executed in parallel instead of
+  // as sequential model round trips.
+  //
+  // Capped at 8 rather than 3: the cap has to sit above the real distribution
+  // or the plan silently under-serves the question, which is exactly how the
+  // one-query pipeline lost on retrieval-heavy turns. Saturation at 8 is
+  // logged so the cap can be re-judged against evidence rather than raised on
+  // a hunch.
+  subQuestions: z
+    .array(z.string())
+    .max(8)
+    .describe(
+      'The DISTINCT information needs this turn must look up, one search query each — NOT rephrasings of the same need. Empty array when skipSearch is true or needsSources is false. One entry for a single-fact question; several for a comparison or a multi-part question.'
     )
 })
 
@@ -108,6 +131,16 @@ export interface QueryClassification {
    * falls back to the standalone expander.
    */
   expandedQueries?: string[]
+  /**
+   * The turn's retrieval plan: the DISTINCT things it must look up, one
+   * search query each. Not rephrasings — see subQuestions in classifierSchema.
+   *
+   * CONSUMED BY NOTHING YET. Emitted and logged only, so plan quality and any
+   * regression in the five existing decisions can be measured before retrieval
+   * behaviour changes. Optional so every existing caller and the failure
+   * fallback are unaffected.
+   */
+  subQuestions?: string[]
   // True when the answer depends on current/recent information (news,
   // prices, versions, releases, schedules, "latest X"). Plumbs through to
   // SearXNG's time_range so this turn's searches prefer fresh pages.
@@ -156,6 +189,10 @@ needsSources is about whether SOURCES WOULD IMPROVE THE ANSWER; needsRecent is a
 
 If uncertain about needsSources, default to needsSources=false — an answer from stable knowledge is better than one padded with sources it did not need.
 
+You also set subQuestions — the RETRIEVAL PLAN. These are the DISTINCT things this turn must look up, one search query each. Do not confuse them with expandedQueries: expandedQueries are different WORDINGS of the same question, subQuestions are different QUESTIONS. "How much does a Framework Laptop 16 cost" needs ONE thing looked up, so one subQuestion, even though it could be phrased three ways. "Compare Anker and Ugreen on warranty, GaN efficiency and price" needs SEVERAL things looked up, so one subQuestion each.
+
+Give exactly as many as the question requires — one for a single fact, several for a comparison or a multi-part question, and never a padded list. Each must stand alone as a search query, with pronouns and references resolved the same way standaloneQuery resolves them. Order them so the one the answer most depends on comes FIRST. Return an empty array when skipSearch is true or needsSources is false — those turns look nothing up.
+
 You also set intent — the kind of sources most useful for answering:
 - "code": programming, libraries, APIs, error messages, package/tooling questions, software how-to, technical documentation.
 - "discussion": opinions, recommendations, personal experiences, "what do people think about X", community consensus.
@@ -180,7 +217,9 @@ Examples:
 10) User: "what is 17% of 4500" -> pure arithmetic, no external fact involved -> skipSearch=false, needsRecent=false, needsSources=false, intent="general", standaloneQuery="What is 17% of 4500?"
 11) User: "what is the difference between TCP and UDP" -> a stable, widely taught concept; a competent answer needs no page to point at -> skipSearch=false, needsRecent=false, needsSources=false, intent="code", standaloneQuery="What is the difference between TCP and UDP?"
 12) User: "what does SOLID stand for in software design" -> established terminology -> skipSearch=false, needsRecent=false, needsSources=false, intent="code", standaloneQuery="What does SOLID stand for in software design?"
-13) User: "how much does a Framework Laptop 16 cost right now" -> a current price for a specific named product -> skipSearch=false, needsRecent=true, needsSources=true, intent="general", standaloneQuery="Current price of the Framework Laptop 16"
+13) User: "how much does a Framework Laptop 16 cost right now" -> a current price for a specific named product -> skipSearch=false, needsRecent=true, needsSources=true, intent="general", standaloneQuery="Current price of the Framework Laptop 16", subQuestions=["Framework Laptop 16 current price"] (ONE thing to look up, so one entry)
+14) User: "compare Anker and Ugreen on warranty, GaN efficiency and price" -> several separate things must be looked up -> skipSearch=false, needsRecent=false, needsSources=true, intent="general", standaloneQuery="Compare Anker and Ugreen USB-C chargers on warranty, GaN efficiency and price", subQuestions=["Anker charger warranty policy", "Ugreen charger warranty policy", "Anker vs Ugreen GaN charger efficiency", "Anker vs Ugreen charger price comparison"]
+15) User: "what is the difference between TCP and UDP" -> stable knowledge, nothing to look up -> skipSearch=false, needsRecent=false, needsSources=false, intent="code", standaloneQuery="What is the difference between TCP and UDP?", subQuestions=[]
 
 standaloneQuery is always a short plain string, never empty, never a meta-question back to the user.`
 
@@ -252,7 +291,11 @@ export async function classifyQuery({
     needsSources: true,
     intent: 'general',
     // No expansions from a failed call; the caller's fallback expander runs.
-    expandedQueries: []
+    expandedQueries: [],
+    // No plan from a failed call. Empty means "no plan", NOT "look nothing
+    // up" — needsSources: true above is what keeps a failed classification
+    // searching, and any consumer must read the two together.
+    subQuestions: []
   }
 
   // Runs on a dedicated GPU-backed Ollama host instead of
@@ -335,7 +378,8 @@ export async function classifyQuery({
             skipSearch: classification.skipSearch,
             needsRecent: classification.needsRecent,
             needsSources: classification.needsSources,
-            intent: classification.intent
+            intent: classification.intent,
+            subQuestions: classification.subQuestions
           }
         })
     })
