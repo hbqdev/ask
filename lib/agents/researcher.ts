@@ -573,7 +573,11 @@ export async function createResearcher({
       // resolveTurnMode for why this is ordered after skipSearch and why it
       // requires both flags.
       console.log(
-        `[Researcher] Stable-knowledge mode: maxSteps=10, no search advertised, sources=${JSON.stringify(sources)}`
+        // Says what is actually advertised. It read "no search advertised"
+        // until the escape hatch was fixed, which was true when written and
+        // silently became a lie — the same class of drift as the comment that
+        // hid this bug in the first place.
+        `[Researcher] Stable-knowledge mode: maxSteps=10, tools=[${STABLE_KNOWLEDGE_TOOLS.join(', ')}], prompt says do-not-search with an escape hatch, sources=${JSON.stringify(sources)}`
       )
       systemPrompt = STABLE_KNOWLEDGE_PROMPT
       // Same escape-hatch shape as skipSearch: `search` is deliberately NOT in
