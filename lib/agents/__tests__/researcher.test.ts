@@ -5,6 +5,7 @@ import {
   getResearcherTools,
   getSourcesPromptAddendum,
   resolveTurnMode,
+  STABLE_KNOWLEDGE_TOOLS,
   wrapSearchToolForSources
 } from '../researcher'
 
@@ -292,5 +293,36 @@ describe('resolveTurnMode', () => {
     // deliberately said false.
     expect(resolveTurnMode({})).toBe('research')
     expect(resolveTurnMode({ skipSearch: false })).toBe('research')
+  })
+})
+
+// The escape hatch shipped unreachable. STABLE_KNOWLEDGE_PROMPT told the model
+// to "run the `search` tool" when the classifier had judged wrong, but `search`
+// was left out of activeToolsList — and ai@6 filters the tool definitions sent
+// to the provider by activeTools, so the model was told to reach for something
+// it was never shown. A comment two lines away asserted the opposite. The one
+// prod turn that fired the gate came back tool_calls=0, steps=1.
+//
+// Asserted as a list because ToolLoopAgent keeps activeTools private, so this
+// is the only layer where the mismatch is observable from a test.
+describe('STABLE_KNOWLEDGE_TOOLS', () => {
+  it('advertises search, or the prompt instructs an unreachable tool', () => {
+    expect(STABLE_KNOWLEDGE_TOOLS).toContain('search')
+  })
+
+  it('keeps the non-retrieval capabilities a gated turn may still need', () => {
+    // Losing these was never the intent: the gate is about not SEARCHING, not
+    // about being unable to do arithmetic or read the user's memories.
+    for (const t of ['calculate', 'get_weather', 'remember', 'recall']) {
+      expect(STABLE_KNOWLEDGE_TOOLS).toContain(t)
+    }
+  })
+
+  it('does not advertise fetch or todoWrite', () => {
+    // A turn answerable from general knowledge has no URL to read and no
+    // multi-step plan to write. Advertising a tool with nothing to point it at
+    // is how models get talked into hallucinating calls.
+    expect(STABLE_KNOWLEDGE_TOOLS).not.toContain('fetch')
+    expect(STABLE_KNOWLEDGE_TOOLS).not.toContain('todoWrite')
   })
 })
