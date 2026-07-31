@@ -30,6 +30,12 @@ export type ClassifierDecision = {
   needsRecent: boolean
   needsSources: boolean
   intent: string
+  // The retrieval plan, logged as SIZE plus the queries themselves. Size alone
+  // cannot answer the question this field exists to settle — whether an upfront
+  // plan decomposes a question the way the model does at runtime — because that
+  // needs the actual queries to compare against the searches a turn issued.
+  // Both are cheap: a plan is at most 8 short strings.
+  subQuestions?: string[]
 }
 
 export type ClassifierTelemetry = {
@@ -65,7 +71,14 @@ export function buildClassifierTelemetry(t: ClassifierTelemetry): string {
       skip_search: t.decision.skipSearch,
       needs_recent: t.decision.needsRecent,
       needs_sources: t.decision.needsSources,
-      intent: t.decision.intent
+      intent: t.decision.intent,
+      ...(t.decision.subQuestions && {
+        plan_size: t.decision.subQuestions.length,
+        // Saturation means the cap is shaping the plan rather than the
+        // question shaping it — the plan is then a floor, not a measurement.
+        ...(t.decision.subQuestions.length >= 8 && { plan_saturated: true }),
+        plan: t.decision.subQuestions
+      })
     })
   })}`
 }

@@ -135,7 +135,12 @@ describe('classifyQuery', () => {
       intent: 'general',
       // No fused expansions from a failed call — the caller falls back to
       // the standalone expander rather than narrowing the search.
-      expandedQueries: []
+      expandedQueries: [],
+      // Empty plan means "no plan", NOT "look nothing up". needsSources: true
+      // above is what keeps a failed classification searching, and a consumer
+      // that read an empty plan as "retrieve nothing" would turn every
+      // classifier failure into an ungrounded answer.
+      subQuestions: []
     })
   })
 
@@ -165,7 +170,12 @@ describe('classifyQuery', () => {
       intent: 'general',
       // No fused expansions from a failed call — the caller falls back to
       // the standalone expander rather than narrowing the search.
-      expandedQueries: []
+      expandedQueries: [],
+      // Empty plan means "no plan", NOT "look nothing up". needsSources: true
+      // above is what keeps a failed classification searching, and a consumer
+      // that read an empty plan as "retrieve nothing" would turn every
+      // classifier failure into an ungrounded answer.
+      subQuestions: []
     })
   })
 
@@ -185,7 +195,12 @@ describe('classifyQuery', () => {
       intent: 'general',
       // No fused expansions from a failed call — the caller falls back to
       // the standalone expander rather than narrowing the search.
-      expandedQueries: []
+      expandedQueries: [],
+      // Empty plan means "no plan", NOT "look nothing up". needsSources: true
+      // above is what keeps a failed classification searching, and a consumer
+      // that read an empty plan as "retrieve nothing" would turn every
+      // classifier failure into an ungrounded answer.
+      subQuestions: []
     })
   })
 
