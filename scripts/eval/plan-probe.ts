@@ -49,11 +49,26 @@ const CASES: { name: string; text: string; expect: string }[] = [
     text: 'I want to move a Postgres database to a new server with minimal downtime — what are the options, what breaks, and how do people usually verify the cutover',
     expect: 'several'
   },
-  // Current events: one topic, but several angles a good answer needs.
+  // BROAD questions: sweeping in scope but ONE information need. These are the
+  // padding trap. A plan of three here would be three rephrasings of the same
+  // search, firing three near-identical queries — strictly worse than the one
+  // query the old path fired, and the opposite of what this design is for.
+  // Breadth of PHRASING is what expandedQueries exists for; subQuestions is
+  // for breadth of NEED.
   {
-    name: 'current-events',
+    name: 'broad-current-events',
     text: 'what are the biggest technology stories this week',
-    expect: '1-3'
+    expect: '1'
+  },
+  {
+    name: 'broad-topic',
+    text: 'what is happening with AI regulation right now',
+    expect: '1'
+  },
+  {
+    name: 'broad-market',
+    text: 'what is the current state of the housing market',
+    expect: '1'
   }
 ]
 
