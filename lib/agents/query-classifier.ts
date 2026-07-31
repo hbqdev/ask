@@ -262,6 +262,61 @@ function emitClassifierTelemetry(
   }
 }
 
+/**
+ * Off switch for the gate confirmation. On by default: an unconfirmed gate is
+ * the failure mode that suppresses retrieval on a question that needed it.
+ */
+function confirmGateEnabled(): boolean {
+  return process.env.CLASSIFIER_CONFIRM_GATE !== 'off'
+}
+
+/**
+ * One classification round trip. Extracted so the gate can be asked a second
+ * time without rebuilding the prompt or re-emitting telemetry — the confirming
+ * call is not a separate classification, it is a second opinion on one field.
+ *
+ * Returns undefined rather than throwing: a failed confirmation must not take
+ * the turn down, and the caller treats "no answer" as "did not confirm", which
+ * resolves to searching.
+ */
+async function classifyOnce({
+  provider,
+  history,
+  latestMessage,
+  abortSignal
+}: {
+  provider: ReturnType<typeof createOllama>
+  history: string
+  latestMessage: string
+  abortSignal?: AbortSignal
+}): Promise<z.infer<typeof classifierSchema> | undefined> {
+  const result = await generateText({
+    model: provider(CLASSIFIER_MODEL_ID, {
+      think: false,
+      keep_alive: -1,
+      ...(process.env.CLASSIFIER_SEED
+        ? { options: { seed: Number(process.env.CLASSIFIER_SEED) } }
+        : {})
+    }),
+    system: `${CLASSIFIER_SYSTEM_PROMPT}\n\nCurrent date and time: ${new Date().toLocaleString()}`,
+    prompt: `Conversation so far:\n${history}\n\nLatest message: ${latestMessage}`,
+    temperature: 0,
+    abortSignal,
+    tools: {
+      classify: tool({
+        description:
+          "Report the classification of the user's latest message. Always call this tool exactly once.",
+        inputSchema: classifierSchema
+      })
+    },
+    toolChoice: 'required'
+  })
+  const call = result.toolCalls?.[0]
+  return call && call.toolName === 'classify'
+    ? (call.input as z.infer<typeof classifierSchema>)
+    : undefined
+}
+
 export async function classifyQuery({
   messages,
   abortSignal
@@ -340,7 +395,17 @@ export async function classifyQuery({
         // keep_alive: -1 keeps a LOCAL model resident in Ollama's memory —
         // otherwise the default 5-minute idle timeout unloads it and the next
         // classification pays a cold-load penalty. Harmless for cloud models.
-        model: provider(CLASSIFIER_MODEL_ID, { think: false, keep_alive: -1 }),
+        model: provider(CLASSIFIER_MODEL_ID, {
+          think: false,
+          keep_alive: -1,
+          // EXPERIMENT: is the run-to-run flipping seedable at all? Ollama's
+          // Options carries `seed`, and ai-sdk-ollama spreads settings.options
+          // into the request. If the cloud model honours it, temperature 0 plus
+          // a fixed seed should be deterministic and the gate stops coin-flipping.
+          ...(process.env.CLASSIFIER_SEED
+            ? { options: { seed: Number(process.env.CLASSIFIER_SEED) } }
+            : {})
+        }),
         // THE CLASSIFIER HAS TO KNOW WHAT YEAR IT IS. It writes search queries
         // — standaloneQuery, expandedQueries, subQuestions — and without a date
         // it dates them from its training data. Observed directly: asked "what
@@ -377,6 +442,54 @@ export async function classifyQuery({
       }
     } finally {
       if (modelMs === 0) modelMs = performance.now() - modelStart
+    }
+
+    // GATE CONFIRMATION. needsSources decides whether the turn retrieves at
+    // all, and on one class of question the model has no stable opinion about
+    // it. Measured over 5 repetitions per question at temperature 0: concept
+    // questions came back GATED 5/5 and research questions 0/5 in every run,
+    // while 4-5 of the operational questions flipped — and WHICH ones flipped
+    // changed between runs, so it is drift rather than a fixed boundary.
+    //
+    // It is not fixable at the call site. temperature is already 0, and a
+    // fixed seed is genuinely transmitted — verified by intercepting the
+    // request body, which carries {"temperature":0,"seed":42} — and the cloud
+    // model ignores it. The nondeterminism is server-side.
+    //
+    // So the gate is asked TWICE and only fires on agreement. The asymmetry is
+    // deliberate: a turn that searches when it needn't is merely wordier, a
+    // turn that does not search when it should is wrong. Disagreement
+    // therefore resolves to searching.
+    //
+    // Only the would-be-GATED path pays for the second call: if the first
+    // answer already says search, the turn searches and there is nothing to
+    // confirm. On prod that is roughly a third of turns, and they are the ones
+    // that skip a 20-40s retrieval, so the extra ~1.5s lands where there is
+    // budget for it.
+    if (
+      classification &&
+      confirmGateEnabled() &&
+      !classification.needsSources &&
+      !classification.needsRecent &&
+      !classification.skipSearch
+    ) {
+      const confirm = await classifyOnce({
+        provider,
+        history,
+        latestMessage,
+        abortSignal
+      }).catch(() => undefined)
+      const confirmGates =
+        confirm && !confirm.needsSources && !confirm.needsRecent
+      if (!confirmGates) {
+        console.log(
+          `[classify] gate NOT confirmed on second opinion — retrieving. q=${JSON.stringify(classification.standaloneQuery.slice(0, 60))}`
+        )
+        // Flip only the grounding flag. skipSearch and standaloneQuery are
+        // stable and belong to the first answer; overwriting them would
+        // discard a good rewrite over a disagreement about sourcing.
+        classification = { ...classification, needsSources: true }
+      }
     }
 
     const ok = Boolean(classification?.standaloneQuery.trim())
