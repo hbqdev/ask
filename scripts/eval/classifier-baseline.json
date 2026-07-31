@@ -1,74 +1,86 @@
 {
   "standalone-vectordb": {
     "skipSearch": false,
-    "standaloneQuery": "What is the best open-source vector database in 2026?",
+    "standaloneQuery": "Best open source vector database in 2026",
     "needsRecent": true,
-    "intent": "general"
+    "needsSources": true,
+    "intent": "discussion"
   },
   "standalone-photosynthesis": {
     "skipSearch": false,
     "standaloneQuery": "How does photosynthesis work?",
     "needsRecent": false,
+    "needsSources": false,
     "intent": "general"
   },
   "standalone-news": {
     "skipSearch": false,
-    "standaloneQuery": "What are the latest news events concerning OpenAI for this week?",
+    "standaloneQuery": "Latest news about OpenAI this week",
     "needsRecent": true,
+    "needsSources": true,
     "intent": "news"
   },
   "followup-pricing": {
     "skipSearch": false,
-    "standaloneQuery": "What is the pricing for Pinecone's vector database?",
+    "standaloneQuery": "What is Pinecone vector database pricing?",
     "needsRecent": true,
+    "needsSources": true,
     "intent": "general"
   },
   "followup-pronoun": {
     "skipSearch": false,
-    "standaloneQuery": "Where did Dario Amodei attend school?",
+    "standaloneQuery": "Where did Dario Amodei go to school?",
     "needsRecent": false,
+    "needsSources": true,
     "intent": "general"
   },
   "new-entity": {
     "skipSearch": false,
-    "standaloneQuery": "What is Rust?",
+    "standaloneQuery": "What is Rust programming language?",
     "needsRecent": false,
-    "intent": "general"
+    "needsSources": false,
+    "intent": "code"
   },
   "confirm-restate": {
     "skipSearch": true,
-    "standaloneQuery": "Confirm: Is the capital of France Paris?",
+    "standaloneQuery": "Confirm: the capital of France is Paris, right?",
     "needsRecent": false,
+    "needsSources": false,
     "intent": "general"
   },
   "greeting": {
     "skipSearch": true,
-    "standaloneQuery": "Greeting acknowledgment.",
+    "standaloneQuery": "Casual greeting, no search needed",
     "needsRecent": false,
+    "needsSources": false,
     "intent": "general"
   },
   "thanks": {
     "skipSearch": true,
-    "standaloneQuery": "greeting, no search needed",
+    "standaloneQuery": "Acknowledgment, no search needed",
     "needsRecent": false,
+    "needsSources": false,
     "intent": "general"
   },
   "image-gen": {
     "skipSearch": true,
-    "standaloneQuery": "Generate an image of a watercolor fox",
+    "standaloneQuery": "Generate a watercolor image of a fox",
     "needsRecent": false,
+    "needsSources": false,
     "intent": "general"
   },
   "recent-price": {
     "skipSearch": false,
     "standaloneQuery": "What is the current price of Bitcoin?",
     "needsRecent": true,
-    "intent": "general"
+    "needsSources": true,
+    "intent": "news"
   },
   "stable-fact": {
     "skipSearch": false,
-    "standaloneQuery": "What year did the Western Roman Empire fall?",
+    "standaloneQuery": "What year did the Roman Empire fall?",
     "needsRecent": false,
+    "needsSources": false,
     "intent": "general"
   }
 }
