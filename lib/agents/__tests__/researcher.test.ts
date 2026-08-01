@@ -294,3 +294,51 @@ describe('resolveTurnMode', () => {
     expect(resolveTurnMode({ skipSearch: false })).toBe('research')
   })
 })
+
+// A first turn is never gated. Measured by replaying 139 turns from 12 real
+// conversations through the classifier with their ACTUAL history: the gate
+// fired on 75% of first turns and 30% of follow-ups. Every earlier rate in
+// this work came from bare questions with no conversation — which is a first
+// turn by construction — so it measured one turn type and generalised to all.
+//
+// A first turn is also where suppression costs most: no prior context to fall
+// back on. And unlike every other input here, this one is deterministic.
+describe('resolveTurnMode — first turn', () => {
+  it('never gates a first turn, whatever the classifier said', () => {
+    expect(
+      resolveTurnMode({
+        skipSearch: false,
+        needsSources: false,
+        needsRecent: false,
+        isFirstTurn: true
+      })
+    ).toBe('research')
+  })
+
+  it('still gates the identical classification on a follow-up', () => {
+    // Same flags, different turn position — this pair IS the change.
+    expect(
+      resolveTurnMode({
+        skipSearch: false,
+        needsSources: false,
+        needsRecent: false,
+        isFirstTurn: false
+      })
+    ).toBe('stable-knowledge')
+  })
+
+  it('lets skipSearch win even on a first turn', () => {
+    // skipSearch on a first turn means casual chat or an image request, and
+    // DIRECT_ANSWER_PROMPT handles those. Forcing research would make
+    // "hey how's it going" run a web search.
+    expect(resolveTurnMode({ skipSearch: true, isFirstTurn: true })).toBe(
+      'direct'
+    )
+  })
+
+  it('defaults isFirstTurn to false so existing callers are unchanged', () => {
+    expect(resolveTurnMode({ needsSources: false, needsRecent: false })).toBe(
+      'stable-knowledge'
+    )
+  })
+})

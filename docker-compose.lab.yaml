@@ -8,9 +8,12 @@ name: ask-stack-lab
 # unique-contribution difference between sources were both large enough to
 # hide any flow effect. This instance exists to make FLOW the only moving part.
 #
-# RETRIEVAL IS DELIBERATELY REDUCED TO SEARXNG ALONE. Every other source is
-# switched off below. Absolute latencies here therefore do NOT match prod;
-# arms are compared against each other, never against prod numbers.
+# RETRIEVAL WAS DELIBERATELY REDUCED TO SEARXNG ALONE while the architecture
+# A/B ran, so that flow was the only moving part. That job is finished and the
+# source stack is now MATCHED TO STAGING (see the block below), because the
+# open question changed from "which flow is better on one instance" to "how
+# does the pipeline compare to what staging actually serves". Latencies here
+# are therefore comparable with staging and NOT with the earlier arm runs.
 
 services:
   ask:
@@ -19,6 +22,19 @@ services:
       # --- which control flow to run (see lib/agents/flows) ---------------
       # The whole point of this instance. Set per experiment run.
       FLOW_VARIANT: ${FLOW_VARIANT:-baseline}
+
+      # Per-source content budget in the pipeline's prompt (chars). The loop's
+      # search tool does not truncate at all, so this is the one knob that
+      # controls whether the pipeline loses information the loop keeps — the
+      # leading suspect for its quality deficit. Set per experiment run;
+      # unset falls back to the in-code default.
+      PIPELINE_SOURCE_CHARS: ${PIPELINE_SOURCE_CHARS:-}
+
+      # Which ARCHITECTURE to run. Deliberately a different switch from
+      # FLOW_VARIANT: the variants are knobs inside the agentic loop, whereas
+      # `pipeline` removes the loop — the system retrieves and the model gets
+      # one call with no search tool. Unset = the inherited morphic loop.
+      FLOW_ARCH: ${FLOW_ARCH:-}
 
       # --- isolation -------------------------------------------------------
       # Anonymous mode so the benchmark harness can POST /api/chat without a
@@ -33,28 +49,42 @@ services:
       # mean an arm was measured against a different index without saying so.
       SEARXNG_FALLBACK_API_URL: ''
 
-      # --- SearXNG ONLY. Everything else off. ------------------------------
-      # `environment` beats `env_file`, so these empty values override the
-      # keys .env supplies. Each gate treats empty/unset as disabled.
-      DEGOOG_ENABLED: 'false'
-      # Stays DISABLED — the flow experiment is deliberately SearXNG-only, and
-      # turning degoog on here would change the conditions mid-run. The URL is
-      # wired anyway so enabling it is a one-word change: the lab has its own
-      # instance on :4447 with its own Mullvad exit, precisely so benchmark
-      # volume can never burn prod's degoog reputation. Lab is the heaviest
-      # search generator in the fleet, so it is the one that most needs its own.
+      # --- SOURCE STACK: MATCHED TO STAGING -------------------------------
+      # This block used to read "SearXNG ONLY, everything else off", so that
+      # FLOW was the only moving part in a pipeline-vs-loop A/B on this one
+      # instance. That job is done (5 measured builds, judge -16 -> +8).
+      #
+      # The question now is different: how does the pipeline compare to what
+      # STAGING actually serves? Answering that with one source against
+      # staging's five would conflate architecture with retrieval breadth —
+      # the exact confound that produced two wrong conclusions earlier in this
+      # work. So every source is matched to ask-admin-feature, leaving the
+      # architecture as the only difference.
+      #
+      # NOTE this makes lab latencies incomparable with the earlier A/B runs.
+      # Those compared arms on ONE instance; this compares two instances.
+      DEGOOG_ENABLED: 'true'
+      # Lab keeps its OWN degoog instance (:4447, its own Mullvad exit) rather
+      # than sharing staging's (:4446). Deliberate: lab is the heaviest search
+      # generator in the fleet, and benchmark volume must never burn the
+      # reputation of the instance real users depend on. Same software, same
+      # settings — a separate exit, not a different source.
       DEGOOG_API_URL: 'http://192.168.50.231:4447'
-      DEGOOG_API_KEY: ''
-      TAVILY_API_KEY: ''
-      TAVILY_MERGE_ENABLED: 'off'
-      # Unsetting the Brave key matters twice: it disables the advanced-path
-      # merge AND makes getGeneralSearchProviderType() fall back to searxng,
-      # so a type:'general' search stays on SearXNG instead of routing to the
-      # Brave provider.
-      BRAVE_SEARCH_API_KEY: ''
-      BRAVE_MERGE_ENABLED: 'off'
-      LANGSEARCH_API_KEY: ''
-      LANGSEARCH_MERGE_ENABLED: 'off'
+      # NOT blanked. It was, and that silently un-matched the stack this block
+      # claims to match: with an empty key every degoog call returned 401, the
+      # client tripped its circuit breaker, and lab ran the whole
+      # staging-vs-lab comparison on FOUR sources against staging's five.
+      # Measured after the fact: 5 x "degoog responded with 401" and 27 x
+      # "circuit-breaker cooldown" on lab in two hours, zero on prod and
+      # staging. Inherited from .env now, exactly as prod and staging inherit
+      # it — a separate exit is the intended difference, a missing credential
+      # is not.
+      DEGOOG_API_KEY: ${DEGOOG_API_KEY:-}
+      TAVILY_MERGE_ENABLED: 'on'
+      # Tavily, Brave and Langsearch keys now come from .env unset-overridden,
+      # i.e. inherited exactly as staging inherits them. Ollama search stays
+      # off because staging has it off too — matching means matching the
+      # absences as well as the presences.
       OLLAMA_SEARCH_ENABLED: 'off'
       OLLAMA_SEARCH_API_KEY: ''
 
@@ -62,7 +92,7 @@ services:
       # Pinned rather than inherited so an arm can never be accidentally
       # measured against a different model or pool size.
       DEFAULT_CHAT_MODEL: 'kimi-k2.6:cloud'
-      SEARXNG_CRAWL_MULTIPLIER: '2'
+      SEARXNG_CRAWL_MULTIPLIER: '4'
       SEARCH_EXCERPTS_ENABLED: 'true'
       # 'strict' here was a NO-OP — quality-content.ts branches only on
       # `=== 'relaxed'`. See the note in docker-compose.admin-feature.yaml.
