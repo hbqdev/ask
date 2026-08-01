@@ -114,6 +114,19 @@ const classifierSchema = z.object({
   // one-query pipeline lost on retrieval-heavy turns. Saturation at 8 is
   // logged so the cap can be re-judged against evidence rather than raised on
   // a hunch.
+  // THE OPERATIONAL OVERRIDE. Separate from needsSources rather than folded
+  // into it, deliberately: needsSources has measured behaviour worth keeping
+  // (0 flips in 60 concept opportunities), and widening its RULE was measured
+  // to fire on at least 6 of the 13 concept wins the gate is built on. A
+  // separate narrow flag leaves that behaviour untouched and can be evaluated
+  // on its own.
+  //
+  // It only ever forces MORE retrieval — the gate is
+  // `!needsSources && !needsRecent && !operationalTask`, so a false positive
+  // costs a search that was not needed while a false negative costs nothing
+  // that needsSources was not already deciding. Drift here is therefore safe
+  // in a way drift in needsSources is not.
+  operationalTask: z.boolean(),
   subQuestions: z
     .array(z.string())
     .max(8)
@@ -141,6 +154,18 @@ export interface QueryClassification {
    * fallback are unaffected.
    */
   subQuestions?: string[]
+  /**
+   * True when the user is about to CARRY OUT an operation on a system they
+   * run, and a correct answer would have to name specific tools or versions.
+   *
+   * Forces retrieval regardless of needsSources. Measured on the operational
+   * question set, the gate suppressed 61-77% of these turns, and the two most
+   * suppressed — "zero-downtime schema migrations" and "backup strategy for a
+   * self-hosted Postgres database" — were gated 93% of the time CONFIDENTLY.
+   * That is a reliable verdict that is wrong, which no amount of re-asking
+   * corrects, so it needs an override rather than a better sample.
+   */
+  operationalTask?: boolean
   // True when the answer depends on current/recent information (news,
   // prices, versions, releases, schedules, "latest X"). Plumbs through to
   // SearXNG's time_range so this turn's searches prefer fresh pages.
@@ -189,6 +214,10 @@ needsSources is about whether SOURCES WOULD IMPROVE THE ANSWER; needsRecent is a
 
 If uncertain about needsSources, default to needsSources=false — an answer from stable knowledge is better than one padded with sources it did not need.
 
+You also set operationalTask: true when the user is about to CARRY OUT an operation on a system they run or own — a migration, cutover, upgrade, install, backup or restore, capacity planning, or a hardware sizing decision — AND a correct answer would have to name specific tools, products or versions. The test is whether they are about to DO the thing, not whether they want to understand it. "How does Postgres logical replication work" is understanding, so false. "I want to move my Postgres database to a new server, what are my options and what breaks" is doing, so true. "How do I size a home battery for a 6kW solar array" is doing, so true. "What is a bloom filter" and "what does SOLID stand for" are understanding, so false, and so is any question about a concept, a definition, established science, mathematics, or this conversation.
+
+operationalTask forces a search on its own, so when it is true the answer will be grounded whatever needsSources says. Setting it wrongly true costs a search that was not needed; setting it wrongly false leaves the user acting on your memory of tools that may have changed. Prefer true when the user is clearly about to act on their own system.
+
 You also set subQuestions — the RETRIEVAL PLAN. These are the DISTINCT things this turn must look up, one search query each. Do not confuse them with expandedQueries: expandedQueries are different WORDINGS of the same question, subQuestions are different QUESTIONS. "How much does a Framework Laptop 16 cost" needs ONE thing looked up, so one subQuestion, even though it could be phrased three ways. "Compare Anker and Ugreen on warranty, GaN efficiency and price" needs SEVERAL things looked up, so one subQuestion each.
 
 Give exactly as many as the question requires — one for a single fact, several for a comparison or a multi-part question, and never a padded list. Each must stand alone as a search query, with pronouns and references resolved the same way standaloneQuery resolves them. Order them so the one the answer most depends on comes FIRST. Return an empty array when skipSearch is true or needsSources is false — those turns look nothing up.
@@ -215,9 +244,11 @@ Examples:
 8) User: "does creatine actually improve muscle recovery, any studies" -> scientific evidence -> skipSearch=false, needsRecent=false, needsSources=true (research evidence), intent="academic", standaloneQuery="Does creatine improve muscle recovery (research evidence)?"
 9) User: "draw me a picture of the Sydney Opera House" -> pure image-generation request; names a new entity but the assistant's image tool handles it, no web search -> skipSearch=true, needsRecent=false, needsSources=false, intent="general", standaloneQuery="Generate an image of the Sydney Opera House"
 10) User: "what is 17% of 4500" -> pure arithmetic, no external fact involved -> skipSearch=false, needsRecent=false, needsSources=false, intent="general", standaloneQuery="What is 17% of 4500?"
-11) User: "what is the difference between TCP and UDP" -> a stable, widely taught concept; a competent answer needs no page to point at -> skipSearch=false, needsRecent=false, needsSources=false, intent="code", standaloneQuery="What is the difference between TCP and UDP?"
+11) User: "what is the difference between TCP and UDP" -> a stable, widely taught concept; a competent answer needs no page to point at -> skipSearch=false, needsRecent=false, needsSources=false, operationalTask=false (understanding, not doing), intent="code", standaloneQuery="What is the difference between TCP and UDP?"
 12) User: "what does SOLID stand for in software design" -> established terminology -> skipSearch=false, needsRecent=false, needsSources=false, intent="code", standaloneQuery="What does SOLID stand for in software design?"
 13) User: "how much does a Framework Laptop 16 cost right now" -> a current price for a specific named product -> skipSearch=false, needsRecent=true, needsSources=true, intent="general", standaloneQuery="Current price of the Framework Laptop 16", subQuestions=["Framework Laptop 16 current price"] (ONE thing to look up, so one entry)
+14a) User: "I want to move my Postgres database to a new server with minimal downtime, what are the options and what breaks" -> the user is about to perform the migration themselves and the answer must name tools -> skipSearch=false, needsRecent=false, needsSources=false, operationalTask=TRUE (this alone forces the search), intent="code", standaloneQuery="Postgres migration to a new server with minimal downtime: options and failure modes"
+14b) User: "how does Postgres logical replication work" -> the same subject area, but understanding rather than doing -> skipSearch=false, needsRecent=false, needsSources=false, operationalTask=false, intent="code", standaloneQuery="How does Postgres logical replication work?"
 14) User: "compare Anker and Ugreen on warranty, GaN efficiency and price" -> several separate things must be looked up -> skipSearch=false, needsRecent=false, needsSources=true, intent="general", standaloneQuery="Compare Anker and Ugreen USB-C chargers on warranty, GaN efficiency and price", subQuestions=["Anker charger warranty policy", "Ugreen charger warranty policy", "Anker vs Ugreen GaN charger efficiency", "Anker vs Ugreen charger price comparison"]
 15) User: "what is the difference between TCP and UDP" -> stable knowledge, nothing to look up -> skipSearch=false, needsRecent=false, needsSources=false, intent="code", standaloneQuery="What is the difference between TCP and UDP?", subQuestions=[]
 
@@ -350,7 +381,11 @@ export async function classifyQuery({
     // No plan from a failed call. Empty means "no plan", NOT "look nothing
     // up" — needsSources: true above is what keeps a failed classification
     // searching, and any consumer must read the two together.
-    subQuestions: []
+    subQuestions: [],
+    // Irrelevant on the failure path (needsSources: true already searches),
+    // but false rather than true so the flag never reads as "we detected an
+    // operation" when nothing was detected.
+    operationalTask: false
   }
 
   // Runs on a dedicated GPU-backed Ollama host instead of

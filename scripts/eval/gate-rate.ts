@@ -89,7 +89,8 @@ async function main() {
     for (let i = 0; i < REPS; i++) {
       const r = await classifyQuery({ messages: u(c.text) })
       // The gate fires only when both are false — see resolveTurnMode.
-      const gated = !r.needsSources && !r.needsRecent && !r.skipSearch
+      const gated =
+        !r.needsSources && !r.needsRecent && !r.operationalTask && !r.skipSearch
       tally[c.kind].total++
       if (gated) {
         tally[c.kind].gated++

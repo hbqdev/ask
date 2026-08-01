@@ -122,17 +122,31 @@ export type TurnMode = 'direct' | 'stable-knowledge' | 'research'
 export function resolveTurnMode({
   skipSearch = false,
   needsSources = true,
-  needsRecent = false
+  needsRecent = false,
+  operationalTask = false
 }: {
   skipSearch?: boolean
   needsSources?: boolean
   needsRecent?: boolean
+  operationalTask?: boolean
 }): TurnMode {
   // "the conversation already answers this" outranks "general knowledge does".
   if (skipSearch) return 'direct'
-  // BOTH flags: needsRecent=true says the answer decays with time, which
-  // parametric knowledge cannot serve however settled the topic.
-  if (!needsSources && !needsRecent) return 'stable-knowledge'
+  // THREE flags now, all of which must be false to suppress retrieval.
+  //
+  // operationalTask is an override rather than another input to the same
+  // judgement. Measured on the operational question set, the gate suppressed
+  // 61-77% of those turns, and the two most suppressed — zero-downtime schema
+  // migrations, and a backup strategy for a self-hosted database — were gated
+  // 93% of the time CONFIDENTLY, agreeing with themselves on re-ask. That is a
+  // reliable verdict that is wrong, which a second opinion cannot correct.
+  //
+  // needsRecent stays for the same reason it always did: it says the answer
+  // decays with time, which parametric knowledge cannot serve however settled
+  // the topic is.
+  if (!needsSources && !needsRecent && !operationalTask) {
+    return 'stable-knowledge'
+  }
   return 'research'
 }
 
@@ -407,6 +421,7 @@ export async function createResearcher({
   skipSearch = false,
   standaloneQuery,
   needsRecent = false,
+  operationalTask = false,
   needsSources = true,
   expandedQueriesPromise,
   // Auto-detected intent from the query classifier for this turn. Forwarded
@@ -481,6 +496,10 @@ export async function createResearcher({
   // Only the pipeline architecture reads it. Defaults to true because the
   // conservative direction is to ground: a wrong `false` answers from
   // parametric knowledge alone, a wrong `true` costs prompt tokens.
+  // Set by the classifier when the user is about to carry out an operation on
+  // a system they run. Forces retrieval regardless of needsSources — see
+  // resolveTurnMode. Defaults FALSE so no existing caller changes behaviour.
+  operationalTask?: boolean
   needsSources?: boolean
   // In-flight query reformulations (lib/agents/query-expander.ts) — the
   // first search of the turn also searches these variants and merges
@@ -565,8 +584,12 @@ export async function createResearcher({
         sources
       )
     } else if (
-      resolveTurnMode({ skipSearch, needsSources, needsRecent }) ===
-      'stable-knowledge'
+      resolveTurnMode({
+        skipSearch,
+        needsSources,
+        needsRecent,
+        operationalTask
+      }) === 'stable-knowledge'
     ) {
       console.log(
         `[Researcher] Stable-knowledge mode (SOFTENED): maxSteps=10, tools=[${STABLE_KNOWLEDGE_TOOLS.join(', ')}], sources=${JSON.stringify(sources)}`
