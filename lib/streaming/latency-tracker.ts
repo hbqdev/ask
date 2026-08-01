@@ -25,6 +25,12 @@ export class LatencyTracker {
   private readonly partLastSeen: Record<string, number> = {}
   private usage: { inputTokens?: number; outputTokens?: number } | null = null
   private lastStepInputTokens: number | null = null
+  // Citation anchors this turn emitted, split by whether they name a tool call
+  // this same turn made. Both failure modes are silent at render time —
+  // processCitations returns '' for an id it cannot resolve and renders the
+  // wrong source for one belonging to another turn — so without a counter here
+  // there is no signal at all that citations are failing.
+  private citations: { total: number; unresolved: number } | null = null
 
   constructor(
     private readonly meta: Meta,
@@ -70,6 +76,14 @@ export class LatencyTracker {
     this.usage = usage
     this.lastStepInputTokens =
       typeof lastStepInputTokens === 'number' ? lastStepInputTokens : null
+  }
+
+  /**
+   * Record this turn's citation audit. Absent or empty audits are not emitted,
+   * so turns that cited nothing stay out of the denominator.
+   */
+  markCitations(audit: { total: number; unresolved: number }): void {
+    this.citations = audit
   }
 
   /** Emit the single per-turn line. */
@@ -120,6 +134,11 @@ export class LatencyTracker {
           ...(typeof this.usage?.outputTokens === 'number' && {
             completion_tokens: this.usage.outputTokens
           }),
+          ...(this.citations !== null &&
+            this.citations.total > 0 && {
+              citations_total: this.citations.total,
+              citations_unresolved: this.citations.unresolved
+            }),
           total_ms: total,
           // All three, because together they determine which prompt/tool mode
           // the turn got (resolveTurnMode in lib/agents/researcher.ts).

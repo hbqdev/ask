@@ -4,6 +4,7 @@ import type { SearchResultItem } from '@/lib/types'
 import type { UIMessage } from '@/lib/types/ai'
 
 import {
+  auditCitations,
   collapseCitationArtifacts,
   extractCitationMaps,
   isCitationLabel,
@@ -327,6 +328,93 @@ describe('processCitations', () => {
       expect(cleaned).not.toMatch(/  /) // no double spaces
       expect(cleaned).not.toMatch(/\.\./) // no double periods
       expect(cleaned).toMatch(/fact\.\s+more/) // period + whitespace + word
+    })
+  })
+})
+
+describe('auditCitations', () => {
+  const msg = (parts: unknown[]) => ({ parts })
+
+  it('counts an anchor naming this message own tool call as resolved', () => {
+    const result = auditCitations(
+      msg([
+        { type: 'tool-search', toolCallId: 'abc-123' },
+        { type: 'text', text: 'A fact [1](#abc-123).' }
+      ])
+    )
+
+    expect(result).toEqual({ total: 1, own: 1, unresolved: 0 })
+  })
+
+  it('counts an anchor from another turn as unresolved', () => {
+    // The defect this instrumentation exists for: the id is real, it just
+    // belongs to a different message, so a conversation-wide map resolved it
+    // to the wrong source instead of failing.
+    const result = auditCitations(
+      msg([
+        { type: 'tool-search', toolCallId: 'this-turn' },
+        { type: 'text', text: 'GPU spec [1](#previous-turn).' }
+      ])
+    )
+
+    expect(result).toEqual({ total: 1, own: 0, unresolved: 1 })
+  })
+
+  it('counts a fabricated anchor as unresolved', () => {
+    const result = auditCitations(
+      msg([
+        { type: 'tool-search', toolCallId: 'real-id' },
+        { type: 'text', text: 'Claim [1](#aHvy9Vt17r3VSmnG).' }
+      ])
+    )
+
+    expect(result).toEqual({ total: 1, own: 0, unresolved: 1 })
+  })
+
+  it('ignores a bare anchor with no citation number, which is never processed', () => {
+    // processCitations only acts on [N](#id). A bare (#id) stays literal text,
+    // so counting it would inflate the denominator with something that never
+    // had a chance to resolve.
+    const result = auditCitations(
+      msg([
+        { type: 'tool-search', toolCallId: 'abc-123' },
+        { type: 'text', text: 'Loose reference (#abc-123) in prose.' }
+      ])
+    )
+
+    expect(result).toEqual({ total: 0, own: 0, unresolved: 0 })
+  })
+
+  it('resolves through a provider prefix on either side', () => {
+    const result = auditCitations(
+      msg([
+        { type: 'tool-search', toolCallId: 'toolu_abc-123' },
+        { type: 'text', text: 'A [1](#abc-123) and B [2](#toolu_abc-123).' }
+      ])
+    )
+
+    expect(result).toEqual({ total: 2, own: 2, unresolved: 0 })
+  })
+
+  it('tallies a mix across several text parts', () => {
+    const result = auditCitations(
+      msg([
+        { type: 'tool-search', toolCallId: 'own-1' },
+        { type: 'tool-search', toolCallId: 'own-2' },
+        { type: 'text', text: 'One [1](#own-1) two [2](#stale).' },
+        { type: 'text', text: 'Three [3](#own-2) four [4](#made-up).' }
+      ])
+    )
+
+    expect(result).toEqual({ total: 4, own: 2, unresolved: 2 })
+  })
+
+  it('returns zeros for a message with no parts', () => {
+    expect(auditCitations({})).toEqual({ total: 0, own: 0, unresolved: 0 })
+    expect(auditCitations({ parts: [] })).toEqual({
+      total: 0,
+      own: 0,
+      unresolved: 0
     })
   })
 })

@@ -7,7 +7,7 @@ import { UseChatHelpers } from '@ai-sdk/react'
 import { useMediaQuery } from '@/lib/hooks/use-media-query'
 import type { UIDataTypes, UIMessage, UITools } from '@/lib/types/ai'
 import { cn } from '@/lib/utils'
-import { extractCitationMapsFromMessages } from '@/lib/utils/citation'
+import { extractCitationMaps } from '@/lib/utils/citation'
 
 import { WildBreathGlyph } from './ui/wild-breath-logo'
 import { ChatError } from './chat-error'
@@ -111,14 +111,29 @@ export function ChatMessages({
             : DESKTOP_LATEST_SECTION_OFFSET
         }px)`
 
-  // Extract citation maps from all messages in all sections
-  const allCitationMaps = useMemo(() => {
-    const allMessages: UIMessage[] = []
+  // Citation maps are built PER MESSAGE, keyed by message id — never merged
+  // across the conversation.
+  //
+  // A citation can only be supported by a search that same turn ran, so a
+  // conversation-wide map is not a convenience, it is the bug: an anchor the
+  // model carried over from an earlier turn found that turn's map and resolved
+  // cleanly to the wrong source. Measured across prod's history, 120 of 2,975
+  // anchors (4%) named a tool call belonging to a different message and
+  // rendered a confidently wrong domain and link.
+  //
+  // Scoped this way an out-of-turn anchor matches nothing, so processCitations
+  // returns '' and the citation is dropped. Silently absent is strictly better
+  // than confidently wrong, and citations_unresolved on the [latency] line now
+  // counts how often it happens.
+  const citationMapsByMessage = useMemo(() => {
+    const byId: Record<string, ReturnType<typeof extractCitationMaps>> = {}
     sections.forEach(section => {
-      allMessages.push(section.userMessage)
-      allMessages.push(...section.assistantMessages)
+      byId[section.userMessage.id] = extractCitationMaps(section.userMessage)
+      section.assistantMessages.forEach(assistantMessage => {
+        byId[assistantMessage.id] = extractCitationMaps(assistantMessage)
+      })
     })
-    return extractCitationMapsFromMessages(allMessages)
+    return byId
   }, [sections])
 
   if (!sections.length) return null
@@ -247,7 +262,7 @@ export function ChatMessages({
                 addToolResult={addToolResult}
                 onUpdateMessage={onUpdateMessage}
                 reload={reload}
-                citationMaps={allCitationMaps}
+                citationMaps={citationMapsByMessage[section.userMessage.id]}
                 onQuoteContext={onQuoteContext}
               />
             </div>
@@ -284,7 +299,7 @@ export function ChatMessages({
                         : undefined
                     }
                     isLatestMessage={isLatestMessage}
-                    citationMaps={allCitationMaps}
+                    citationMaps={citationMapsByMessage[assistantMessage.id]}
                     onQuoteContext={onQuoteContext}
                   />
                 </div>
