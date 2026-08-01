@@ -294,3 +294,73 @@ describe('LatencyTracker.emit — retrieval decision', () => {
     expect(payload.needsSources).toBeNull()
   })
 })
+
+// Abort forensics. An aborted turn is either a user pressing stop or a
+// provider that went silent, and the raw marks cannot separate them without
+// reconstructing the gap by hand. Measured across 208 prod+staging turns the
+// two aborts were disconnects (8.1s and 36.5s of silence); the one provider
+// stall ever seen was 302s with no prose. The discriminator is the SILENCE.
+describe('LatencyTracker.emit — abort forensics', () => {
+  const capture = () => {
+    const lines: string[] = []
+    let t = 0
+    const tr = new LatencyTracker(
+      { chatId: 'c1', mode: 'balanced' },
+      () => t,
+      (l: string) => lines.push(l)
+    )
+    return { lines, tr, tick: (ms: number) => (t = ms) }
+  }
+  const payload = (lines: string[]) =>
+    JSON.parse(lines[0].replace('[latency] ', ''))
+
+  it('emits nothing about aborts on a normal turn', () => {
+    const { lines, tr, tick } = capture()
+    tick(100)
+    tr.markStreamPart('text-start')
+    tr.emit({})
+    const p = payload(lines)
+    expect(p).not.toHaveProperty('abort_silence_ms')
+    expect(p).not.toHaveProperty('blank_abort')
+  })
+
+  it('reports a client disconnect as an abort WITH prose', () => {
+    const { lines, tr, tick } = capture()
+    tick(1000)
+    tr.markStreamPart('text-start')
+    tick(9000)
+    tr.markStreamPart('abort')
+    tr.emit({})
+    const p = payload(lines)
+    expect(p.blank_abort).toBe(false)
+    expect(p.abort_silence_ms).toBe(8000)
+  })
+
+  it('reports the stall signature as blank with a long silence', () => {
+    // The lab failure: reasoning starts, one delta, then nothing until the
+    // ceiling fires. No text-start ever.
+    const { lines, tr, tick } = capture()
+    tick(26_000)
+    tr.markStreamPart('reasoning-start')
+    tick(26_100)
+    tr.markStreamPart('reasoning-delta')
+    tick(328_000)
+    tr.markStreamPart('abort')
+    tr.emit({})
+    const p = payload(lines)
+    expect(p.blank_abort).toBe(true)
+    expect(p.abort_silence_ms).toBe(301_900)
+  })
+
+  it('measures silence from the LAST mark, not from turn start', () => {
+    // Otherwise a turn that streamed for 200s then disconnected after 5s of
+    // silence would read as a 205s stall.
+    const { lines, tr, tick } = capture()
+    tick(200_000)
+    tr.markStreamPart('reasoning-delta')
+    tick(205_000)
+    tr.markStreamPart('abort')
+    tr.emit({})
+    expect(payload(lines).abort_silence_ms).toBe(5_000)
+  })
+})
