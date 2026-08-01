@@ -36,6 +36,7 @@ import {
   rehydrateFullContent
 } from '../search/rehydrate-full-content'
 import { durableLatencySink } from '../telemetry/latency-store'
+import { auditCitations } from '../utils/citation'
 import {
   getMaxAllowedTokens,
   shouldTruncateMessages,
@@ -609,6 +610,11 @@ export async function createChatStreamResponse(
           // without searching is indistinguishable from one that searched and
           // found nothing, which makes the gate's real-world firing rate
           // unmeasurable — and the gate is a behaviour change worth watching.
+          // Audited before the isAborted guard below so a turn that was cut
+          // short still reports the citations it had already written.
+          if (responseMessage) {
+            latency.markCitations(auditCitations(responseMessage))
+          }
           latency.emit({
             skipSearch: classification?.skipSearch ?? null,
             needsRecent: classification?.needsRecent ?? null,
