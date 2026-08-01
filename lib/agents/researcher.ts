@@ -113,41 +113,16 @@ export type TurnMode = 'direct' | 'stable-knowledge' | 'research'
 export function resolveTurnMode({
   skipSearch = false,
   needsSources = true,
-  needsRecent = false,
-  isFirstTurn = false
+  needsRecent = false
 }: {
   skipSearch?: boolean
   needsSources?: boolean
   needsRecent?: boolean
-  /**
-   * True when this is the opening message of a chat — no prior turns.
-   *
-   * THE STRONGEST SIGNAL AVAILABLE, and the only deterministic one. Replaying
-   * 139 turns from 12 real conversations through the classifier with their
-   * ACTUAL history: the gate fired on 75% of first turns and 30% of
-   * follow-ups. Every rate quoted earlier in this work — 61%, 75%, 77% — came
-   * from handing the classifier bare questions with no conversation, which is
-   * a first turn by construction. That measured one turn type and generalised
-   * it to all of them, and 127 of those 139 turns are follow-ups.
-   *
-   * A first turn is also where suppressing retrieval is most dangerous: there
-   * is no prior context to fall back on, so an ungrounded answer has nothing
-   * behind it but the model's memory. Follow-ups have the conversation, and
-   * skipSearch already catches the ones the conversation genuinely answers.
-   *
-   * Costs nothing to compute and cannot drift — it is a property of the
-   * message list, not a model judgement.
-   */
-  isFirstTurn?: boolean
 }): TurnMode {
   // FIRST, and deliberately: "the conversation already answers this" is a
   // stronger claim than "general knowledge answers this", and it comes with a
   // prompt that reads the conversation rather than ignoring it.
   if (skipSearch) return 'direct'
-  // A first turn never gets gated. See isFirstTurn — this is where the gate
-  // fires most (75%) and where being wrong costs most, and it is the one
-  // input to this decision that involves no model judgement at all.
-  if (isFirstTurn) return 'research'
   // BOTH flags. They are independent — freshness versus whether sources help
   // at all — and needsRecent=true is an explicit statement that the answer
   // decays with time, which parametric knowledge cannot serve however
@@ -427,7 +402,6 @@ export async function createResearcher({
   standaloneQuery,
   needsRecent = false,
   needsSources = true,
-  isFirstTurn = false,
   expandedQueriesPromise,
   // Auto-detected intent from the query classifier for this turn. Forwarded
   // to the search tool so both search paths additively route to
@@ -475,10 +449,6 @@ export async function createResearcher({
   // DEFAULTS TRUE, and that default is the safety property: every existing
   // caller that does not pass this keeps searching exactly as before, so the
   // gate can only ever engage where the classifier deliberately said no.
-  // True when this turn opens the chat. Deterministic, computed from the
-  // message list — see isFirstTurn in resolveTurnMode. Defaults FALSE so no
-  // existing caller changes behaviour.
-  isFirstTurn?: boolean
   needsSources?: boolean
   // In-flight query reformulations (lib/agents/query-expander.ts) — the
   // first search of the turn also searches these variants and merges
@@ -543,12 +513,7 @@ export async function createResearcher({
     let maxSteps: number
     let searchTool = originalSearchTool
 
-    const turnMode = resolveTurnMode({
-      skipSearch,
-      needsSources,
-      needsRecent,
-      isFirstTurn
-    })
+    const turnMode = resolveTurnMode({ skipSearch, needsSources, needsRecent })
 
     if (turnMode === 'direct') {
       systemPrompt = DIRECT_ANSWER_PROMPT
