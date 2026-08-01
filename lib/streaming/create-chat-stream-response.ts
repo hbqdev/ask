@@ -182,6 +182,12 @@ export async function createChatStreamResponse(
     //   the user a built-in override for misclassified turns.
     const latestMessageForModel = messagesToModel[messagesToModel.length - 1]
     const latestMessageText = getTextFromParts(latestMessageForModel?.parts)
+    // Derived from the MESSAGE LIST, not from the client's isNewChat flag: the
+    // flag says "the client thinks this chat is new", this says "there is no
+    // prior turn to fall back on", and only the second is what the gate needs.
+    // A regenerate on a first turn, or a resumed chat, would disagree.
+    const isFirstTurn =
+      messagesToModel.filter(m => m.role === 'user').length <= 1
     const containsUrl = /https?:\/\/\S+/i.test(latestMessageText)
     const isRegenerate = trigger?.startsWith('regenerate') ?? false
     const bypassClassifier = containsUrl || isRegenerate
@@ -487,6 +493,7 @@ export async function createChatStreamResponse(
           standaloneQuery: classification.standaloneQuery,
           needsRecent: classification.needsRecent,
           needsSources: classification.needsSources,
+          isFirstTurn,
           intent: classification.intent,
           expandedQueriesPromise,
           userId,
