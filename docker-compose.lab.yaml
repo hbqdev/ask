@@ -63,7 +63,12 @@ services:
       # measured against a different model or pool size.
       DEFAULT_CHAT_MODEL: 'kimi-k2.6:cloud'
       SEARXNG_CRAWL_MULTIPLIER: '2'
-      SEARCH_EXCERPTS_ENABLED: 'true'
+      # Retired 2026-08-01 — see the result section of
+      # docs/superpowers/specs/2026-07-25-source-excerpts-design.md. Off on all
+      # three stacks. (Lab actually runs from the ask-flow worktree; this copy
+      # is dormant, and is set here so starting lab from this tree cannot
+      # silently resurrect the retired behaviour.)
+      SEARCH_EXCERPTS_ENABLED: 'false'
       # 'strict' here was a NO-OP — quality-content.ts branches only on
       # `=== 'relaxed'`. See the note in docker-compose.admin-feature.yaml.
       SEARCH_QUALITY_FILTER: 'relaxed'
