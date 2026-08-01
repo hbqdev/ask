@@ -651,20 +651,49 @@ export async function createChatStreamResponse(
           // + fail-safe.
           if (userId && process.env.MEMORY_ENABLED !== 'off') {
             void (async () => {
+              // One structured line per turn, whatever happens. Without it the
+              // three benign outcomes (gated off, nothing worth keeping, kept
+              // but deduped against an existing memory) are indistinguishable
+              // from a silent failure — they all just leave the table unchanged.
+              // That ambiguity is exactly what made "staging has no memories"
+              // unanswerable without reading the database.
+              const startedAt = performance.now()
+              const emit = (
+                outcome: string,
+                extra: Record<string, unknown> = {}
+              ) => {
+                try {
+                  console.log(
+                    `[memory] ${JSON.stringify({
+                      chatId,
+                      outcome,
+                      ...extra,
+                      ms: Math.round(performance.now() - startedAt)
+                    })}`
+                  )
+                } catch {
+                  // Telemetry must never break a turn.
+                }
+              }
               try {
-                if (!(await isMemoryEnabled(userId))) return
+                if (!(await isMemoryEnabled(userId))) return emit('disabled')
                 const userText = getTextFromParts(message?.parts)
-                if (!userText?.trim()) return
+                if (!userText?.trim()) return emit('no_user_text')
                 const candidates = await extractMemories({
                   userMessage: userText,
                   standaloneQuery: classification?.standaloneQuery
                 })
-                if (candidates.length > 0) {
-                  await saveCandidates(userId, candidates, {
-                    sourceChatId: chatId
-                  })
-                }
+                if (candidates.length === 0) return emit('no_candidates')
+                const saved = await saveCandidates(userId, candidates, {
+                  sourceChatId: chatId
+                })
+                // saved < candidates means the writer merged or dropped some
+                // against existing memories — a real outcome, not a failure.
+                emit('saved', { candidates: candidates.length, saved })
               } catch (error) {
+                emit('failed', {
+                  error: error instanceof Error ? error.message : String(error)
+                })
                 console.error('[memory] extraction failed:', error)
               }
             })()
