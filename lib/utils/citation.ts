@@ -29,6 +29,73 @@ function stripToolCallPrefix(toolCallId: string): string {
 }
 
 /**
+ * The anchors `processCitations` will actually act on. Kept here so the audit
+ * below counts exactly what rendering processes — a looser pattern would report
+ * anchors that are never resolved at all and just stay as literal text.
+ */
+const CITATION_ANCHOR_RE = /\[\s*(\d+)\s*\]\(#([^)]+)\)/g
+
+export interface CitationAudit {
+  /** Anchors in this message that processCitations will try to resolve. */
+  total: number
+  /** Anchors naming a toolCallId this same message actually made. */
+  own: number
+  /**
+   * Anchors naming anything else — another turn's tool call, or an id that
+   * exists nowhere. Both are defects: the first renders a confidently wrong
+   * source today, the second is silently deleted. Neither is otherwise visible,
+   * which is how a ~19% failure rate went unnoticed across prod's history.
+   */
+  unresolved: number
+}
+
+/**
+ * Count a finished assistant message's citation anchors against the tool calls
+ * that message itself made.
+ *
+ * Deliberately scoped to ONE message, because that is the only correct scope: a
+ * citation can only be supported by a search this turn ran. Resolution today
+ * uses a conversation-wide map (components/chat-messages.tsx), which is why an
+ * anchor carried over from an earlier turn resolves cleanly to the wrong source
+ * instead of failing.
+ *
+ * Pure and message-local so it can run server-side in onFinish, where the
+ * assembled message is available but the render-time maps are not.
+ */
+export function auditCitations(message: {
+  parts?: unknown[] | null
+}): CitationAudit {
+  const ownIds = new Set<string>()
+  const texts: string[] = []
+
+  for (const raw of message?.parts ?? []) {
+    const part = raw as {
+      type?: string
+      text?: unknown
+      toolCallId?: unknown
+    } | null
+    if (!part) continue
+    if (typeof part.toolCallId === 'string' && part.toolCallId) {
+      ownIds.add(stripToolCallPrefix(part.toolCallId))
+    }
+    if (part.type === 'text' && typeof part.text === 'string') {
+      texts.push(part.text)
+    }
+  }
+
+  let total = 0
+  let own = 0
+  for (const text of texts) {
+    for (const match of text.matchAll(CITATION_ANCHOR_RE)) {
+      total++
+      if (ownIds.has(stripToolCallPrefix(match[2]))) own++
+    }
+  }
+
+  return { total, own, unresolved: total - own }
+}
+
+/**
  * Extract citation maps from a message's tool parts
  * Returns a map of toolCallId to citation map
  */
@@ -73,6 +140,13 @@ export function extractCitationMaps(
 /**
  * Extract citation maps from multiple messages
  * Returns a combined map of toolCallId to citation map
+ *
+ * @deprecated Do not use for rendering. Merging maps across a conversation is
+ * what let a citation anchor from one turn resolve against another turn's
+ * results and render a confidently wrong source — 4% of anchors across prod's
+ * history. Rendering now builds one map per message (components/chat-messages.tsx).
+ * Kept only because a caller outside rendering may still want the merged view;
+ * if you reach for it, be sure wrong-turn resolution is acceptable first.
  */
 export function extractCitationMapsFromMessages(
   messages: UIMessage[]
