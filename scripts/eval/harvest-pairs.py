@@ -77,11 +77,20 @@ def turns(inst, chat_id):
     except Exception:
         return []
 
-    out, cur = [], None
+    # Keyed on MESSAGE ID, not on row. The LEFT JOIN emits one row per PART, so
+    # a user message carrying two parts would otherwise open two turns —
+    # chat 7 reported 12 turns for a 9-turn thread that way, which shifted
+    # every subsequent staging/lab comparison by a turn or more.
+    out, cur, seen_user = [], None, None
     for r in rows:
         if r["role"] == "user":
-            cur = {"question": r["text"], "chunks": [], "sources": 0}
-            out.append(cur)
+            if r["mid"] != seen_user:
+                seen_user = r["mid"]
+                cur = {"question": r["text"], "chunks": [], "sources": 0}
+                out.append(cur)
+            elif cur is not None and r["text"].strip():
+                # Continuation part of the same user message.
+                cur["question"] = (cur["question"] + "\n" + r["text"]).strip()
             continue
         if cur is None:
             continue  # assistant part before any user message; not a turn
@@ -91,10 +100,22 @@ def turns(inst, chat_id):
 
     # Joined rather than last-wins: the inter-step text IS part of what the
     # user was shown, and dropping it would flatter the loop's answer length.
+    #
+    # DUPLICATE DETECTION. A turn whose question was already asked earlier in
+    # the same thread is NOT comparable evidence: the model is answering with a
+    # history that already contains the question and its answer, which is a
+    # different task from answering it once. Chat 7 acquired six such turns
+    # when a power cut orphaned one question and the driver batch then ran the
+    # same three questions twice. Flagged rather than dropped here, so the
+    # analyzer can exclude them and SAY it excluded them.
+    seen_q = set()
     for t in out:
         t["text"] = "\n\n".join(t["chunks"])
         t["parts"] = len(t["chunks"])
         del t["chunks"]
+        key = " ".join(t["question"].split()).lower()
+        t["dup"] = key in seen_q
+        seen_q.add(key)
     return out
 
 
@@ -147,6 +168,7 @@ def summarise(inst, chat_id):
             "tool_calls": tel.get("tool_calls"),
             "sources": t.get("sources", 0),
             "answer_parts": t.get("parts", 0),
+            "dup": t.get("dup", False),
             "injected": tel.get("pipeline_injected"),
             "retrieval_s": round((tel.get("pipeline_retrieval_ms") or 0) / 1000, 1)
                            if tel.get("pipeline_retrieval_ms") is not None else None,
@@ -196,7 +218,8 @@ def main():
                 # Only judge turns where BOTH sides answered. An empty answer
                 # is a failure the table above already reports; feeding it to
                 # the judge would count the same defect twice.
-                if s.get("text", "").strip() and l.get("text", "").strip():
+                if (s.get("text", "").strip() and l.get("text", "").strip()
+                        and not s.get("dup") and not l.get("dup")):
                     probe = f"c{pair['chat']}t{i+1}"
                     # The question comes off the persisted USER message, so it
                     # is the text the instance actually answered rather than
@@ -210,7 +233,9 @@ def main():
                 print(f"{i+1:>4} {s.get('total_s',0):>10} {l.get('total_s',0):>8} "
                       f"{s.get('sources',0):>6} {l.get('sources',0):>6} "
                       f"{s.get('chars',0):>6} {l.get('chars',0):>6} {sc:>7} {lc:>7}"
-                      + ("  <-- EMPTY" if s.get("empty") or l.get("empty") else ""))
+                      + ("  <-- EMPTY" if s.get("empty") or l.get("empty") else "")
+                      + ("  <-- DUP (question repeated; excluded)"
+                         if s.get("dup") or l.get("dup") else ""))
     judge_path = Path(a.judge_out)
     judge_path.parent.mkdir(parents=True, exist_ok=True)
     judge_path.write_text("".join(json.dumps(r) + "\n" for r in judge_rows))
