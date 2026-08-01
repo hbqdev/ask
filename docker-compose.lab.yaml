@@ -93,7 +93,13 @@ services:
       # measured against a different model or pool size.
       DEFAULT_CHAT_MODEL: 'kimi-k2.6:cloud'
       SEARXNG_CRAWL_MULTIPLIER: '4'
-      SEARCH_EXCERPTS_ENABLED: 'true'
+      # 'false' since 2026-08-01, matching prod and staging. The A/B this flag
+      # existed for measured it down: per-step prompt size fell only 5% — the
+      # whole point of the change — while steps rose 142%, turns ran 17% slower,
+      # and citation-without-support reproduced on two of two probed turns. Lab
+      # pins it so an arm is never measured against retired behaviour. Result:
+      # docs/superpowers/specs/2026-07-25-source-excerpts-design.md
+      SEARCH_EXCERPTS_ENABLED: 'false'
       # 'strict' here was a NO-OP — quality-content.ts branches only on
       # `=== 'relaxed'`. See the note in docker-compose.admin-feature.yaml.
       SEARCH_QUALITY_FILTER: 'relaxed'
