@@ -122,6 +122,39 @@ export async function upsertMessage(
     : (callback: (tx: any) => Promise<Message>) => db.transaction(callback)
 
   const result = await executeFn(async tx => {
+    // 0. Ownership guard.
+    //
+    // `message.id` is client-supplied (app/api/chat/route.ts only fills it when
+    // absent), and ON CONFLICT below updates by id alone with chatId NOT in the
+    // `set` — so a request naming an EXISTING id belonging to someone else
+    // would leave the row in the victim's chat while step 2 deletes and
+    // replaces its parts and recall chunks. Message ids of public chats are
+    // served to every viewer (app/search/[id]/page.tsx), so a foreign id is not
+    // hard to come by.
+    //
+    // The RLS WITH CHECK policies were the intended defence and never run: the
+    // app role is superuser (rolbypassrls=t) and every table is
+    // relforcerowsecurity=f, so the check has to be here.
+    if (userId) {
+      const [existing] = await tx
+        .select({ chatId: messages.chatId, ownerId: chats.userId })
+        .from(messages)
+        .innerJoin(chats, eq(chats.id, messages.chatId))
+        .where(eq(messages.id, message.id))
+        .limit(1)
+
+      if (existing && existing.ownerId !== userId) {
+        throw new Error(
+          `upsertMessage: message ${message.id} belongs to another user`
+        )
+      }
+      if (existing && existing.chatId !== message.chatId) {
+        throw new Error(
+          `upsertMessage: message ${message.id} belongs to a different chat`
+        )
+      }
+    }
+
     // 1. Insert or update the message
     const messageData = mapUIMessageToDBMessage(message)
     const [dbMessage] = await tx
