@@ -158,7 +158,21 @@ services:
     container_name: ask-redis
     volumes:
       - redis_data:/data
-    command: redis-server --appendonly yes
+    # Bounded, but deliberately NOT evicting. 256mb is ~140x current usage
+    # (1.7-3.5mb across the three stacks), so it is a backstop against runaway
+    # growth, not a working limit.
+    #
+    # noeviction is kept on purpose. The obvious choice, allkeys-lru, would be
+    # wrong here: this Redis holds `tavily:budget:YYYY-MM`, `brave:budget:...`
+    # and `langsearch:budget:...` — monthly API spend meters with ~30 day TTLs.
+    # Evicting one resets the meter to zero, and the app then believes it has
+    # spent nothing and overspends a paid quota. volatile-lru is no safer: those
+    # keys are exactly the ones carrying a TTL.
+    #
+    # With noeviction the failure mode at the ceiling is a rejected write, which
+    # every caller already handles (createDurableSink catches; cache writes are
+    # best-effort). A loud, recoverable failure beats a silent budget reset.
+    command: redis-server --appendonly yes --maxmemory 256mb --maxmemory-policy noeviction
     restart: unless-stopped
 
   # Locally-bundled SearXNG instance, used as an automatic failover target
