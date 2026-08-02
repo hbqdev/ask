@@ -539,6 +539,26 @@ export async function POST(request: Request) {
     if (cachedResults) {
       timer.set('cache', 'hit')
       timer.emit()
+      // A streaming caller parses NDJSON and only accepts lines tagged
+      // 'preview' or 'final' (lib/tools/search.ts). Returning a bare
+      // NextResponse.json here — which this branch did for every cache hit,
+      // because it runs BEFORE the `if (wantsStream)` block below — produced an
+      // object with no `type`, so the caller matched neither branch, left
+      // finalResult undefined and threw "Advanced search stream ended with no
+      // final line". Every warm cache hit turned a free instant result into a
+      // hard tool failure. Stream mode is the default
+      // (SEARCH_STREAM_PREVIEW !== 'false'), so this was the normal path.
+      if (wantsStream) {
+        return new Response(
+          `${JSON.stringify({ type: 'final', ...cachedResults })}\n`,
+          {
+            headers: {
+              'Content-Type': 'application/x-ndjson; charset=utf-8',
+              'Cache-Control': 'no-store'
+            }
+          }
+        )
+      }
       return NextResponse.json(cachedResults)
     }
     timer.set('cache', 'miss')
@@ -559,7 +579,19 @@ export async function POST(request: Request) {
       )
 
     const finish = async (results: SearXNGSearchResults) => {
-      await setCachedResults(cacheKey, results)
+      // Never cache an empty set. advancedSearchXNGSearch swallows its failures
+      // and returns { results: [], images: [], number_of_results: 0 } — both
+      // SearXNG primary and fallback down, an invalid response shape, or any
+      // throw inside crawl/rerank all land here. Caching that persists one
+      // transient blip for the whole hour-long TTL, and getCachedResults treats
+      // `{results: []}` as a hit because it only tests truthiness.
+      //
+      // The basic-depth cache already refuses this, with the same reasoning
+      // spelled out in lib/search/basic-search-cache.ts. The advanced path
+      // simply never got the guard.
+      if (results.results?.length) {
+        await setCachedResults(cacheKey, results)
+      }
       timer.set('returned', results.results?.length ?? 0)
       timer.emit()
     }
