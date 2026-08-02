@@ -5,6 +5,18 @@ vi.mock('@/lib/db')
 vi.mock('langfuse')
 vi.mock('@/lib/utils/telemetry')
 
+// withOptionalRLS branches on userId: null runs callback(db) directly, a real
+// id routes through withRLS -> db.transaction, which the auto-mocked db module
+// cannot satisfy. These tests exercise the QUERY, not transaction plumbing, so
+// both wrappers just hand the callback the mocked db.
+vi.mock('@/lib/db/with-rls', async () => {
+  const { db } = await import('@/lib/db')
+  return {
+    withOptionalRLS: (_userId: unknown, cb: (tx: unknown) => unknown) => cb(db),
+    withRLS: (_userId: unknown, cb: (tx: unknown) => unknown) => cb(db)
+  }
+})
+
 // Import after mocking
 import { Langfuse } from 'langfuse'
 
@@ -12,6 +24,12 @@ import { db } from '@/lib/db'
 import { isTracingEnabled } from '@/lib/utils/telemetry'
 
 import { getMessageFeedback, updateMessageFeedback } from '../feedback'
+
+// updateMessageFeedback is now owner-scoped: it refuses a null userId and
+// resolves the message through an innerJoin on chats.userId, because the RLS
+// policy meant to scope it never evaluates (app role is superuser, tables are
+// relforcerowsecurity=f). getMessageFeedback below is unchanged.
+const TEST_USER_ID = 'test-user-id'
 
 describe('Feedback Actions', () => {
   beforeEach(() => {
@@ -32,7 +50,8 @@ describe('Feedback Actions', () => {
         }
       ])
       const mockWhere = vi.fn().mockReturnValue({ limit: mockLimit })
-      const mockFrom = vi.fn().mockReturnValue({ where: mockWhere })
+      const mockInnerJoin = vi.fn().mockReturnValue({ where: mockWhere })
+      const mockFrom = vi.fn().mockReturnValue({ innerJoin: mockInnerJoin })
       vi.mocked(db).select = vi.fn().mockReturnValue({ from: mockFrom })
 
       // Mock db.update
@@ -43,7 +62,7 @@ describe('Feedback Actions', () => {
       // Mock tracing disabled
       vi.mocked(isTracingEnabled).mockReturnValue(false)
 
-      const result = await updateMessageFeedback(messageId, score)
+      const result = await updateMessageFeedback(messageId, score, TEST_USER_ID)
 
       expect(result).toEqual({ success: true })
       expect(db.select).toHaveBeenCalled()
@@ -57,10 +76,11 @@ describe('Feedback Actions', () => {
       // Mock empty database response
       const mockLimit = vi.fn().mockResolvedValue([])
       const mockWhere = vi.fn().mockReturnValue({ limit: mockLimit })
-      const mockFrom = vi.fn().mockReturnValue({ where: mockWhere })
+      const mockInnerJoin = vi.fn().mockReturnValue({ where: mockWhere })
+      const mockFrom = vi.fn().mockReturnValue({ innerJoin: mockInnerJoin })
       vi.mocked(db).select = vi.fn().mockReturnValue({ from: mockFrom })
 
-      const result = await updateMessageFeedback(messageId, score)
+      const result = await updateMessageFeedback(messageId, score, TEST_USER_ID)
 
       expect(result).toEqual({
         success: false,
@@ -75,10 +95,11 @@ describe('Feedback Actions', () => {
       // Mock database error
       const mockLimit = vi.fn().mockRejectedValue(new Error('Database error'))
       const mockWhere = vi.fn().mockReturnValue({ limit: mockLimit })
-      const mockFrom = vi.fn().mockReturnValue({ where: mockWhere })
+      const mockInnerJoin = vi.fn().mockReturnValue({ where: mockWhere })
+      const mockFrom = vi.fn().mockReturnValue({ innerJoin: mockInnerJoin })
       vi.mocked(db).select = vi.fn().mockReturnValue({ from: mockFrom })
 
-      const result = await updateMessageFeedback(messageId, score)
+      const result = await updateMessageFeedback(messageId, score, TEST_USER_ID)
 
       expect(result.success).toBe(false)
       expect(result.error).toBe('Database error')
@@ -110,7 +131,8 @@ describe('Feedback Actions', () => {
         }
       ])
       const mockWhere = vi.fn().mockReturnValue({ limit: mockLimit })
-      const mockFrom = vi.fn().mockReturnValue({ where: mockWhere })
+      const mockInnerJoin = vi.fn().mockReturnValue({ where: mockWhere })
+      const mockFrom = vi.fn().mockReturnValue({ innerJoin: mockInnerJoin })
       vi.mocked(db).select = vi.fn().mockReturnValue({ from: mockFrom })
 
       // Mock db.update
@@ -118,7 +140,7 @@ describe('Feedback Actions', () => {
       const mockSet = vi.fn().mockReturnValue({ where: mockUpdateWhere })
       vi.mocked(db).update = vi.fn().mockReturnValue({ set: mockSet })
 
-      const result = await updateMessageFeedback(messageId, score)
+      const result = await updateMessageFeedback(messageId, score, TEST_USER_ID)
 
       expect(result).toEqual({ success: true })
       expect(Langfuse).toHaveBeenCalled()
@@ -129,6 +151,42 @@ describe('Feedback Actions', () => {
         comment: 'Thumbs up'
       })
       expect(mockFlush).toHaveBeenCalled()
+    })
+
+    it('refuses to write when the caller has no identity', async () => {
+      // Regression guard. This endpoint previously accepted a null userId and
+      // still reached the UPDATE, and the RLS policy meant to scope it never
+      // evaluates (app role is superuser, tables are relforcerowsecurity=f).
+      vi.mocked(db).select = vi.fn().mockReturnValue({ from: vi.fn() })
+      vi.mocked(db).update = vi.fn().mockReturnValue({ set: vi.fn() })
+
+      const result = await updateMessageFeedback('some-message-id', 1, null)
+
+      expect(result).toEqual({ success: false, error: 'Not authenticated' })
+      expect(db.select).not.toHaveBeenCalled()
+      expect(db.update).not.toHaveBeenCalled()
+    })
+
+    it('does not write a message belonging to another user', async () => {
+      // The ownership join returns no row, so the update must never run.
+      // Message ids of public chats are served to every viewer, which is how a
+      // foreign id reaches this function in the first place.
+      const mockLimit = vi.fn().mockResolvedValue([])
+      const mockWhere = vi.fn().mockReturnValue({ limit: mockLimit })
+      const mockInnerJoin = vi.fn().mockReturnValue({ where: mockWhere })
+      const mockFrom = vi.fn().mockReturnValue({ innerJoin: mockInnerJoin })
+      vi.mocked(db).select = vi.fn().mockReturnValue({ from: mockFrom })
+      vi.mocked(db).update = vi.fn().mockReturnValue({ set: vi.fn() })
+
+      const result = await updateMessageFeedback(
+        'someone-elses-message',
+        1,
+        TEST_USER_ID
+      )
+
+      expect(result).toEqual({ success: false, error: 'Message not found' })
+      expect(mockInnerJoin).toHaveBeenCalled()
+      expect(db.update).not.toHaveBeenCalled()
     })
   })
 
