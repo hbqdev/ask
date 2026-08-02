@@ -1,10 +1,10 @@
 'use server'
 
-import { eq } from 'drizzle-orm'
+import { and, eq } from 'drizzle-orm'
 import { Langfuse } from 'langfuse'
 
 import { db } from '@/lib/db'
-import { messages } from '@/lib/db/schema'
+import { chats, messages } from '@/lib/db/schema'
 import { withOptionalRLS } from '@/lib/db/with-rls'
 import type { UIMessageMetadata } from '@/lib/types/ai'
 import { isTracingEnabled } from '@/lib/utils/telemetry'
@@ -15,16 +15,27 @@ export async function updateMessageFeedback(
   userId: string | null = null
 ): Promise<{ success: boolean; error?: string }> {
   try {
+    // A caller with no identity may not write to anyone's message. Previously a
+    // null userId still reached the UPDATE below, and the RLS policy that was
+    // meant to scope it never evaluates — the app role is superuser and every
+    // table is relforcerowsecurity=f — so the check has to be here, in SQL.
+    if (!userId) {
+      return { success: false, error: 'Not authenticated' }
+    }
+
     // Use RLS context for all database operations
     const result = await withOptionalRLS(userId, async tx => {
-      // Get the current message to preserve existing metadata and get chatId
+      // Resolve the message ONLY if it belongs to a chat this user owns. The
+      // join IS the authorization: without it any messageId was writable, and
+      // message ids of public chats are served to every viewer.
       const [currentMessage] = await tx
         .select({
           metadata: messages.metadata,
           chatId: messages.chatId
         })
         .from(messages)
-        .where(eq(messages.id, messageId))
+        .innerJoin(chats, eq(chats.id, messages.chatId))
+        .where(and(eq(messages.id, messageId), eq(chats.userId, userId)))
         .limit(1)
 
       if (!currentMessage) {

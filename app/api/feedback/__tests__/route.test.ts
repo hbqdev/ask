@@ -11,14 +11,11 @@ vi.mock('next/headers', () => ({
 }))
 
 // Mock Supabase
-vi.mock('@/lib/supabase/server', () => ({
-  createClient: vi.fn(() => ({
-    auth: {
-      getUser: vi.fn(() =>
-        Promise.resolve({ data: { user: null }, error: null })
-      )
-    }
-  }))
+// The route resolves identity through getCurrentUserId, which returns the
+// anonymous user id when ENABLE_AUTH=false and the real id otherwise. Default
+// the tests to an authenticated caller; the 401 path has its own test below.
+vi.mock('@/lib/auth/get-current-user', () => ({
+  getCurrentUserId: vi.fn(() => Promise.resolve('test-user-id'))
 }))
 
 // Mock the modules
@@ -43,6 +40,7 @@ vi.mock('langfuse', () => ({
 import { Langfuse } from 'langfuse'
 
 import { updateMessageFeedback } from '@/lib/actions/feedback'
+import { getCurrentUserId } from '@/lib/auth/get-current-user'
 import { isTracingEnabled } from '@/lib/utils/telemetry'
 
 import { POST } from '../route'
@@ -96,7 +94,7 @@ describe('Feedback API Route', () => {
       expect(updateMessageFeedback).toHaveBeenCalledWith(
         'test-message-id',
         1,
-        null
+        'test-user-id'
       )
     })
 
@@ -294,5 +292,23 @@ describe('Feedback API Route', () => {
 
       consoleErrorSpy.mockRestore()
     })
+  })
+
+  it('rejects an unauthenticated caller before writing anything', async () => {
+    // Regression guard: this route previously required no identity at all, so
+    // any caller could score an arbitrary Langfuse trace and overwrite any
+    // message's metadata. The RLS policy meant to scope the DB write never
+    // evaluates (app role is superuser, tables are relforcerowsecurity=f).
+    vi.mocked(getCurrentUserId).mockResolvedValueOnce(undefined)
+    vi.mocked(isTracingEnabled).mockReturnValue(true)
+
+    const req = new Request('http://localhost/api/feedback', {
+      method: 'POST',
+      body: JSON.stringify({ traceId: 't', score: 1, messageId: 'm' })
+    })
+    const res = await POST(req)
+
+    expect(res.status).toBe(401)
+    expect(updateMessageFeedback).not.toHaveBeenCalled()
   })
 })
