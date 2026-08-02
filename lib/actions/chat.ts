@@ -291,10 +291,16 @@ export async function clearChats() {
     return { success: false, error: 'User not authenticated' }
   }
 
-  const chats = await dbActions.getChats(userId)
+  // One scoped statement instead of a loop whose results were thrown away.
+  // The old form called deleteChat per chat and ignored every return value —
+  // and deleteChat swallows its errors and returns { success: false } rather
+  // than throwing — so clearChats reported success even when it had deleted
+  // nothing at all. deleteUserChats already existed for exactly this, scoped by
+  // user_id with messages and parts cascading, and was simply never wired up.
+  const result = await dbActions.deleteUserChats(userId)
 
-  for (const chat of chats) {
-    await dbActions.deleteChat(chat.id, userId)
+  if (!result.success) {
+    return result
   }
 
   // Clear all chat caches since we deleted all chats
