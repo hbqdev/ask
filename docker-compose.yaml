@@ -211,7 +211,7 @@ volumes:
   redis_data:
     name: ask-redis-data
   uploads:
-    name: morphic-uploads
+    name: ask-uploads
   model-cache:
     name: ask-model-cache
   searxng_data:
