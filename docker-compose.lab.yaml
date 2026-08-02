@@ -100,9 +100,18 @@ services:
       # pins it so an arm is never measured against retired behaviour. Result:
       # docs/superpowers/specs/2026-07-25-source-excerpts-design.md
       SEARCH_EXCERPTS_ENABLED: 'false'
-      # 'strict' here was a NO-OP — quality-content.ts branches only on
-      # `=== 'relaxed'`. See the note in docker-compose.admin-feature.yaml.
-      SEARCH_QUALITY_FILTER: 'relaxed'
+      # Shell-settable so the never-run A/B can toggle arms against ONE build:
+      #   SEARCH_QUALITY_FILTER=strict docker compose ... up -d ask
+      # Note quality-content.ts branches only on `=== 'relaxed'`, so ANY other
+      # value ('strict', unset, a typo) selects the strict path. The A/B is
+      # therefore relaxed-vs-not-relaxed; 'strict' is a label, not a mode.
+      SEARCH_QUALITY_FILTER: ${SEARCH_QUALITY_FILTER:-relaxed}
+      # Pre-crawl snippet gate. 'on' enforces, 'shadow' scores without acting,
+      # anything else is off (snippet-gate.ts:32). Phase 2 of
+      # docs/superpowers/specs/2026-07-26-snippet-gate-design.md was specified
+      # and never measured; shell-settable so it can be.
+      SEARCH_SNIPPET_GATE: ${SEARCH_SNIPPET_GATE:-off}
+      SEARCH_SNIPPET_GATE_TOP_N: ${SEARCH_SNIPPET_GATE_TOP_N:-40}
       CLASSIFIER_MODEL_ID: 'glm-5.2:cloud'
       CLASSIFIER_OLLAMA_BASE_URL: 'http://192.168.50.231:11434'
       # Per-tool-call payload logging: the arms differ in WHICH tools they

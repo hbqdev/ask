@@ -898,10 +898,20 @@ export async function updateChatTitle(
 ): Promise<Chat | null> {
   const capped = title.substring(0, CHAT_TITLE_MAX_LENGTH)
   return withOptionalRLS(userId || null, async tx => {
+    // Ownership is enforced HERE, in the predicate, not by the RLS policy.
+    // The policy exists but never runs: the app connects as `morphic`, which is
+    // both table owner and superuser (rolsuper/rolbypassrls = t) while every
+    // table is relforcerowsecurity = f, so RLS is bypassed unconditionally.
+    // updateChatVisibility directly above already checks ownership explicitly;
+    // this function was the odd one out, updating by chat id alone.
     const [updatedChat] = await tx
       .update(chats)
       .set({ title: capped })
-      .where(eq(chats.id, chatId))
+      .where(
+        userId
+          ? and(eq(chats.id, chatId), eq(chats.userId, userId))
+          : eq(chats.id, chatId)
+      )
       .returning()
 
     return updatedChat || null
