@@ -639,7 +639,17 @@ export function createSearchTool(
             let providerMs = 0
             searchResult = await withBasicSearchCache(
               basicSearchCacheKey(
-                `${filledQuery}|${search_mode}|${include_domains.join(',')}|${exclude_domains.join(',')}|${toolOptions?.intent ?? ''}`,
+                // content_types belongs in the key: it is passed to the provider
+                // below and materially changes the request — driving
+                // extraCategories -> SearXNG `categories`, the
+                // wantsVideo/wantsNews degoog sub-fetches, and the `videos`
+                // field. Without it a ['web'] search and a ['video'] search
+                // for the same string collide: the second gets the first's
+                // cached body, with videos empty and the video-category
+                // engines never queried, so the model concludes no video
+                // sources exist. Sorted so ['web','video'] and
+                // ['video','web'] share one entry rather than two.
+                `${filledQuery}|${search_mode}|${include_domains.join(',')}|${exclude_domains.join(',')}|${toolOptions?.intent ?? ''}|${[...((content_types as string[] | undefined) ?? [])].sort().join(',')}`,
                 effectiveMaxResults,
                 toolOptions?.timeRange
               ),
