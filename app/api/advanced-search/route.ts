@@ -493,6 +493,34 @@ async function maybeFetchLangSearch(
   return results
 }
 
+/**
+ * Include/exclude domain filtering, shared by the pre-merge and post-merge
+ * passes. Substring match on hostname, matching the original inline behaviour.
+ * A malformed URL is dropped rather than throwing — `new URL` on a bad href
+ * previously took the whole request down.
+ */
+function applyDomainFilter<T extends { url: string }>(
+  results: T[],
+  includeDomains: string[],
+  excludeDomains: string[]
+): T[] {
+  if (includeDomains.length === 0 && excludeDomains.length === 0) return results
+  return results.filter(result => {
+    let domain: string
+    try {
+      domain = new URL(result.url).hostname
+    } catch {
+      return false
+    }
+    return (
+      (includeDomains.length === 0 ||
+        includeDomains.some(d => domain.includes(d))) &&
+      (excludeDomains.length === 0 ||
+        !excludeDomains.some(d => domain.includes(d)))
+    )
+  })
+}
+
 export async function POST(request: Request) {
   const {
     query,
@@ -871,18 +899,13 @@ async function advancedSearchXNGSearch(
       (result: SearXNGResult) => result && !result.img_src
     )
 
-    // Apply domain filtering manually
-    if (includeDomains.length > 0 || excludeDomains.length > 0) {
-      generalResults = generalResults.filter(result => {
-        const domain = new URL(result.url).hostname
-        return (
-          (includeDomains.length === 0 ||
-            includeDomains.some(d => domain.includes(d))) &&
-          (excludeDomains.length === 0 ||
-            !excludeDomains.some(d => domain.includes(d)))
-        )
-      })
-    }
+    // Apply domain filtering to SearXNG's own results. NOTE this is not
+    // sufficient on its own — see applyDomainFilter after the merges below.
+    generalResults = applyDomainFilter(
+      generalResults,
+      includeDomains,
+      excludeDomains
+    )
 
     // degoog parity: fold degoog web results into the candidate pool BEFORE
     // crawl+rerank so the advanced (deepest) search has the same source union
@@ -940,6 +963,22 @@ async function advancedSearchXNGSearch(
         maxResults * SEARXNG_CRAWL_MULTIPLIER
       )
     }
+
+    // Re-apply the domain filter across the FULL pool.
+    //
+    // The filter above only ever saw SearXNG's results, and five provider
+    // merges run after it — degoog, tavily, brave, langsearch, ollama — none of
+    // which receive the domain arguments at all (they are called with the bare
+    // query). Worse, several of them PREPEND, so the unfiltered results led the
+    // pool. A user saying "not pinterest" had pinterest stripped from SearXNG
+    // and then merged straight back in from Brave or Tavily; include_domains
+    // was worse still, since the pool was headed by results that matched
+    // nothing the user asked for.
+    generalResults = applyDomainFilter(
+      generalResults,
+      includeDomains,
+      excludeDomains
+    )
 
     // Pre-crawl ranks, hoisted so the returned_ranks telemetry below can still
     // see them after the advanced block closes. Empty unless the gate ran.
