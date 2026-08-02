@@ -346,6 +346,22 @@ describe('auditCitations', () => {
     expect(result).toEqual({ total: 1, own: 1, unresolved: 0 })
   })
 
+  it('counts an invented slug as unresolved even when a real call exists', () => {
+    // The observed failure: the turn fetched a page, had no citable anchor for
+    // it under the old rules, and composed `fetch_1`.
+    const result = auditCitations(
+      msg([
+        {
+          type: 'tool-fetch',
+          toolCallId: 'b55c29d0-2325-4dc9-a791-c62189549a0d'
+        },
+        { type: 'text', text: 'Per the page [1](#fetch_1).' }
+      ])
+    )
+
+    expect(result).toEqual({ total: 1, own: 0, unresolved: 1 })
+  })
+
   it('counts an anchor from another turn as unresolved', () => {
     // The defect this instrumentation exists for: the id is real, it just
     // belongs to a different message, so a conversation-wide map resolved it
@@ -407,6 +423,33 @@ describe('auditCitations', () => {
     )
 
     expect(result).toEqual({ total: 4, own: 2, unresolved: 2 })
+  })
+
+  it('treats a fetch tool call as citable', () => {
+    // Fetched pages return the same {results:[{title,url,content}]} shape as
+    // search and are read to write the answer, so an anchor naming a fetch is
+    // legitimate — not a fabrication.
+    const result = auditCitations(
+      msg([
+        { type: 'tool-fetch', toolCallId: 'fetch-abc' },
+        { type: 'text', text: 'From the page [1](#fetch-abc).' }
+      ])
+    )
+
+    expect(result).toEqual({ total: 1, own: 1, unresolved: 0 })
+  })
+
+  it('does not treat a non-citable tool as resolvable', () => {
+    // calculate/get_weather/todoWrite carry toolCallIds but produce no citation
+    // map, so counting them would make the audit disagree with rendering.
+    const result = auditCitations(
+      msg([
+        { type: 'tool-calculate', toolCallId: 'calc-1' },
+        { type: 'text', text: 'The total is 42 [1](#calc-1).' }
+      ])
+    )
+
+    expect(result).toEqual({ total: 1, own: 0, unresolved: 1 })
   })
 
   it('returns zeros for a message with no parts', () => {

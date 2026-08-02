@@ -75,7 +75,15 @@ export function auditCitations(message: {
       toolCallId?: unknown
     } | null
     if (!part) continue
-    if (typeof part.toolCallId === 'string' && part.toolCallId) {
+    // Only CITABLE tool parts count as resolvable. Counting every part with a
+    // toolCallId (calculate, get_weather, todoWrite) would score an anchor as
+    // resolved that extractCitationMaps never builds a map for, making the
+    // counter disagree with rendering.
+    if (
+      typeof part.toolCallId === 'string' &&
+      part.toolCallId &&
+      CITABLE_TOOL_PART_TYPES.has(part.type ?? '')
+    ) {
       ownIds.add(stripToolCallPrefix(part.toolCallId))
     }
     if (part.type === 'text' && typeof part.text === 'string') {
@@ -99,6 +107,25 @@ export function auditCitations(message: {
  * Extract citation maps from a message's tool parts
  * Returns a map of toolCallId to citation map
  */
+/**
+ * Tool parts whose output can back a citation.
+ *
+ * `fetch` belongs here for the same reason `search` does: it returns
+ * `{ state, results: [{ title, url, content }] }` — the identical shape — and
+ * its results are pages the answer is written from. Excluding it made fetched
+ * sources structurally uncitable: the prompt told the model to cite searches
+ * only, so a turn that read a page via fetch had no valid anchor for it and
+ * invented one (`fetch_1`, and 74 `fetch_`/`search_`-shaped slugs across the
+ * three stacks). 43% of prod assistant messages contain a fetch part, so this
+ * was not an edge case.
+ *
+ * Shared with auditCitations deliberately. When the audit counted "any part
+ * with a toolCallId" and this counted only search, a correctly-cited fetch
+ * scored as resolved in telemetry while still failing to render — the counter
+ * disagreeing with the thing it counts.
+ */
+const CITABLE_TOOL_PART_TYPES = new Set(['tool-search', 'tool-fetch'])
+
 export function extractCitationMaps(
   message: UIMessage
 ): Record<string, Record<number, SearchResultItem>> {
@@ -107,9 +134,9 @@ export function extractCitationMaps(
   if (!message.parts) return citationMaps
 
   message.parts.forEach((part: any) => {
-    // Check for search tool output
+    // Any tool whose output carries citable results (search, fetch)
     if (
-      part.type === 'tool-search' &&
+      CITABLE_TOOL_PART_TYPES.has(part.type) &&
       part.state === 'output-available' &&
       part.output &&
       part.toolCallId
