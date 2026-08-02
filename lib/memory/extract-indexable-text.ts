@@ -13,6 +13,25 @@ export interface IndexablePart {
 // anchor), so genuine links in the answer are left intact.
 const CITATION_MARKER_RE = /\[\d+\]\(#[^)]*\)/g
 
+// BARE tool call ids, e.g. `2ee2fc5b-5ca8-4f26-a149-d3f22358333d`, written into
+// the answer text as prose rather than inside a citation marker. Observed
+// verbatim in a persisted answer:
+//
+//   "So Fossies is [3] for search 1 ID `2ee2fc5b-5ca8-4f26-a149-d3f22358333d`."
+//
+// CITATION_MARKER_RE above does not touch these — they are not in `[N](#id)`
+// form — so they survived into conversation_chunks. Conversation recall then
+// injected that text into a LATER, unrelated chat, where the model saw what
+// looked like a live tool call id and cited it. Confirmed on lab: a turn cited
+// an id belonging to a message in a different chat, and every one of its
+// citations was dropped as unresolvable. Contaminated chunks at the time of the
+// fix: lab 8, staging 12, prod 13.
+//
+// An id is only meaningful inside the turn that produced it, so it carries no
+// value for a future retrieval either — stripping costs nothing.
+const BARE_TOOL_CALL_ID_RE =
+  /\b[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\b/gi
+
 function textOf(parts: IndexablePart[]): string[] {
   return parts
     .filter(
@@ -100,6 +119,9 @@ export function extractIndexableText(
   const selected = textOf(relevant)
   if (selected.length === 0) return ''
 
-  const joined = selected.join('\n\n').replace(CITATION_MARKER_RE, '')
+  const joined = selected
+    .join('\n\n')
+    .replace(CITATION_MARKER_RE, '')
+    .replace(BARE_TOOL_CALL_ID_RE, '')
   return collapseWhitespace(joined)
 }
