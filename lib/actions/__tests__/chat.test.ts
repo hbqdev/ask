@@ -471,15 +471,34 @@ describe('Chat Actions', () => {
 
       vi.mocked(getCurrentUserId).mockResolvedValue(userId)
       vi.mocked(dbActions.getChats).mockResolvedValue(mockChats)
-      vi.mocked(dbActions.deleteChat).mockResolvedValue({ success: true })
+      vi.mocked(dbActions.deleteUserChats).mockResolvedValue({ success: true })
 
       const result = await clearChats()
 
       expect(result).toEqual({ success: true })
-      expect(dbActions.deleteChat).toHaveBeenCalledTimes(2)
-      expect(dbActions.deleteChat).toHaveBeenCalledWith('chat-1', userId)
-      expect(dbActions.deleteChat).toHaveBeenCalledWith('chat-2', userId)
+      // One scoped statement, not a per-chat loop whose results were discarded.
+      expect(dbActions.deleteUserChats).toHaveBeenCalledWith(userId)
       expect(revalidateTag).toHaveBeenCalledWith('chat', 'max')
+    })
+
+    it('reports failure instead of claiming success when the delete fails', async () => {
+      // Regression guard: clearChats used to loop deleteChat, discard every
+      // return value, and return { success: true } unconditionally — and
+      // deleteChat swallows its errors rather than throwing, so a total failure
+      // was reported to the user as a successful wipe.
+      vi.mocked(getCurrentUserId).mockResolvedValue('user-123')
+      vi.mocked(dbActions.deleteUserChats).mockResolvedValue({
+        success: false,
+        error: 'Failed to delete user chats'
+      })
+
+      const result = await clearChats()
+
+      expect(result).toEqual({
+        success: false,
+        error: 'Failed to delete user chats'
+      })
+      expect(revalidateTag).not.toHaveBeenCalled()
     })
   })
 
