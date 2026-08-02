@@ -2,6 +2,7 @@ import { generateText, tool, UIMessage } from 'ai'
 import { createOllama } from 'ai-sdk-ollama'
 import { z } from 'zod'
 
+import { durableLatencySink } from '../telemetry/latency-store'
 import { SEARCH_INTENTS } from '../tools/search/intent'
 import { createTimeoutFetch } from '../utils/fetch-with-timeout'
 import { getTextFromParts } from '../utils/message-utils'
@@ -213,7 +214,14 @@ function emitClassifierTelemetry(
   t: Parameters<typeof buildClassifierTelemetry>[0]
 ): void {
   try {
-    console.log(buildClassifierTelemetry(t))
+    // Durable, not console.log, for the same reason the per-turn [latency]
+    // line is: Docker's json-file driver is per-container, so every rebuild
+    // destroyed this history. That is why the classifier's own outcome field
+    // ('ok' | 'empty' | 'failed') existed for weeks and still could not answer
+    // "how often does the classifier fall back?" — the evidence was deleted on
+    // each deploy. The sink logs first and pushes asynchronously with its own
+    // catch, so this cannot fail a turn.
+    durableLatencySink(buildClassifierTelemetry(t))
   } catch {
     // ignored
   }
@@ -259,6 +267,12 @@ export async function classifyQuery({
     process.env.CLASSIFIER_OLLAMA_BASE_URL || process.env.OLLAMA_BASE_URL
 
   if (!classifierBaseUrl) {
+    emitClassifierTelemetry({
+      totalMs: performance.now() - startedAt,
+      modelMs: 0,
+      model: CLASSIFIER_MODEL_ID,
+      outcome: 'unconfigured'
+    })
     return fallback
   }
 
