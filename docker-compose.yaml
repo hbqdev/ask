@@ -158,7 +158,13 @@ services:
     container_name: ask-redis
     volumes:
       - redis_data:/data
-    command: redis-server --appendonly yes
+    # Bounded, but deliberately NOT evicting — see the note on this line in the
+    # prod compose. Short version: this Redis holds tavily/brave/langsearch
+    # monthly spend meters, which carry TTLs, so both allkeys-lru and
+    # volatile-lru would evict the counters that stop the app overspending a
+    # paid quota. noeviction turns the ceiling into a rejected write, which
+    # every writer already tolerates.
+    command: redis-server --appendonly yes --maxmemory 256mb --maxmemory-policy noeviction
     restart: unless-stopped
 
   # Locally-bundled SearXNG instance, used as an automatic failover target
