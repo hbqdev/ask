@@ -57,6 +57,16 @@ describe('upsertMessage', () => {
 
     mockTx = {
       execute: vi.fn(),
+      // upsertMessage's ownership guard looks the message up first. Default to
+      // "no existing row", which is the insert case these tests cover; the
+      // guard has its own tests below.
+      select: vi.fn(() => ({
+        from: vi.fn(() => ({
+          innerJoin: vi.fn(() => ({
+            where: vi.fn(() => ({ limit: vi.fn(async () => []) }))
+          }))
+        }))
+      })),
       insert: vi.fn((table: unknown) => {
         insertCalls.push(table)
         return table === messagesTable ? messagesChain : noopChain
@@ -123,5 +133,55 @@ describe('upsertMessage', () => {
     )
 
     expect(insertCalls).toContain(partsTable)
+  })
+
+  it('refuses to upsert a message id owned by another user', async () => {
+    // Regression guard. message.id is client-supplied and ON CONFLICT updates
+    // by id alone with chatId NOT in the set, so without this the row would
+    // stay in the victim's chat while its parts and recall chunks were deleted
+    // and replaced. The RLS WITH CHECK policy that was meant to stop this never
+    // runs (app role is superuser, tables are relforcerowsecurity=f).
+    mockTx.select = vi.fn(() => ({
+      from: vi.fn(() => ({
+        innerJoin: vi.fn(() => ({
+          where: vi.fn(() => ({
+            limit: vi.fn(async () => [
+              { chatId: 'c1', ownerId: 'someone-else' }
+            ])
+          }))
+        }))
+      }))
+    }))
+
+    await expect(
+      upsertMessage(
+        { id: 'm1', chatId: 'c1', role: 'assistant', parts: [] } as any,
+        'me'
+      )
+    ).rejects.toThrow(/belongs to another user/)
+
+    expect(insertCalls).toEqual([])
+    expect(deleteCalls).toEqual([])
+  })
+
+  it('refuses to move an existing message into a different chat', async () => {
+    mockTx.select = vi.fn(() => ({
+      from: vi.fn(() => ({
+        innerJoin: vi.fn(() => ({
+          where: vi.fn(() => ({
+            limit: vi.fn(async () => [{ chatId: 'other-chat', ownerId: 'me' }])
+          }))
+        }))
+      }))
+    }))
+
+    await expect(
+      upsertMessage(
+        { id: 'm1', chatId: 'c1', role: 'assistant', parts: [] } as any,
+        'me'
+      )
+    ).rejects.toThrow(/different chat/)
+
+    expect(insertCalls).toEqual([])
   })
 })
