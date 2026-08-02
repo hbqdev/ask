@@ -128,4 +128,27 @@ describe('extractIndexableText', () => {
     ]
     expect(extractIndexableText('assistant', parts)).toBe('')
   })
+
+  it('strips bare tool call ids so recall cannot leak them into a later chat', () => {
+    // Regression guard for a confirmed cross-chat leak. The model wrote tool
+    // call ids into the ANSWER TEXT as prose, not inside a [N](#id) marker, so
+    // CITATION_MARKER_RE left them alone and they reached conversation_chunks.
+    // Recall injected that text into an unrelated chat, the model saw what
+    // looked like a live id and cited it, and every citation on that turn was
+    // dropped as unresolvable.
+    const text = extractIndexableText('assistant', [
+      {
+        type: 'text',
+        text:
+          '## Redis\n\nSo Fossies is [3] for search 1 ID ' +
+          '`2ee2fc5b-5ca8-4f26-a149-d3f22358333d`. Version 8.2 [1](#abc).'
+      }
+    ])
+
+    expect(text).not.toContain('2ee2fc5b-5ca8-4f26-a149-d3f22358333d')
+    expect(text).not.toContain('[1](#abc)')
+    // The prose itself must survive — only the id is removed.
+    expect(text).toContain('Fossies')
+    expect(text).toContain('Version 8.2')
+  })
 })
