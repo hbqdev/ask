@@ -22,7 +22,12 @@ set -uo pipefail
 # cron gives a near-empty PATH; docker and flock both live in /usr/bin.
 export PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
 
-ROTATE=/home/nightfury/selfhosted/ask/fleet-boot/rotate-mullvad.sh
+# Resolved relative to this script, not hardcoded to one worktree. These
+# scripts exist in every worktree (ask, ask-prod, ask-flow); pinning the path
+# to /selfhosted/ask meant a prod cron reached into the DEVELOPMENT tree, so a
+# branch checkout there could silently change or remove what prod runs nightly.
+SCRIPT_DIR="$(cd -- "$(dirname -- "$(readlink -f -- "$0")")" && pwd)"
+ROTATE="$SCRIPT_DIR/rotate-mullvad.sh"
 LOG_DIR="${XDG_STATE_HOME:-$HOME/.local/state}/fleet-boot"
 LOG="$LOG_DIR/rotate-daily.log"
 LOCK=/tmp/fleet-boot-rotate.lock
