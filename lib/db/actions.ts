@@ -162,7 +162,14 @@ export async function upsertMessage(
       .values(messageData)
       .onConflictDoUpdate({
         target: messages.id,
-        set: { role: messageData.role }
+        // metadata is refreshed too. The conflict path replaces ALL of the
+        // message's parts below, so keeping the old metadata left the row
+        // describing a turn that no longer exists — a stale traceId, and a
+        // stale searchMode that getChatBadgeData reads straight back out of
+        // metadata->>'searchMode' to label the chat. Reached by a user editing
+        // their message (prepare-messages) and by the post-commit retry in
+        // persist-stream-results.
+        set: { role: messageData.role, metadata: messageData.metadata }
       })
       .returning()
 
@@ -276,11 +283,18 @@ export async function deleteMessagesAfter(
   userId?: string
 ): Promise<{ count: number }> {
   return withOptionalRLS(userId || null, async tx => {
-    // Get the message's timestamp
+    // Get the message's timestamp — scoped to THIS chat.
+    //
+    // Resolving the pivot by id alone let a messageId from a different chat
+    // supply the cutoff timestamp, while the delete below is scoped to chatId.
+    // The pair then deleted whatever in this chat happened to fall after an
+    // unrelated message's createdAt. The caller checks chat ownership, so this
+    // was self-damage rather than a cross-user issue — but it silently deleted
+    // the wrong messages from a chat the user does own.
     const [targetMessage] = await tx
       .select({ createdAt: messages.createdAt })
       .from(messages)
-      .where(eq(messages.id, messageId))
+      .where(and(eq(messages.id, messageId), eq(messages.chatId, chatId)))
       .limit(1)
 
     if (!targetMessage) {
