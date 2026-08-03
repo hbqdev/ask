@@ -333,6 +333,20 @@ export async function classifyQuery({
             inputSchema: classifierSchema
           })
         },
+        // NOT enforcement — a hint at best. ai-sdk-ollama never forwards
+        // toolChoice: getCallOptions destructures prompt/temperature/
+        // maxOutputTokens/topP/topK/penalties/stopSequences/seed/responseFormat/
+        // tools and nothing else, pushes no warning, and the only two
+        // toolChoice references in the whole bundle sit in an unrelated
+        // generateText helper — one of which explicitly filters it OUT of what
+        // is forwarded. Kept because it costs nothing and is correct for any
+        // provider that does honour it.
+        //
+        // So this call depends on the model VOLUNTEERING `classify`. When it
+        // does not, toolCalls[0] is undefined, ok=false, and the fallback below
+        // makes the turn always-search. That path is no longer silent: it emits
+        // outcome:'empty' to the durable sink, so the rate is measurable rather
+        // than assumed.
         toolChoice: 'required'
       })
       modelMs = performance.now() - modelStart
