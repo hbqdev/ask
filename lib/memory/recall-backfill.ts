@@ -1,4 +1,4 @@
-import { db } from '@/lib/db'
+import { db, dbAdmin } from '@/lib/db'
 import { isRecallEnabled, messagesWithoutChunks } from '@/lib/db/recall-actions'
 import { chats } from '@/lib/db/schema'
 
@@ -114,7 +114,11 @@ export async function backfillAllUsers(): Promise<BackfillAllUsersResult> {
   let chunks = 0
   let skipped = 0
   let failed = 0
-  const rows = await db.selectDistinct({ userId: chats.userId }).from(chats)
+  // Cross-user system read (every user's id, to backfill each) — must use the
+  // admin client, since it has no per-user context to satisfy RLS.
+  const rows = await dbAdmin
+    .selectDistinct({ userId: chats.userId })
+    .from(chats)
   for (const { userId } of rows) {
     const r = await backfillUser(userId)
     messages += r.messages
