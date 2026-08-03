@@ -303,6 +303,40 @@ export function truncateMessages(
     result.shift()
   }
 
+  // The message being answered must survive. Two boundary paths above could
+  // drop it, and both are worse than any amount of lost history:
+  //
+  //   1. A single user message larger than maxTokens. It fails the 30% reserve
+  //      (`firstUserTokens < maxTokens * 0.3`) so it is never added, and the
+  //      reverse loop `continue`s past it because i === firstUserIndex. The
+  //      function returned [] and the turn called stream({ messages: [] }).
+  //   2. [user('a'), assistant, user(oversized)]. 'a' takes the reserve, the
+  //      newest message does not fit, and the recovery branch requires
+  //      recentMessages.length > 0 — which is false — so it breaks. The result
+  //      was exactly [user('a')]: the model answers the FIRST question and
+  //      never sees the one just asked.
+  //
+  // Reachable in practice: transform-file-parts inlines whole pdftotext output
+  // into the user message with no size cap, and shouldTruncateMessages only
+  // guards the unknown-window case, not "one message exceeds the window".
+  const lastUserIndex = messages.map(m => m.role).lastIndexOf('user')
+  if (lastUserIndex >= 0) {
+    const lastUser = messages[lastUserIndex]
+    if (!result.includes(lastUser)) {
+      // Prefer dropping older context over dropping the live question.
+      const lastUserTokens = estimateTokenCount(lastUser.content, modelId)
+      let budget = maxTokens - lastUserTokens
+      while (budget < 0 && result.length > 0) {
+        const dropped = result.shift()
+        if (dropped) budget += estimateTokenCount(dropped.content, modelId)
+      }
+      result.push(lastUser)
+      while (result.length > 0 && result[0].role !== 'user') {
+        result.shift()
+      }
+    }
+  }
+
   return result
 }
 
