@@ -9,7 +9,14 @@ services:
     env_file: .env
     environment:
       DATABASE_URL: postgresql://${POSTGRES_USER:-morphic}:${POSTGRES_PASSWORD:-morphic}@postgres:5432/${POSTGRES_DB:-morphic}
-      DATABASE_RESTRICTED_URL: postgresql://${POSTGRES_USER:-morphic}:${POSTGRES_PASSWORD:-morphic}@postgres:5432/${POSTGRES_DB:-morphic}
+      # The application runtime connects through this URL. When it points at the
+      # non-superuser `app_user` role (supplied per stack via .env, which holds
+      # the secret), RLS is ENFORCED — cross-user access is denied at the
+      # database, not merely by app-layer predicates. Migrations and the
+      # file/ingest worker still use DATABASE_URL (owner) via the dbAdmin client.
+      # Falls back to the owner URL when .env does not set it, preserving the
+      # pre-split behaviour on any stack that has not created the role yet.
+      DATABASE_RESTRICTED_URL: ${DATABASE_RESTRICTED_URL:-postgresql://${POSTGRES_USER:-morphic}:${POSTGRES_PASSWORD:-morphic}@postgres:5432/${POSTGRES_DB:-morphic}}
       DATABASE_SSL_DISABLED: 'true'
       ENABLE_AUTH: 'true'
       MORPHIC_CLOUD_DEPLOYMENT: 'false'

@@ -61,6 +61,28 @@ export const db = drizzle(client, {
   schema: { ...schema, ...relations }
 })
 
+// Admin (owner) client, used ONLY for genuine system/cross-user operations that
+// have no per-user context and cannot go through withRLS: the file/ingest
+// worker (file-actions.ts), the worker's file read (ingest/file/[id]), and the
+// cross-user recall backfill. Everything user-facing stays on `db`, which — when
+// DATABASE_RESTRICTED_URL points at a non-superuser role — is subject to RLS.
+//
+// Backwards compatible: with no DATABASE_RESTRICTED_URL set, `db` already uses
+// DATABASE_URL, so dbAdmin is the SAME client and behaviour is unchanged from
+// before the split. The split only takes effect once the restricted role exists.
+const adminConnectionString = process.env.DATABASE_URL ?? connectionString
+export const dbAdmin =
+  adminConnectionString === connectionString
+    ? db
+    : drizzle(
+        postgres(adminConnectionString, {
+          ssl: sslConfig,
+          prepare: false,
+          max: 5
+        }),
+        { schema: { ...schema, ...relations } }
+      )
+
 // Helper type for all tables
 export type Schema = typeof schema
 

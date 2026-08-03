@@ -5,11 +5,13 @@ vi.mock('@/lib/db/recall-actions', () => ({
   isRecallEnabled: vi.fn(async () => true)
 }))
 vi.mock('../recall-index', () => ({ indexMessage: vi.fn(async () => 3) }))
+const { selectDistinct } = vi.hoisted(() => ({ selectDistinct: vi.fn() }))
 vi.mock('@/lib/db', () => ({
-  db: { selectDistinct: vi.fn() }
+  db: { selectDistinct },
+  dbAdmin: { selectDistinct }
 }))
 
-import { db as rawDb } from '@/lib/db'
+import { dbAdmin as rawDb } from '@/lib/db'
 import * as db from '@/lib/db/recall-actions'
 
 import { backfillAllUsers, backfillUser } from '../recall-backfill'
