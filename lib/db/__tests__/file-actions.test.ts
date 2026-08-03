@@ -9,7 +9,12 @@ const { execute, select } = vi.hoisted(() => ({
   execute: vi.fn(),
   select: vi.fn()
 }))
-vi.mock('@/lib/db', () => ({ db: { execute, select } }))
+// file-actions imports `dbAdmin` (the admin client). Point it at the same
+// mocked builders — the module aliases it to db internally.
+vi.mock('@/lib/db', () => ({
+  db: { execute, select },
+  dbAdmin: { execute, select }
+}))
 
 const { stat, unlink, readdir } = vi.hoisted(() => ({
   stat: vi.fn(),
