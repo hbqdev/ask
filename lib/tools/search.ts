@@ -14,6 +14,7 @@ import {
 import type { FullContentByToolCall } from '@/lib/search/rehydrate-full-content'
 import { buildSearchTelemetryTag } from '@/lib/telemetry/search-tag'
 import { StageTimer } from '@/lib/telemetry/stage-timer'
+import { normalizeUrl } from '@/lib/tools/search/providers/merge-degoog'
 import { SearchResultItem, SearchResults } from '@/lib/types'
 import { readNdjson } from '@/lib/utils/ndjson'
 import { isOllamaSearchConfigured } from '@/lib/utils/ollama-search-client'
@@ -717,11 +718,22 @@ export function createSearchTool(
         const variantResults = await variantResultsPromise
         toolTimer?.mark('variant_wait_ms', performance.now() - variantStart)
         if (variantResults.length > 0) {
-          const seenUrls = new Set((searchResult.results ?? []).map(r => r.url))
+          // normalizeUrl, not raw string equality. Every other merge in the
+          // pipeline (degoog, tavily, brave, langsearch, ollama, general) keys
+          // on it; this one call site compared raw hrefs, so the SAME page
+          // reached from a differently-phrased variant —
+          // https://example.com/a vs https://www.example.com/a/?utm_source=x —
+          // was appended as a second source. That is a duplicate entry in
+          // results, a duplicate citation index (extractCitationMaps derives
+          // them positionally), and the page's text sent to the model twice.
+          const seenUrls = new Set(
+            (searchResult.results ?? []).map(r => normalizeUrl(r.url))
+          )
           const merged = [...(searchResult.results ?? [])]
           for (const r of variantResults) {
-            if (r.url && !seenUrls.has(r.url)) {
-              seenUrls.add(r.url)
+            const key = r.url ? normalizeUrl(r.url) : ''
+            if (key && !seenUrls.has(key)) {
+              seenUrls.add(key)
               merged.push(r)
             }
           }
