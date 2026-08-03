@@ -484,7 +484,14 @@ export function createSearchTool(
 
           const response = await fetch(`${baseUrl}/api/advanced-search`, {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
+            headers: {
+              'Content-Type': 'application/json',
+              // Internal-service auth: advanced-search now rejects any caller
+              // without this token, closing the unauthenticated public reach.
+              ...(process.env.INGEST_API_TOKEN && {
+                authorization: `Bearer ${process.env.INGEST_API_TOKEN}`
+              })
+            },
             body: JSON.stringify({
               query: filledQuery,
               maxResults: effectiveMaxResults,
