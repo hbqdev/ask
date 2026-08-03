@@ -8,7 +8,12 @@ import { and, eq, inArray, sql } from 'drizzle-orm'
 import { promises as fs } from 'node:fs'
 import path from 'node:path'
 
-import { db } from '@/lib/db'
+// This module is the file/ingest WORKER. Its system functions (claim, expire,
+// GC, status updates) operate across ALL users, and its user-facing reads
+// self-scope by an explicit userId param taken from the session. It therefore
+// uses the admin (RLS-bypassing) client — the restricted `db` would deny its
+// unscoped system queries once RLS is enforced.
+import { dbAdmin as db } from '@/lib/db'
 // The `files` table is exported as `libraryFiles` in schema.ts (its SQL
 // table name is still "files"); alias on import so this module reads the
 // way the rest of the codebase — and the ingestion plan — refers to it.

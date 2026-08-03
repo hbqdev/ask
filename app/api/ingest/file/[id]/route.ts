@@ -6,7 +6,7 @@ import { stat } from 'node:fs/promises'
 import path from 'node:path'
 import { Readable } from 'node:stream'
 
-import { db } from '@/lib/db'
+import { dbAdmin as db } from '@/lib/db'
 import { libraryFiles as files } from '@/lib/db/schema'
 import { checkIngestAuth } from '@/lib/utils/ingest-auth'
 
