@@ -38,21 +38,40 @@ export function createTimeoutFetch(
     const signals = [init?.signal, externalSignal].filter(
       (s): s is AbortSignal => s != null
     )
+    // Listeners are tracked so they can be removed. getModel builds ONE
+    // timeout-fetch per turn and reuses it for every step, so an un-removed
+    // listener accumulated per HTTP call on the request's AbortSignal — up to
+    // 50 on a balanced turn and 100 on quality, past Node's EventTarget warning
+    // threshold of 10.
+    const detach: Array<() => void> = []
     for (const signal of signals) {
       if (signal.aborted) {
         controller.abort(signal.reason)
       } else {
-        signal.addEventListener(
-          'abort',
-          () => controller.abort(signal.reason),
-          {
-            once: true
-          }
-        )
+        const onAbort = () => {
+          // The request is over either way, so the deadline is moot. Clearing
+          // here is what covers a cancelled or errored body — the client
+          // disconnecting mid-stream — which never reaches flush() below.
+          clearTimeout(timer)
+          controller.abort(signal.reason)
+        }
+        signal.addEventListener('abort', onAbort, { once: true })
+        detach.push(() => signal.removeEventListener('abort', onAbort))
       }
     }
 
-    const response = await fetch(input, { ...init, signal: controller.signal })
+    let response: Response
+    try {
+      response = await fetch(input, { ...init, signal: controller.signal })
+    } catch (error) {
+      // fetch() itself rejected — connection refused, DNS failure, abort. The
+      // timer was only ever cleared in flush() or the no-body return below, so
+      // on this path a 300s timer stayed armed holding the closure and the
+      // AbortController until it fired.
+      clearTimeout(timer)
+      for (const off of detach) off()
+      throw error
+    }
 
     // fetch()'s own promise resolves once response headers arrive — for a
     // streaming chat completion, that's only the very start. A naive
@@ -66,14 +85,21 @@ export function createTimeoutFetch(
     // the whole request via `controller.signal` regardless of when it fires.
     if (!response.body) {
       clearTimeout(timer)
+      for (const off of detach) off()
       return response
+    }
+
+    const settle = () => {
+      clearTimeout(timer)
+      for (const off of detach) off()
     }
 
     const timedBody = response.body.pipeThrough(
       new TransformStream({
-        flush() {
-          clearTimeout(timer)
-        }
+        // flush() runs only on a NORMAL close. A cancelled or errored body —
+        // the client disconnecting mid-stream, which is the common case here —
+        // never reached it, leaving the timer armed.
+        flush: settle
       })
     )
 
