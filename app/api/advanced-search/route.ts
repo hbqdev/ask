@@ -1268,7 +1268,17 @@ async function advancedSearchXNGSearch(
             error
           )
           const MIN_RELEVANCE_SCORE = 10
-          generalResults = generalResults
+          // Score the ORIGINAL pool, not generalResults.
+          //
+          // generalResults is mutated by applyReranked. If the cross-encoder
+          // ran and its 0.1 floor filtered everything, it is already [] — that
+          // is the documented fall-through to this tier — so scoring it here
+          // returned zero sources whenever the bi-encoder ALSO threw (model
+          // load, OOM). Both other tiers read docsForRerank; this was the only
+          // consumer of mutated state, which is why it was the only one that
+          // could silently return nothing.
+          generalResults = docsForRerank
+            .map(d => d.original)
             .map(result => ({
               ...result,
               score: calculateRelevanceScore(result, query)
