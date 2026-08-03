@@ -234,4 +234,45 @@ describe('context-window', () => {
       expect(resultWithoutModel).toBeDefined()
     })
   })
+
+  describe('truncateMessages boundary cases', () => {
+    const big = (n: number) => 'word '.repeat(n)
+
+    test('never returns an empty prompt when one message exceeds the window', () => {
+      // Previously returned [] and the turn called stream({ messages: [] }).
+      // Reachable because transform-file-parts inlines whole pdftotext output
+      // into the user message with no size cap.
+      const messages = [{ role: 'user' as const, content: big(20000) }]
+
+      const result = truncateMessages(messages, 100, 'test-model')
+
+      expect(result.length).toBeGreaterThan(0)
+      expect(result[result.length - 1].role).toBe('user')
+    })
+
+    test('keeps the question being asked, not the first one', () => {
+      // Previously returned exactly [user('hello')] — the model answered the
+      // FIRST question and never saw the one just asked.
+      const messages = [
+        { role: 'user' as const, content: 'hello' },
+        { role: 'assistant' as const, content: 'hi' },
+        { role: 'user' as const, content: big(20000) }
+      ]
+
+      const result = truncateMessages(messages, 100, 'test-model')
+
+      const last = result[result.length - 1]
+      expect(last.role).toBe('user')
+      expect(last.content).toBe(messages[2].content)
+    })
+
+    test('still returns everything when it already fits', () => {
+      const messages = [
+        { role: 'user' as const, content: 'short question' },
+        { role: 'assistant' as const, content: 'short answer' }
+      ]
+
+      expect(truncateMessages(messages, 100000, 'test-model')).toEqual(messages)
+    })
+  })
 })
