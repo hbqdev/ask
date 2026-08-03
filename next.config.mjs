@@ -10,6 +10,47 @@ const nextConfig = {
   ],
   // Reverse proxy for PostHog to reduce tracking-blocker interception.
   skipTrailingSlashRedirect: true,
+  // Security response headers. The app previously returned none. These are the
+  // zero-feature-risk set — they change no rendering behaviour:
+  //   - HSTS: force HTTPS on the public tunnel (ignored on plain-http localhost)
+  //   - frame-ancestors 'none' + X-Frame-Options: clickjacking
+  //   - nosniff: no MIME-sniffing of responses
+  //   - Referrer-Policy: do not leak full URLs cross-origin
+  //   - Permissions-Policy: deny powerful APIs the app never uses
+  //
+  // A full Content-Security-Policy is deliberately NOT set here: the app renders
+  // model-emitted markdown images from arbitrary domains (streamdown `![](url)`
+  // → plain <img>), so an `img-src`/`connect-src` allowlist — the part that
+  // would close the prompt-injection image-exfiltration channel — cannot be
+  // added without breaking that feature or proxying every external image first.
+  // That is a design decision, tracked separately, not a header toggle.
+  async headers() {
+    return [
+      {
+        source: '/:path*',
+        headers: [
+          {
+            key: 'Strict-Transport-Security',
+            value: 'max-age=63072000; includeSubDomains'
+          },
+          { key: 'X-Frame-Options', value: 'DENY' },
+          {
+            key: 'Content-Security-Policy',
+            value: "frame-ancestors 'none'; base-uri 'self'; object-src 'none'"
+          },
+          { key: 'X-Content-Type-Options', value: 'nosniff' },
+          {
+            key: 'Referrer-Policy',
+            value: 'strict-origin-when-cross-origin'
+          },
+          {
+            key: 'Permissions-Policy',
+            value: 'camera=(), microphone=(), geolocation=(), payment=()'
+          }
+        ]
+      }
+    ]
+  },
   async rewrites() {
     return [
       {
