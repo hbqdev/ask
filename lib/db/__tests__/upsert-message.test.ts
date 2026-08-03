@@ -44,13 +44,14 @@ describe('upsertMessage', () => {
   let insertCalls: unknown[]
   let deleteCalls: unknown[]
   let mockTx: any
+  let messagesChain: any
 
   beforeEach(() => {
     vi.clearAllMocks()
     insertCalls = []
     deleteCalls = []
 
-    const messagesChain = makeChain([
+    messagesChain = makeChain([
       { id: 'm1', chatId: 'c1', role: 'assistant', createdAt: new Date() }
     ])
     const noopChain = makeChain(undefined)
@@ -183,5 +184,26 @@ describe('upsertMessage', () => {
     ).rejects.toThrow(/different chat/)
 
     expect(insertCalls).toEqual([])
+  })
+
+  it('refreshes metadata on conflict, not just role', () => {
+    // The conflict path replaces ALL of the message's parts, so keeping the old
+    // metadata left the row describing a turn that no longer exists — a stale
+    // traceId, and a stale searchMode that getChatBadgeData reads back out of
+    // metadata->>'searchMode' to label the chat.
+    return upsertMessage(
+      {
+        id: 'm1',
+        chatId: 'c1',
+        role: 'assistant',
+        parts: [],
+        metadata: { searchMode: 'quality', traceId: 'new-trace' }
+      } as any,
+      undefined
+    ).then(() => {
+      expect(messagesChain.onConflictDoUpdate).toHaveBeenCalled()
+      const arg = messagesChain.onConflictDoUpdate.mock.calls[0][0]
+      expect(Object.keys(arg.set)).toContain('metadata')
+    })
   })
 })
