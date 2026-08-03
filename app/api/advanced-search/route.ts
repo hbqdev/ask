@@ -45,6 +45,7 @@ import {
   extractReadableContent,
   MIN_CONTENT_LENGTH
 } from '@/lib/utils/extract-content'
+import { checkIngestAuth } from '@/lib/utils/ingest-auth'
 import {
   fetchLangSearch,
   isLangSearchConfigured,
@@ -522,6 +523,18 @@ function applyDomainFilter<T extends { url: string }>(
 }
 
 export async function POST(request: Request) {
+  // Internal-service endpoint. The ONLY caller is lib/tools/search.ts, server-
+  // to-server, inside a chat turn that is already authenticated and rate-limited
+  // at /api/chat. Before this it was reachable UNAUTHENTICATED over the public
+  // tunnel, so anyone on the internet could drive SearXNG crawls and the metered
+  // Tavily/Brave/LangSearch merges — draining paid quotas and compute. It now
+  // requires the shared internal-service bearer token (same one the ingest
+  // routes use); an external caller cannot forge it.
+  const auth = checkIngestAuth(request.headers.get('authorization'))
+  if (!auth.ok) {
+    return new NextResponse(null, { status: auth.status })
+  }
+
   const {
     query,
     maxResults,
