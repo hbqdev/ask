@@ -28,6 +28,7 @@ import {
 } from '@/lib/utils/flaresolverr'
 import { mapWithConcurrency } from '@/lib/utils/map-with-concurrency'
 import { retryWithBackoff } from '@/lib/utils/retry'
+import { assertUrlAllowed } from '@/lib/utils/ssrf-guard'
 import { logToolPayload } from '@/lib/utils/usage-logging'
 import { withDeadline } from '@/lib/utils/with-deadline'
 
@@ -595,6 +596,16 @@ async function fetchPdfWithRescue(url: string): Promise<SearchResultsType> {
  * concurrently — the logic per url is unchanged.
  */
 async function fetchOneUrl(url: string): Promise<SearchResultsType> {
+  // SSRF guard BEFORE the deadline race, so a blocked internal/private URL
+  // fails fast with its real reason ("Blocked outbound request to …: private or
+  // reserved IPv4") instead of being masked by withDeadline's generic
+  // "exceeded 40000ms" fallback. Its own DNS check is internally bounded
+  // (DNS_TIMEOUT_MS), so it cannot itself hang. This is the single point every
+  // fetched URL — YouTube, PDF, rescue chain — passes through, and it runs
+  // before any request is made or the URL is handed to an external scraper
+  // (Firecrawl/Jina). See lib/utils/ssrf-guard.ts.
+  await assertUrlAllowed(url)
+
   // The deadline lives HERE, at the per-url boundary, not inside the regular
   // rescue chain. It was originally on fetchWithRescueChain, which left the
   // YouTube-transcript and PDF branches completely unbounded — a prod turn then
