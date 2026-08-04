@@ -60,6 +60,7 @@ export default function AppSidebar({ user }: { user: User | null }) {
       <SidebarHeader className="flex flex-col items-center py-4 gap-3 border-b border-border/40 px-2">
         <Link
           href="/"
+          onClick={closeDrawerOnMobile}
           className="flex items-center justify-center size-9 rounded-lg hover:bg-muted/50 transition-colors duration-150"
         >
           <WildBreathGlyph className="size-6" />
