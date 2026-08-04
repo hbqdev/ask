@@ -1,5 +1,6 @@
 import { resolveDegoogUrl } from '@/lib/tools/search/providers/merge-degoog'
 import type { DegoogResponse } from '@/lib/types'
+import { decodeHtmlEntities } from '@/lib/utils/decode-html-entities'
 import { fetchDegoogJson } from '@/lib/utils/degoog-client'
 import { dedupeByUrl, isDisplayable, shuffle } from '@/lib/utils/discover-mix'
 
@@ -227,7 +228,16 @@ async function searchSearxng(
     const res = await fetch(url.toString(), { signal: controller.signal })
     if (!res.ok) return { results: [] }
     const data = await res.json()
-    return { results: data.results ?? [] }
+    // Sources return HTML-encoded text (e.g. &#x27;, &quot;); the feed renders
+    // these fields directly as React text nodes, which do not decode entities.
+    const results: DiscoverItem[] = (data.results ?? []).map(
+      (r: DiscoverItem) => ({
+        ...r,
+        title: decodeHtmlEntities(r.title),
+        content: decodeHtmlEntities(r.content)
+      })
+    )
+    return { results }
   } catch {
     return { results: [] }
   } finally {
@@ -259,8 +269,8 @@ async function searchDegoogNews(
 
     const data = result.data as DegoogResponse
     return (data.results ?? []).map(item => ({
-      title: item.title,
-      content: item.snippet,
+      title: decodeHtmlEntities(item.title),
+      content: decodeHtmlEntities(item.snippet),
       url: item.url,
       thumbnail: resolveDegoogUrl(item.thumbnail ?? '', baseUrl)
     }))
