@@ -59,7 +59,7 @@ function SmallNewsCard({ item }: { item: Discover }) {
           />
         </div>
         <div className="p-4 pb-2">
-          <h3 className="font-semibold text-sm mb-2 leading-tight line-clamp-2 group-hover:text-cyan-500 dark:group-hover:text-cyan-300 transition duration-200">
+          <h3 className="font-semibold text-sm mb-2.5 leading-snug line-clamp-2 group-hover:text-cyan-500 dark:group-hover:text-cyan-300 transition duration-200">
             {item.title}
           </h3>
           <p className="text-black/60 dark:text-white/60 text-xs leading-relaxed line-clamp-2">
@@ -100,7 +100,7 @@ function MajorNewsCard({
   const text = (
     <div className="flex flex-col justify-center flex-1 py-4 min-w-0">
       <h2
-        className="text-3xl font-light mb-3 leading-tight line-clamp-3 group-hover:text-cyan-500 dark:group-hover:text-cyan-300 transition duration-200"
+        className="text-3xl font-light mb-3.5 leading-snug line-clamp-3 group-hover:text-cyan-500 dark:group-hover:text-cyan-300 transition duration-200"
         style={{ fontFamily: 'Georgia, serif' }}
       >
         {item.title}
