@@ -375,7 +375,7 @@ export default function LibraryPage() {
     <div className="flex flex-col h-full overflow-y-auto">
       <div className="max-w-2xl mx-auto w-full px-4 py-8 flex flex-col gap-6">
         {/* Header */}
-        <div className="flex items-start justify-between gap-4">
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between sm:gap-4">
           <div className="flex flex-col gap-1.5">
             <div className="flex items-center gap-3">
               <IconLibrary className="size-8 text-primary" />
@@ -386,7 +386,7 @@ export default function LibraryPage() {
             </p>
           </div>
 
-          <div className="flex items-center gap-2 mt-1">
+          <div className="flex flex-wrap items-center gap-2 sm:mt-1">
             {!isEmpty && (
               <span className="inline-flex items-center gap-1.5 text-xs font-medium text-muted-foreground border border-border px-2.5 py-1 rounded-full">
                 <IconLibrary className="size-3.5" />
