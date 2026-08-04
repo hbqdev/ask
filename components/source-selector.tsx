@@ -76,16 +76,16 @@ export function SourceSelector() {
         <button
           type="button"
           className={cn(
-            'flex items-center gap-1.5 rounded-full border bg-background px-3 py-1.5 text-xs font-medium',
+            'flex items-center gap-1.5 rounded-full border bg-background px-2 py-1.5 text-xs font-medium sm:px-3',
             'text-muted-foreground hover:text-foreground transition-colors',
             open && 'text-foreground'
           )}
         >
           <IconGlobe className="size-3.5 text-sky-500" />
-          <span>{triggerLabel}</span>
+          <span className="hidden sm:inline">{triggerLabel}</span>
           <IconChevronDown
             className={cn(
-              'size-3 opacity-50 transition-transform',
+              'hidden size-3 opacity-50 transition-transform sm:block',
               open && 'rotate-180'
             )}
           />

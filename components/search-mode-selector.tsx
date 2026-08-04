@@ -74,7 +74,7 @@ export function SearchModeSelector({
         <button
           type="button"
           className={cn(
-            'inline-flex items-center gap-1.5 rounded-full border bg-background px-3 py-1.5 text-xs font-medium shadow-none',
+            'inline-flex items-center gap-1.5 rounded-full border bg-background px-2 py-1.5 text-xs font-medium shadow-none sm:px-3',
             'transition-[background-color,color,box-shadow,transform]',
             'hover:bg-muted focus:outline-none'
           )}
@@ -88,10 +88,10 @@ export function SearchModeSelector({
               )}
             />
           )}
-          <span>{selectedMode?.label}</span>
+          <span className="hidden sm:inline">{selectedMode?.label}</span>
           <ChevronDown
             className={cn(
-              'ml-0.5 size-3 opacity-50 transition-transform duration-[160ms] ease-[var(--motion-ease-out)]',
+              'ml-0.5 hidden size-3 opacity-50 transition-transform duration-[160ms] ease-[var(--motion-ease-out)] sm:block',
               open && 'rotate-180'
             )}
           />
