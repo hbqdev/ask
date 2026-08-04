@@ -59,7 +59,7 @@ function SmallNewsCard({ item }: { item: Discover }) {
           />
         </div>
         <div className="p-4 pb-2">
-          <h3 className="font-semibold text-sm mb-2.5 leading-snug line-clamp-2 group-hover:text-cyan-500 dark:group-hover:text-cyan-300 transition duration-200">
+          <h3 className="font-semibold text-sm mb-2.5 leading-snug line-clamp-3 group-hover:text-cyan-500 dark:group-hover:text-cyan-300 transition duration-200">
             {item.title}
           </h3>
           <p className="text-black/60 dark:text-white/60 text-xs leading-relaxed line-clamp-2">
@@ -120,7 +120,7 @@ function MajorNewsCard({
 
   return (
     <div
-      className="w-full group flex flex-row items-stretch gap-6 h-60 py-3 cursor-pointer"
+      className="w-full group flex flex-row items-stretch gap-6 min-h-60 py-3 cursor-pointer"
       onClick={() => window.open(item.url, '_blank', 'noopener,noreferrer')}
     >
       {isLeft ? (
