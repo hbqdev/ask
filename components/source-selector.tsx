@@ -75,6 +75,7 @@ export function SourceSelector() {
       <PopoverTrigger asChild>
         <button
           type="button"
+          aria-label="Select sources"
           className={cn(
             'flex items-center gap-1.5 rounded-full border bg-background px-2 py-1.5 text-xs font-medium sm:px-3',
             'text-muted-foreground hover:text-foreground transition-colors',
