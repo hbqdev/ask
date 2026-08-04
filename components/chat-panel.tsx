@@ -435,7 +435,7 @@ export function ChatPanel({
       )}
 
       {messages.length === 0 && (showWeatherWidget || showNewsWidget) && (
-        <div className="max-w-full md:max-w-3xl w-full mx-auto mb-3 hidden sm:flex flex-row gap-3">
+        <div className="max-w-full md:max-w-3xl w-full mx-auto mb-3 flex flex-col sm:flex-row gap-3">
           {showWeatherWidget && (
             <div className="flex-1 min-w-0">
               <WeatherWidget />
