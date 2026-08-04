@@ -1,9 +1,10 @@
 'use client'
 
-import { useState } from 'react'
+import { useMemo, useState } from 'react'
 import Link from 'next/link'
 
 import { SearchResultItem } from '@/lib/types'
+import { decodeHtmlEntities } from '@/lib/utils/decode-html-entities'
 import { displayUrlName } from '@/lib/utils/domain'
 
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar'
@@ -26,15 +27,33 @@ export function SearchResults({
     setShowAllResults(true)
   }
 
+  // Search sources return HTML-encoded text (e.g. &#x27;, &quot;) that would
+  // otherwise render as literal entities here, since these are React text
+  // nodes. Decode once at the top so every render path below is clean. Done at
+  // the render layer (not the provider) so it is provider-agnostic and also
+  // fixes results persisted before this fix when an old chat is reopened.
+  const decodedResults = useMemo(
+    () =>
+      results.map(result => ({
+        ...result,
+        title: decodeHtmlEntities(result.title),
+        content: decodeHtmlEntities(result.content)
+      })),
+    [results]
+  )
+
   // Logic for grid mode
-  const displayedGridResults = showAllResults ? results : results.slice(0, 3)
-  const additionalResultsCount = results.length > 3 ? results.length - 3 : 0
+  const displayedGridResults = showAllResults
+    ? decodedResults
+    : decodedResults.slice(0, 3)
+  const additionalResultsCount =
+    decodedResults.length > 3 ? decodedResults.length - 3 : 0
 
   // --- List Mode Rendering ---
   if (displayMode === 'list') {
     return (
       <div className="flex flex-col gap-2">
-        {results.map((result, index) => (
+        {decodedResults.map((result, index) => (
           <Link
             href={result.url}
             key={index}
