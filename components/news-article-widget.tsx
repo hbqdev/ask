@@ -6,6 +6,7 @@ import { IconSparkles } from '@tabler/icons-react'
 
 import { SUMMARIZE_LABEL } from '@/lib/constants'
 import { cn } from '@/lib/utils'
+import { rotateWindow } from '@/lib/utils/rotate-window'
 
 interface Article {
   title: string
@@ -13,6 +14,30 @@ interface Article {
   url: string
   thumbnail: string
   category?: string
+}
+
+// Keep a small pool so the widget can rotate through fresh headlines. The mix
+// endpoint samples one article per category, so this is the variety on offer.
+const POOL_MAX = 8
+// Auto-advance interval — the same on every interface, per product decision.
+const CYCLE_MS = 20000
+// Below the `sm` breakpoint the widget shows ONE article (it stacks under the
+// weather card on phones); at/above it shows three. Matches the widget-row
+// stacking in chat-panel.
+const SM_QUERY = '(min-width: 640px)'
+
+function useIsWide() {
+  // Default to the desktop count so SSR and the first client render agree
+  // (avoids a hydration mismatch); corrected on mount.
+  const [wide, setWide] = useState(true)
+  useEffect(() => {
+    const mql = window.matchMedia(SM_QUERY)
+    const sync = () => setWide(mql.matches)
+    sync()
+    mql.addEventListener('change', sync)
+    return () => mql.removeEventListener('change', sync)
+  }, [])
+  return wide
 }
 
 function thumbUrl(raw: string) {
@@ -32,54 +57,63 @@ function summaryHref(url: string) {
 }
 
 export function NewsArticleWidget({ className }: { className?: string }) {
-  const [hero, setHero] = useState<Article | null>(null)
-  const [more, setMore] = useState<Article[]>([])
+  const [pool, setPool] = useState<Article[]>([])
   const [loading, setLoading] = useState(true)
+  const [start, setStart] = useState(0)
+  const isWide = useIsWide()
+  const count = isWide ? 3 : 1
 
   useEffect(() => {
     // The mix endpoint returns at most one article per category, already in
-    // random order, so the three rows are guaranteed to span different topics.
+    // random order, so the rotating headlines span different topics.
     fetch('/api/discover?topic=mix&mode=preview')
       .then(r => r.json())
       .then(data => {
         const all: Article[] = data.blogs || []
-        const withThumbnail = all.filter(a => a.thumbnail)
-        if (withThumbnail.length === 0) return
-
-        const picks = withThumbnail.slice(0, 3)
-        setHero(picks[0])
-        setMore(picks.slice(1, 3))
+        const withThumbnail = all.filter(a => a.thumbnail).slice(0, POOL_MAX)
+        setPool(withThumbnail)
       })
       .catch(() => {})
       .finally(() => setLoading(false))
   }, [])
 
+  // Cycle every 20s by sliding the window one article forward. Only runs when
+  // there is more to show than currently fits, so a short feed stays static.
+  useEffect(() => {
+    if (pool.length <= count) return
+    const id = setInterval(
+      () => setStart(s => (s + 1) % pool.length),
+      CYCLE_MS
+    )
+    return () => clearInterval(id)
+  }, [pool.length, count])
+
   if (loading) {
     return (
       <div
         className={cn(
-          'rounded-2xl bg-muted/50 animate-pulse w-full h-64',
+          'rounded-2xl bg-muted/50 animate-pulse w-full h-40 sm:h-64',
           className
         )}
       />
     )
   }
 
-  if (!hero) return null
+  if (pool.length === 0) return null
 
-  const articles = [hero, ...more]
+  const articles = rotateWindow(pool, start, count)
 
   return (
     <div
       className={cn(
-        'rounded-2xl border border-border/50 bg-card/80 backdrop-blur-sm w-full h-64 flex flex-col overflow-hidden select-none divide-y divide-border/50',
+        'rounded-2xl border border-border/50 bg-card/80 backdrop-blur-sm w-full h-auto sm:h-64 flex flex-col overflow-hidden select-none divide-y divide-border/50',
         className
       )}
     >
       {articles.map(article => (
         <div
           key={article.url}
-          className="group relative flex-1 min-h-0 flex flex-row items-center gap-3 px-3 hover:bg-muted/40 transition-colors duration-200"
+          className="group relative flex flex-1 min-h-0 flex-row items-center gap-3 px-3 py-2 sm:py-0 duration-500 animate-in fade-in hover:bg-muted/40 transition-colors"
         >
           <a
             href={article.url}
