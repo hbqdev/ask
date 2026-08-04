@@ -60,6 +60,7 @@ export function NewsArticleWidget({ className }: { className?: string }) {
   const [pool, setPool] = useState<Article[]>([])
   const [loading, setLoading] = useState(true)
   const [start, setStart] = useState(0)
+  const [paused, setPaused] = useState(false)
   const isWide = useIsWide()
   const count = isWide ? 3 : 1
 
@@ -80,13 +81,16 @@ export function NewsArticleWidget({ className }: { className?: string }) {
   // Cycle every 20s by sliding the window one article forward. Only runs when
   // there is more to show than currently fits, so a short feed stays static.
   useEffect(() => {
-    if (pool.length <= count) return
+    if (pool.length <= count || paused) return
+    // Honor reduced-motion: don't auto-advance content for users who opt out
+    // (WCAG 2.2.2). Hovering the widget also pauses it (see onMouseEnter).
+    if (window.matchMedia?.('(prefers-reduced-motion: reduce)').matches) return
     const id = setInterval(
       () => setStart(s => (s + 1) % pool.length),
       CYCLE_MS
     )
     return () => clearInterval(id)
-  }, [pool.length, count])
+  }, [pool.length, count, paused])
 
   if (loading) {
     return (
@@ -105,6 +109,8 @@ export function NewsArticleWidget({ className }: { className?: string }) {
 
   return (
     <div
+      onMouseEnter={() => setPaused(true)}
+      onMouseLeave={() => setPaused(false)}
       className={cn(
         'rounded-2xl border border-border/50 bg-card/80 backdrop-blur-sm w-full h-auto sm:h-64 flex flex-col overflow-hidden select-none divide-y divide-border/50',
         className
@@ -113,7 +119,7 @@ export function NewsArticleWidget({ className }: { className?: string }) {
       {articles.map(article => (
         <div
           key={article.url}
-          className="group relative flex flex-1 min-h-0 flex-row items-center gap-3 px-3 py-2 sm:py-0 duration-500 animate-in fade-in hover:bg-muted/40 transition-colors"
+          className="group relative flex flex-1 min-h-0 flex-row items-center gap-3 px-3 py-2 sm:py-0 animate-in fade-in-0 hover:bg-muted/40 transition-colors duration-200"
         >
           <a
             href={article.url}
