@@ -459,7 +459,7 @@ export function WeatherWidget({ className }: { className?: string }) {
     return (
       <div
         className={cn(
-          'rounded-2xl bg-muted/50 animate-pulse w-full h-64',
+          'rounded-2xl bg-muted/50 animate-pulse w-full h-40 sm:h-64',
           className
         )}
       />
@@ -505,7 +505,7 @@ export function WeatherWidget({ className }: { className?: string }) {
   return (
     <div
       className={cn(
-        'weather-motion relative overflow-hidden rounded-2xl border border-border/50 bg-card/80 backdrop-blur-sm select-none w-full h-64',
+        'weather-motion relative overflow-hidden rounded-2xl border border-border/50 bg-card/80 backdrop-blur-sm select-none w-full h-auto sm:h-64',
         className
       )}
       style={{ animation: 'weather-enter 420ms var(--motion-ease-out) both' }}
@@ -586,7 +586,7 @@ export function WeatherWidget({ className }: { className?: string }) {
         )}
 
         {weather.forecast.length > 0 && (
-          <div className="grid grid-cols-5 gap-1 border-t border-border/50 pt-2">
+          <div className="hidden grid-cols-5 gap-1 border-t border-border/50 pt-2 sm:grid">
             {weather.forecast.map(day => {
               const dayCondition = WMO_CONDITIONS[day.code] ?? {
                 label: 'Unknown',
