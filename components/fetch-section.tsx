@@ -13,6 +13,7 @@ import { normalizeFetchUrls } from '@/lib/schema/fetch'
 import { SearchResults as SearchResultsType } from '@/lib/types'
 import type { ToolPart, UIDataTypes, UIMessage, UITools } from '@/lib/types/ai'
 import { cn } from '@/lib/utils'
+import { decodeHtmlEntities } from '@/lib/utils/decode-html-entities'
 
 import ProcessHeader from './process-header'
 
@@ -69,7 +70,9 @@ export function FetchSection({
     const data = fetchResults as SearchResultsType
     if (data?.results?.[0]) {
       displayStatus = 'success'
-      title = data.results[0].title
+      // Decode HTML entities so the fetched page title renders as text, not
+      // as literal &#x27;/&quot; (same source-encoding issue as search cards).
+      title = decodeHtmlEntities(data.results[0].title)
       contentLength = data.results[0].content?.length
     } else {
       displayStatus = 'error'
