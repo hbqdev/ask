@@ -19,7 +19,8 @@ import {
   SidebarContent,
   SidebarFooter,
   SidebarHeader,
-  SidebarRail
+  SidebarRail,
+  useSidebar
 } from '@/components/ui/sidebar'
 
 import { WildBreathGlyph } from './ui/wild-breath-logo'
@@ -33,6 +34,13 @@ const NAV_ITEMS = [
 
 export default function AppSidebar({ user }: { user: User | null }) {
   const pathname = usePathname()
+  const { isMobile, setOpenMobile } = useSidebar()
+
+  // Close the mobile drawer after a tap so it doesn't cover the destination.
+  // Desktop (persistent sidebar) is unaffected — guard on isMobile.
+  const closeDrawerOnMobile = () => {
+    if (isMobile) setOpenMobile(false)
+  }
 
   // Dispatch the same event the keyboard shortcut uses, so the chat panel's
   // handleNewChat resets state (chatId, messages, input, files, error modal)
@@ -61,7 +69,10 @@ export default function AppSidebar({ user }: { user: User | null }) {
           href="/"
           title="New chat"
           className="flex items-center justify-center size-9 rounded-xl bg-primary/10 hover:bg-primary/20 text-primary transition-all duration-200 hover:scale-110 active:scale-95"
-          onClick={handleNewChatClick}
+          onClick={e => {
+            handleNewChatClick(e)
+            closeDrawerOnMobile()
+          }}
         >
           <IconPlus className="size-4" strokeWidth={2.5} />
         </Link>
@@ -71,7 +82,13 @@ export default function AppSidebar({ user }: { user: User | null }) {
         {NAV_ITEMS.map(({ href, icon: Icon, label, exact }) => {
           const isActive = exact ? pathname === href : pathname.startsWith(href)
           return (
-            <Link key={href} href={href} className="w-full" title={label}>
+            <Link
+              key={href}
+              href={href}
+              className="w-full"
+              title={label}
+              onClick={closeDrawerOnMobile}
+            >
               <div
                 className={cn(
                   'flex flex-col items-center gap-1.5 py-2.5 px-1 rounded-xl w-full',
