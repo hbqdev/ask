@@ -48,4 +48,11 @@ describe('SearchModeSelector', () => {
       expect(getCookie('searchMode')).toBe('balanced')
     })
   })
+
+  test('trigger label is hidden below the sm breakpoint', () => {
+    render(<SearchModeSelector />)
+    const label = screen.getByText(/balanced|quality|speed/i)
+    expect(label.className).toContain('hidden')
+    expect(label.className).toContain('sm:inline')
+  })
 })

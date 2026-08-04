@@ -16,6 +16,7 @@ import { ModelSelectorData } from '@/lib/types/model-selector'
 import { Model } from '@/lib/types/models'
 import { cn } from '@/lib/utils'
 import { setCookie } from '@/lib/utils/cookies'
+import { modelShortName } from '@/lib/utils/model-short-name'
 
 import { Button } from './ui/button'
 import { Popover, PopoverContent, PopoverTrigger } from './ui/popover'
@@ -105,8 +106,11 @@ export function ModelSelectorClient({ data }: ModelSelectorClientProps) {
           className="h-auto gap-1 rounded-full border-none bg-muted px-3 py-2 text-sm shadow-none transition-[background-color,color,box-shadow,transform]"
         >
           <Cpu className="size-3.5 text-sky-500 shrink-0" />
-          <span className="truncate max-w-40 text-xs font-medium">
+          <span className="hidden truncate max-w-40 text-xs font-medium sm:inline">
             {selectedModel.name}
+          </span>
+          <span className="truncate max-w-24 text-xs font-medium sm:hidden">
+            {modelShortName(selectedModel.name)}
           </span>
           <ChevronDown
             className={cn(
