@@ -46,9 +46,11 @@ const judgeSchema = z.object({
 /** Raw, position-space verdict as returned by the judge model. */
 export type JudgeRaw = z.infer<typeof judgeSchema>
 
-// Long research answers can blow the judge's context; cap each side. The cap is
-// generous enough that a genuinely deeper answer isn't truncated to parity.
-const MAX_ANSWER_CHARS = 12_000
+// Long research answers can blow the judge's context; cap each side. Set high
+// enough that a full, comprehensive report (a single-agent 'quality' answer can
+// run 3-4k words) is judged whole rather than truncated to parity — the judge is
+// separately instructed to count padding AGAINST depth, so length isn't rewarded.
+const MAX_ANSWER_CHARS = 32_000
 
 const JUDGE_SYSTEM_PROMPT = `You are a meticulous research analyst comparing two answers to the same research-worthy question. Each answer was produced by an automated deep-research system and is shown with the list of sources it cited.
 

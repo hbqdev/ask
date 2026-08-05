@@ -2,7 +2,7 @@ import { describe, expect, test } from 'vitest'
 
 import type { UIMessage } from '@/lib/types/ai'
 
-import { textFromMessage } from '../sub-agent'
+import { finalReportText, textFromMessage } from '../sub-agent'
 
 const msg = (parts: unknown[]) => ({ parts }) as unknown as UIMessage
 
@@ -45,5 +45,62 @@ describe('textFromMessage', () => {
         ])
       )
     ).toBe('ok')
+  })
+})
+
+describe('finalReportText', () => {
+  test('returns only the text after the last tool call, dropping narration', () => {
+    expect(
+      finalReportText(
+        msg([
+          { type: 'text', text: 'Let me search.' },
+          { type: 'tool-search', toolCallId: 's1' },
+          { type: 'text', text: 'Let me fetch a page.' },
+          { type: 'tool-fetch', toolCallId: 'f1' },
+          { type: 'text', text: '## Report\nThe answer [1](#s1).' }
+        ])
+      )
+    ).toBe('## Report\nThe answer [1](#s1).')
+  })
+
+  test('preserves inline citations (unlike extractIndexableText)', () => {
+    expect(
+      finalReportText(
+        msg([
+          { type: 'tool-search', toolCallId: 'a' },
+          { type: 'text', text: 'Fact [1](#a) and [2](#a).' }
+        ])
+      )
+    ).toBe('Fact [1](#a) and [2](#a).')
+  })
+
+  test('with no tool parts, returns all the text', () => {
+    expect(
+      finalReportText(msg([{ type: 'text', text: '## Direct answer.' }]))
+    ).toBe('## Direct answer.')
+  })
+
+  test('recovers a heading-led answer that is trailed by a tool part', () => {
+    expect(
+      finalReportText(
+        msg([
+          { type: 'text', text: 'narration' },
+          { type: 'tool-search', toolCallId: 's1' },
+          { type: 'text', text: '## The answer.' },
+          { type: 'tool-dynamic', toolCallId: 'followups' }
+        ])
+      )
+    ).toBe('## The answer.')
+  })
+
+  test('strips a same-part narration preamble before the heading', () => {
+    expect(
+      finalReportText(
+        msg([
+          { type: 'tool-search', toolCallId: 's1' },
+          { type: 'text', text: 'Let me now write the response.\n## Title\nBody.' }
+        ])
+      )
+    ).toBe('## Title\nBody.')
   })
 })
