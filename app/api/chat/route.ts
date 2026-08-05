@@ -36,16 +36,18 @@ const GENERATION_TIMEOUT_MS = 300_000
 
 export async function POST(req: Request) {
   const startTime = performance.now()
-  // Aborts if the client disconnects (req.signal) OR generation runs past
-  // GENERATION_TIMEOUT_MS, whichever comes first. This signal alone isn't
-  // sufficient to stop an already-in-flight request to the model provider
-  // (verified live — see createTimeoutFetch in lib/utils/registry.ts for
-  // the mechanism that actually guarantees that), but it does still let the
-  // agent loop stop cleanly between steps once it fires.
-  const abortSignal = AbortSignal.any([
-    req.signal,
-    AbortSignal.timeout(GENERATION_TIMEOUT_MS)
-  ])
+  // Authenticated turns must SURVIVE a client disconnect: on mobile, a
+  // backgrounded tab drops the connection (req.signal fires), but the turn
+  // should keep generating, persist in onFinish, and show on return. So the
+  // authed generation is bounded ONLY by GENERATION_TIMEOUT_MS, not req.signal.
+  // (An explicit Stop still halts it via a separate kill signal — added later.)
+  // Guests have nothing to persist, so their turns still bail on disconnect.
+  // Neither signal stops an already-in-flight provider request — that is
+  // createTimeoutFetch in lib/utils/registry.ts; this only stops the agent
+  // loop cleanly between steps.
+  const generationTimeout = AbortSignal.timeout(GENERATION_TIMEOUT_MS)
+  const generationSignal = generationTimeout
+  const guestSignal = AbortSignal.any([req.signal, generationTimeout])
 
   // Reset counters for new request (development only)
   if (process.env.ENABLE_PERF_LOGGING === 'true') {
@@ -216,7 +218,7 @@ export async function POST(req: Request) {
       ? await createEphemeralChatStreamResponse({
           messages: Array.isArray(messages) ? messages : [],
           model: selectedModel,
-          abortSignal,
+          abortSignal: guestSignal,
           searchMode,
           sources,
           chatId
@@ -228,7 +230,7 @@ export async function POST(req: Request) {
           userId: userId, // userId is guaranteed to be non-null after authentication check above
           trigger,
           messageId,
-          abortSignal,
+          abortSignal: generationSignal,
           isNewChat,
           searchMode,
           sources,
