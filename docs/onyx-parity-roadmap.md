@@ -35,7 +35,8 @@ explicit approval**. Reference clone: `/home/nightfury/selfhosted/onyx`.
 - [ ] **3. Frontend polish** — hide citations until source resolves; streaming-hardened markdown (defer highlighting, escape partial LaTeX/fences); resumable streams via cursor; scroll-follow only breaks on scroll-up. *Onyx: `web/src/app/app/message/MemoizedTextComponents.tsx`, `MessageTextRenderer.tsx`, `lib.tsx::resumeStream`, `ChatScrollContainer.tsx`.*
 
 ### Wave 2 — new capabilities that fit the stack
-- [x] **4. Deep Research** — A/B-TESTED → **KEEP SINGLE-AGENT** (multi-agent shelved as a lab experiment, never shipped). Built the full multi-agent stack (lab, `lib/agents/deep-research/`): planner → parallel sub-agents (`balanced`) → citation-merging synthesizer, plus a blind-judge A/B harness (`scripts/eval/deep-research-ab/`). Clean n=3 A/B: today's **single-agent `quality`** deep research beat multi-agent on depth/coverage/specificity/citation (5.0/5.0/5.0/4.3 vs 4.0/4.3/4.0/3.7) — single gathers 3–10× more sources (80–126 vs 10–33) and turns that into more depth. Decomposition-at-comparable-budget + a compressive synthesis step *lost* depth. Consistent with Ask already being ahead of Onyx on retrieval. Code kept on lab for possible future iteration; not adopted. *Onyx: `deep_research/dr_loop.py`, `dr_mock_tools.py`.*
+- [x] **4. Deep Research** — A/B-TESTED → **KEEP SINGLE-AGENT** (multi-agent shelved as a lab experiment, never shipped). Built the full multi-agent stack (lab, `lib/agents/deep-research/`): planner → parallel sub-agents (`balanced`) → citation-merging synthesizer, plus a blind-judge A/B harness (`scripts/eval/deep-research-ab/`). Clean n=3 A/B: today's **single-agent `quality`** deep research beat multi-agent on depth/coverage/specificity/citation (5.0/5.0/5.0/4.3 vs 4.0/4.3/4.0/3.7) — single gathers 3–10× more sources (80–126 vs 10–33) and turns that into more depth. Decomposition-at-comparable-budget + a compressive synthesis step *lost* depth. Consistent with Ask already being ahead of Onyx on retrieval. Not adopted; experiment code + A/B harness REMOVED from the lab (nothing adopted → lab reverted to match prod/staging), preserved in git tag `onyx-parity-experiment`. *Onyx: `deep_research/dr_loop.py`, `dr_mock_tools.py`.*
+- [x] **(web search) Pre-crawl snippet gate** — INVESTIGATED (H1) → **KEEP OFF** (Ask's own dormant feature; not an Onyx adoption). Shadow-measured on lab (5 quality-mode turns, 80 returned sources): at the built-in `TOP_N=40` the gate would drop **~11% of cited sources** (35% on the worst spec-comparison query) to save 21% of crawls; no `TOP_N` gives both real savings and ~0% loss (safe ≈52 saves only ~6%). The two-stage design's value is real — the post-crawl full-content rerank rescues sources the snippet ranking buries. Current prod config (`off`) validated. Latency wins live elsewhere (crawl tail-latency; query-centered truncation = H2). *Onyx has no web-path reranker.*
 - [ ] **5. Custom Agents / personas** — DB-backed user-defined agents (instructions + allowed tools + optional pinned model).
 - [ ] **6. Voice Mode** — STT input + TTS output (provider or local).
 
@@ -72,3 +73,13 @@ the 40-type packet protocol · wholesale cross-encoder replacement (keep it; add
   last tool call, citations preserved); (2) judge 12k cap truncated long single-agent reports
   — raised to 32k. Clean n=3: single-agent wins 3/3 on every dimension. DECISION: keep
   single-agent, shelve multi-agent (lab experiment, unshipped). Pivoting to web-search focus.
+- 2026-08-05: Web-search H1 (pre-crawl snippet gate) validated in shadow on lab — gate flipped
+  to `shadow` (behavior-neutral) via container env, 5 quality-mode turns driven through the
+  browser, `returned_ranks` telemetry analysed, lab restored to `off`. Result: enabling it
+  trades quality for latency (~11% cited-source loss at `TOP_N=40`); KEEP OFF, current prod
+  config validated. No code change (runtime flip only, reverted).
+- 2026-08-05: Nothing from the Onyx-parity program was adopted (Deep Research and the snippet
+  gate both concluded "don't ship"). Reverted the lab to match prod/staging: removed the
+  deep-research experiment code + A/B harness, deleted eval result artifacts (gitignored).
+  Experiment preserved in git tag `onyx-parity-experiment`; findings retained in this roadmap
+  + memory. Lab now carries only this roadmap doc over the prod/staging baseline.
