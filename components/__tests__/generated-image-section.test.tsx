@@ -77,4 +77,24 @@ describe('GeneratedImageSection', () => {
     ).toBeInTheDocument()
     expect(screen.queryByRole('img')).not.toBeInTheDocument()
   })
+
+  test('output-error suppresses the failed attempt (no lingering skeleton)', () => {
+    // The model's first tool call often fails schema validation and retries in
+    // the same turn; the failed part must render nothing, not a perpetual
+    // "generating" skeleton sitting beside the image the retry produces.
+    const { container } = render(
+      <GeneratedImageSection
+        part={{
+          type: 'tool-generateImage',
+          state: 'output-error',
+          input: { prompt: 'a red fox in the snow' },
+          errorText: 'Invalid tool input'
+        }}
+      />
+    )
+
+    expect(container).toBeEmptyDOMElement()
+    expect(screen.queryByTestId('wb-glyph')).not.toBeInTheDocument()
+    expect(screen.queryByText('a red fox in the snow')).not.toBeInTheDocument()
+  })
 })
