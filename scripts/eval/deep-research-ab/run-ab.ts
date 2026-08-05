@@ -29,7 +29,7 @@ import { fileURLToPath } from 'node:url'
 // ambient env — same rationale as scripts/eval/run-eval.ts.
 dotenvConfig({ path: '.env', override: true })
 
-import { aggregate, type AbAggregate } from './aggregate'
+import { type AbAggregate,aggregate } from './aggregate'
 import { judgeDeepResearchPair } from './judge'
 import { DEEP_RESEARCH_QUESTIONS, type DeepResearchQuestion } from './questions'
 import type {
@@ -46,6 +46,10 @@ const RESULTS_DIR = path.join(SCRIPT_DIR, '..', 'results')
 // up unchanged; override per run with EVAL_JUDGE_MODEL.
 const JUDGE_MODEL = process.env.EVAL_JUDGE_MODEL || 'ollama:qwen3.5:397b:cloud'
 
+// The answering model BOTH arms run on (single vs multi is the only variable).
+// "providerId:modelId" form, exactly what getModel() expects; override per run.
+const ANSWER_MODEL = process.env.EVAL_ANSWER_MODEL || 'ollama:kimi-k2.6:cloud'
+
 // ---------------------------------------------------------------------------
 // THE ONE INTERFACE THE LEAD MUST IMPLEMENT.
 //
@@ -60,14 +64,22 @@ const JUDGE_MODEL = process.env.EVAL_JUDGE_MODEL || 'ollama:qwen3.5:397b:cloud'
 // is single-vs-multi. Return an empty answer (do NOT throw) for a normal empty
 // research run; throw only when a mode cannot run at all.
 // ---------------------------------------------------------------------------
-export const invokeDeepResearch: InvokeDeepResearch = async (
-  _question,
-  _mode
-) => {
-  throw new Error(
-    'invokeDeepResearch is not implemented — wire it (see ' +
-      'scripts/eval/deep-research-ab/README.md) before running the A/B.'
-  )
+export const invokeDeepResearch: InvokeDeepResearch = async (question, mode) => {
+  // Deferred import for the same reason judge.ts defers getModel: lib/utils/
+  // registry.ts reads env at module-eval time, so this must not import until
+  // after dotenvConfig() above has run.
+  const { runMultiAgentDeepResearch, runSingleAgentDeepResearch } =
+    await import('@/lib/agents/deep-research')
+
+  const result =
+    mode === 'multi'
+      ? await runMultiAgentDeepResearch({ question, modelId: ANSWER_MODEL })
+      : await runSingleAgentDeepResearch({ question, modelId: ANSWER_MODEL })
+
+  return {
+    answer: result.report,
+    sources: result.sources.map(s => ({ title: s.title ?? '', url: s.url }))
+  }
 }
 
 interface RunOptions {
