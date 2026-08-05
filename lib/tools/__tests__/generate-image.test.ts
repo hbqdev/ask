@@ -58,7 +58,11 @@ import { runReplicatePrediction } from '@/lib/imagegen/replicate-client'
 import { trackRetry } from '@/lib/imagegen/retry-tracker'
 import { nextRotationIndex } from '@/lib/imagegen/rotation'
 
-import { createGenerateImageTool, isImageGenEnabled } from '../generate-image'
+import {
+  buildEditInstruction,
+  createGenerateImageTool,
+  isImageGenEnabled
+} from '../generate-image'
 
 const GENERATE_MODEL = { modelPath: 'black-forest-labs/flux-1.1-pro' } as any
 const EDIT_MODEL = { modelPath: 'google/nano-banana' } as any
@@ -196,7 +200,8 @@ describe('createGenerateImageTool', () => {
     expect(buildModelInput).toHaveBeenCalledWith(
       EDIT_MODEL,
       expect.objectContaining({
-        prompt: 'make it night',
+        // Edits are scaffolded into a "change only X, keep the rest" instruction.
+        prompt: buildEditInstruction('make it night'),
         baseImage: `data:image/png;base64,${Buffer.from([1, 2, 3]).toString('base64')}`
       })
     )

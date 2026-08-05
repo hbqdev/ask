@@ -200,6 +200,55 @@ describe('buildModelInput (unchanged behavior)', () => {
   })
 })
 
+describe('buildModelInput edit handling', () => {
+  it('merges editDefaults over defaults only when a base image is present', () => {
+    const m = fx({
+      imageField: 'input_images',
+      imageFieldShape: 'array',
+      defaults: { quality: 'medium', output_format: 'png' },
+      editDefaults: { quality: 'high' }
+    })
+    // Generate (no base image): editDefaults must NOT apply.
+    expect(buildModelInput(m, { prompt: 'p' })).toEqual({
+      quality: 'medium',
+      output_format: 'png',
+      prompt: 'p'
+    })
+    // Edit (base image present): editDefaults override defaults.
+    expect(
+      buildModelInput(m, {
+        prompt: 'p',
+        baseImage: 'data:image/png;base64,AAAA'
+      })
+    ).toEqual({
+      quality: 'high',
+      output_format: 'png',
+      prompt: 'p',
+      input_images: ['data:image/png;base64,AAAA']
+    })
+  })
+
+  it('sets match_input_image on edits when supported and no ratio is forced', () => {
+    const m = fx({
+      imageField: 'image',
+      aspectRatioField: 'aspect_ratio',
+      aspectRatioValues: ['1:1', 'match_input_image'],
+      defaults: {}
+    })
+    // Edit, no explicit ratio → preserve the source shape.
+    expect(
+      buildModelInput(m, { prompt: 'p', baseImage: 'x' }).aspect_ratio
+    ).toBe('match_input_image')
+    // An explicit ratio still wins.
+    expect(
+      buildModelInput(m, { prompt: 'p', baseImage: 'x', aspectRatio: '1:1' })
+        .aspect_ratio
+    ).toBe('1:1')
+    // Generate (no base image) → not applied.
+    expect(buildModelInput(m, { prompt: 'p' }).aspect_ratio).toBeUndefined()
+  })
+})
+
 describe('google family registration', () => {
   it('registers the six google models with expected pools', () => {
     const paths = listImageModels().map(m => m.modelPath)
