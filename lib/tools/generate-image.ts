@@ -66,6 +66,59 @@ function messageForFailure(
   }
 }
 
+// Models (notably kimi) paraphrase the enum hints — "high"/"hd" for quality,
+// "photography"/"design"/"typography" for task, "square"/"landscape" for aspect
+// ratio — which hard-fails Zod validation and forces a wasted first-call retry.
+// Coerce the common variants to the real enum; anything unmappable degrades to
+// undefined via `.catch` on the schema (every enum field is an optional hint
+// with a sane fallback: rotation pool, effectiveImageTask→'general', standard
+// tier, preserved aspect). The JSON schema advertised to the model still shows
+// the clean enums, so nothing is loosened for well-behaved callers.
+const lc = (v: unknown): unknown =>
+  typeof v === 'string' ? v.trim().toLowerCase() : v
+
+export function coerceQuality(v: unknown): unknown {
+  const s = lc(v)
+  if (typeof s !== 'string') return v
+  if (['premium', 'high', 'hd', 'ultra', 'max', 'best', '4k', 'top', 'pro'].includes(s))
+    return 'premium'
+  if (['standard', 'normal', 'medium', 'default', 'low', 'basic'].includes(s))
+    return 'standard'
+  return s
+}
+
+export function coerceTask(v: unknown): unknown {
+  const s = lc(v)
+  if (typeof s !== 'string') return v
+  if (['photoreal', 'photo', 'photograph', 'photography', 'realistic', 'real'].includes(s))
+    return 'photoreal'
+  if (['illustration', 'illustrated', 'art', 'artwork', 'drawing', 'cartoon', 'anime'].includes(s))
+    return 'illustration'
+  if (['design-text', 'design', 'typography', 'text', 'poster', 'graphic'].includes(s))
+    return 'design-text'
+  if (['logo-svg', 'logo', 'svg', 'vector', 'icon'].includes(s)) return 'logo-svg'
+  if (['draft-fast', 'draft', 'fast', 'quick', 'rough'].includes(s))
+    return 'draft-fast'
+  return s // 'general' passes through; anything else → caught to undefined
+}
+
+export function coerceAspectRatio(v: unknown): unknown {
+  const raw = lc(v)
+  if (typeof raw !== 'string') return v
+  const s = raw.replace(/\s+/g, '').replace(/[x×]/g, ':')
+  const words: Record<string, string> = {
+    square: '1:1',
+    landscape: '16:9',
+    wide: '16:9',
+    widescreen: '16:9',
+    horizontal: '16:9',
+    portrait: '9:16',
+    tall: '9:16',
+    vertical: '9:16'
+  }
+  return words[s] ?? s
+}
+
 type ResolvedBaseImage = { baseImage: string } | { error: string }
 
 // Resolve a caller-supplied base image URL to what the model should receive.
@@ -163,7 +216,7 @@ export function buildEditInstruction(instruction: string): string {
 export function createGenerateImageTool(userId: string, chatId?: string) {
   return tool({
     description:
-      "Generate a new image from a text description, or edit/transform one of the user's uploaded images. Use this whenever the user asks to create, draw, make, design, or edit an image, picture, illustration, logo, or artwork. Write a vivid, specific, visual prompt. To edit an existing uploaded image, pass its exact URL from the attachment context as baseImageUrl. The image engine is selected automatically and rotates between requests — never state or guess which model produced an image. Declare `task` from the user's intent (photoreal photography, illustration, design/typography, logo-svg for vector work, draft-fast only when the user wants a quick rough result). If the user was unhappy with the previous image and wants another go, set isRetry: true; if they explicitly ask for top quality, set quality: 'premium'.",
+      "Generate a new image from a text description, or edit/transform one of the user's uploaded images. Use this whenever the user asks to create, draw, make, design, or edit an image, picture, illustration, logo, or artwork. Write a vivid, specific, visual prompt. To edit an existing uploaded image, pass its exact URL from the attachment context as baseImageUrl. The image engine is selected automatically — never state or guess which model produced an image. Declare `task` as EXACTLY one of: photoreal, illustration, design-text, logo-svg, draft-fast, general. If the user was unhappy with the previous image and wants another go, set isRetry: true; if they explicitly ask for top quality, set quality: 'premium'.",
     inputSchema: z.object({
       prompt: z
         .string()
@@ -177,23 +230,36 @@ export function createGenerateImageTool(userId: string, chatId?: string) {
           "URL of the user's uploaded image to use as the base for editing/transformation. Use the exact URL from the attachment context."
         ),
       aspectRatio: z
-        .enum(['1:1', '16:9', '9:16', '4:3', '3:4', '3:2', '2:3'])
-        .optional(),
-      task: z
-        .enum(IMAGE_TASKS)
+        .preprocess(
+          coerceAspectRatio,
+          z.enum(['1:1', '16:9', '9:16', '4:3', '3:4', '3:2', '2:3'])
+        )
         .optional()
+        .catch(undefined)
         .describe(
-          'What kind of image the user wants; steers which engines are used.'
+          'Image shape — exactly one of: 1:1, 16:9, 9:16, 4:3, 3:4, 3:2, 2:3. Omit to let the engine choose (and to preserve the source shape on edits).'
+        ),
+      task: z
+        .preprocess(coerceTask, z.enum(IMAGE_TASKS))
+        .optional()
+        .catch(undefined)
+        .describe(
+          'What kind of image — EXACTLY one of: photoreal, illustration, design-text, logo-svg, draft-fast, general.'
         ),
       quality: z
-        .enum(['standard', 'premium'])
+        .preprocess(coerceQuality, z.enum(['standard', 'premium']))
         .optional()
+        .catch(undefined)
         .describe(
-          "Set 'premium' only when the user explicitly asks for top quality."
+          "Exactly 'standard' or 'premium'. Use 'premium' only when the user explicitly asks for top quality; otherwise omit."
         ),
       isRetry: z
-        .boolean()
+        .preprocess(
+          v => (v === 'true' ? true : v === 'false' ? false : v),
+          z.boolean()
+        )
         .optional()
+        .catch(undefined)
         .describe(
           'True when regenerating because the user was dissatisfied with the previous image in this chat.'
         )
