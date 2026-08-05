@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, test, vi } from 'vitest'
 
 // The lib/imagegen collaborators are mocked — this suite exercises the tool's
 // orchestration (order, guards, error mapping, selection precedence), not their
@@ -60,6 +60,9 @@ import { nextRotationIndex } from '@/lib/imagegen/rotation'
 
 import {
   buildEditInstruction,
+  coerceAspectRatio,
+  coerceQuality,
+  coerceTask,
   createGenerateImageTool,
   isImageGenEnabled
 } from '../generate-image'
@@ -400,5 +403,55 @@ describe('createGenerateImageTool', () => {
     await run({ prompt: 'a fox' }, 'u1', undefined)
 
     expect(trackRetry).toHaveBeenCalledWith('user:u1', false)
+  })
+})
+
+describe('image tool input coercion (first-call schema hardening)', () => {
+  test('coerceQuality maps loose quality words to the enum', () => {
+    expect(coerceQuality('high')).toBe('premium')
+    expect(coerceQuality('HD')).toBe('premium')
+    expect(coerceQuality(' Ultra ')).toBe('premium')
+    expect(coerceQuality('medium')).toBe('standard')
+    expect(coerceQuality('premium')).toBe('premium')
+    expect(coerceQuality('weird')).toBe('weird') // schema .catch() → undefined
+    expect(coerceQuality(undefined)).toBeUndefined()
+  })
+
+  test('coerceTask maps paraphrases (the most likely first-call failure)', () => {
+    expect(coerceTask('photography')).toBe('photoreal')
+    expect(coerceTask('photo')).toBe('photoreal')
+    expect(coerceTask('typography')).toBe('design-text')
+    expect(coerceTask('design')).toBe('design-text')
+    expect(coerceTask('logo')).toBe('logo-svg')
+    expect(coerceTask('general')).toBe('general')
+  })
+
+  test('coerceAspectRatio maps words and normalises separators/spaces', () => {
+    expect(coerceAspectRatio('square')).toBe('1:1')
+    expect(coerceAspectRatio('landscape')).toBe('16:9')
+    expect(coerceAspectRatio('portrait')).toBe('9:16')
+    expect(coerceAspectRatio('16x9')).toBe('16:9')
+    expect(coerceAspectRatio('16:9 ')).toBe('16:9')
+    expect(coerceAspectRatio('4:3')).toBe('4:3')
+  })
+
+  test('the tool inputSchema coerces loose enums instead of failing the call', () => {
+    const schema = (createGenerateImageTool('u1') as { inputSchema: any })
+      .inputSchema
+    const ok = schema.safeParse({
+      prompt: 'a fox',
+      task: 'photography',
+      quality: 'high',
+      aspectRatio: 'square'
+    })
+    expect(ok.success).toBe(true)
+    expect(ok.data.task).toBe('photoreal')
+    expect(ok.data.quality).toBe('premium')
+    expect(ok.data.aspectRatio).toBe('1:1')
+
+    // An unmappable enum degrades to undefined rather than erroring the call.
+    const degraded = schema.safeParse({ prompt: 'a fox', task: 'nonsense-xyz' })
+    expect(degraded.success).toBe(true)
+    expect(degraded.data.task).toBeUndefined()
   })
 })
