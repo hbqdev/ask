@@ -2,6 +2,7 @@ import { createUIMessageStream } from 'ai'
 
 import type { UIMessage } from '@/lib/types/ai'
 
+import { stripNarrationFromMessage } from '../../streaming/helpers/strip-narration-from-message'
 import type { SearchResultItem } from '../../types'
 import type { Model } from '../../types/models'
 import type { SearchMode, SearchSources } from '../../types/search'
@@ -97,9 +98,15 @@ export async function runResearcherCollected({
     reader.releaseLock()
   }
 
+  // Strip the model's process narration ("Let me search again…") exactly as the
+  // production render/persist path does (create-chat-stream-response.ts) — the
+  // harness must collect the text a user would actually see, not the raw stream.
+  const cleaned = responseMessage
+    ? stripNarrationFromMessage(responseMessage)
+    : undefined
   return {
-    report: textFromMessage(responseMessage),
-    citationMaps: responseMessage ? extractCitationMaps(responseMessage) : {}
+    report: textFromMessage(cleaned),
+    citationMaps: cleaned ? extractCitationMaps(cleaned) : {}
   }
 }
 
