@@ -112,6 +112,12 @@ services:
       # and never measured; shell-settable so it can be.
       SEARCH_SNIPPET_GATE: ${SEARCH_SNIPPET_GATE:-off}
       SEARCH_SNIPPET_GATE_TOP_N: ${SEARCH_SNIPPET_GATE_TOP_N:-40}
+      # Pin the image EDIT model (registry.ts pickPinnedModel) to one consistent,
+      # strong editor instead of round-robining the whole pool — edits kept
+      # drifting in style/identity/resolution turn-to-turn. Generation still
+      # rotates (variety). gpt-image-2 = ChatGPT's engine, PNG + quality:high on
+      # edits (editDefaults). Shell-overridable; unset falls back to rotation.
+      REPLICATE_IMAGE_EDIT_MODEL: ${REPLICATE_IMAGE_EDIT_MODEL:-openai/gpt-image-2}
       CLASSIFIER_MODEL_ID: 'glm-5.2:cloud'
       CLASSIFIER_OLLAMA_BASE_URL: 'http://192.168.50.231:11434'
       # Per-tool-call payload logging: the arms differ in WHICH tools they
