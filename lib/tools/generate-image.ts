@@ -136,6 +136,22 @@ async function resolveBaseImage(
 }
 
 /**
+ * Scaffold a raw edit instruction into a "change only X, keep the rest" prompt.
+ * Weaker editors otherwise redraw the whole scene from the instruction; this is
+ * how ChatGPT-style edits stay faithful — transform the source, preserve the
+ * subject's identity, composition, framing, and every unmentioned detail. Only
+ * used for the model input; the tool still returns the user's original prompt.
+ */
+export function buildEditInstruction(instruction: string): string {
+  return (
+    'Edit the provided image. Keep everything else exactly as it is — the ' +
+    'subject and its identity, composition, framing, pose, colours, and ' +
+    'lighting, plus every detail not mentioned. Change ONLY the following: ' +
+    instruction.trim()
+  )
+}
+
+/**
  * The generateImage tool. Bound to the current user (for the upload-scope guard
  * and where generated images are stored) and, when present, the current chat
  * (so a generated image is filed as an artifact of that chat).
@@ -242,7 +258,16 @@ export function createGenerateImageTool(userId: string, chatId?: string) {
           model = pool.models[idx]
           selection = pool.poolKey
         }
-        const input = buildModelInput(model, { prompt, baseImage, aspectRatio })
+        // Edits get the "change only X, keep the rest" scaffold so the model
+        // transforms the source instead of redrawing it; the returned `prompt`
+        // below stays the user's original text.
+        const modelPrompt =
+          role === 'edit' ? buildEditInstruction(prompt) : prompt
+        const input = buildModelInput(model, {
+          prompt: modelPrompt,
+          baseImage,
+          aspectRatio
+        })
 
         // 4. Run the prediction.
         const result = await runReplicatePrediction({

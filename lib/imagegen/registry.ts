@@ -61,6 +61,13 @@ export type ImageModelDef = {
   aspectRatioField?: string
   aspectRatioValues?: string[]
   defaults: Record<string, unknown>
+  /**
+   * Overrides merged over `defaults` when the request is an EDIT (a base image
+   * is present). An edit has to hold detail against a source image, so it earns
+   * a higher quality tier than a from-scratch generation of the same model —
+   * e.g. gpt-image-2 edits at `quality: "high"` while generation stays "medium".
+   */
+  editDefaults?: Record<string, unknown>
   costNote: string
 }
 
@@ -202,11 +209,27 @@ export function buildModelInput(
   model: ImageModelDef,
   args: { prompt: string; baseImage?: string; aspectRatio?: string }
 ): Record<string, unknown> {
-  const input: Record<string, unknown> = { ...model.defaults }
+  const isEdit = Boolean(args.baseImage)
+  const input: Record<string, unknown> = {
+    ...model.defaults,
+    ...(isEdit && model.editDefaults ? model.editDefaults : {})
+  }
   input[model.promptField] = args.prompt
   if (args.baseImage && model.imageField) {
     input[model.imageField] =
       model.imageFieldShape === 'array' ? [args.baseImage] : args.baseImage
+  }
+  // Preserve the source image's shape on edits when the model supports it and
+  // the caller didn't force a ratio — a from-scratch default like 1:1 otherwise
+  // crops/reshapes the edit. gpt-image-2's allowed values don't include
+  // `match_input_image`, so this is a no-op there and applies to models that do.
+  if (
+    isEdit &&
+    !args.aspectRatio &&
+    model.aspectRatioField &&
+    model.aspectRatioValues?.includes('match_input_image')
+  ) {
+    input[model.aspectRatioField] = 'match_input_image'
   }
   if (
     args.aspectRatio &&

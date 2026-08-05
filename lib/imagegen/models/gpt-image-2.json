@@ -9,5 +9,6 @@
   "aspectRatioField": "aspect_ratio",
   "aspectRatioValues": ["1:1", "3:2", "2:3", "4:3", "3:4", "16:9", "9:16"],
   "defaults": { "quality": "medium", "output_format": "png" },
-  "costNote": "~$0.05/image @medium (varies)"
+  "editDefaults": { "quality": "high" },
+  "costNote": "~$0.05/image @medium, more @high edits (varies)"
 }
