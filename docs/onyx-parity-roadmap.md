@@ -35,7 +35,7 @@ explicit approval**. Reference clone: `/home/nightfury/selfhosted/onyx`.
 - [ ] **3. Frontend polish** — hide citations until source resolves; streaming-hardened markdown (defer highlighting, escape partial LaTeX/fences); resumable streams via cursor; scroll-follow only breaks on scroll-up. *Onyx: `web/src/app/app/message/MemoizedTextComponents.tsx`, `MessageTextRenderer.tsx`, `lib.tsx::resumeStream`, `ChatScrollContainer.tsx`.*
 
 ### Wave 2 — new capabilities that fit the stack
-- [x] **4. Deep Research** — BUILT (lab, `lib/agents/deep-research/`), A/B in evaluation. Multi-agent orchestration ABOVE the researcher (flow-variants can't fan out): planner decomposes → parallel sub-agents (`balanced`, capped) → synthesizer merges each sub-agent's citations into one URL-deduped space (our `collapse_citations` analog) and composes one cited report. Baseline arm = today's single-agent `quality` mode (= Ask's deep-research protocol). A/B harness: `scripts/eval/deep-research-ab/` (blind judge, depth/coverage/specificity/citation). *Onyx: `deep_research/dr_loop.py`, `dr_mock_tools.py`.*
+- [x] **4. Deep Research** — A/B-TESTED → **KEEP SINGLE-AGENT** (multi-agent shelved as a lab experiment, never shipped). Built the full multi-agent stack (lab, `lib/agents/deep-research/`): planner → parallel sub-agents (`balanced`) → citation-merging synthesizer, plus a blind-judge A/B harness (`scripts/eval/deep-research-ab/`). Clean n=3 A/B: today's **single-agent `quality`** deep research beat multi-agent on depth/coverage/specificity/citation (5.0/5.0/5.0/4.3 vs 4.0/4.3/4.0/3.7) — single gathers 3–10× more sources (80–126 vs 10–33) and turns that into more depth. Decomposition-at-comparable-budget + a compressive synthesis step *lost* depth. Consistent with Ask already being ahead of Onyx on retrieval. Code kept on lab for possible future iteration; not adopted. *Onyx: `deep_research/dr_loop.py`, `dr_mock_tools.py`.*
 - [ ] **5. Custom Agents / personas** — DB-backed user-defined agents (instructions + allowed tools + optional pinned model).
 - [ ] **6. Voice Mode** — STT input + TTS output (provider or local).
 
@@ -66,3 +66,9 @@ the 40-type packet protocol · wholesale cross-encoder replacement (keep it; add
   multi-agent tests decomposition at a comparable search budget, not "N× more searching".
   UI streaming behind an A/B flag deferred until the A/B shows multi-agent wins. Next: run
   the full A/B; then web-search focus (Onyx open_url vs Ask cross-encoder snippet-gate).
+- 2026-08-04: Deep Research A/B run on lab (flaresolverr repointed to host for in-process
+  runs). Two harness fairness bugs found + fixed before trusting any verdict: (1) collector
+  glued inter-step narration into the answer — now collects the final answer (text after the
+  last tool call, citations preserved); (2) judge 12k cap truncated long single-agent reports
+  — raised to 32k. Clean n=3: single-agent wins 3/3 on every dimension. DECISION: keep
+  single-agent, shelve multi-agent (lab experiment, unshipped). Pivoting to web-search focus.
