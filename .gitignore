@@ -47,3 +47,6 @@ next-env.d.ts
 # Rotation backups use a DASH (.env.bak-<epoch>); the rule above uses a dot
 # and does not match them. These files contain OLD secrets — never commit.
 .env.bak-*
+
+# eval run outputs (data artifacts, not source)
+scripts/eval/results/
