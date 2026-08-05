@@ -146,9 +146,14 @@ export function Chat({
     sendMessage,
     regenerate,
     addToolResult,
+    resumeStream,
     error
   } = useChat({
     id: chatId, // use the client-generated or provided chatId
+    // Reconnect to an in-progress stream on mount (e.g. navigating back to a
+    // chat whose turn is still generating). Existing, persisted chats only —
+    // new chats and guests have no server-side stream to resume.
+    resume: !isGuest && Boolean(providedId),
     transport: new DefaultChatTransport({
       api: '/api/chat',
       prepareSendMessagesRequest: ({ messages, trigger, messageId }) => {
@@ -225,6 +230,49 @@ export function Chat({
     experimental_throttle: 100,
     generateId
   })
+
+  // Resume the stream when the tab returns to the foreground. On mobile,
+  // backgrounding the tab drops the connection, but the server keeps generating
+  // and mirrors the SSE to Redis (resumable streams), so on return we reconnect:
+  // a still-live turn resumes streaming, and one that finished while we were away
+  // replays its buffered stream (the SDK merges by message id → catches us up to
+  // the final answer). `resume:true` above covers navigation; this covers tab
+  // refocus, which doesn't remount. Gated to a turn that was actually in flight
+  // when we left, and to the visible Chat instance (Ask tolerates duplicate
+  // mounts — mirrors the offsetParent guards elsewhere).
+  const streamInFlightRef = useRef(false)
+  useEffect(() => {
+    if (isGuest || !providedId) return
+    const onVisibilityChange = () => {
+      if (document.visibilityState === 'hidden') {
+        streamInFlightRef.current =
+          status === 'streaming' || status === 'submitted'
+        return
+      }
+      if (document.visibilityState !== 'visible') return
+      if (!scrollContainerRef.current?.offsetParent) return
+      if (!streamInFlightRef.current) return
+      if (status === 'streaming' || status === 'submitted') return
+      streamInFlightRef.current = false
+      void resumeStream()
+    }
+    document.addEventListener('visibilitychange', onVisibilityChange)
+    window.addEventListener('focus', onVisibilityChange)
+    return () => {
+      document.removeEventListener('visibilitychange', onVisibilityChange)
+      window.removeEventListener('focus', onVisibilityChange)
+    }
+  }, [isGuest, providedId, status, resumeStream])
+
+  // Stop must abort the SERVER too: an authed generation now survives a dropped
+  // connection (so a backgrounded tab keeps generating), which means the
+  // client-side stop() no longer halts it. Hit the stop endpoint as well.
+  const handleStop = useCallback(() => {
+    stop()
+    if (!isGuest && providedId) {
+      void fetch(`/api/chat/${chatId}/stop`, { method: 'POST' }).catch(() => {})
+    }
+  }, [stop, isGuest, providedId, chatId])
 
   // Keep all request entry points reflected in isStreamingRef so downstream
   // action handlers can reliably reject overlapping sends. Also fire-and-forget
@@ -698,7 +746,7 @@ export function Chat({
           status={status}
           messages={messages}
           setMessages={setMessages}
-          stop={stop}
+          stop={handleStop}
           query={query}
           append={(message: any) => {
             safeSendMessage(message)

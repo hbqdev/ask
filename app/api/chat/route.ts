@@ -16,6 +16,7 @@ import {
   ADAPTIVE_MODE_AUTH_REQUIRED_MESSAGE,
   isAdaptiveModeAuthBlocked
 } from '@/lib/search-mode-availability'
+import { registerGeneration } from '@/lib/streaming/active-generations'
 import { createChatStreamResponse } from '@/lib/streaming/create-chat-stream-response'
 import { createEphemeralChatStreamResponse } from '@/lib/streaming/create-ephemeral-chat-stream-response'
 import { SearchMode, SearchSources } from '@/lib/types/search'
@@ -46,7 +47,6 @@ export async function POST(req: Request) {
   // createTimeoutFetch in lib/utils/registry.ts; this only stops the agent
   // loop cleanly between steps.
   const generationTimeout = AbortSignal.timeout(GENERATION_TIMEOUT_MS)
-  const generationSignal = generationTimeout
   const guestSignal = AbortSignal.any([req.signal, generationTimeout])
 
   // Reset counters for new request (development only)
@@ -214,6 +214,14 @@ export async function POST(req: Request) {
       `createChatStreamResponse - Start: model=${selectedModel.providerId}:${selectedModel.id}, searchMode=${searchMode}`
     )
 
+    // Register the authenticated turn so an explicit Stop (POST .../stop) can
+    // abort it — a client disconnect no longer does (intentional: background
+    // survival), so Stop needs its own kill signal composed with the timeout.
+    const killController = isGuest ? null : registerGeneration(chatId)
+    const generationSignal = killController
+      ? AbortSignal.any([killController.signal, generationTimeout])
+      : generationTimeout
+
     const response = isGuest
       ? await createEphemeralChatStreamResponse({
           messages: Array.isArray(messages) ? messages : [],
@@ -231,6 +239,7 @@ export async function POST(req: Request) {
           trigger,
           messageId,
           abortSignal: generationSignal,
+          stopController: killController,
           isNewChat,
           searchMode,
           sources,

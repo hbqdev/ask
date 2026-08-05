@@ -3,6 +3,7 @@ import {
   convertToModelMessages,
   createUIMessageStream,
   createUIMessageStreamResponse,
+  generateId,
   pruneMessages
 } from 'ai'
 import { randomUUID } from 'crypto'
@@ -59,8 +60,14 @@ import { stripReasoningParts } from './helpers/strip-reasoning-parts'
 import { stripSpecFromMessages } from './helpers/strip-spec-from-messages'
 import { transformFileParts } from './helpers/transform-file-parts'
 import type { StreamContext } from './helpers/types'
+import { unregisterGeneration } from './active-generations'
 import { createFlowProgressEmitter, type ProgressWriter } from './flow-progress'
 import { LatencyTracker } from './latency-tracker'
+import {
+  clearActiveStreamId,
+  getResumableStreamContext,
+  setActiveStreamId
+} from './resumable-stream-context'
 import { BaseStreamConfig } from './types'
 
 // Constants
@@ -77,6 +84,7 @@ export async function createChatStreamResponse(
     trigger,
     messageId,
     abortSignal,
+    stopController,
     isNewChat,
     searchMode,
     sources,
@@ -598,6 +606,9 @@ export async function createChatStreamResponse(
       },
       onFinish: async ({ responseMessage, isAborted }) => {
         try {
+          // Turn is done (or aborted) — drop it from the Stop registry so the
+          // in-memory map doesn't leak.
+          if (stopController) unregisterGeneration(chatId, stopController)
           perfTime('researchAgent.stream completed', llmStart)
           // Bounded: a stalled usage promise must not hold back the line.
           await Promise.race([
@@ -645,6 +656,12 @@ export async function createChatStreamResponse(
             context.pendingInitialSave,
             context.pendingInitialUserMessage
           )
+
+          // NB: the active-stream pointer is deliberately NOT cleared here. It
+          // (and the Redis buffer) expire via their 300s TTL, so a client that
+          // returns AFTER the turn finished can still `resumeStream()` and have
+          // the full buffered stream replayed — the SDK merges by message id and
+          // catches the client up to the final answer, no refetch needed.
 
           // Long-term memory: extract durable user facts from this turn
           // (async, non-blocking — mirrors title generation). Fully guarded
@@ -771,7 +788,30 @@ export async function createChatStreamResponse(
       headers: {
         'Cache-Control': 'no-cache, no-transform'
       },
-      consumeSseStream: consumeStream
+      // Mirror the SSE to Redis so a disconnected client (backgrounded mobile
+      // tab) can reconnect and resume the live stream. The connected client
+      // keeps its own low-latency copy — this callback gets a tee'd copy. If
+      // Redis pub/sub isn't available it degrades to a plain server-side drain
+      // (the turn still completes + persists via the timeout-only signal).
+      async consumeSseStream({ stream }) {
+        const rsc = await getResumableStreamContext()
+        if (!rsc) {
+          await consumeStream({ stream })
+          return
+        }
+        const streamId = generateId()
+        try {
+          // Point the chat at this stream FIRST so a reconnect mid-generation
+          // finds it, then hand the stream to the resumable context (which
+          // publishes to Redis and drives it to completion).
+          await setActiveStreamId(chatId, streamId)
+          await rsc.createNewResumableStream(streamId, () => stream)
+        } catch (error) {
+          console.warn('[resumable-stream] publish failed; draining:', error)
+          await clearActiveStreamId(chatId)
+          await consumeStream({ stream })
+        }
+      }
     })
   } catch (error) {
     if (langfuse) {
