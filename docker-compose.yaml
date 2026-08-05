@@ -21,6 +21,14 @@ services:
       ENABLE_AUTH: 'true'
       MORPHIC_CLOUD_DEPLOYMENT: 'false'
       LOCAL_REDIS_URL: redis://redis:6379
+      # Pin the image EDIT model to one consistent, strong editor instead of
+      # round-robining the whole pool (registry.ts pickPinnedModel) — edits
+      # drifted in style/identity/resolution turn-to-turn. Generation still
+      # rotates for variety. nano-banana-2: fast (~20s), renowned for editing,
+      # preserves the subject, PNG output, supports match_input_image. gpt-image-2
+      # was tried first but times out >120s at usable quality. Applies to prod
+      # (base) and staging (overlay merges the base env); lab sets it too.
+      REPLICATE_IMAGE_EDIT_MODEL: google/nano-banana-2
       # Stated explicitly rather than left to the default. The gate in
       # lib/utils/degoog-client.ts is opt-OUT (`!== 'false'`), so an unset var
       # here would silently turn degoog on for prod's advanced path on the next
