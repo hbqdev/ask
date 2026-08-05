@@ -140,19 +140,26 @@ export function ChatArtifactContainer({
         {hasUser && <SidebarTrigger className="animate-fade-in" />}
       </div>
 
-      {/* Desktop: Independent panels like morphic-studio */}
+      {/* ONE chat instance. `children` (= <Chat>, with its useChat/stream and
+          window listeners) used to be rendered twice — a desktop copy in a
+          `hidden md:flex` container AND a mobile copy in a `md:hidden` one — so
+          the whole component mounted and reconciled twice (CSS just painted one
+          per breakpoint). Rendered once here: the chat fills the width below md
+          (the resize handle and artifact panel are `hidden md:block` there), and
+          at md+ it's a flex sibling of the panel. The container ref + resize
+          logic only affect the panel, which is desktop-only, so they're inert
+          below md. */}
       <div
         ref={setContainerRef}
-        className="hidden md:flex flex-1 min-w-0 overflow-hidden"
+        className="flex-1 min-w-0 h-full flex overflow-hidden"
       >
-        {/* Chat Panel - Independent container */}
-        <div className="flex-1 min-w-0 flex flex-col">{children}</div>
+        <div className="flex-1 min-w-0 flex flex-col h-full">{children}</div>
 
-        {/* Resize Handle */}
+        {/* Resize Handle (desktop only) */}
         {panelOpen && (
           <div
             className={cn(
-              'w-1 mx-0.5 my-6 hover:bg-border transition-colors duration-200 cursor-col-resize select-none relative',
+              'hidden md:block w-1 mx-0.5 my-6 hover:bg-border transition-colors duration-200 cursor-col-resize select-none relative',
               isResizing && 'bg-border/50'
             )}
             onMouseDown={startResize}
@@ -161,10 +168,10 @@ export function ChatArtifactContainer({
           </div>
         )}
 
-        {/* Right Panel - Independent with own animation */}
+        {/* Right Panel (desktop only) - independent width/opacity animation */}
         <div
           className={cn(
-            'bg-background overflow-hidden',
+            'hidden md:block bg-background overflow-hidden',
             panelOpen ? 'opacity-100' : 'w-0 opacity-0',
             !isResizing &&
               'transition-[opacity,width] duration-[260ms] ease-[var(--motion-ease-in-out)]'
@@ -191,11 +198,10 @@ export function ChatArtifactContainer({
         />
       )}
 
-      {/* Mobile: full-width chat + drawer */}
-      <div className="md:hidden flex-1 h-full min-w-0">
-        {children}
-        <InspectorDrawer />
-      </div>
+      {/* Mobile inspector drawer — self-gates via useMediaQuery and returns null
+          at md+, so it's safe to render unconditionally (no mobile wrapper that
+          would duplicate the chat). */}
+      <InspectorDrawer />
     </div>
   )
 }
