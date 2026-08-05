@@ -455,6 +455,46 @@ describe('RenderMessage', () => {
     expect(live[0]).toBe(sections[sections.length - 1])
   })
 
+  test('settles the lone research section when a still-generating image follows it', () => {
+    // The classic image turn — data-classifier -> tool-generateImage -> answer —
+    // has a SINGLE research section that precedes the standalone image. While the
+    // image is still generating (a long Replicate call) that section must stop
+    // spinning; otherwise a "Working on it" box with a counting timer renders
+    // beside the image skeleton — the duplicate progress box. The old
+    // `slice(0, -1)` skipped the only process section and left it live.
+    const message: UIMessage = {
+      id: 'assistant-msg',
+      role: 'assistant',
+      parts: [
+        { type: 'data-classifier', data: { intent: 'general' } } as any,
+        {
+          type: 'tool-generateImage',
+          toolCallId: 'img-1',
+          state: 'input-available', // still generating, no answer yet
+          input: { prompt: 'a blue vintage car' }
+        } as any
+      ]
+    } as UIMessage
+
+    render(
+      <RenderMessage
+        message={message}
+        messageId={message.id}
+        getIsOpen={() => true}
+        onOpenChange={() => {}}
+        status="streaming"
+        isLatestMessage={true}
+      />
+    )
+
+    const sections = screen.getAllByTestId('research-process')
+    expect(sections).toHaveLength(1)
+    // The lone section precedes the image, so it is finished — not live.
+    expect(sections[0].getAttribute('data-has-subsequent-text')).toBe('true')
+    // The image skeleton is the trailing element that owns the live state.
+    expect(screen.getByTestId('generated-image')).toBeInTheDocument()
+  })
+
   test('keeps a research section live when it is the only one and the answer has not started', () => {
     // Guard against over-correcting: a single in-progress section must keep
     // its live indicator.

@@ -278,14 +278,22 @@ export function RenderMessage({
   // Flush tail (no subsequent text)
   flushBuffer('tail')
 
-  // Only the LAST research section can still be in progress. The image and
-  // dynamic-tool branches above flush mid-stream with hasSubsequentText
-  // defaulting to false, so a generated image or MCP call landing before the
-  // answer used to leave two sections claiming to be live at once — two
-  // spinning glyphs, two elapsed timers counting from different mount times,
-  // and two /api/quotes fetches. Everything before the final section is
-  // finished by definition, whatever followed it.
-  for (const i of processIndices.slice(0, -1)) {
+  // A research section is still "in progress" only when it is the TRAILING
+  // element of the whole message. Anything rendered after it — a generated
+  // image, the answer, a dynamic tool, or another research section — means it
+  // has finished and must stop spinning. The image and dynamic-tool branches
+  // above flush mid-stream with hasSubsequentText defaulting to false, so a
+  // section followed by a standalone element used to keep claiming to be live:
+  // a spinning glyph + an elapsed timer (WaitingQuote) counting next to the
+  // thing that came after it. The classic image turn — classifier ->
+  // tool-generateImage -> text — has a single research section, so the old
+  // `slice(0, -1)` (skip only the last *process* section) left it unsettled and
+  // rendered a second "Working on it" box beside the image skeleton for the
+  // entire (long) Replicate call. Compare against position in `elements` so the
+  // image/answer that follows a lone section counts too.
+  const lastElementIndex = elements.length - 1
+  for (const i of processIndices) {
+    if (i === lastElementIndex) continue
     elements[i] = cloneElement(
       elements[i] as React.ReactElement<{ hasSubsequentText?: boolean }>,
       { hasSubsequentText: true }
