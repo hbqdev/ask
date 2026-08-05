@@ -24,12 +24,18 @@ explicit approval**. Reference clone: `/home/nightfury/selfhosted/onyx`.
 ## Waves (ordered by ROI + risk)
 
 ### Wave 1 — match Onyx on shared features (the "steal" list)
+> **AUDITED 2026-08-04 — SKIP.** Evidence-check found Ask already implements ~90% of this,
+> often better than Onyx (two-stage cross-encoder retrieval + snippet-gate; streamdown;
+> `consumeStream` persistence; rigorous citation-integrity prompt). Genuine residuals are
+> minor/low-value and deferred: kwarg param-degradation for weak models; live stream
+> *reconnect* on reload (answer is already persisted, just not re-streamed); citation-reminder
+> tail placement; a scroll-follow refinement.
 - [ ] **1. Retrieval upgrade** — chunk crawled pages before rerank; two-phase (snippet search → LLM picks URLs to deep-fetch); score fusion (min-max normalize + alpha, RRF across expanded queries); query expansion; two-stage section assembly. *Onyx: `onyx/indexing/chunker.py`, `tools/tool_implementations/{web_search,open_url}`, `document_index/opensearch/search.py`, `context/search/pipeline.py`.*
 - [ ] **2. Answer/prompt layer** — prompt-placement discipline (citation reminder at tail, single-int source ids, in-section tool instructions); streaming citation processor; kwarg retry ladder for weak Ollama models. *Onyx: `chat/COMPRESSION.md`, `chat/citation_processor.py`, `llm/multi_llm.py`.*
 - [ ] **3. Frontend polish** — hide citations until source resolves; streaming-hardened markdown (defer highlighting, escape partial LaTeX/fences); resumable streams via cursor; scroll-follow only breaks on scroll-up. *Onyx: `web/src/app/app/message/MemoizedTextComponents.tsx`, `MessageTextRenderer.tsx`, `lib.tsx::resumeStream`, `ChatScrollContainer.tsx`.*
 
 ### Wave 2 — new capabilities that fit the stack
-- [ ] **4. Deep Research** — fake-tools orchestration (`research_agent`/`think_tool`/`generate_report`) on the AI SDK + citation renumbering. *Onyx: `deep_research/dr_loop.py`, `dr_mock_tools.py`.*
+- [x] **4. Deep Research** — BUILT (lab, `lib/agents/deep-research/`), A/B in evaluation. Multi-agent orchestration ABOVE the researcher (flow-variants can't fan out): planner decomposes → parallel sub-agents (`balanced`, capped) → synthesizer merges each sub-agent's citations into one URL-deduped space (our `collapse_citations` analog) and composes one cited report. Baseline arm = today's single-agent `quality` mode (= Ask's deep-research protocol). A/B harness: `scripts/eval/deep-research-ab/` (blind judge, depth/coverage/specificity/citation). *Onyx: `deep_research/dr_loop.py`, `dr_mock_tools.py`.*
 - [ ] **5. Custom Agents / personas** — DB-backed user-defined agents (instructions + allowed tools + optional pinned model).
 - [ ] **6. Voice Mode** — STT input + TTS output (provider or local).
 
@@ -50,4 +56,13 @@ the 40-type packet protocol · wholesale cross-encoder replacement (keep it; add
 "which pages to cite" LLM pass).
 
 ## Status log
-- 2026-08-04: roadmap approved (no connectors). Starting Wave 1 #1 (retrieval) in lab.
+- 2026-08-04: roadmap approved (no connectors).
+- 2026-08-04: Wave 1 AUDITED → already implemented (~90%), often ahead of Onyx. Skipped;
+  minor residuals deferred. Pivoting to Wave 2 #4 (Deep Research) — the biggest verified gap.
+- 2026-08-04: Wave 2 #4 Deep Research BUILT on lab (6 slices, 35 unit tests, typecheck/lint
+  clean): planner → sub-agent runner → orchestrator → synthesizer (citation-merge) → entry
+  points (both A/B arms) → A/B harness. Key codebase fact: `quality` searchMode IS Ask's
+  deep-research protocol (no separate 'deep-research' mode). Sub-agents run `balanced` so
+  multi-agent tests decomposition at a comparable search budget, not "N× more searching".
+  UI streaming behind an A/B flag deferred until the A/B shows multi-agent wins. Next: run
+  the full A/B; then web-search focus (Onyx open_url vs Ask cross-encoder snippet-gate).
