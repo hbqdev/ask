@@ -90,6 +90,7 @@
     "react-dom": "^19.2.0",
     "react-textarea-autosize": "^8.5.3",
     "redis": "^4.7.0",
+    "resumable-stream": "^2.2.12",
     "sonner": "^1.4.41",
     "streamdown": "^2.5.0",
     "tailwind-merge": "^2.6.0",
