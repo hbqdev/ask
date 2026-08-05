@@ -8,6 +8,15 @@ type GenerateImageOutput =
 
 export function GeneratedImageSection({ part }: { part: any }) {
   const prompt: string = part.input?.prompt ?? ''
+  // A failed image tool call lands in `output-error` — most often the model's
+  // FIRST call whose arguments didn't pass schema validation, which it then
+  // retries in the same turn (a fresh tool-generateImage part renders the real
+  // image). A failed attempt must NOT linger as a perpetual "generating"
+  // skeleton — that's the empty spinning box seen above a finished image. Drop
+  // it; if every attempt failed, the assistant's text explains what happened.
+  if (part.state === 'output-error') {
+    return null
+  }
   if (part.state !== 'output-available') {
     return (
       <div className="rounded-xl border border-border bg-muted/30 p-4 flex items-center gap-3">
