@@ -37,7 +37,7 @@ import {
   rehydrateFullContent
 } from '../search/rehydrate-full-content'
 import { durableLatencySink } from '../telemetry/latency-store'
-import { auditCitations } from '../utils/citation'
+import { auditCitations, extractCitedSourceUrls } from '../utils/citation'
 import {
   getMaxAllowedTokens,
   shouldTruncateMessages,
@@ -625,6 +625,21 @@ export async function createChatStreamResponse(
           // short still reports the citations it had already written.
           if (responseMessage) {
             latency.markCitations(auditCitations(responseMessage))
+            // Shadow (SEARCH_CROP_POSITION_SHADOW): log which source URLs the
+            // answer actually CITED, so the crawl-time [crop-pos] per-source
+            // detail can be joined offline (by chatId) to a CITATION-scoped crop
+            // cost — the truer number than v1's read-source figure. Best-effort;
+            // a measurement must never break the turn.
+            if (process.env.SEARCH_CROP_POSITION_SHADOW === 'true') {
+              try {
+                const cited = extractCitedSourceUrls(responseMessage)
+                if (cited.length > 0) {
+                  console.log(`[cite-urls] ${JSON.stringify({ chatId, cited })}`)
+                }
+              } catch {
+                /* shadow citation logging is best-effort */
+              }
+            }
           }
           latency.emit({
             skipSearch: classification?.skipSearch ?? null,
