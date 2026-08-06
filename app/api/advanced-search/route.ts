@@ -1,4 +1,4 @@
-import { NextResponse } from 'next/server'
+import { after, NextResponse } from 'next/server'
 
 import { Redis } from '@upstash/redis'
 import http from 'http'
@@ -13,6 +13,7 @@ import {
   rerankByEmbedding
 } from '@/lib/embeddings/rerank'
 import { buildExcerptContent } from '@/lib/search/build-excerpt'
+import { measureCropPositions } from '@/lib/search/crop-position'
 import { isQualityContent } from '@/lib/search/quality-content'
 import { runSnippetGate } from '@/lib/search/snippet-gate'
 import { buildSearchTelemetryTag } from '@/lib/telemetry/search-tag'
@@ -1106,6 +1107,14 @@ async function advancedSearchXNGSearch(
       )
       const byUrl = new Map(scraped.map(s => [s.url, s]))
 
+      // Shadow crop-position measurement (off unless SEARCH_CROP_POSITION_SHADOW).
+      // Retains each crawled page's UNCROPPED content so, after the rerank, we
+      // can log where each read source's most-relevant passage actually sits —
+      // head (kept) vs tail (discarded by the crop). Never changes the answer.
+      const cropPositionShadow =
+        process.env.SEARCH_CROP_POSITION_SHADOW === 'true'
+      const rawByUrl = new Map<string, string>()
+
       // Everything Crawl4AI did not cover (past the cap, or unrenderable)
       // falls to the legacy per-result crawl here. That is the majority of the
       // pool -- 57 of 73 candidates on a measured turn -- and it was the
@@ -1152,12 +1161,11 @@ async function advancedSearchXNGSearch(
                 }
               )
             }
+            const c4aiRaw = `${result.title}\n\n${hit.markdown}`
+            if (cropPositionShadow) rawByUrl.set(result.url, c4aiRaw)
             return {
               ...result,
-              content: highlightQueryTerms(
-                `${result.title}\n\n${hit.markdown}`.substring(0, 10000),
-                query
-              )
+              content: highlightQueryTerms(c4aiRaw.substring(0, 10000), query)
             }
           })
         )
@@ -1306,6 +1314,25 @@ async function advancedSearchXNGSearch(
       timer.mark('rerank_ms', performance.now() - rerankStart)
       timer.set('rerank_tier', rerankTier)
       timer.set('rerank_docs', docsForRerank.length)
+
+      // Shadow: after the rerank, log where each reranked source's most-relevant
+      // passage sits in its FULL page (head kept vs tail cropped). after() runs
+      // it off the response path; measureCropPositions swallows all errors.
+      if (cropPositionShadow && generalResults.length > 0) {
+        const shadowSources = generalResults
+          .map(r => ({ url: r.url, rawContent: rawByUrl.get(r.url) }))
+          .filter(
+            (s): s is { url: string; rawContent: string } =>
+              typeof s.rawContent === 'string'
+          )
+        if (shadowSources.length > 0) {
+          try {
+            after(() => measureCropPositions(query, shadowSources))
+          } catch {
+            /* shadow registration is best-effort */
+          }
+        }
+      }
     }
 
     generalResults = generalResults.slice(0, maxResults)
