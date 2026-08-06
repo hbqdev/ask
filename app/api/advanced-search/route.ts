@@ -617,7 +617,8 @@ export async function POST(request: Request) {
         Boolean(useOllama),
         typeof ollamaMaxResults === 'number' ? ollamaMaxResults : 5,
         timer,
-        onPreview
+        onPreview,
+        chatId
       )
 
     const finish = async (results: SearXNGSearchResults) => {
@@ -717,7 +718,9 @@ async function advancedSearchXNGSearch(
    * leaving the user staring at nothing while results we already have sit
    * unsent. Never throws into the search path.
    */
-  onPreview?: (preview: SearXNGSearchResults) => void
+  onPreview?: (preview: SearXNGSearchResults) => void,
+  // Join key for the shadow crop-position measurement (against [cite-urls]).
+  chatId?: string
 ): Promise<SearXNGSearchResults> {
   const searchStartedAt = performance.now()
   if (!process.env.SEARXNG_API_URL && !process.env.SEARXNG_FALLBACK_API_URL) {
@@ -1153,7 +1156,7 @@ async function advancedSearchXNGSearch(
               // and reranker as everything else — a slow page degrades to
               // "not enriched", never to a stalled turn.
               return withDeadline(
-                crawlPage(result, query),
+                crawlPage(result, query, cropPositionShadow ? rawByUrl : undefined),
                 LEGACY_CRAWL_BUDGET_MS,
                 () => {
                   legacyTimedOut++
@@ -1327,7 +1330,7 @@ async function advancedSearchXNGSearch(
           )
         if (shadowSources.length > 0) {
           try {
-            after(() => measureCropPositions(query, shadowSources))
+            after(() => measureCropPositions(query, shadowSources, chatId))
           } catch {
             /* shadow registration is best-effort */
           }
@@ -1408,7 +1411,10 @@ async function advancedSearchXNGSearch(
 
 async function crawlPage(
   result: SearXNGResult,
-  query: string
+  query: string,
+  // Shadow crop-position: capture the uncropped legacy-crawled text (keyed by
+  // url) so [crop-pos] covers legacy pages too, not just the crawl4ai path.
+  rawSink?: Map<string, string>
 ): Promise<SearXNGResult> {
   try {
     const html = await fetchHtmlWithTimeout(result.url, 20000)
@@ -1418,10 +1424,11 @@ async function crawlPage(
     // finds no article node).
     const readable = extractReadableContent(html, result.url)
     if (readable && readable.text.length >= MIN_CONTENT_LENGTH) {
-      const combined = [result.title, readable.title, readable.text]
+      const combinedRaw = [result.title, readable.title, readable.text]
         .filter(Boolean)
         .join('\n\n')
-        .substring(0, 10000)
+      rawSink?.set(result.url, combinedRaw)
+      const combined = combinedRaw.substring(0, 10000)
       result.content = highlightQueryTerms(combined, query)
       if (readable.publishedDate) {
         const date = new Date(readable.publishedDate)
@@ -1504,6 +1511,7 @@ async function crawlPage(
       // Combine metadata with extracted text
       extractedText = `${result.title}\n\n${ogTitle}\n\n${metaDescription}\n\n${ogDescription}\n\n${metaKeywords}\n\n${extractedText}`
 
+      rawSink?.set(result.url, extractedText)
       // Limit the extracted text to 10000 characters
       extractedText = extractedText.substring(0, 10000)
 
