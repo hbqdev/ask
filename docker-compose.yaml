@@ -131,6 +131,13 @@ services:
       # `=== 'relaxed'`, so 'strict' and unset are the same code path. It is
       # written out to make the intent legible in the diff.
       SEARCH_QUALITY_FILTER: 'strict'
+      # Crop-position shadow + 20k crop, shipped to prod+staging for a
+      # real-traffic read on how much of the crop's discarded tail is signal.
+      # Shadow-only: never changes answers, runs after the response (measures
+      # where each cited source's best passage sits vs the crop). Both
+      # shell-overridable — SEARCH_ENRICH_MAX_CHARS=10000 reverts the crop.
+      SEARCH_ENRICH_MAX_CHARS: ${SEARCH_ENRICH_MAX_CHARS:-20000}
+      SEARCH_CROP_POSITION_SHADOW: ${SEARCH_CROP_POSITION_SHADOW:-true}
     ports:
       - '${HOST_PORT:-3738}:3000'
     volumes:
