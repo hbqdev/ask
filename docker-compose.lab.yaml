@@ -112,6 +112,12 @@ services:
       # and never measured; shell-settable so it can be.
       SEARCH_SNIPPET_GATE: ${SEARCH_SNIPPET_GATE:-off}
       SEARCH_SNIPPET_GATE_TOP_N: ${SEARCH_SNIPPET_GATE_TOP_N:-40}
+      # Shadow crop-position measurement (lib/search/crop-position.ts). Logs, per
+      # returned source, where its most-relevant passage sits in the FULL page —
+      # head (kept) vs tail (cropped) — so we know how much of the ~82% the 10k
+      # crop discards was actually load-bearing. Off everywhere else; portable to
+      # prod behind this flag for the real-traffic number. Emits [crop-pos] lines.
+      SEARCH_CROP_POSITION_SHADOW: ${SEARCH_CROP_POSITION_SHADOW:-true}
       # Pin the image EDIT model (registry.ts pickPinnedModel) to one consistent,
       # strong editor instead of round-robining the whole pool — edits kept
       # drifting in style/identity/resolution turn-to-turn. Generation still
