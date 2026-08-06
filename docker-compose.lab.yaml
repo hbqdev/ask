@@ -118,6 +118,9 @@ services:
       # crop discards was actually load-bearing. Off everywhere else; portable to
       # prod behind this flag for the real-traffic number. Emits [crop-pos] lines.
       SEARCH_CROP_POSITION_SHADOW: ${SEARCH_CROP_POSITION_SHADOW:-true}
+      # Per-page crop A/B. Baseline arm leaves 10000 (= prod); the 20k arm sets
+      #   SEARCH_ENRICH_MAX_CHARS=20000 docker compose ... up -d ask
+      SEARCH_ENRICH_MAX_CHARS: ${SEARCH_ENRICH_MAX_CHARS:-10000}
       # Pin the image EDIT model (registry.ts pickPinnedModel) to one consistent,
       # strong editor instead of round-robining the whole pool — edits kept
       # drifting in style/identity/resolution turn-to-turn. Generation still
