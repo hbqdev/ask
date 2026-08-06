@@ -24,7 +24,12 @@ import {
 // runs off the response path via after(), so it adds no user-facing latency.
 // It must never throw: a measurement cannot be allowed to break a turn.
 
-const CROP_CHARS = 10000
+// Matches the route's actual crop (SEARCH_ENRICH_MAX_CHARS) so "tail" means
+// "past the crop this arm actually applied", not a fixed 10k.
+const CROP_CHARS = Math.max(
+  1000,
+  parseInt(process.env.SEARCH_ENRICH_MAX_CHARS || '10000', 10)
+)
 // The cheap bi-encoder (same model the rerank fallback uses). "Roughly where is
 // the relevant content" doesn't need cross-encoder precision; it needs to be cheap.
 const MODEL: EmbeddingModelId = 'Xenova/all-MiniLM-L6-v2'
