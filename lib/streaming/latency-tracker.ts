@@ -8,6 +8,18 @@
 // the selector shows the CURRENT choice, not what the turn actually ran on.
 type Meta = { chatId?: string | null; mode: string; modelId?: string | null }
 
+/**
+ * Silence before an abort, above which the turn looks like a PROVIDER stall
+ * rather than a user pressing stop.
+ *
+ * Sits between the two populations actually measured: client disconnects at
+ * 8.1s and 36.5s, and the single observed provider stall at 302s. 120s is
+ * comfortably above every real disconnect seen and far below the stall, and
+ * it is only used to decide whether to log loudly — abort_silence_ms is
+ * always emitted, so a wrong threshold costs nothing but a missing warning.
+ */
+const STALL_SUSPECT_SILENCE_MS = 120_000
+
 export class LatencyTracker {
   private readonly startedAt: number
   private readonly marks: Record<string, number> = {}
@@ -110,6 +122,44 @@ export class LatencyTracker {
         textAt >= lastToolAt
           ? textAt - lastToolAt
           : null
+      // ABORT FORENSICS. A turn that ends in `abort` is either a user pressing
+      // stop or a provider that went silent, and the existing marks cannot tell
+      // them apart without reconstructing the gap by hand every time.
+      //
+      // Measured on 208 prod+staging turns: the two aborts were client
+      // disconnects, 36.5s and 8.1s of silence, both far short of the 300s
+      // ceiling. The one genuine provider stall ever seen (lab, a different
+      // architecture) was 302s of silence before the ceiling fired, with no
+      // prose. So the discriminator is the SILENCE, not the abort.
+      //
+      // Emitted as a raw number rather than a verdict: the threshold below is
+      // a convenience for spotting it in logs, and a number in the line is what
+      // survives a threshold turning out to be wrong.
+      const abortAt = this.streamParts['abort']
+      let abortSilenceMs: number | null = null
+      if (typeof abortAt === 'number') {
+        const others = Object.entries(this.streamParts)
+          .filter(([k]) => k !== 'abort')
+          .map(([, v]) => v)
+        abortSilenceMs = others.length
+          ? Math.round(abortAt - Math.max(...others))
+          : Math.round(abortAt)
+      }
+      const blankAbort =
+        typeof abortAt === 'number' && typeof textAt !== 'number'
+      if (
+        blankAbort &&
+        abortSilenceMs !== null &&
+        abortSilenceMs >= STALL_SUSPECT_SILENCE_MS
+      ) {
+        // Loud on purpose. This is the signature the stall-recovery work on
+        // flow-design-pipeline exists to fix, and it has never been observed
+        // here — if it starts appearing, that fix becomes worth porting.
+        console.warn(
+          `[stall-suspect] chat=${this.meta.chatId ?? '?'} silent ${Math.round(abortSilenceMs / 1000)}s before abort with no prose — provider stall, not a client disconnect`
+        )
+      }
+
       this.sink(
         `[latency] ${JSON.stringify({
           chatId: this.meta.chatId ?? null,
@@ -140,6 +190,12 @@ export class LatencyTracker {
               citations_unresolved: this.citations.unresolved
             }),
           total_ms: total,
+          // Present only on aborted turns. blank_abort distinguishes "the user
+          // stopped it mid-answer" from "nothing was ever written".
+          ...(abortSilenceMs !== null && {
+            abort_silence_ms: abortSilenceMs,
+            blank_abort: blankAbort
+          }),
           // All three, because together they determine which prompt/tool mode
           // the turn got (resolveTurnMode in lib/agents/researcher.ts).
           // skipSearch alone cannot tell "answered from knowledge on purpose"
