@@ -118,6 +118,14 @@ const MAX_LEGACY_CRAWL_URLS = Math.max(
   parseInt(process.env.MAX_LEGACY_CRAWL_URLS || '999', 10)
 )
 
+// Per-page crawled-content crop. Default 10k (prod). Standalone knob (no longer
+// coupled to the reverted full-content rerank) so the crop can be A/B'd — e.g.
+// a 20k arm on the lab against the 10k baseline, everything else held constant.
+const ENRICH_CONTENT_MAX_CHARS = Math.max(
+  1000,
+  parseInt(process.env.SEARCH_ENRICH_MAX_CHARS || '10000', 10)
+)
+
 /**
  * Fetch Google Images via degoog alongside every search. Default OFF: SearXNG
  * already returns images in the same round-trip, so this only adds variety at
@@ -1134,7 +1142,7 @@ async function advancedSearchXNGSearch(
               return {
                 ...result,
                 content: highlightQueryTerms(
-                  `${result.title}\n\n${result.content}`.substring(0, 10000),
+                  `${result.title}\n\n${result.content}`.substring(0, ENRICH_CONTENT_MAX_CHARS),
                   query
                 )
               }
@@ -1168,7 +1176,7 @@ async function advancedSearchXNGSearch(
             if (cropPositionShadow) rawByUrl.set(result.url, c4aiRaw)
             return {
               ...result,
-              content: highlightQueryTerms(c4aiRaw.substring(0, 10000), query)
+              content: highlightQueryTerms(c4aiRaw.substring(0, ENRICH_CONTENT_MAX_CHARS), query)
             }
           })
         )
@@ -1428,7 +1436,7 @@ async function crawlPage(
         .filter(Boolean)
         .join('\n\n')
       rawSink?.set(result.url, combinedRaw)
-      const combined = combinedRaw.substring(0, 10000)
+      const combined = combinedRaw.substring(0, ENRICH_CONTENT_MAX_CHARS)
       result.content = highlightQueryTerms(combined, query)
       if (readable.publishedDate) {
         const date = new Date(readable.publishedDate)
@@ -1513,7 +1521,7 @@ async function crawlPage(
 
       rawSink?.set(result.url, extractedText)
       // Limit the extracted text to 10000 characters
-      extractedText = extractedText.substring(0, 10000)
+      extractedText = extractedText.substring(0, ENRICH_CONTENT_MAX_CHARS)
 
       // Highlight query terms in the content
       result.content = highlightQueryTerms(extractedText, query)
