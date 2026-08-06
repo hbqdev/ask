@@ -15,6 +15,11 @@ import {
 // or was thrown away past it. tail_frac is the headline — the fraction of read
 // sources whose best content the crop discarded.
 //
+// v2: the [crop-pos] line also carries chatId + per-source detail (url, offset,
+// tail) so it can be joined offline against the [cite-urls] line (which sources
+// the answer actually cited) to get the CITATION-scoped number — the truer cost,
+// since the model reads ~20 sources but cites only a few.
+//
 // It NEVER changes the answer (the crop still governs what the model reads) and
 // runs off the response path via after(), so it adds no user-facing latency.
 // It must never throw: a measurement cannot be allowed to break a turn.
@@ -28,6 +33,9 @@ const PASSAGE_OVERLAP_TOKENS = 32
 
 export type CropPositionSource = { url: string; rawContent: string }
 
+/** Per-source detail (short keys — this rides in a log line). */
+export type CropPositionDetail = { u: string; o: number; t: 0 | 1 }
+
 export type CropPositionStat = {
   sources: number
   /** Read sources whose most-relevant passage started past the crop. */
@@ -37,6 +45,7 @@ export type CropPositionStat = {
   p90_offset: number
   max_offset: number
   crop: number
+  detail: CropPositionDetail[]
 }
 
 /** Pure computation, separated from logging so it can be unit-tested. */
@@ -45,6 +54,7 @@ export async function computeCropPositions(
   sources: CropPositionSource[]
 ): Promise<CropPositionStat | null> {
   const offsets: number[] = []
+  const detail: CropPositionDetail[] = []
   let bestInTail = 0
   for (const src of sources) {
     const passages = splitText(
@@ -71,8 +81,10 @@ export async function computeCropPositions(
     const offset = Math.round(
       (bestIdx / passages.length) * src.rawContent.length
     )
+    const tail: 0 | 1 = offset >= CROP_CHARS ? 1 : 0
     offsets.push(offset)
-    if (offset >= CROP_CHARS) bestInTail++
+    detail.push({ u: src.url, o: offset, t: tail })
+    if (tail) bestInTail++
   }
   if (offsets.length === 0) return null
   const sorted = [...offsets].sort((a, b) => a - b)
@@ -85,18 +97,20 @@ export async function computeCropPositions(
     p50_offset: pct(0.5),
     p90_offset: pct(0.9),
     max_offset: sorted[sorted.length - 1],
-    crop: CROP_CHARS
+    crop: CROP_CHARS,
+    detail
   }
 }
 
 /** Fire-and-forget wrapper: compute, log one line, swallow everything. */
 export async function measureCropPositions(
   query: string,
-  sources: CropPositionSource[]
+  sources: CropPositionSource[],
+  chatId?: string
 ): Promise<void> {
   try {
     const stat = await computeCropPositions(query, sources)
-    if (stat) console.log(`[crop-pos] ${JSON.stringify(stat)}`)
+    if (stat) console.log(`[crop-pos] ${JSON.stringify({ chatId, ...stat })}`)
   } catch {
     // A shadow measurement must never break a turn.
   }

@@ -165,6 +165,35 @@ export function extractCitationMaps(
 }
 
 /**
+ * The distinct source URLs an assistant message actually CITED — each
+ * [N](#toolCallId) anchor resolved against THIS message's own tool calls
+ * (out-of-turn anchors resolve to nothing and are dropped, the same per-message
+ * scoping rendering uses). Keys are normalized with stripToolCallPrefix so
+ * resolution agrees with auditCitations' resolved/unresolved counts. Used by the
+ * shadow crop-position measurement to scope its number to cited (not merely
+ * read) sources.
+ */
+export function extractCitedSourceUrls(message: UIMessage): string[] {
+  const rawMaps = extractCitationMaps(message)
+  const byStripped: Record<string, Record<number, SearchResultItem>> = {}
+  for (const [id, map] of Object.entries(rawMaps)) {
+    byStripped[stripToolCallPrefix(id)] = map
+  }
+  const urls = new Set<string>()
+  for (const part of (message.parts ?? []) as Array<{
+    type?: string
+    text?: string
+  }>) {
+    if (part.type !== 'text' || typeof part.text !== 'string') continue
+    for (const m of part.text.matchAll(CITATION_ANCHOR_RE)) {
+      const src = byStripped[stripToolCallPrefix(m[2])]?.[Number(m[1])]
+      if (src?.url) urls.add(src.url)
+    }
+  }
+  return [...urls]
+}
+
+/**
  * Extract citation maps from multiple messages
  * Returns a combined map of toolCallId to citation map
  *
