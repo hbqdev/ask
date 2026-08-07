@@ -118,7 +118,9 @@ done
 if ! $DRY_RUN; then
   echo
   echo "-- reclaiming space"
-  bash /home/nightfury/selfhosted/ask/fleet-boot/reclaim-space.sh 2>&1 | tail -6 | sed 's/^/  /'
+  # Sibling script, resolved relative to this one rather than pinned to the
+  # development worktree — see the note in rotate-daily.sh.
+  bash "$(cd -- "$(dirname -- "$(readlink -f -- "$0")")" && pwd)/reclaim-space.sh" 2>&1 | tail -6 | sed 's/^/  /'
 fi
 
 echo

@@ -16,7 +16,11 @@
 # Tokens/URLs are read from Ask's .env so they survive rotation (never printed).
 set -u
 
-ENV_FILE="${KEEP_WARM_ENV_FILE:-/home/nightfury/selfhosted/ask/.env}"
+# Defaults to the .env of the worktree this script lives in, not a pinned path.
+# /selfhosted/ask is now the STAGING tree — prod's .env moved to
+# /selfhosted/ask-prod with the worktree split — so the old hardcoded default
+# had this reading staging's configuration regardless of which stack it warms.
+ENV_FILE="${KEEP_WARM_ENV_FILE:-$(cd -- "$(dirname -- "$(readlink -f -- "$0")")/.." && pwd)/.env}"
 INTERVAL="${KEEP_WARM_INTERVAL:-8}"
 
 getenv() { grep -E "^$1=" "$ENV_FILE" 2>/dev/null | head -1 | cut -d= -f2- | tr -d '"'; }
