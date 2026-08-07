@@ -7,13 +7,34 @@ services:
     # compose alone and stays opt-in via its own .env at deploy time). Merges
     # with the base service's environment block.
     environment:
+      # Defaults to 'true' — staging binds 0.0.0.0:3739 and is LAN-visible, so
+      # it must never sit unauthenticated. Overridable from the shell ONLY for
+      # bounded, attended experiments that need to drive real turns without a
+      # login (e.g. the source-excerpts A/B), then restored immediately:
+      #   ENABLE_AUTH=false docker compose ... up -d ask   # run, then re-up
+      ENABLE_AUTH: ${ENABLE_AUTH:-true}
       UPLOAD_TTL_DAYS: '14'
       # staging gets its own SearXNG, isolated from prod's and from personal use
       SEARXNG_API_URL: 'http://ask-searxng-admin-feature:8080'
       # Send the answering model each source's top-ranked passages instead of
-      # the whole crawled page. Staging only — prod stays on full-page content
-      # until the A/B in the spec has been read.
-      SEARCH_EXCERPTS_ENABLED: 'true'
+      # the whole crawled page.
+      #
+      # NOT staging-only, despite what this comment claimed until 2026-08-01:
+      # prod's .env sets the same value, so prod has been running excerpts too
+      # and the "staging vs prod" excerpt comparison compared identical arms.
+      # The deciding A/B in 2026-07-25-source-excerpts-design.md was never run —
+      # 2026-07-26-full-content-in-history-design.md:172 still lists the ship
+      # decision as pending. Shell-settable so that A/B can toggle arms against
+      # ONE build, as the spec requires, without editing this file mid-run:
+      #   SEARCH_EXCERPTS_ENABLED=true docker compose ... up -d ask
+      #
+      # Default flipped to false on 2026-08-01 by the A/B this flag was created
+      # for. Per-step prompt size fell only 5% — the entire point of the change —
+      # while steps rose 142%, turns ran 17% slower, and citation-without-support
+      # reproduced on two of two probed turns (GPU specs and Next.js claims both
+      # attributed to the previous turn's Kubernetes page). Full result in
+      # docs/superpowers/specs/2026-07-25-source-excerpts-design.md.
+      SEARCH_EXCERPTS_ENABLED: ${SEARCH_EXCERPTS_ENABLED:-false}
       # Let the cross-encoder judge relevance instead of a word-count
       # heuristic. Strict drops >50% of crawled pages, including spec tables
       # and numbered procedures.
