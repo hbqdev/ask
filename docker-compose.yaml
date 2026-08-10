@@ -157,6 +157,23 @@ services:
         condition: service_started
       searxng:
         condition: service_started
+    healthcheck:
+      # Liveness only — GET /api/health does not touch Postgres/Redis, so this
+      # catches a WEDGED event loop (which a bare "running" status hides) without
+      # flapping the app unhealthy on a dependency blip. Uses node, always present
+      # in the image, so it does not rely on curl/wget being installed. Overlays
+      # inherit this block, so every env gets it. NOTE: Docker only MARKS the
+      # container unhealthy — it does not restart on it; pair with an autoheal
+      # sidecar or a monitor (uptime-kuma) to act on the signal.
+      test:
+        - CMD
+        - node
+        - -e
+        - "fetch('http://127.0.0.1:3000/api/health').then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))"
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 40s
     restart: unless-stopped
 
   postgres:
