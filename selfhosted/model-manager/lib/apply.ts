@@ -62,11 +62,27 @@ async function restartAsk(
   const { runner, config } = deps
   emit({ step: 'ask-restart', status: 'start' })
   try {
-    const r = await runner.run(
-      'docker',
-      ['compose', '-f', config.askComposeFile, 'up', '-d', config.askService],
-      { timeoutMs: 180_000 }
-    )
+    // Recreate the service exactly the way it is deployed:
+    //  -p <project>            pin the stack; base compose is `name: ask-stack`,
+    //                          so omitting this silently lands on prod.
+    //  -f base -f overlays…    include the VPN overlay, else the service comes
+    //                          back base-only (no VPN networking).
+    //  --force-recreate        env_file (.env) content changes don't alter the
+    //                          resolved compose config, so a plain `up` would NOT
+    //                          recreate the container and the new value (e.g.
+    //                          OLLAMA_MODELS) would never take effect.
+    //  --no-deps               only touch the app; leave postgres/redis/searxng.
+    const args = [
+      'compose',
+      ...(config.askComposeProject ? ['-p', config.askComposeProject] : []),
+      ...config.askComposeFiles.flatMap(f => ['-f', f]),
+      'up',
+      '-d',
+      '--force-recreate',
+      '--no-deps',
+      config.askService
+    ]
+    const r = await runner.run('docker', args, { timeoutMs: 180_000 })
     if (r.code !== 0) {
       emit({
         step: 'ask-restart',

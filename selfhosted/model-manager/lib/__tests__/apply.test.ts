@@ -6,6 +6,8 @@ import type { ToolConfig } from '../config'
 const config: ToolConfig = {
   askEnvPath: '/ask/.env',
   askComposeFile: '/ask/docker-compose.yaml',
+  askComposeFiles: ['/ask/docker-compose.yaml', '/ask/docker-compose.vpn.yaml'],
+  askComposeProject: 'ask-stack',
   askService: 'ask',
   backupKeep: 20,
   reranker: {
@@ -57,6 +59,28 @@ describe('applyPlan', () => {
     // restarts ask, never ssh
     expect(calls.some(c => c[0] === 'docker')).toBe(true)
     expect(calls.some(c => c[0] === 'ssh')).toBe(false)
+  })
+
+  it('recreates ask with the pinned project, every compose file, and --force-recreate', async () => {
+    const { d, calls } = deps(() => ok)
+    await applyPlan(
+      { askEnvText: 'A=1\n', touchedTargets: ['ask'] },
+      d,
+      () => {}
+    )
+    const docker = calls.find(c => c[0] === 'docker')
+    expect(docker).toBeDefined()
+    // pinned project so it can never silently land on the wrong stack
+    expect(docker).toContain('-p')
+    expect(docker).toContain('ask-stack')
+    // both compose files (base + VPN overlay), not base-only
+    expect(docker).toContain('/ask/docker-compose.yaml')
+    expect(docker).toContain('/ask/docker-compose.vpn.yaml')
+    // force-recreate so env_file (.env) changes actually take effect, and
+    // --no-deps so postgres/redis/searxng are left untouched
+    expect(docker).toContain('--force-recreate')
+    expect(docker).toContain('--no-deps')
+    expect(docker!.slice(-4)).toEqual(['-d', '--force-recreate', '--no-deps', 'ask'])
   })
 
   it('also restarts reranker over ssh when reranker target changed', async () => {
