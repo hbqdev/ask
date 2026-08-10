@@ -1289,26 +1289,15 @@ async function advancedSearchXNGSearch(
       }
 
       if (!reranked) {
-        try {
-          const out = await rerankByEmbedding(docsForRerank, query, maxResults)
-          applyReranked(out, 0.2)
-          reranked = true
-          rerankTier = 'embedding'
-        } catch (error) {
-          console.error(
-            '[advanced-search] embedding rerank failed, using keyword scorer:',
-            error
-          )
+        // Keyword salvage: the last-resort scorer, shared by two triggers — the
+        // bi-encoder THROWING, and the bi-encoder emptying everything under its
+        // floor (the guard the cross-encoder tier already had but this one did
+        // not). Scores the ORIGINAL pool (docsForRerank), never the mutated
+        // generalResults: applyReranked mutates generalResults, so if a prior
+        // tier's floor already emptied it, scoring that here would return zero
+        // sources — docsForRerank always still holds the full pool.
+        const keywordSalvage = () => {
           const MIN_RELEVANCE_SCORE = 10
-          // Score the ORIGINAL pool, not generalResults.
-          //
-          // generalResults is mutated by applyReranked. If the cross-encoder
-          // ran and its 0.1 floor filtered everything, it is already [] — that
-          // is the documented fall-through to this tier — so scoring it here
-          // returned zero sources whenever the bi-encoder ALSO threw (model
-          // load, OOM). Both other tiers read docsForRerank; this was the only
-          // consumer of mutated state, which is why it was the only one that
-          // could silently return nothing.
           generalResults = docsForRerank
             .map(d => d.original)
             .map(result => ({
@@ -1319,6 +1308,29 @@ async function advancedSearchXNGSearch(
             .sort((a, b) => b.score - a.score)
             .slice(0, maxResults)
           rerankTier = 'keyword'
+        }
+
+        try {
+          const out = await rerankByEmbedding(docsForRerank, query, maxResults)
+          applyReranked(out, 0.2)
+          // Mirror the cross-encoder tier's guard: if the 0.2 floor filtered
+          // EVERYTHING out, don't answer with zero web sources — fall through to
+          // the keyword scorer instead of returning [].
+          if (generalResults.length > 0) {
+            reranked = true
+            rerankTier = 'embedding'
+          } else {
+            console.log(
+              '[advanced-search] bi-encoder filtered all results below floor, falling back to keyword scorer'
+            )
+            keywordSalvage()
+          }
+        } catch (error) {
+          console.error(
+            '[advanced-search] embedding rerank failed, using keyword scorer:',
+            error
+          )
+          keywordSalvage()
         }
       }
 
