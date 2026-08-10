@@ -1,5 +1,5 @@
 import type { ToolConfig } from './config'
-import { parseEnv } from './env-file'
+import { getValue, parseEnv, serializeEnv, setValue } from './env-file'
 import { specByKey } from './env-schema'
 import type { Runner } from './exec'
 
@@ -72,6 +72,12 @@ async function restartAsk(
     //                          recreate the container and the new value (e.g.
     //                          OLLAMA_MODELS) would never take effect.
     //  --no-deps               only touch the app; leave postgres/redis/searxng.
+    //  --wait --wait-timeout   block until the ask healthcheck reports healthy
+    //                          (the base compose now defines one), so an apply
+    //                          that boots but crash-loops / fails its healthcheck
+    //                          is reported as a FAILURE here instead of "ok" the
+    //                          instant `up` returns 0. On timeout compose exits
+    //                          non-zero and the failure path below fires.
     const args = [
       'compose',
       ...(config.askComposeProject ? ['-p', config.askComposeProject] : []),
@@ -80,6 +86,9 @@ async function restartAsk(
       '-d',
       '--force-recreate',
       '--no-deps',
+      '--wait',
+      '--wait-timeout',
+      '120',
       config.askService
     ]
     const r = await runner.run('docker', args, { timeoutMs: 180_000 })
@@ -119,6 +128,42 @@ async function restartReranker(
 
   emit({ step: 'reranker-write', status: 'start' })
   try {
+    // Read-modify-write the remote .env. Only RERANKER_MODEL changes here, but
+    // that file ALSO holds RERANKER_API_TOKEN (+ batch size), consumed via
+    // env_file — and the reranker fails CLOSED (503) without the token. A blind
+    // `cat >` of just the model line truncated those keys away, taking the whole
+    // reranker down to a 503 (Ask degrades to bi-encoder) on its next restart.
+    // So fetch the current file, set ONLY RERANKER_MODEL, and write the merged
+    // result back; if we can't read the current file, refuse rather than
+    // overwrite blind.
+    const read = await runner.run(
+      'ssh',
+      [
+        '-i',
+        rc.sshKey,
+        '-o',
+        'StrictHostKeyChecking=accept-new',
+        rc.sshTarget,
+        `cat ${rc.remoteDir}/${rc.envFile}`
+      ],
+      { timeoutMs: 30_000 }
+    )
+    if (read.code !== 0) {
+      emit({
+        step: 'reranker-write',
+        status: 'fail',
+        detail:
+          'could not read remote .env (refusing to overwrite blind): ' +
+          redact(read.stderr).slice(-1500)
+      })
+      return false
+    }
+
+    const model = getValue(parseEnv(rerankerEnvText), 'RERANKER_MODEL')
+    const merged = model
+      ? serializeEnv(setValue(parseEnv(read.stdout), 'RERANKER_MODEL', model))
+      : read.stdout
+
     const write = await runner.run(
       'ssh',
       [
@@ -129,7 +174,7 @@ async function restartReranker(
         rc.sshTarget,
         `cat > ${rc.remoteDir}/${rc.envFile}`
       ],
-      { input: rerankerEnvText, timeoutMs: 30_000 }
+      { input: merged, timeoutMs: 30_000 }
     )
     if (write.code !== 0) {
       emit({
@@ -155,7 +200,7 @@ async function restartReranker(
         '-o',
         'StrictHostKeyChecking=accept-new',
         rc.sshTarget,
-        `cd ${rc.remoteDir} && docker compose up -d ${rc.service}`
+        `cd ${rc.remoteDir} && docker compose up -d --force-recreate ${rc.service}`
       ],
       { timeoutMs: 180_000 }
     )
