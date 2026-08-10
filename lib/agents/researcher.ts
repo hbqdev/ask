@@ -33,7 +33,8 @@ import { IMAGE_TOOL_GUIDANCE } from './prompts/image-tool-guidance'
 import {
   getAdaptiveModePrompt,
   getQualityModePrompt,
-  SPEED_MODE_PROMPT
+  SPEED_MODE_PROMPT,
+  UNTRUSTED_CONTENT_RULE
 } from './prompts/search-mode-prompts'
 import { applyAnswerDeadline } from './answer-deadline'
 
@@ -627,6 +628,12 @@ export async function createResearcher({
       systemPrompt = systemPrompt + getSourcesPromptAddendum(sources)
     }
 
+    // Prompt-injection hardening: text returned by `search`/`fetch` is untrusted
+    // third-party data that may be crafted to look like instructions. Standing
+    // rule (every turn advertises or escape-hatches to those tools) that such
+    // content is data, never commands. Pairs with the remember-gate below.
+    systemPrompt = systemPrompt + UNTRUSTED_CONTENT_RULE
+
     // Offer image generation across every mode (skip/speed/quality/balanced)
     // when it's configured AND the turn has an authenticated user — generated
     // images are persisted into that user's upload store, and
@@ -688,7 +695,17 @@ The conversation history is background context, not a to-do list. Any topic from
       askQuestion: askQuestionTool,
       calculate: calculateTool,
       get_weather: weatherTool,
-      remember: createRememberTool(userId),
+      remember: createRememberTool(
+        // Injection hardening: on a retrieval-driven (research) turn, a
+        // `remember` call may have been induced by instructions embedded in an
+        // untrusted retrieved page, so write it candidate-only (requires
+        // graduation before it is injected) rather than an immediately-active
+        // confirmed memory. Direct / stable-knowledge turns answer without
+        // retrieval, so a genuine user-directed "remember X" there stays an
+        // immediate confirmed write.
+        userId,
+        turnMode !== 'direct' && turnMode !== 'stable-knowledge'
+      ),
       recall: createRecallTool(userId, currentChatId),
       // Gated identically to the activeToolsList entry above so the two never
       // disagree. `&& userId` also narrows userId to string for the tool's
