@@ -32,10 +32,11 @@ export async function POST(req: Request) {
 
     // Resolve identity BEFORE writing anything. This route took a caller-
     // supplied traceId and messageId and wrote to both Langfuse and the
-    // messages table with no identity required. The RLS policy meant to scope
-    // the database side never runs (app role is superuser, every table is
-    // relforcerowsecurity=f), so an unauthenticated POST could score any trace
-    // and overwrite any message's metadata.
+    // messages table with no identity required. The app runs as the non-owner
+    // `app_user` role, so RLS scopes the DB write — but Langfuse has no RLS and
+    // the owner-URL fallback (DATABASE_RESTRICTED_URL unset) bypasses it, so
+    // without this an unauthenticated POST could score any trace and overwrite
+    // any message's metadata.
     //
     // getCurrentUserId rather than a hand-rolled supabase lookup: with
     // ENABLE_AUTH=false it returns the anonymous user id, so personal
