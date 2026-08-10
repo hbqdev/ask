@@ -23,14 +23,17 @@ function deps(runImpl: (cmd: string, args: string[]) => RunResult): {
   d: ApplyDeps
   writes: string[]
   calls: string[][]
+  inputs: string[]
 } {
   const writes: string[] = []
   const calls: string[][] = []
+  const inputs: string[] = []
   const d: ApplyDeps = {
     config,
     runner: {
-      run: async (cmd, args) => {
+      run: async (cmd, args, opts) => {
         calls.push([cmd, ...args])
+        if (opts?.input !== undefined) inputs.push(opts.input)
         return runImpl(cmd, args)
       }
     },
@@ -40,7 +43,7 @@ function deps(runImpl: (cmd: string, args: string[]) => RunResult): {
     sleep: async () => {},
     backup: async () => '/ask/.env.bak.T'
   }
-  return { d, writes, calls }
+  return { d, writes, calls, inputs }
 }
 
 const ok: RunResult = { code: 0, stdout: 'healthy', stderr: '' }
@@ -80,7 +83,43 @@ describe('applyPlan', () => {
     // --no-deps so postgres/redis/searxng are left untouched
     expect(docker).toContain('--force-recreate')
     expect(docker).toContain('--no-deps')
-    expect(docker!.slice(-4)).toEqual(['-d', '--force-recreate', '--no-deps', 'ask'])
+    // --wait health-gates the apply (blocks on the ask healthcheck) and the
+    // service name is the final positional arg
+    expect(docker).toContain('--wait')
+    expect(docker![docker!.length - 1]).toBe('ask')
+  })
+
+  it('reranker write is read-modify-write — preserves other keys, sets only RERANKER_MODEL', async () => {
+    const existing =
+      'RERANKER_API_TOKEN=keepme\nRERANKER_BATCH_SIZE=32\nRERANKER_MODEL=old\n'
+    const { d, inputs } = deps((cmd, args) => {
+      // The remote read is `ssh … cat <file>` (no redirect); return the existing
+      // .env for it. The write is `ssh … cat > <file>` and everything else is ok.
+      const last = args[args.length - 1]
+      if (cmd === 'ssh' && last.startsWith('cat ') && !last.includes('>')) {
+        return { code: 0, stdout: existing, stderr: '' }
+      }
+      return ok
+    })
+    const res = await applyPlan(
+      {
+        askEnvText: 'A=1\n',
+        touchedTargets: ['reranker'],
+        rerankerEnvText: 'RERANKER_MODEL=new-model\n'
+      },
+      d,
+      () => {}
+    )
+    expect(res.ok).toBe(true)
+    // The content written back to the remote .env keeps the token + batch size
+    // (a blind `cat >` of just the model line used to wipe them) and updates the
+    // model.
+    const written = inputs.find(t => t.includes('RERANKER_API_TOKEN'))
+    expect(written).toBeDefined()
+    expect(written).toContain('RERANKER_API_TOKEN=keepme')
+    expect(written).toContain('RERANKER_BATCH_SIZE=32')
+    expect(written).toContain('RERANKER_MODEL=new-model')
+    expect(written).not.toContain('RERANKER_MODEL=old')
   })
 
   it('also restarts reranker over ssh when reranker target changed', async () => {
