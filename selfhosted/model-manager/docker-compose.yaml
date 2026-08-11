@@ -12,7 +12,12 @@ services:
       - .env
       - secrets.env
     ports:
-      - '${MODEL_MANAGER_PORT:-3939}:3939'
+      # Bind to LOOPBACK only. This UI is root-equivalent (docker socket + repo
+      # write + reranker SSH key), so it must not be reachable directly by other
+      # devices on the LAN — reach it from the host, or from a laptop via
+      # `ssh -L 3939:localhost:3939 <host>`. (0.0.0.0 exposed it to the whole LAN,
+      # bypassing any front-door auth.)
+      - '127.0.0.1:${MODEL_MANAGER_PORT:-3939}:3939'
     volumes:
       # Mount the Ask repo at the SAME path inside the container as on the host.
       # This identical-path mapping is REQUIRED — the tool runs
