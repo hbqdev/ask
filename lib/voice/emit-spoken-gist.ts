@@ -9,7 +9,7 @@ export async function emitSpokenGist(
 ): Promise<void> {
   try {
     const text = await condenseForSpeech(answerText, opts)
-    if (text) writer.write({ type: 'data-spoken-gist', data: { text } })
+    if (text) writer.write({ type: 'data-spokenGist', data: { text } })
   } catch (e) {
     console.warn('[voice] emitSpokenGist failed (ignored):', e)
   }

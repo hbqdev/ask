@@ -560,7 +560,7 @@ describe('RenderMessage voice read-aloud', () => {
       role: 'assistant',
       parts: [
         { type: 'text', text: '## Final answer' } as any,
-        { type: 'data-spoken-gist', data: { text: 'the spoken gist' } } as any
+        { type: 'data-spokenGist', data: { text: 'the spoken gist' } } as any
       ]
     }) as UIMessage
 
