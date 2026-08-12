@@ -23,6 +23,8 @@ import {
   IconFileText as FileText,
   IconMessageCirclePlus as MessageCirclePlus,
   IconSquare as Square,
+  IconVolume as Volume,
+  IconVolumeOff as VolumeOff,
   IconX as X
 } from '@tabler/icons-react'
 import { toast } from 'sonner'
@@ -115,6 +117,9 @@ interface ChatPanelProps {
   modelSelectorData?: ModelSelectorData
   /** Chat sections for message navigation dots */
   sections?: { id: string; userMessage: UIMessage }[]
+  /** Voice read-aloud toggle state + setter (rendered only when voice is on). */
+  voiceMode?: boolean
+  onVoiceModeChange?: (next: boolean) => void
 }
 
 export function ChatPanel({
@@ -139,9 +144,12 @@ export function ChatPanel({
   isCloudDeployment = false,
   onAdaptiveModeAuthRequired,
   modelSelectorData,
-  sections = []
+  sections = [],
+  voiceMode = false,
+  onVoiceModeChange
 }: ChatPanelProps) {
   const router = useRouter()
+  const voiceEnabled = process.env.NEXT_PUBLIC_VOICE_ENABLED === 'true'
   const inputRef = useRef<HTMLTextAreaElement>(null)
   const isFirstRender = useRef(true)
   const [isComposing, setIsComposing] = useState(false) // Composition state
@@ -825,6 +833,39 @@ export function ChatPanel({
                 onAdaptiveAuthRequired={onAdaptiveModeAuthRequired}
               />
               <SourceSelector />
+              {voiceEnabled && (
+                <TooltipProvider delayDuration={200}>
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="icon"
+                        aria-label="Read answers aloud"
+                        aria-pressed={voiceMode}
+                        onClick={() => onVoiceModeChange?.(!voiceMode)}
+                        className={cn(
+                          'size-8 shrink-0 rounded-full',
+                          voiceMode
+                            ? 'text-foreground'
+                            : 'text-muted-foreground'
+                        )}
+                      >
+                        {voiceMode ? (
+                          <Volume className="size-4" />
+                        ) : (
+                          <VolumeOff className="size-4" />
+                        )}
+                      </Button>
+                    </TooltipTrigger>
+                    <TooltipContent className="text-xs">
+                      {voiceMode
+                        ? 'Voice mode on — answers read aloud'
+                        : 'Read answers aloud'}
+                    </TooltipContent>
+                  </Tooltip>
+                </TooltipProvider>
+              )}
             </div>
             <div className="flex items-center gap-2">
               {!isCloudDeployment && modelSelectorData && (
