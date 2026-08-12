@@ -59,6 +59,10 @@ export type UIDataTypes = {
   attachments?:
     | { state: 'running'; count: number }
     | { state: 'done'; count: number; durationMs?: number }
+  // Streamed by lib/voice/emit-spoken-gist.ts when a voice turn condenses the
+  // finished answer into a short spoken summary — rendered as a Listen control
+  // + caption under the answer by components/render-message.tsx.
+  spokenGist?: { text: string }
 }
 
 // Create todo tools instance for type inference
