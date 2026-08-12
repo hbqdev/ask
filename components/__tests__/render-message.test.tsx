@@ -1,7 +1,7 @@
 import React from 'react'
 
 import { render, screen } from '@testing-library/react'
-import { describe, expect, test, vi } from 'vitest'
+import { afterEach, describe, expect, test, vi } from 'vitest'
 
 import type { UIMessage } from '@/lib/types/ai'
 
@@ -10,6 +10,24 @@ import { endsInActiveResearch, RenderMessage } from '../render-message'
 vi.mock('../answer-section', () => ({
   AnswerSection: ({ content }: { content: string }) => (
     <div data-testid="answer-section">{content}</div>
+  )
+}))
+
+// Stub the real SpeakButton (which pulls in the audio hook) — these tests only
+// assert that the voice block is mounted/gated correctly, not playback.
+vi.mock('../voice/speak-button', () => ({
+  SpeakButton: ({
+    gistText,
+    autoPlay
+  }: {
+    gistText: string
+    autoPlay: boolean
+  }) => (
+    <div
+      data-testid="speak-button"
+      data-gist={gistText}
+      data-autoplay={String(autoPlay)}
+    />
   )
 }))
 
@@ -524,6 +542,79 @@ describe('RenderMessage', () => {
 
     expect(screen.getByTestId('research-process')).toHaveAttribute(
       'data-has-subsequent-text',
+      'false'
+    )
+  })
+})
+
+describe('RenderMessage voice read-aloud', () => {
+  const original = process.env.NEXT_PUBLIC_VOICE_ENABLED
+  afterEach(() => {
+    if (original === undefined) delete process.env.NEXT_PUBLIC_VOICE_ENABLED
+    else process.env.NEXT_PUBLIC_VOICE_ENABLED = original
+  })
+
+  const messageWithGist = (): UIMessage =>
+    ({
+      id: 'assistant-msg',
+      role: 'assistant',
+      parts: [
+        { type: 'text', text: '## Final answer' } as any,
+        { type: 'data-spoken-gist', data: { text: 'the spoken gist' } } as any
+      ]
+    }) as UIMessage
+
+  test('mounts the speak button + gist caption when the flag is on', () => {
+    process.env.NEXT_PUBLIC_VOICE_ENABLED = 'true'
+    render(
+      <RenderMessage
+        message={messageWithGist()}
+        messageId="assistant-msg"
+        getIsOpen={() => true}
+        onOpenChange={() => {}}
+        isLatestMessage
+        voiceMode
+      />
+    )
+    const button = screen.getByTestId('speak-button')
+    expect(button).toHaveAttribute('data-gist', 'the spoken gist')
+    expect(button).toHaveAttribute('data-autoplay', 'true')
+    // The gist also renders as a visible caption under the answer.
+    expect(screen.getByText('the spoken gist')).toBeInTheDocument()
+  })
+
+  test('renders no voice UI when the flag is off (byte-identical to today)', () => {
+    delete process.env.NEXT_PUBLIC_VOICE_ENABLED
+    render(
+      <RenderMessage
+        message={messageWithGist()}
+        messageId="assistant-msg"
+        getIsOpen={() => true}
+        onOpenChange={() => {}}
+        isLatestMessage
+        voiceMode
+      />
+    )
+    expect(screen.queryByTestId('speak-button')).not.toBeInTheDocument()
+    expect(screen.queryByText('the spoken gist')).not.toBeInTheDocument()
+  })
+
+  test('does not auto-play a non-latest answer even with voice mode on', () => {
+    // Guards against re-speaking every past answer when navigating into an old
+    // chat with voice mode enabled.
+    process.env.NEXT_PUBLIC_VOICE_ENABLED = 'true'
+    render(
+      <RenderMessage
+        message={messageWithGist()}
+        messageId="assistant-msg"
+        getIsOpen={() => true}
+        onOpenChange={() => {}}
+        isLatestMessage={false}
+        voiceMode
+      />
+    )
+    expect(screen.getByTestId('speak-button')).toHaveAttribute(
+      'data-autoplay',
       'false'
     )
   })

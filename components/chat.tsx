@@ -36,6 +36,7 @@ import { cn } from '@/lib/utils'
 import { getCookie } from '@/lib/utils/cookies'
 import { getTextFromParts } from '@/lib/utils/message-utils'
 
+import { useClientSettingValue } from '@/hooks/use-client-setting'
 import { useFileDropzone } from '@/hooks/use-file-dropzone'
 
 import { ChatMessages } from './chat-messages'
@@ -108,6 +109,25 @@ export function Chat({
     message: ''
   })
 
+  // Voice "read-aloud" (gated on the client flag). When off, voiceMode is
+  // always false, the toggle never renders, and the UI is byte-identical to
+  // today. The preference is a localStorage-backed client setting — SSR-safe
+  // (defaults to off on the server) and re-read live via the shared
+  // client-config-changed event, matching the other client toggles.
+  const voiceEnabled = process.env.NEXT_PUBLIC_VOICE_ENABLED === 'true'
+  const voiceModeSetting = useClientSettingValue('voiceMode', 'false')
+  const voiceMode = voiceEnabled && voiceModeSetting === 'true'
+  const handleVoiceModeChange = useCallback((next: boolean) => {
+    try {
+      localStorage.setItem('voiceMode', String(next))
+    } catch {
+      // Storage disabled (private mode): the setting won't persist.
+    }
+    window.dispatchEvent(
+      new CustomEvent('client-config-changed', { detail: 'voiceMode' })
+    )
+  }, [])
+
   // Locally-maintained streaming flag exposed through ChatContext so
   // programmatic dispatch sites (e.g. Related-question buttons in
   // spec-block) can throttle clicks. Held in a ref so closures
@@ -174,6 +194,14 @@ export function Chat({
               typeof localStorage !== 'undefined'
                 ? (localStorage.getItem('systemInstructions') ?? undefined)
                 : undefined,
+            // Voice read-aloud turn: read the persisted toggle at send time
+            // (mirrors systemInstructions) and gate on the client flag so this
+            // is always false when voice is off — the server then behaves
+            // exactly as before (see app/api/chat/route.ts: body.voice === true).
+            voice:
+              process.env.NEXT_PUBLIC_VOICE_ENABLED === 'true' &&
+              typeof localStorage !== 'undefined' &&
+              localStorage.getItem('voiceMode') === 'true',
             ...(isGuest ? { messages } : {}),
             message:
               trigger === 'regenerate-message' &&
@@ -764,6 +792,7 @@ export function Chat({
           onDeleteSection={handleDeleteSection}
           error={error}
           onQuoteContext={handleQuoteContext}
+          voiceMode={voiceMode}
         />
         <ChatPanel
           chatId={chatId}
@@ -790,6 +819,8 @@ export function Chat({
           onAdaptiveModeAuthRequired={showAdaptiveModeAuthModal}
           modelSelectorData={modelSelectorData}
           sections={sections}
+          voiceMode={voiceMode}
+          onVoiceModeChange={handleVoiceModeChange}
         />
         <DragOverlay visible={dragHandlers.isDragging} />
         <ErrorModal
