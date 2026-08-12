@@ -17,6 +17,8 @@ import {
   serializePublicError
 } from '@/lib/errors/public-error'
 import { isTracingEnabled } from '@/lib/utils/telemetry'
+import { isVoiceEnabled } from '@/lib/voice/config'
+import { emitSpokenGist } from '@/lib/voice/emit-spoken-gist'
 
 import { loadChatUncached } from '../actions/chat'
 import { resolveExpandedQueries } from '../agents/classifier-expansion'
@@ -88,7 +90,8 @@ export async function createChatStreamResponse(
     isNewChat,
     searchMode,
     sources,
-    systemInstructions
+    systemInstructions,
+    voice
   } = config
 
   // Verify that chatId is provided
@@ -603,6 +606,32 @@ export async function createChatStreamResponse(
             .pipeThrough(firstChunkTimer(() => latency.markFirstToken()))
             .pipeThrough(streamPartTimer(type => latency.markStreamPart(type)))
         )
+
+        // Voice "read-aloud" turns only: once the answer's final step has
+        // settled, condense it and stream a spoken gist as a data part. This
+        // MUST live inside execute — it is the only scope where `writer` is
+        // still open; onFinish runs after the stream controller has already
+        // closed (writes there are silently dropped). `result.text` is the
+        // FINAL step's text (the answer produced after the last tool call) —
+        // the same content extractIndexableText targets for recall, so it is
+        // clean of the inter-step narration earlier text parts carry.
+        // Strictly gated: a normal (non-voice) turn skips this entirely and is
+        // byte-for-byte unchanged — no extra part, no extra model call.
+        if (voice && isVoiceEnabled()) {
+          try {
+            const answerText = await result.text
+            // The SDK writer's `write` is strongly typed to UI message chunks;
+            // emitSpokenGist takes a minimal structural writer. Bridge the two
+            // the same way flowProgress does above (writer as unknown as …).
+            await emitSpokenGist(
+              writer as unknown as { write: (part: unknown) => void },
+              answerText
+            )
+          } catch (error) {
+            // A voice-gist failure must never affect the written answer.
+            console.warn('[voice] spoken-gist emit skipped:', error)
+          }
+        }
       },
       onFinish: async ({ responseMessage, isAborted }) => {
         try {

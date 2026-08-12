@@ -18,4 +18,8 @@ export interface BaseStreamConfig {
   searchMode?: SearchMode
   sources?: SearchSources
   systemInstructions?: string
+  // Voice "read-aloud" turn: when true (and voice is enabled server-side), the
+  // finished answer is condensed into a spoken gist and streamed as a
+  // data-spoken-gist part. Absent/false ⇒ the turn behaves exactly as before.
+  voice?: boolean
 }
