@@ -306,14 +306,14 @@ export function RenderMessage({
     )
   }
 
-  // Voice "read-aloud": the finished answer carries a data-spoken-gist part
+  // Voice "read-aloud": the finished answer carries a data-spokenGist part
   // (see lib/voice/emit-spoken-gist.ts) with a short spoken summary. When the
   // client voice flag is on and a gist is present, show a Listen control + the
   // gist as a caption under the answer. autoPlay is scoped to the latest
   // message so navigating into an old chat never re-speaks every past answer.
   if (process.env.NEXT_PUBLIC_VOICE_ENABLED === 'true') {
     const gistPart = (message.parts as any[] | undefined)?.find(
-      (part: any) => part.type === 'data-spoken-gist'
+      (part: any) => part.type === 'data-spokenGist'
     )
     const gist: string = gistPart?.data?.text ?? ''
     if (gist) {
