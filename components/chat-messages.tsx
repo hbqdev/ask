@@ -36,6 +36,8 @@ interface ChatMessagesProps {
   onDeleteSection?: (section: ChatSection) => void | Promise<void>
   error?: Error | string | null | undefined
   onQuoteContext?: (text: string) => void
+  /** Voice read-aloud: auto-play the latest answer's spoken gist. */
+  voiceMode?: boolean
 }
 
 const DESKTOP_LATEST_SECTION_OFFSET = 196
@@ -55,7 +57,8 @@ export function ChatMessages({
   reload,
   onDeleteSection,
   error,
-  onQuoteContext
+  onQuoteContext,
+  voiceMode = false
 }: ChatMessagesProps) {
   // Track user-modified states (when user explicitly opens/closes)
   const [userModifiedStates, setUserModifiedStates] = useState<
@@ -301,6 +304,7 @@ export function ChatMessages({
                     isLatestMessage={isLatestMessage}
                     citationMaps={citationMapsByMessage[assistantMessage.id]}
                     onQuoteContext={onQuoteContext}
+                    voiceMode={voiceMode}
                   />
                 </div>
               )
