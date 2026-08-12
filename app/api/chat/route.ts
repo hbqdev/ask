@@ -66,6 +66,9 @@ export async function POST(req: Request) {
       systemInstructions
     } = body
     const analyticsId: unknown = body.analyticsId
+    // Voice "read-aloud" turn flag. Normalized to a strict boolean here so a
+    // missing/garbage value can never accidentally enable the voice path.
+    const voice = body.voice === true
 
     // Normalize the message id up front so persistence and analytics agree on it.
     if (message && !message.id) {
@@ -243,6 +246,7 @@ export async function POST(req: Request) {
           isNewChat,
           searchMode,
           sources,
+          voice,
           systemInstructions:
             typeof systemInstructions === 'string'
               ? systemInstructions
