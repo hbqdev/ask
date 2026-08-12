@@ -5,8 +5,8 @@ import { synthesizeSpeech } from '../tts-client'
 afterEach(() => vi.unstubAllGlobals())
 
 describe('synthesizeSpeech', () => {
-  it('POSTs text+voice to the TTS service and returns the audio stream', async () => {
-    process.env.TTS_SERVICE_URL = 'http://tts:8080'
+  it('POSTs the OpenAI-style speech request and returns the audio stream', async () => {
+    process.env.TTS_SERVICE_URL = 'http://tts:8880'
     const body = new ReadableStream()
     const fetchMock = vi.fn().mockResolvedValue({ ok: true, body })
     vi.stubGlobal('fetch', fetchMock)
@@ -14,8 +14,13 @@ describe('synthesizeSpeech', () => {
     const out = await synthesizeSpeech('hello', { voice: 'af_heart' })
     expect(out).toBe(body)
     const [url, init] = fetchMock.mock.calls[0]
-    expect(url).toBe('http://tts:8080/speak')
-    expect(JSON.parse(init.body)).toEqual({ text: 'hello', voice: 'af_heart' })
+    expect(url).toBe('http://tts:8880/v1/audio/speech')
+    expect(JSON.parse(init.body)).toEqual({
+      model: 'kokoro',
+      input: 'hello',
+      voice: 'af_heart',
+      response_format: 'mp3'
+    })
   })
 
   it('throws when TTS_SERVICE_URL is unset', async () => {
@@ -24,7 +29,7 @@ describe('synthesizeSpeech', () => {
   })
 
   it('throws on a non-ok response', async () => {
-    process.env.TTS_SERVICE_URL = 'http://tts:8080'
+    process.env.TTS_SERVICE_URL = 'http://tts:8880'
     vi.stubGlobal(
       'fetch',
       vi.fn().mockResolvedValue({ ok: false, status: 503 })
