@@ -138,11 +138,46 @@ services:
       # call and in what order, which the [latency] line only counts.
       ENABLE_USAGE_LOGGING: 'true'
       UPLOAD_TTL_DAYS: '14'
+
+      # --- voice read-aloud (Slice 1) -------------------------------------
+      # Lab-only: text users see zero change; these two flags light up the
+      # client speak control + the /api/voice/speak route (server flag gates
+      # the endpoints, NEXT_PUBLIC_ flag gates the client UI). Points the TTS
+      # client at the self-hosted Kokoro service below. Port 8880 is Kokoro-
+      # FastAPI's real listen port (its OpenAI-compatible /v1/audio/speech).
+      # Fail-open: if ask-tts-lab is down the written answer is unaffected and
+      # only audio is missing — there is deliberately NO depends_on on it.
+      VOICE_ENABLED: 'true'
+      NEXT_PUBLIC_VOICE_ENABLED: 'true'
+      TTS_SERVICE_URL: 'http://ask-tts-lab:8880'
+      # VOICE_TTS_VOICE / VOICE_GIST_MODEL_ID left to code defaults
+      # (af_heart / granite4.1:8b).
     ports: !override
       - '${LAB_HOST_PORT:-3742}:3000'
     volumes: !override
       - uploads-lab:/app/uploads
       - model-cache-lab:/app/model-cache
+
+  # Self-hosted Kokoro-82M TTS for the voice read-aloud feature. CPU image
+  # (Kokoro-82M runs acceptably on CPU for a lab and avoids GPU contention;
+  # the fleet's GPU compute lives on the external Ollama box, not in this
+  # compose project). Exposes the OpenAI-compatible Speech API at
+  # POST /v1/audio/speech on port 8880 and GET /health. Pinned by the
+  # multi-arch index digest so a rebuild can never silently move the model.
+  ask-tts-lab:
+    image: ghcr.io/remsky/kokoro-fastapi-cpu:latest@sha256:fa52dce920c3610c78fccde4f6fa064fb092ae95018cf42b42d84d876655e8d9
+    container_name: ask-tts-lab
+    # LAN-exposed for direct inspection/smoke-tests, matching the lab's
+    # searxng pattern; the app reaches it container-to-container regardless.
+    ports:
+      - '${LAB_TTS_PORT:-3744}:8880'
+    healthcheck:
+      test: ['CMD', 'curl', '-fsS', 'http://localhost:8880/health']
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 60s
+    restart: unless-stopped
 
   postgres:
     container_name: ask-postgres-lab
