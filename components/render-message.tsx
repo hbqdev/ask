@@ -11,6 +11,7 @@ import type {
 } from '@/lib/types/ai'
 import type { DynamicToolPart } from '@/lib/types/dynamic-tools'
 
+import { SpeakButton } from './voice/speak-button'
 import { AnswerSection } from './answer-section'
 import { DynamicToolDisplay } from './dynamic-tool-display'
 import { GeneratedImageSection } from './generated-image-section'
@@ -35,6 +36,10 @@ interface RenderMessageProps {
   isLatestMessage?: boolean
   citationMaps?: Record<string, Record<number, SearchResultItem>>
   onQuoteContext?: (text: string) => void
+  // Voice "read-aloud": when true the answer's spoken gist auto-plays as soon
+  // as it arrives. Only meaningful while NEXT_PUBLIC_VOICE_ENABLED is set — the
+  // whole voice block is gated on that flag below.
+  voiceMode?: boolean
 }
 
 // True while the message's parts end in research activity — the same parts
@@ -86,7 +91,8 @@ export function RenderMessage({
   onDelete,
   isLatestMessage = false,
   citationMaps = {},
-  onQuoteContext
+  onQuoteContext,
+  voiceMode = false
 }: RenderMessageProps) {
   const isNonEmptyTextPart = (part: any) =>
     part?.type === 'text' &&
@@ -298,6 +304,29 @@ export function RenderMessage({
       elements[i] as React.ReactElement<{ hasSubsequentText?: boolean }>,
       { hasSubsequentText: true }
     )
+  }
+
+  // Voice "read-aloud": the finished answer carries a data-spoken-gist part
+  // (see lib/voice/emit-spoken-gist.ts) with a short spoken summary. When the
+  // client voice flag is on and a gist is present, show a Listen control + the
+  // gist as a caption under the answer. autoPlay is scoped to the latest
+  // message so navigating into an old chat never re-speaks every past answer.
+  if (process.env.NEXT_PUBLIC_VOICE_ENABLED === 'true') {
+    const gistPart = (message.parts as any[] | undefined)?.find(
+      (part: any) => part.type === 'data-spoken-gist'
+    )
+    const gist: string = gistPart?.data?.text ?? ''
+    if (gist) {
+      elements.push(
+        <div
+          key={`${messageId}-voice`}
+          className="mt-1 flex flex-col gap-1 px-3"
+        >
+          <SpeakButton gistText={gist} autoPlay={voiceMode && isLatestMessage} />
+          <p className="text-xs italic text-muted-foreground">{gist}</p>
+        </div>
+      )
+    }
   }
 
   return <>{elements}</>
