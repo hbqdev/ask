@@ -107,6 +107,15 @@ export function ChatMenuItem({ chat }: ChatMenuItemProps) {
 
       if (result?.success) {
         toast.success('Chat deleted')
+        // If the deleted chat is the one on screen, tell it to reset in place.
+        // isActive (pathname === /search/<id>) misses chats started in-session
+        // from home, whose URL is only a pushState fake — the owning Chat
+        // matches on its own id, so dispatch unconditionally with the id.
+        window.dispatchEvent(
+          new CustomEvent('current-chat-deleted', {
+            detail: { chatId: chat.id }
+          })
+        )
         if (isActive) {
           router.push('/')
         }
