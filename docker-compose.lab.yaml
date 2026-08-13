@@ -97,7 +97,12 @@ services:
       # Fail-open: if ask-tts-lab is down the written answer is unaffected and
       # only audio is missing — there is deliberately NO depends_on on it.
       VOICE_ENABLED: 'true'
-      NEXT_PUBLIC_VOICE_ENABLED: 'true'
+      # NOTE: the CLIENT gate NEXT_PUBLIC_VOICE_ENABLED is NOT set here. NEXT_PUBLIC_*
+      # vars are inlined by `next build` (which reads .env from the build context) —
+      # a runtime compose env is too late for the client bundle, so it would leave
+      # the voice UI hidden. It lives in the worktree's .env alongside the other
+      # NEXT_PUBLIC_* vars. VOICE_ENABLED above is a server runtime read and is
+      # correctly an environment var.
       TTS_SERVICE_URL: 'http://ask-tts-lab:8880'
       # VOICE_TTS_VOICE / VOICE_GIST_MODEL_ID left to code defaults
       # (af_heart / granite4.1:8b).
