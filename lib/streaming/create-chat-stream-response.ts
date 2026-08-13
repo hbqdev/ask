@@ -634,7 +634,9 @@ export async function createChatStreamResponse(
               try {
                 const cited = extractCitedSourceUrls(responseMessage)
                 if (cited.length > 0) {
-                  console.log(`[cite-urls] ${JSON.stringify({ chatId, cited })}`)
+                  console.log(
+                    `[cite-urls] ${JSON.stringify({ chatId, cited })}`
+                  )
                 }
               } catch {
                 /* shadow citation logging is best-effort */

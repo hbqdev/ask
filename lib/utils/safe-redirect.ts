@@ -16,7 +16,11 @@ export function safeRelativePath(next: string | null | undefined): string {
     const code = next.charCodeAt(i)
     if (code < 0x20 || code === 0x7f) return '/'
   }
-  if (next.startsWith('/') && !next.startsWith('//') && !next.startsWith('/\\')) {
+  if (
+    next.startsWith('/') &&
+    !next.startsWith('//') &&
+    !next.startsWith('/\\')
+  ) {
     return next
   }
   return '/'

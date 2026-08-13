@@ -85,10 +85,7 @@ export function NewsArticleWidget({ className }: { className?: string }) {
     // Honor reduced-motion: don't auto-advance content for users who opt out
     // (WCAG 2.2.2). Hovering the widget also pauses it (see onMouseEnter).
     if (window.matchMedia?.('(prefers-reduced-motion: reduce)').matches) return
-    const id = setInterval(
-      () => setStart(s => (s + 1) % pool.length),
-      CYCLE_MS
-    )
+    const id = setInterval(() => setStart(s => (s + 1) % pool.length), CYCLE_MS)
     return () => clearInterval(id)
   }, [pool.length, count, paused])
 
