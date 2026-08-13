@@ -33,13 +33,18 @@ describe('extractCitedSourceUrls', () => {
   })
 
   it('dedupes repeated citations of the same source', () => {
-    const m = msg([toolPart, { type: 'text', text: '[1](#tc1) again [1](#tc1)' }])
+    const m = msg([
+      toolPart,
+      { type: 'text', text: '[1](#tc1) again [1](#tc1)' }
+    ])
     expect(extractCitedSourceUrls(m)).toEqual(['https://a.com'])
   })
 
   it('returns [] when nothing resolves', () => {
     expect(
-      extractCitedSourceUrls(msg([toolPart, { type: 'text', text: 'no cites' }]))
+      extractCitedSourceUrls(
+        msg([toolPart, { type: 'text', text: 'no cites' }])
+      )
     ).toEqual([])
     expect(extractCitedSourceUrls(msg([]))).toEqual([])
   })

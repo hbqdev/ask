@@ -9,9 +9,9 @@ import { decodeHtmlEntities } from './decode-html-entities'
 // entity. This decoder is applied server-side before the data is returned.
 describe('decodeHtmlEntities', () => {
   test('decodes the entities actually observed in the feed', () => {
-    expect(decodeHtmlEntities('Anthropic&#x27;s and OpenAI&#x27;s models')).toBe(
-      "Anthropic's and OpenAI's models"
-    )
+    expect(
+      decodeHtmlEntities('Anthropic&#x27;s and OpenAI&#x27;s models')
+    ).toBe("Anthropic's and OpenAI's models")
     expect(decodeHtmlEntities('says &quot;increase trust&quot;')).toBe(
       'says "increase trust"'
     )

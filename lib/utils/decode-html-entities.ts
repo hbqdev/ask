@@ -51,7 +51,11 @@ export function decodeHtmlEntities(input: string): string {
       const codePoint = isHex
         ? parseInt(entity.slice(2), 16)
         : parseInt(entity.slice(1), 10)
-      if (!Number.isFinite(codePoint) || codePoint < 0 || codePoint > 0x10ffff) {
+      if (
+        !Number.isFinite(codePoint) ||
+        codePoint < 0 ||
+        codePoint > 0x10ffff
+      ) {
         return match
       }
       try {
