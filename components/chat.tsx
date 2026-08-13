@@ -264,6 +264,33 @@ export function Chat({
     }
   }, [isGuest, providedId, status, resumeStream])
 
+  // Reset to a fresh home chat when the chat currently on screen is deleted.
+  // The deleters (chat header menu, sidebar item) can't reach this component's
+  // state, and for a chat started in-session from home the URL is a pushState
+  // fake (`/search/<id>` while the real route stays `/`), so their router.push
+  // is a no-op / their pathname-based isActive is false — the conversation
+  // would otherwise linger until a manual refresh. They dispatch the deleted
+  // id instead; the Chat that owns it clears itself in place (same setMessages
+  // reset as onAuthClose) and returns the URL to home.
+  useEffect(() => {
+    const onCurrentChatDeleted = (event: Event) => {
+      const deletedId = (event as CustomEvent<{ chatId?: string }>).detail
+        ?.chatId
+      if (deletedId && deletedId !== chatId) return
+      setMessages([])
+      setChatId(generateId())
+      setInput('')
+      setUploadedFiles([])
+      setQuotedContexts([])
+      if (typeof window !== 'undefined' && window.location.pathname !== '/') {
+        window.history.replaceState({}, '', '/')
+      }
+    }
+    window.addEventListener('current-chat-deleted', onCurrentChatDeleted)
+    return () =>
+      window.removeEventListener('current-chat-deleted', onCurrentChatDeleted)
+  }, [chatId, setMessages])
+
   // Stop must abort the SERVER too: an authed generation now survives a dropped
   // connection (so a backgrounded tab keeps generating), which means the
   // client-side stop() no longer halts it. Hit the stop endpoint as well.

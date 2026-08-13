@@ -54,6 +54,14 @@ export function ChatHeader({
       const result = await deleteChat(chatId!)
       if (result?.success) {
         toast.success('Chat deleted')
+        // This header only renders for the chat on screen, so its delete is
+        // always the current chat. Tell that Chat to reset in place (covers
+        // the in-session pushState case where router.push('/') is a no-op),
+        // and refresh the sidebar list.
+        window.dispatchEvent(
+          new CustomEvent('current-chat-deleted', { detail: { chatId } })
+        )
+        window.dispatchEvent(new CustomEvent('chat-history-updated'))
         router.push('/')
       } else {
         toast.error(result?.error ?? 'Failed to delete chat')
