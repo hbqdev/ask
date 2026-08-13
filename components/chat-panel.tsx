@@ -58,6 +58,7 @@ import {
   TooltipTrigger
 } from './ui/tooltip'
 import { WildBreathLogo } from './ui/wild-breath-logo'
+import { MicButton } from './voice/mic-button'
 import { ActionButtons } from './action-buttons'
 import { FileUploadButton } from './file-upload-button'
 import { MessageNavigationDots } from './message-navigation-dots'
@@ -211,6 +212,24 @@ export function ChatPanel({
     onNewChat?.()
     router.push('/')
   }, [setMessages, closeArtifact, onNewChat, router])
+
+  const handleTranscript = useCallback(
+    (text: string) => {
+      const next = input.trim() ? `${input.trim()} ${text}` : text
+      handleInputChange({
+        target: { value: next }
+      } as React.ChangeEvent<HTMLTextAreaElement>)
+      // Auto-submit for a hands-free feel. Mirror ActionButtons: a short delay
+      // (INPUT_UPDATE_DELAY_MS, already defined in this file) lets the controlled
+      // input value settle before requestSubmit reads it.
+      setTimeout(() => {
+        inputRef.current?.form?.requestSubmit()
+        setIsInputFocused(false)
+        inputRef.current?.blur()
+      }, INPUT_UPDATE_DELAY_MS)
+    },
+    [input, handleInputChange]
+  )
 
   // Listen for keyboard shortcut events
   // Uses defaultPrevented to prevent duplicate handling
@@ -865,6 +884,12 @@ export function ChatPanel({
                     </TooltipContent>
                   </Tooltip>
                 </TooltipProvider>
+              )}
+              {voiceEnabled && (
+                <MicButton
+                  onTranscript={handleTranscript}
+                  disabled={isLoading}
+                />
               )}
             </div>
             <div className="flex items-center gap-2">
