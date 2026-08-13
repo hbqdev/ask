@@ -1,6 +1,13 @@
 import { afterEach, describe, expect, it } from 'vitest'
 
-import { gistModelId, isVoiceEnabled, ttsServiceUrl, ttsVoice } from '../config'
+import {
+  gistModelId,
+  isVoiceEnabled,
+  sttModelId,
+  ttsServiceUrl,
+  ttsVoice,
+  whisperServiceUrl,
+} from '../config'
 
 const orig = { ...process.env }
 afterEach(() => {
@@ -33,5 +40,27 @@ describe('voice config', () => {
     process.env.VOICE_GIST_MODEL_ID = 'llama3.2:3b'
     expect(ttsVoice()).toBe('am_adam')
     expect(gistModelId()).toBe('llama3.2:3b')
+  })
+})
+
+describe('STT config', () => {
+  it('whisperServiceUrl is undefined when unset (fail-open)', () => {
+    delete process.env.WHISPER_SERVICE_URL
+    expect(whisperServiceUrl()).toBeUndefined()
+  })
+
+  it('whisperServiceUrl returns the env value when set', () => {
+    process.env.WHISPER_SERVICE_URL = 'http://ask-whisper-lab:8000'
+    expect(whisperServiceUrl()).toBe('http://ask-whisper-lab:8000')
+  })
+
+  it('sttModelId defaults to distil-large-v3', () => {
+    delete process.env.VOICE_STT_MODEL
+    expect(sttModelId()).toBe('Systran/faster-distil-whisper-large-v3')
+  })
+
+  it('sttModelId honors the env override', () => {
+    process.env.VOICE_STT_MODEL = 'Systran/faster-whisper-small'
+    expect(sttModelId()).toBe('Systran/faster-whisper-small')
   })
 })
