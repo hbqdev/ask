@@ -53,13 +53,37 @@ warm() {
   fi
 }
 
+# Ensure the Whisper STT model is installed for the ask-whisper service.
+# speaches does NOT auto-download models on a transcription request, and its
+# PRELOAD_MODELS env is ignored by the pinned image — the model must be
+# installed via the API. Idempotent: a fast no-op when the model is already
+# cached in the hf-cache volume (the common case after a reboot); on a fresh
+# volume it downloads (~1.5GB), which is why the timeout is generous.
+warm_whisper() {
+  local url="http://localhost:8788"
+  local model="Systran/faster-distil-whisper-large-v3"
+  local i
+  for i in $(seq 1 30); do
+    curl -sf -o /dev/null --max-time 3 "$url/health" && break
+    sleep 2
+  done
+  log "ensuring whisper model $model"
+  if curl -s --max-time 600 -X POST "$url/v1/models/$model" -o /dev/null; then
+    log "whisper model ensured"
+  else
+    log "whisper model ensure FAILED"
+  fi
+}
+
 HOST="$(hostname)"
 log "starting on $HOST"
 case "$HOST" in
   NightFuryX)
     reconcile /home/nightfury/selfhosted/reranker-qwen reranker-qwen
     reconcile /home/nightfury/selfhosted/ingestor      ingestor
+    reconcile /home/nightfury/selfhosted/whisper       ask-whisper
     warm qwen3-vl:4b
+    warm_whisper
     ;;
   NightFuryS)
     reconcile /home/nightfury/selfhosted/embedder embedder
