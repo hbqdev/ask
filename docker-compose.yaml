@@ -21,6 +21,18 @@ services:
       ENABLE_AUTH: 'true'
       MORPHIC_CLOUD_DEPLOYMENT: 'false'
       LOCAL_REDIS_URL: redis://redis:6379
+      # --- voice (read-aloud + dictate) — shared self-hosted services -----
+      # Server flag gates /api/voice/{speak,transcribe}; the client mic/speak UI
+      # is gated by NEXT_PUBLIC_VOICE_ENABLED (build-inlined via each stack's
+      # .env, NOT here). TTS = shared Kokoro on the app host (:8890); STT =
+      # shared Whisper on NightFuryX's 2080 Ti (:8788) — both reached over the
+      # LAN like the reranker. Fail-open: a voice outage never blocks text.
+      # Applies to prod (base) + staging (overlay merges base); the lab overlay
+      # overrides TTS/WHISPER to its own lab services.
+      VOICE_ENABLED: 'true'
+      TTS_SERVICE_URL: 'http://192.168.50.231:8890'
+      WHISPER_SERVICE_URL: 'http://192.168.50.17:8788'
+      VOICE_STT_MODEL: 'Systran/faster-distil-whisper-large-v3'
       # Pin the image EDIT model to one consistent, strong editor instead of
       # round-robining the whole pool (registry.ts pickPinnedModel) — edits
       # drifted in style/identity/resolution turn-to-turn. Generation still
