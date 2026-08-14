@@ -157,6 +157,14 @@ services:
       TTS_SERVICE_URL: 'http://ask-tts-lab:8880'
       # VOICE_TTS_VOICE / VOICE_GIST_MODEL_ID left to code defaults
       # (af_heart / granite4.1:8b).
+      # --- voice dictate (Slice 2) ----------------------------------------
+      # Whisper STT (speaches) runs on NightFuryX's RTX 2080 Ti, reached over
+      # the LAN (not a container in this compose). Server flag VOICE_ENABLED
+      # above gates /api/voice/transcribe; the mic UI reuses NEXT_PUBLIC_VOICE_
+      # ENABLED (already in .env). Fail-open: if the box is down, dictation just
+      # returns to idle and typing is unaffected.
+      WHISPER_SERVICE_URL: 'http://192.168.50.17:8788'
+      VOICE_STT_MODEL: 'Systran/faster-distil-whisper-large-v3'
     ports: !override
       - '${LAB_HOST_PORT:-3742}:3000'
     volumes: !override
