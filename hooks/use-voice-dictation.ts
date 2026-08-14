@@ -12,10 +12,25 @@ export function useVoiceDictation(onTranscript: (text: string) => void) {
   const recorderRef = useRef<MediaRecorder | null>(null)
   const chunksRef = useRef<Blob[]>([])
   const streamRef = useRef<MediaStream | null>(null)
+  // Set by stop() when it fires before the recorder exists (user released the
+  // button during the first-use permission prompt). Tells the in-flight start()
+  // to release the mic instead of recording — closes the "hot mic" race.
+  const cancelledRef = useRef(false)
 
   const start = useCallback(async () => {
+    cancelledRef.current = false
+    let stream: MediaStream | undefined
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true })
+      stream = await navigator.mediaDevices.getUserMedia({ audio: true })
+      if (cancelledRef.current) {
+        // Released during the permission prompt: never open the recorder, and
+        // stop the tracks so the mic goes cold immediately.
+        stream.getTracks().forEach(t => t.stop())
+        streamRef.current = null
+        cancelledRef.current = false
+        setState('idle')
+        return
+      }
       streamRef.current = stream
       const recorder = new MediaRecorder(stream)
       chunksRef.current = []
@@ -54,13 +69,22 @@ export function useVoiceDictation(onTranscript: (text: string) => void) {
       recorderRef.current = recorder
       setState('recording')
     } catch {
+      // If getUserMedia opened the mic before MediaRecorder construction threw,
+      // release the tracks so a failed start never leaves the mic live.
+      stream?.getTracks().forEach(t => t.stop())
       setState('idle')
     }
   }, [onTranscript])
 
   const stop = useCallback(() => {
     const r = recorderRef.current
-    if (r && r.state !== 'inactive') r.stop()
+    if (r && r.state !== 'inactive') {
+      r.stop()
+    } else {
+      // Recorder not created yet (still awaiting the permission prompt): tell
+      // the in-flight start() to abandon and release the mic once it resolves.
+      cancelledRef.current = true
+    }
   }, [])
 
   return { state, start, stop }
