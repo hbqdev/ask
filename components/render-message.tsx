@@ -319,7 +319,10 @@ export function RenderMessage({
     if (gist) {
       elements.push(
         <div key={`${messageId}-voice`} className="mt-1 px-3">
-          <SpeakButton gistText={gist} autoPlay={voiceMode && isLatestMessage} />
+          <SpeakButton
+            gistText={gist}
+            autoPlay={voiceMode && isLatestMessage}
+          />
         </div>
       )
     }
