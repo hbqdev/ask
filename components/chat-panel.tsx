@@ -221,21 +221,18 @@ export function ChatPanel({
       handleInputChange({
         target: { value: next }
       } as React.ChangeEvent<HTMLTextAreaElement>)
-      // Auto-submit for a hands-free feel. Mirror ActionButtons: a short delay
-      // (INPUT_UPDATE_DELAY_MS, already defined in this file) lets the controlled
-      // input value settle before requestSubmit reads it.
-      setTimeout(() => {
-        inputRef.current?.form?.requestSubmit()
-        setIsInputFocused(false)
-        inputRef.current?.blur()
-      }, INPUT_UPDATE_DELAY_MS)
+      // Drop the transcript into the composer and focus it so the user can
+      // review/edit and send manually (no auto-submit).
+      setIsInputFocused(true)
+      inputRef.current?.focus()
     },
     [input, handleInputChange]
   )
 
   // Click-to-dictate: the mic button starts a recording; while recording (or
   // transcribing) the composer swaps in the RecordingBar (live waveform +
-  // stop/cancel). stop() feeds the transcript to handleTranscript (auto-submit).
+  // stop/cancel). stop() feeds the transcript to handleTranscript (which drops
+  // it into the composer for review + manual send).
   const {
     state: micState,
     stream: micStream,
