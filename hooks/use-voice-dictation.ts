@@ -3,42 +3,47 @@ import { useCallback, useRef, useState } from 'react'
 
 type DictationState = 'idle' | 'recording' | 'transcribing'
 
-// Push-to-talk capture: start() opens the mic and records; stop() finalizes,
-// POSTs the audio to /api/voice/transcribe, and resolves the transcript via
-// onTranscript. Fail-quiet: any error returns to idle so the mic UI never
-// wedges and typing is always available (mirrors use-speech-playback).
+// Click-to-toggle mic capture. start() opens the mic and records; stop()
+// finalizes and POSTs the audio to /api/voice/transcribe, resolving the
+// transcript via onTranscript; cancel() discards the take. The live MediaStream
+// is exposed so a waveform can visualize input. Fail-quiet: any error returns to
+// idle so the UI never wedges and typing is always available.
 export function useVoiceDictation(onTranscript: (text: string) => void) {
   const [state, setState] = useState<DictationState>('idle')
+  const [stream, setStream] = useState<MediaStream | null>(null)
   const recorderRef = useRef<MediaRecorder | null>(null)
   const chunksRef = useRef<Blob[]>([])
   const streamRef = useRef<MediaStream | null>(null)
-  // Set by stop() when it fires before the recorder exists (user released the
-  // button during the first-use permission prompt). Tells the in-flight start()
-  // to release the mic instead of recording — closes the "hot mic" race.
-  const cancelledRef = useRef(false)
+  // stop() = finish + transcribe; cancel() = discard. onstop reads this.
+  const discardRef = useRef(false)
+
+  const releaseStream = useCallback(() => {
+    streamRef.current?.getTracks().forEach(t => t.stop())
+    streamRef.current = null
+    setStream(null)
+  }, [])
 
   const start = useCallback(async () => {
-    cancelledRef.current = false
-    let stream: MediaStream | undefined
+    // Guard a double-start (two quick clicks before the recorder exists).
+    if (recorderRef.current) return
+    discardRef.current = false
+    let s: MediaStream | undefined
     try {
-      stream = await navigator.mediaDevices.getUserMedia({ audio: true })
-      if (cancelledRef.current) {
-        // Released during the permission prompt: never open the recorder, and
-        // stop the tracks so the mic goes cold immediately.
-        stream.getTracks().forEach(t => t.stop())
-        streamRef.current = null
-        cancelledRef.current = false
-        setState('idle')
-        return
-      }
-      streamRef.current = stream
-      const recorder = new MediaRecorder(stream)
+      s = await navigator.mediaDevices.getUserMedia({ audio: true })
+      streamRef.current = s
+      setStream(s)
+      const recorder = new MediaRecorder(s)
       chunksRef.current = []
       recorder.ondataavailable = e => {
         if (e.data.size) chunksRef.current.push(e.data)
       }
       recorder.onstop = async () => {
-        streamRef.current?.getTracks().forEach(t => t.stop())
+        recorderRef.current = null
+        releaseStream()
+        if (discardRef.current) {
+          setState('idle')
+          return
+        }
         const blob = new Blob(chunksRef.current, {
           type: recorder.mimeType || 'audio/webm'
         })
@@ -69,23 +74,31 @@ export function useVoiceDictation(onTranscript: (text: string) => void) {
       recorderRef.current = recorder
       setState('recording')
     } catch {
-      // If getUserMedia opened the mic before MediaRecorder construction threw,
-      // release the tracks so a failed start never leaves the mic live.
-      stream?.getTracks().forEach(t => t.stop())
+      // getUserMedia denied, or MediaRecorder construction threw after the mic
+      // opened — release any tracks so a failed start never leaves the mic live.
+      s?.getTracks().forEach(t => t.stop())
+      streamRef.current = null
+      setStream(null)
       setState('idle')
     }
-  }, [onTranscript])
+  }, [onTranscript, releaseStream])
 
   const stop = useCallback(() => {
+    discardRef.current = false
+    const r = recorderRef.current
+    if (r && r.state !== 'inactive') r.stop()
+  }, [])
+
+  const cancel = useCallback(() => {
+    discardRef.current = true
     const r = recorderRef.current
     if (r && r.state !== 'inactive') {
       r.stop()
     } else {
-      // Recorder not created yet (still awaiting the permission prompt): tell
-      // the in-flight start() to abandon and release the mic once it resolves.
-      cancelledRef.current = true
+      releaseStream()
+      setState('idle')
     }
-  }, [])
+  }, [releaseStream])
 
-  return { state, start, stop }
+  return { state, stream, start, stop, cancel }
 }

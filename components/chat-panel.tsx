@@ -48,6 +48,7 @@ import {
 import { warmOnIntent } from '@/lib/warm/warm-trigger'
 
 import { useClientSettingEnabled } from '@/hooks/use-client-setting'
+import { useVoiceDictation } from '@/hooks/use-voice-dictation'
 
 import { useArtifact } from './artifact/artifact-context'
 import { Button } from './ui/button'
@@ -59,6 +60,7 @@ import {
 } from './ui/tooltip'
 import { WildBreathLogo } from './ui/wild-breath-logo'
 import { MicButton } from './voice/mic-button'
+import { RecordingBar } from './voice/recording-bar'
 import { ActionButtons } from './action-buttons'
 import { FileUploadButton } from './file-upload-button'
 import { MessageNavigationDots } from './message-navigation-dots'
@@ -230,6 +232,17 @@ export function ChatPanel({
     },
     [input, handleInputChange]
   )
+
+  // Click-to-dictate: the mic button starts a recording; while recording (or
+  // transcribing) the composer swaps in the RecordingBar (live waveform +
+  // stop/cancel). stop() feeds the transcript to handleTranscript (auto-submit).
+  const {
+    state: micState,
+    stream: micStream,
+    start: micStart,
+    stop: micStop,
+    cancel: micCancel
+  } = useVoiceDictation(handleTranscript)
 
   // Listen for keyboard shortcut events
   // Uses defaultPrevented to prevent duplicate handling
@@ -605,6 +618,16 @@ export function ChatPanel({
               'ring-1 ring-ring/20 ring-offset-1 ring-offset-background/50'
           )}
         >
+          {voiceEnabled && micState !== 'idle' && (
+            <div className="absolute inset-0 z-20 flex min-h-[64px] items-center rounded-3xl bg-muted">
+              <RecordingBar
+                stream={micStream}
+                state={micState}
+                onStop={micStop}
+                onCancel={micCancel}
+              />
+            </div>
+          )}
           {contentCards.length > 0 && (
             <div className="flex flex-col gap-1.5 px-3 pt-3">
               {contentCards.map((card, i) => (
@@ -887,8 +910,8 @@ export function ChatPanel({
               )}
               {voiceEnabled && (
                 <MicButton
-                  onTranscript={handleTranscript}
-                  disabled={isLoading}
+                  onStart={micStart}
+                  disabled={isLoading || micState !== 'idle'}
                 />
               )}
             </div>
