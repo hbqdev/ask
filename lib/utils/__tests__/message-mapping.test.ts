@@ -37,6 +37,46 @@ describe('generateImage part round-trip', () => {
     expect(rehydrated.output).toEqual(original.output)
   })
 
+  it('rehydrates a persisted documentRetrieval part under its real citable type', () => {
+    const original = {
+      type: 'tool-documentRetrieval',
+      toolCallId: 'call-doc-1',
+      state: 'output-available',
+      input: { query: 'attached document' },
+      output: {
+        state: 'complete',
+        query: 'attached document',
+        images: [],
+        results: [
+          {
+            title: 'My Attached Doc',
+            url: 'https://example.com/doc#chunk-1',
+            content: 'first excerpt'
+          }
+        ]
+      }
+    }
+
+    const [dbPart] = mapUIMessagePartsToDBParts([original as any], 'msg-doc')
+
+    // Stored through the generic dynamic envelope (unregistered tool-* type)
+    expect(dbPart.type).toBe('tool-dynamic')
+    expect(dbPart.tool_dynamic_name).toBe('documentRetrieval')
+    expect(dbPart.tool_state).toBe('output-available')
+
+    const rehydrated = mapDBPartToUIMessagePart(
+      dbPart as DBMessagePartSelect
+    ) as any
+
+    // Must come back under its real type so CITABLE_TOOL_PART_TYPES matches it
+    // and the [n](#id) citation anchors keep resolving after a reload.
+    expect(rehydrated.type).toBe('tool-documentRetrieval')
+    expect(rehydrated.toolCallId).toBe(original.toolCallId)
+    expect(rehydrated.state).toBe('output-available')
+    expect(rehydrated.input).toEqual(original.input)
+    expect(rehydrated.output).toEqual(original.output)
+  })
+
   it('still rehydrates a genuinely dynamic (mcp) tool as dynamic-tool', () => {
     const original = {
       type: 'dynamic-tool',

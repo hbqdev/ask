@@ -433,6 +433,22 @@ export function mapDBPartToUIMessagePart(
             }
           }
 
+          // documentRetrieval persists through the same dynamic envelope (it is
+          // an unregistered tool-* type). Rehydrate it under its real type so
+          // the citation whitelist (CITABLE_TOOL_PART_TYPES) still matches on
+          // reload — otherwise the [n](#id) anchors stop resolving to source
+          // cards after a refresh.
+          if (part.tool_dynamic_name === 'documentRetrieval') {
+            return {
+              type: 'tool-documentRetrieval',
+              toolCallId: part.tool_toolCallId || '',
+              state: part.tool_state as any, // Maps directly to AI SDK states
+              input: part.tool_dynamic_input,
+              output: part.tool_dynamic_output,
+              errorText: part.tool_errorText
+            }
+          }
+
           return {
             type: 'dynamic-tool',
             toolCallId: part.tool_toolCallId || '',
