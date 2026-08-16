@@ -30,6 +30,7 @@ import {
 import { expandQuery } from '../agents/query-expander'
 import { generateChatTitle } from '../agents/title-generator'
 import { isMemoryEnabled } from '../db/memory-actions'
+import { retrieveUrlChunks } from '../embeddings/url-rag'
 import { extractIndexableText } from '../memory/extract-indexable-text'
 import { indexMessage } from '../memory/recall-index'
 import { getRecallInjection } from '../memory/recall-inject'
@@ -52,6 +53,12 @@ import { isUsageLogging, logUsage } from '../utils/usage-logging'
 
 import { chooseRecall } from './helpers/choose-recall'
 import { convertDataPart } from './helpers/convert-data-part'
+import {
+  buildDocumentRetrievalArtifacts,
+  type DocumentRetrievalArtifacts,
+  type DocumentRetrievalInput,
+  documentSourceId
+} from './helpers/document-retrieval-part'
 import { firstChunkTimer } from './helpers/first-chunk-timer'
 import { persistStreamResults } from './helpers/persist-stream-results'
 import { prepareMessages } from './helpers/prepare-messages'
@@ -301,9 +308,15 @@ export async function createChatStreamResponse(
         // plain chat turn for nothing.
         const modelHasVision =
           attachmentCount > 0 ? await modelSupportsVision(model) : false
+        // Ready non-image documents surface their ranked chunks here (instead of
+        // an inline excerpt text part) so they can be assembled below into a
+        // CITABLE `documentRetrieval` tool result — reusing transformFileParts'
+        // existing resolution + user-scope guard + single queryFileChunks call.
+        const documentSources: DocumentRetrievalInput[] = []
         const messagesForModel = await transformFileParts(messagesToConvert, {
           modelHasVision,
-          userId
+          userId,
+          documentSink: documentSources
         })
 
         if (attachmentCount > 0) {
@@ -485,6 +498,103 @@ export async function createChatStreamResponse(
           })
         }
 
+        // ── Attached-source grounding (chat with docs & URLs) ────────────────
+        // Lift document/URL retrieval OUT of the plain-text injection and INTO
+        // the stream so the auto-retrieved chunks become CITABLE. Documents were
+        // already ranked during transformFileParts (documentSources); pasted
+        // URLs are fetched + ranked here (ephemeral, per-turn). Each non-empty
+        // source becomes a synthetic `documentRetrieval` tool call: its UI part
+        // is written to the stream (so the client's extractCitationMaps sees it)
+        // and a matching model-message pair is appended AFTER prune/truncate (so
+        // it cannot be stripped) — exactly the SPIKE's mechanism. Everything is
+        // fail-open per source: a failure logs + skips that source and NEVER
+        // affects the answer (mirrors transformFileParts / emitSpokenGist).
+        const retrievalQuery =
+          classification.standaloneQuery || latestMessageText
+
+        // Pasted URLs are per-turn only, so retrieve just THIS turn's user
+        // message (submit → config.message; regenerate → last user message in
+        // the model transcript). Documents, by contrast, stay citable across the
+        // whole conversation because transformFileParts re-ranks every attached
+        // file each turn (matching how its excerpts were injected before).
+        const latestUserParts: any[] =
+          (message?.parts as any[] | undefined) ??
+          ([...messagesForModel].reverse().find(m => m.role === 'user')
+            ?.parts as any[] | undefined) ??
+          []
+        const urlSources = (
+          await Promise.all(
+            latestUserParts
+              .filter(
+                (p: any) =>
+                  p?.type === 'data-sourceUrl' &&
+                  typeof p?.data?.url === 'string' &&
+                  p.data.url
+              )
+              .map(async (p: any): Promise<DocumentRetrievalInput | null> => {
+                const url = p.data.url as string
+                try {
+                  const retrieved = await retrieveUrlChunks(
+                    url,
+                    retrievalQuery,
+                    10
+                  )
+                  if (!retrieved || retrieved.chunks.length === 0) return null
+                  return {
+                    sourceId: documentSourceId('url', url),
+                    title: retrieved.title || url,
+                    url,
+                    chunks: retrieved.chunks,
+                    query: retrievalQuery
+                  }
+                } catch (error) {
+                  console.warn('[docs] URL retrieval skipped:', error)
+                  return null
+                }
+              })
+          )
+        ).filter((s): s is DocumentRetrievalInput => s !== null)
+
+        // Merge documents + URLs, deduped by the deterministic sourceId so the
+        // same file/URL never yields two tool calls under one toolCallId.
+        const documentArtifacts: DocumentRetrievalArtifacts[] = []
+        const seenSourceIds = new Set<string>()
+        for (const src of [
+          ...documentSources.map(s => ({ ...s, query: retrievalQuery })),
+          ...urlSources
+        ]) {
+          if (seenSourceIds.has(src.sourceId)) continue
+          seenSourceIds.add(src.sourceId)
+          try {
+            const artifacts = buildDocumentRetrievalArtifacts(src)
+            if (artifacts) documentArtifacts.push(artifacts)
+          } catch (error) {
+            // buildDocumentResults throws on a relative URL — skip that source
+            // only (fail-open), never the whole turn.
+            console.warn(
+              `[docs] skipped uncitable source ${src.sourceId}:`,
+              error
+            )
+          }
+        }
+
+        if (documentArtifacts.length > 0) {
+          for (const a of documentArtifacts) {
+            // (a) Write the UI part as two raw chunks (no `dynamic` flag → the
+            //     client reducer builds a static tool-documentRetrieval part
+            //     that lands on onFinish's persisted assistant message).
+            writer.write(a.streamChunks[0])
+            writer.write(a.streamChunks[1])
+            // (b) Surface the same citable id to the MODEL as an assistant
+            //     tool-call + tool tool-result pair, appended AFTER prune/
+            //     truncate so it survives into the generation input.
+            modelMessages.push(a.modelMessages[0], a.modelMessages[1])
+          }
+          perfLog(
+            `[docs] injected ${documentArtifacts.length} citable documentRetrieval source(s)`
+          )
+        }
+
         // Get the researcher agent with parent trace ID, search mode,
         // sources, and the classifier's decision for this turn.
         const researchAgent = await researcher({
@@ -504,7 +614,13 @@ export async function createChatStreamResponse(
           userId,
           currentChatId: chatId,
           recallBlock: recall.block,
-          fullContentSink
+          fullContentSink,
+          // Name each injected retrieval's citable toolCallId so the prompt can
+          // permit citing it (without this the model discards the anchor).
+          documentRetrievalSources: documentArtifacts.map(a => ({
+            toolCallId: a.toolCallId,
+            title: a.part.output.results[0]?.title ?? ''
+          }))
         })
 
         llmStart = performance.now()
@@ -663,7 +779,9 @@ export async function createChatStreamResponse(
               try {
                 const cited = extractCitedSourceUrls(responseMessage)
                 if (cited.length > 0) {
-                  console.log(`[cite-urls] ${JSON.stringify({ chatId, cited })}`)
+                  console.log(
+                    `[cite-urls] ${JSON.stringify({ chatId, cited })}`
+                  )
                 }
               } catch {
                 /* shadow citation logging is best-effort */
