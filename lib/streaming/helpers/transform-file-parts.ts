@@ -5,6 +5,11 @@ import path from 'node:path'
 import { findFileByObjectKey } from '@/lib/db/file-actions'
 import { queryFileChunks } from '@/lib/embeddings/upload-rag'
 
+import {
+  type DocumentRetrievalInput,
+  documentSourceId
+} from './document-retrieval-part'
+
 const UPLOADS_DIR = process.env.UPLOADS_DIR || '/app/uploads'
 
 // Single `new URL` parse shared by both derived values — localPath (for disk
@@ -52,7 +57,12 @@ async function transformPart(
   part: any,
   userQuery: string,
   modelHasVision: boolean,
-  userId?: string
+  userId?: string,
+  // When provided, ranked chunks for a ready NON-image document are pushed here
+  // (as a citable `documentRetrieval` source) instead of being injected inline
+  // as plain "Relevant excerpts" text — the streaming layer assembles them into
+  // a synthetic, citable tool result. See create-chat-stream-response.ts.
+  documentSink?: DocumentRetrievalInput[]
 ): Promise<any[]> {
   if (part.type !== 'file') return [part]
 
@@ -194,6 +204,25 @@ async function transformPart(
   }
 
   if (result) {
+    // The ranked excerpts now live in a CITABLE `documentRetrieval` tool result
+    // the streaming layer assembles (create-chat-stream-response). When a sink
+    // is provided, hand it the chunks and emit only a short pointer note here so
+    // the raw file URL never reaches the model — the content arrives via the
+    // tool result and becomes citable. Callers that do NOT assemble that tool
+    // result (no sink) keep the inline excerpts so the document content still
+    // reaches the model exactly as before.
+    if (documentSink) {
+      documentSink.push({
+        sourceId: documentSourceId('doc', objectKey),
+        title: filename,
+        url: part.url,
+        chunks: result.chunks
+      })
+      return [
+        { type: 'text', text: `[Attached document: ${filename}]` },
+        attachmentUrlPart
+      ]
+    }
     const context = result.chunks.join('\n\n---\n\n')
     return [
       {
@@ -246,10 +275,17 @@ async function transformPart(
 
 export async function transformFileParts(
   messages: UIMessage[],
-  opts?: { modelHasVision?: boolean; userId?: string }
+  opts?: {
+    modelHasVision?: boolean
+    userId?: string
+    // OUT param: ready non-image document sources are appended here (as citable
+    // `documentRetrieval` inputs) rather than injected inline as excerpt text.
+    documentSink?: DocumentRetrievalInput[]
+  }
 ): Promise<UIMessage[]> {
   const modelHasVision = opts?.modelHasVision ?? false
   const userId = opts?.userId
+  const documentSink = opts?.documentSink
   return Promise.all(
     messages.map(async msg => {
       if (msg.role !== 'user') return msg
@@ -259,7 +295,9 @@ export async function transformFileParts(
 
       const userQuery = extractUserQuery(parts)
       const transformed = await Promise.all(
-        parts.map(p => transformPart(p, userQuery, modelHasVision, userId))
+        parts.map(p =>
+          transformPart(p, userQuery, modelHasVision, userId, documentSink)
+        )
       )
       const flat = transformed.flat()
 

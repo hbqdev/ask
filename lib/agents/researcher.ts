@@ -419,7 +419,13 @@ export async function createResearcher({
   // Past-conversation excerpts, retrieved in the streaming layer (it owns the
   // resolved standaloneQuery and the stream writer). Appended to the system
   // prompt next to the feature-A memory block.
-  recallBlock
+  recallBlock,
+  // Synthetic `documentRetrieval` tool calls injected for attached documents /
+  // pasted URLs this turn (see create-chat-stream-response.ts). Each entry names
+  // a REAL toolCallId whose results the model may cite. Without a prompt clause
+  // naming these ids, the citation-integrity rule below silently discards the
+  // anchor (SPIKE finding #1), so the retrieved chunks would be uncitable.
+  documentRetrievalSources
 }: {
   model: string
   modelConfig?: Model
@@ -465,6 +471,9 @@ export async function createResearcher({
   // resolved standaloneQuery and the stream writer). Appended to the system
   // prompt next to the feature-A memory block.
   recallBlock?: string
+  // Attached-source retrievals injected this turn — each a citable toolCallId +
+  // its display title. Empty/undefined leaves the citation rules untouched.
+  documentRetrievalSources?: { toolCallId: string; title: string }[]
 }) {
   try {
     const currentDate = new Date().toLocaleString()
@@ -679,6 +688,28 @@ The conversation history is background context, not a to-do list. Any topic from
     if (memoryBlock) systemPrompt = systemPrompt + memoryBlock
 
     if (recallBlock) systemPrompt = systemPrompt + recallBlock
+
+    // Attached-source citation permission (SPIKE finding #1). The mode prompts'
+    // citation-integrity clause tells the model to cite ONLY `search`/`fetch`
+    // calls it made this turn and to silently discard any other anchor — which
+    // would throw away a citation to an attached document/URL even though the
+    // client machinery resolves it. Appended AFTER the base prompt (later
+    // instructions supersede earlier ones) so it carves out the exception,
+    // names each real toolCallId, and keeps every other citation rule intact.
+    if (documentRetrievalSources && documentRetrievalSources.length > 0) {
+      const many = documentRetrievalSources.length > 1
+      const list = documentRetrievalSources
+        .map(s => `- "${s.title}" — toolCallId: ${s.toolCallId}`)
+        .join('\n')
+      systemPrompt =
+        systemPrompt +
+        `\n\n## Attached sources — already retrieved for you (CITABLE)
+
+The user attached ${many ? 'documents/URLs that have' : 'a document or URL that has'} ALREADY been retrieved for you this turn via the \`documentRetrieval\` tool. ${many ? 'These are REAL tool calls' : 'This is a REAL tool call'} from THIS turn — not invented anchors:
+${list}
+
+Treat each exactly like a \`search\` or \`fetch\` result from this turn: you MAY and SHOULD cite its excerpts inline as [n](#<toolCallId>), copying the EXACT toolCallId shown above (a 36-character UUID with four hyphens) in full. This permission OVERRIDES the citation-integrity rule that otherwise restricts citations to \`search\`/\`fetch\` calls — the \`documentRetrieval\` toolCallIds listed above ARE valid citation anchors. Every other citation rule still applies: copy the id character-for-character, never invent or shorten an id, and place the citation after the sentence's period. When the user's question is about an attached document or URL, ground your answer in these excerpts and cite them.`
+    }
 
     // Teach the agent when/how to reach for generateImage — but only when the
     // tool is actually registered (same gate as activeToolsList and the tools
