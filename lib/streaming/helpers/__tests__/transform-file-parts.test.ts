@@ -40,6 +40,11 @@ vi.mock('node:child_process', async importOriginal => {
 import { findFileByObjectKey } from '@/lib/db/file-actions'
 import { queryFileChunks } from '@/lib/embeddings/upload-rag'
 
+import {
+  type DocumentRetrievalInput,
+  documentSourceId
+} from '../document-retrieval-part'
+
 // transform-file-parts.ts reads process.env.UPLOADS_DIR into a module-level
 // const, so the env var must be set *before* the module is first evaluated —
 // hence the dynamic import inside beforeAll (mirrors app/api/upload's test).
@@ -153,6 +158,48 @@ describe('transformFileParts', () => {
       }
     ])
     expect(findFileByObjectKey).toHaveBeenCalledTimes(1)
+  })
+
+  it('with a documentSink: pushes the ready doc as a citable source and emits only a pointer note (no inline excerpts)', async () => {
+    vi.mocked(findFileByObjectKey).mockResolvedValue({ status: 'ready' } as any)
+    vi.mocked(queryFileChunks).mockResolvedValue({
+      filename: 'mine.txt',
+      chunks: ['chunk A', 'chunk B']
+    })
+    const objectKey = 'u1/chats/c1/1-mine.txt'
+    await writeUploadFile(objectKey, 'on-disk bytes')
+
+    const documentSink: DocumentRetrievalInput[] = []
+    const msg = {
+      id: 'm1',
+      role: 'user',
+      parts: [filePart(objectKey, { filename: 'mine.txt' })]
+    } as unknown as UIMessage
+    const [out] = await transformFileParts([msg], {
+      userId: 'u1',
+      documentSink
+    })
+
+    // Excerpts move OUT of the inline text — only a short pointer note remains
+    // (merged with the canonical-URL note by the consecutive-text-part merge),
+    // so the raw file URL never reaches the model and no "Relevant excerpts:"
+    // block is injected.
+    expect((out as any).parts).toEqual([
+      {
+        type: 'text',
+        text: '[Attached document: mine.txt]\n\n[Attachment mine.txt — URL: /uploads/u1/chats/c1/1-mine.txt]'
+      }
+    ])
+    // The ranked chunks are handed to the sink as a citable documentRetrieval
+    // input: stable UUID-shaped sourceId, absolute url, chunks in order.
+    expect(documentSink).toEqual([
+      {
+        sourceId: documentSourceId('doc', objectKey),
+        title: 'mine.txt',
+        url: 'http://localhost:3000/uploads/u1/chats/c1/1-mine.txt',
+        chunks: ['chunk A', 'chunk B']
+      }
+    ])
   })
 
   // ── pending / processing ──────────────────────────────────────────────────
