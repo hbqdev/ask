@@ -156,30 +156,25 @@ export async function storeExtractedChunks(
 
 // ── Query-time retrieval ─────────────────────────────────────────────────────
 
-export async function queryFileChunks(
-  filePath: string,
+/**
+ * Two-stage ranking shared by upload-RAG and URL-RAG (lib/embeddings/url-rag.ts).
+ * Chunks carry precomputed embeddings; `queryEmbedding` is the already-embedded
+ * query (both sides embedded with the same model by the caller). A bi-encoder
+ * cosine pass pulls a wider candidate pool, then the cross-encoder reranks that
+ * pool when configured — any reranker failure falls back to the cosine ordering.
+ * Returns the top-K chunk texts, best first.
+ */
+export async function rankChunks(
   query: string,
+  chunks: StoredChunk[],
+  queryEmbedding: number[],
   topK = 10
-): Promise<{ filename: string; chunks: string[] } | null> {
-  const storedPath = chunksFilePath(filePath)
-
-  let stored: ChunksFile
-  try {
-    const raw = await fs.readFile(storedPath, 'utf-8')
-    stored = JSON.parse(raw)
-  } catch {
-    return null // no chunks file — caller falls back to full-text
-  }
-
-  if (stored.chunks.length === 0) return null
-
-  const [queryEmbedding] = await embedTexts([query], stored.model, {
-    kind: 'query'
-  })
+): Promise<string[]> {
+  if (chunks.length === 0) return []
 
   // First stage: bi-encoder cosine to pull a wider candidate pool.
   const CANDIDATE_POOL = Math.max(topK * 3, 30)
-  const candidates = stored.chunks
+  const candidates = chunks
     .map(chunk => ({
       content: chunk.content,
       score: cosineSimilarity(queryEmbedding, chunk.embedding)
@@ -202,21 +197,43 @@ export async function queryFileChunks(
         // reranker degrades to cosine faster on this user-facing path.
         { maxLength: 512, timeoutMs: 10_000 }
       )
-      const reranked = candidates
+      return candidates
         .map((c, i) => ({ content: c.content, score: scores[i] ?? 0 }))
         .sort((a, b) => b.score - a.score)
         .slice(0, topK)
-      return { filename: stored.filename, chunks: reranked.map(r => r.content) }
+        .map(r => r.content)
     } catch (error) {
       console.error(
-        '[upload-rag] cross-encoder failed, using cosine order:',
+        '[rank-chunks] cross-encoder failed, using cosine order:',
         error
       )
     }
   }
 
-  return {
-    filename: stored.filename,
-    chunks: candidates.slice(0, topK).map(c => c.content)
+  return candidates.slice(0, topK).map(c => c.content)
+}
+
+export async function queryFileChunks(
+  filePath: string,
+  query: string,
+  topK = 10
+): Promise<{ filename: string; chunks: string[] } | null> {
+  const storedPath = chunksFilePath(filePath)
+
+  let stored: ChunksFile
+  try {
+    const raw = await fs.readFile(storedPath, 'utf-8')
+    stored = JSON.parse(raw)
+  } catch {
+    return null // no chunks file — caller falls back to full-text
   }
+
+  if (stored.chunks.length === 0) return null
+
+  const [queryEmbedding] = await embedTexts([query], stored.model, {
+    kind: 'query'
+  })
+
+  const chunks = await rankChunks(query, stored.chunks, queryEmbedding, topK)
+  return { filename: stored.filename, chunks }
 }
