@@ -2,12 +2,15 @@
 
 import { UseChatHelpers } from '@ai-sdk/react'
 
+import type { SearchResultItem } from '@/lib/types'
 import type { ToolPart, UIDataTypes, UIMessage, UITools } from '@/lib/types/ai'
 
 import FetchSection from './fetch-section'
 import { QuestionConfirmation } from './question-confirmation'
 import { type RecallToolResult, RecallToolSection } from './recall-tool-section'
+import { SearchResults } from './search-results'
 import { SearchSection } from './search-section'
+import { Section } from './section'
 import { ToolTodoDisplay } from './tool-todo-display'
 
 interface ToolSectionProps {
@@ -104,6 +107,26 @@ export function ToolSection({
           isLast={isLast}
         />
       )
+    case 'tool-documentRetrieval': {
+      // Task 5 injects this synthetic retrieval part for an attached document
+      // or a pasted URL. Its output carries the identical
+      // { results: SearchResultItem[] } shape as search/fetch, so render the
+      // same "Sources" grid card here; the inline citation popover already
+      // works from Task 2 and needs no separate component.
+      const output =
+        tool.state === 'output-available'
+          ? (tool.output as { results?: SearchResultItem[] } | undefined)
+          : undefined
+      const results = output?.results
+      if (!results || results.length === 0) {
+        return null
+      }
+      return (
+        <Section title="Sources">
+          <SearchResults results={results} />
+        </Section>
+      )
+    }
     case 'tool-todoWrite':
       return (
         <ToolTodoDisplay
