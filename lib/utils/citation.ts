@@ -124,7 +124,17 @@ export function auditCitations(message: {
  * scored as resolved in telemetry while still failing to render — the counter
  * disagreeing with the thing it counts.
  */
-const CITABLE_TOOL_PART_TYPES = new Set(['tool-search', 'tool-fetch'])
+const CITABLE_TOOL_PART_TYPES = new Set([
+  'tool-search',
+  'tool-fetch',
+  // SPIKE (chat-with-docs): a synthetic retrieval part injected for attached
+  // documents/URLs. It carries the identical { state, results: [{title,url,
+  // content}] } shape as search/fetch, so the client builds a citationMap for
+  // it by index the same way — letting the model cite an attached document the
+  // user provided (via a fixed toolCallId the streaming layer injects) even
+  // though the model never called a retrieval tool itself.
+  'tool-documentRetrieval'
+])
 
 export function extractCitationMaps(
   message: UIMessage
