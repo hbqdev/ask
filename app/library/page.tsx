@@ -378,6 +378,9 @@ export default function LibraryPage() {
       setSearchQuery(q)
       if (debounceRef.current) clearTimeout(debounceRef.current)
       if (!q.trim()) {
+        // Emptying the box (backspace / select-all-delete) must also invalidate
+        // any in-flight response so a straggler can't repopulate the cleared box.
+        searchReqRef.current += 1
         setSearchResults(null)
         return
       }
