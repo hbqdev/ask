@@ -68,6 +68,16 @@ export async function getChatsPage(
 }
 
 /**
+ * Real total number of the current user's chats (RLS-scoped COUNT(*)).
+ * Surfaced in the library header and reused by the sidebar footer count.
+ */
+export async function countChats(): Promise<number> {
+  const userId = await getCurrentUserId()
+  if (!userId) return 0
+  return dbActions.countUserChats(userId)
+}
+
+/**
  * Search the current user's chat history by title and message text.
  */
 export async function searchChats(query: string) {
