@@ -3,6 +3,7 @@
 import {
   and,
   asc,
+  count,
   desc,
   eq,
   gt,
@@ -448,6 +449,22 @@ export async function getChatsPage(
     console.error('Error fetching chat page:', error)
     return { chats: [], nextOffset: null }
   }
+}
+
+/**
+ * Real COUNT(*) of a user's chats — the exact total, RLS-scoped, backed by
+ * `chats_user_id_idx`. Replaces the library header's "rows loaded so far + '+'"
+ * heuristic (which always read "30+" for anyone with a full first page).
+ * Reused by the sidebar footer count.
+ */
+export async function countUserChats(userId: string): Promise<number> {
+  return withRLS(userId, async tx => {
+    const [{ value }] = await tx
+      .select({ value: count() })
+      .from(chats)
+      .where(eq(chats.userId, userId))
+    return value
+  })
 }
 
 export interface ChatBadgeData {
