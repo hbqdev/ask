@@ -44,6 +44,9 @@ interface ChatPageResponse {
   chats: DBChat[]
   nextOffset: number | null
   badges: Record<string, ChatBadgeData>
+  // Real COUNT(*) of the user's chats — present only on the first-page request
+  // (`?withCount=1`).
+  total?: number
 }
 
 const SORT_OPTIONS: { value: ChatSortOption; label: string }[] = [
@@ -239,6 +242,9 @@ export default function LibraryPage() {
   const [badges, setBadges] = useState<Record<string, ChatBadgeData>>({})
   const [sort, setSort] = useState<ChatSortOption>('recent')
   const [nextOffset, setNextOffset] = useState<number | null>(null)
+  // Real total chat count from the DB (null until the first page resolves, or
+  // if the count fails — the header falls back to the loaded-rows count).
+  const [total, setTotal] = useState<number | null>(null)
   const [isLoading, setIsLoading] = useState(true)
   const [isPending, startTransition] = useTransition()
   const loadMoreRef = useRef<HTMLDivElement>(null)
@@ -257,15 +263,21 @@ export default function LibraryPage() {
   const fetchInitial = useCallback(async () => {
     setIsLoading(true)
     try {
-      const res = await fetch(`/api/chats?offset=0&limit=30&sort=${sort}`)
+      const res = await fetch(
+        `/api/chats?offset=0&limit=30&sort=${sort}&withCount=1`
+      )
       const {
         chats: data,
         nextOffset: next,
-        badges: newBadges
+        badges: newBadges,
+        total: newTotal
       } = (await res.json()) as ChatPageResponse
       setChats(data)
       setBadges(newBadges)
       setNextOffset(next)
+      // Fail open: if the count was unavailable, leave `total` null and let the
+      // header fall back to the loaded-rows count.
+      setTotal(typeof newTotal === 'number' ? newTotal : null)
     } catch {
       toast.error('Failed to load chats')
     } finally {
@@ -350,6 +362,7 @@ export default function LibraryPage() {
 
   const handleDelete = useCallback((id: string) => {
     setChats(prev => prev.filter(c => c.id !== id))
+    setTotal(prev => (prev !== null && prev > 0 ? prev - 1 : prev))
   }, [])
 
   const handleClearAll = useCallback(() => {
@@ -360,6 +373,7 @@ export default function LibraryPage() {
         toast.success('All chats cleared')
         setChats([])
         setNextOffset(null)
+        setTotal(0)
         router.push('/')
       } else {
         toast.error(res?.error ?? 'Failed to clear chats')
@@ -370,6 +384,11 @@ export default function LibraryPage() {
   const isEmpty = !isLoading && chats.length === 0 && nextOffset === null
   const isSearchMode = searchResults !== null || isSearching
   const displayList = isSearchMode ? null : chats
+
+  // Prefer the real DB total; fall back to loaded-rows count if the count was
+  // unavailable (fail-open — never blocks rendering the header).
+  const displayCount = total ?? chats.length
+  const countLabel = `${displayCount} ${displayCount === 1 ? 'chat' : 'chats'}`
 
   return (
     <div className="flex flex-col h-full overflow-y-auto">
@@ -390,9 +409,7 @@ export default function LibraryPage() {
             {!isEmpty && (
               <span className="inline-flex items-center gap-1.5 text-xs font-medium text-muted-foreground border border-border px-2.5 py-1 rounded-full">
                 <IconLibrary className="size-3.5" />
-                {chats.length}
-                {nextOffset !== null ? '+' : ''}{' '}
-                {chats.length === 1 && nextOffset === null ? 'chat' : 'chats'}
+                {countLabel}
               </span>
             )}
             {!isEmpty && !isSearchMode && (
