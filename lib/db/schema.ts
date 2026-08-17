@@ -66,6 +66,8 @@ export const chats = pgTable(
     index('chats_created_at_idx').on(table.createdAt.desc()),
     // Composite index for RLS subqueries in messages and parts tables
     index('chats_id_user_id_idx').on(table.id, table.userId),
+    // GIN trigram index for fast substring (ILIKE '%q%') title search
+    index('chats_title_trgm_idx').using('gin', table.title.op('gin_trgm_ops')),
 
     // RLS Policies
     pgPolicy('users_manage_own_chats', {
@@ -221,6 +223,11 @@ export const parts = pgTable(
     // Indexes
     index('parts_message_id_idx').on(table.messageId),
     index('parts_message_id_order_idx').on(table.messageId, table.order),
+    // GIN trigram index for fast substring (ILIKE '%q%') text search
+    index('parts_text_text_trgm_idx').using(
+      'gin',
+      table.text_text.op('gin_trgm_ops')
+    ),
 
     // Constraints
     check('text_text_required', sql`(type != 'text' OR text_text IS NOT NULL)`),
