@@ -26,6 +26,8 @@ import {
 import { perfLog, perfTime } from '@/lib/utils/perf-logging'
 import { incrementDbOperationCount } from '@/lib/utils/perf-tracking'
 
+import type { ChatSearchResult } from './keyword-search'
+import { mergeKeywordSearchArms } from './keyword-search'
 import type { Chat, Message, NewNote, Note } from './schema'
 import {
   CHAT_TITLE_MAX_LENGTH,
@@ -40,6 +42,8 @@ import {
 } from './schema'
 import { withOptionalRLS, withRLS } from './with-rls'
 import { db } from '.'
+
+export type { ChatSearchResult } from './keyword-search'
 
 /**
  * Create a new chat
@@ -756,17 +760,17 @@ export async function touchChat(chatId: string): Promise<void> {
   }
 }
 
-export type ChatSearchResult = {
-  chatId: string
-  chatTitle: string
-  snippet: string // ~150 chars of context around the match
-  role: string // 'user' | 'assistant'
-  lastViewedAt: Date | null
-}
-
 /**
- * Full-text search across chat titles and message text.
- * Returns up to 20 matching chats, most-recently-viewed first.
+ * Full-text keyword search across chat titles and message text.
+ * Returns up to `limit` matching chats, most-recently-viewed first.
+ *
+ * Split into two SINGLE-PREDICATE arms so each hits its own pg_trgm GIN index,
+ * then merged in JS. The earlier one-query form OR-ed `chats.title ILIKE` with
+ * `parts.text_text ILIKE` across the 3-table join, which Postgres cannot serve
+ * from `parts_text_text_trgm_idx` — it fell back to a sequential scan of
+ * `parts` whose cost scaled with TOTAL message volume (measured ~15–29ms).
+ * Standing the content predicate alone lets the planner drive from the trigram
+ * index (Bitmap Index Scan, ~1.6ms; see task-6 EXPLAIN evidence).
  */
 export async function searchUserChatsKeyword(
   userId: string,
@@ -776,39 +780,44 @@ export async function searchUserChatsKeyword(
   const term = `%${query}%`
 
   return withRLS(userId, async tx => {
-    // Search across titles and message text parts, deduplicated per chat.
-    // ILIKE is case-insensitive and sufficient for personal-scale history.
-    const rows = await tx
-      .selectDistinctOn([chats.id], {
-        chatId: chats.id,
-        chatTitle: chats.title,
-        snippet: parts.text_text,
-        role: messages.role,
-        lastViewedAt: chats.lastViewedAt
-      })
-      .from(chats)
-      .leftJoin(messages, eq(messages.chatId, chats.id))
-      .leftJoin(
-        parts,
-        and(eq(parts.messageId, messages.id), eq(parts.type, 'text'))
-      )
-      .where(
-        and(
-          eq(chats.userId, userId),
-          or(ilike(chats.title, term), ilike(parts.text_text, term))
+    // Both arms run concurrently. ILIKE is case-insensitive and sufficient for
+    // personal-scale history.
+    const [contentRows, titleRows] = await Promise.all([
+      // Content arm: standalone `parts.text_text ILIKE` → Bitmap Index Scan on
+      // parts_text_text_trgm_idx. selectDistinctOn collapses to one row per
+      // chat (its ORDER BY must lead with chats.id).
+      tx
+        .selectDistinctOn([chats.id], {
+          chatId: chats.id,
+          chatTitle: chats.title,
+          snippet: parts.text_text,
+          role: messages.role,
+          lastViewedAt: chats.lastViewedAt
+        })
+        .from(chats)
+        .innerJoin(messages, eq(messages.chatId, chats.id))
+        .innerJoin(
+          parts,
+          and(eq(parts.messageId, messages.id), eq(parts.type, 'text'))
         )
-      )
-      .orderBy(chats.id, sql`${chats.lastViewedAt} DESC NULLS LAST`)
-      .limit(limit)
+        .where(and(eq(chats.userId, userId), ilike(parts.text_text, term)))
+        .orderBy(chats.id, sql`${chats.lastViewedAt} DESC NULLS LAST`)
+        .limit(limit),
+      // Title arm: standalone `chats.title ILIKE` → chats_title_trgm_idx. One
+      // row per chat already; take the most-recently-viewed within the cap.
+      tx
+        .select({
+          chatId: chats.id,
+          chatTitle: chats.title,
+          lastViewedAt: chats.lastViewedAt
+        })
+        .from(chats)
+        .where(and(eq(chats.userId, userId), ilike(chats.title, term)))
+        .orderBy(sql`${chats.lastViewedAt} DESC NULLS LAST`)
+        .limit(limit)
+    ])
 
-    // Trim snippet to ~150 chars centred on the match
-    return rows.map(row => ({
-      chatId: row.chatId,
-      chatTitle: row.chatTitle,
-      snippet: extractSnippet(row.snippet ?? row.chatTitle, query),
-      role: row.role ?? 'user',
-      lastViewedAt: row.lastViewedAt
-    }))
+    return mergeKeywordSearchArms(contentRows, titleRows, query, limit)
   })
 }
 
@@ -929,16 +938,6 @@ export async function searchUserChats(
     searchUserChatsKeyword,
     includeSemantic
   )
-}
-
-function extractSnippet(text: string, query: string): string {
-  const MAX = 150
-  const idx = text.toLowerCase().indexOf(query.toLowerCase())
-  if (idx === -1) return text.slice(0, MAX)
-  const start = Math.max(0, idx - 60)
-  const end = Math.min(text.length, start + MAX)
-  const snippet = text.slice(start, end)
-  return (start > 0 ? '…' : '') + snippet + (end < text.length ? '…' : '')
 }
 
 export async function deleteUserLibraryFiles(
