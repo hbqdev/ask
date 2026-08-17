@@ -148,6 +148,13 @@
       "when": 1784872268060,
       "tag": "0020_preferred_chat_model",
       "breakpoints": true
+    },
+    {
+      "idx": 21,
+      "version": "7",
+      "when": 1786942269159,
+      "tag": "0021_pg_trgm_search_indexes",
+      "breakpoints": true
     }
   ]
 }
