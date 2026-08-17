@@ -255,6 +255,10 @@ export default function LibraryPage() {
   >(null)
   const [isSearching, setIsSearching] = useState(false)
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  // Monotonic request token: only the most recently *started* search may write
+  // state. Guards the in-flight race where a slow keyword fetch resolves after
+  // a later semantic (Enter) fetch and would otherwise clobber it.
+  const searchReqRef = useRef(0)
   const searchInputRef = useRef<HTMLInputElement>(null)
 
   const [clearConfirm, setClearConfirm] = useState(false)
@@ -339,9 +343,14 @@ export default function LibraryPage() {
     async (rawQuery: string, includeSemantic: boolean) => {
       const q = rawQuery.trim()
       if (!q) {
+        // A cleared box also invalidates any in-flight response.
+        searchReqRef.current += 1
         setSearchResults(null)
         return
       }
+      // Claim the latest token; any earlier request that resolves after this
+      // one drops its result instead of clobbering it (latest-wins).
+      const reqId = (searchReqRef.current += 1)
       setIsSearching(true)
       try {
         const res = await fetch(
@@ -350,11 +359,14 @@ export default function LibraryPage() {
           }`
         )
         const { results } = await res.json()
+        if (reqId !== searchReqRef.current) return // superseded — drop
         setSearchResults(results)
       } catch {
+        if (reqId !== searchReqRef.current) return // superseded — drop
         setSearchResults([])
       } finally {
-        setIsSearching(false)
+        // Only the latest request owns the spinner state.
+        if (reqId === searchReqRef.current) setIsSearching(false)
       }
     },
     []
@@ -375,8 +387,10 @@ export default function LibraryPage() {
     [runSearch]
   )
 
-  // Enter submits the same query WITH semantic recall blended in. Cancel any
-  // pending debounced keyword fetch so the two don't race.
+  // Enter submits the same query WITH semantic recall blended in. Clearing the
+  // debounce only cancels a keyword fetch that hasn't fired yet; a keyword
+  // fetch already in flight is handled by runSearch's latest-wins token, so a
+  // slow keyword response can't clobber this semantic one.
   const handleSearchKeyDown = useCallback(
     (e: React.KeyboardEvent<HTMLInputElement>) => {
       if (e.key !== 'Enter') return
@@ -389,6 +403,8 @@ export default function LibraryPage() {
 
   const clearSearch = useCallback(() => {
     if (debounceRef.current) clearTimeout(debounceRef.current)
+    // Invalidate any in-flight response so it can't repopulate the cleared box.
+    searchReqRef.current += 1
     setSearchQuery('')
     setSearchResults(null)
     searchInputRef.current?.focus()
