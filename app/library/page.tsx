@@ -330,19 +330,24 @@ export default function LibraryPage() {
     return () => obs.unobserve(el)
   }, [fetchMore, nextOffset, isLoading, isPending])
 
-  const handleSearch = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
-    const q = e.target.value
-    setSearchQuery(q)
-    if (debounceRef.current) clearTimeout(debounceRef.current)
-    if (!q.trim()) {
-      setSearchResults(null)
-      return
-    }
-    debounceRef.current = setTimeout(async () => {
+  // Single fetch used by both paths. `includeSemantic` gates the expensive
+  // recall arm: the as-you-type path passes false (instant, keyword-only);
+  // pressing Enter re-issues the same query with true to blend in semantic
+  // matches. The server default is keyword-only, so `?semantic=1` is only
+  // appended for the submit path.
+  const runSearch = useCallback(
+    async (rawQuery: string, includeSemantic: boolean) => {
+      const q = rawQuery.trim()
+      if (!q) {
+        setSearchResults(null)
+        return
+      }
       setIsSearching(true)
       try {
         const res = await fetch(
-          `/api/chats/search?q=${encodeURIComponent(q.trim())}`
+          `/api/chats/search?q=${encodeURIComponent(q)}${
+            includeSemantic ? '&semantic=1' : ''
+          }`
         )
         const { results } = await res.json()
         setSearchResults(results)
@@ -351,10 +356,39 @@ export default function LibraryPage() {
       } finally {
         setIsSearching(false)
       }
-    }, 300)
-  }, [])
+    },
+    []
+  )
+
+  const handleSearch = useCallback(
+    (e: React.ChangeEvent<HTMLInputElement>) => {
+      const q = e.target.value
+      setSearchQuery(q)
+      if (debounceRef.current) clearTimeout(debounceRef.current)
+      if (!q.trim()) {
+        setSearchResults(null)
+        return
+      }
+      // Instant, keyword-only as-you-type search (no semantic round-trip).
+      debounceRef.current = setTimeout(() => runSearch(q, false), 300)
+    },
+    [runSearch]
+  )
+
+  // Enter submits the same query WITH semantic recall blended in. Cancel any
+  // pending debounced keyword fetch so the two don't race.
+  const handleSearchKeyDown = useCallback(
+    (e: React.KeyboardEvent<HTMLInputElement>) => {
+      if (e.key !== 'Enter') return
+      e.preventDefault()
+      if (debounceRef.current) clearTimeout(debounceRef.current)
+      runSearch(searchQuery, true)
+    },
+    [runSearch, searchQuery]
+  )
 
   const clearSearch = useCallback(() => {
+    if (debounceRef.current) clearTimeout(debounceRef.current)
     setSearchQuery('')
     setSearchResults(null)
     searchInputRef.current?.focus()
@@ -429,23 +463,35 @@ export default function LibraryPage() {
         </div>
 
         {/* Search */}
-        <div className="relative">
-          <IconSearch className="absolute left-3 top-1/2 -translate-y-1/2 size-4 text-muted-foreground pointer-events-none" />
-          <input
-            ref={searchInputRef}
-            type="text"
-            value={searchQuery}
-            onChange={handleSearch}
-            placeholder="Search your chats…"
-            className="w-full h-10 pl-9 pr-9 text-sm rounded-xl border border-input bg-background text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring/40 transition-shadow"
-          />
+        <div className="flex flex-col gap-1.5">
+          <div className="relative">
+            <IconSearch className="absolute left-3 top-1/2 -translate-y-1/2 size-4 text-muted-foreground pointer-events-none" />
+            <input
+              ref={searchInputRef}
+              type="text"
+              value={searchQuery}
+              onChange={handleSearch}
+              onKeyDown={handleSearchKeyDown}
+              placeholder="Search your chats…"
+              className="w-full h-10 pl-9 pr-9 text-sm rounded-xl border border-input bg-background text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring/40 transition-shadow"
+            />
+            {searchQuery && (
+              <button
+                onClick={clearSearch}
+                className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+              >
+                <IconX className="size-4" />
+              </button>
+            )}
+          </div>
           {searchQuery && (
-            <button
-              onClick={clearSearch}
-              className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
-            >
-              <IconX className="size-4" />
-            </button>
+            <p className="px-1 text-xs text-muted-foreground">
+              Instant title &amp; text matches. Press{' '}
+              <kbd className="rounded border border-border bg-muted px-1 py-px font-mono text-[10px] font-medium">
+                Enter
+              </kbd>{' '}
+              to also search by meaning.
+            </p>
           )}
         </div>
 
