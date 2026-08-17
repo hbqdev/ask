@@ -343,9 +343,12 @@ export default function LibraryPage() {
     async (rawQuery: string, includeSemantic: boolean) => {
       const q = rawQuery.trim()
       if (!q) {
-        // A cleared box also invalidates any in-flight response.
+        // A cleared box also invalidates any in-flight response, and definitively
+        // ends any active search so a superseded request's finally can't leave the
+        // spinner stuck true (which would keep the grid hidden).
         searchReqRef.current += 1
         setSearchResults(null)
+        setIsSearching(false)
         return
       }
       // Claim the latest token; any earlier request that resolves after this
@@ -379,9 +382,11 @@ export default function LibraryPage() {
       if (debounceRef.current) clearTimeout(debounceRef.current)
       if (!q.trim()) {
         // Emptying the box (backspace / select-all-delete) must also invalidate
-        // any in-flight response so a straggler can't repopulate the cleared box.
+        // any in-flight response so a straggler can't repopulate the cleared box,
+        // and reset the spinner so the superseded request can't leave it stuck.
         searchReqRef.current += 1
         setSearchResults(null)
+        setIsSearching(false)
         return
       }
       // Instant, keyword-only as-you-type search (no semantic round-trip).
@@ -406,16 +411,27 @@ export default function LibraryPage() {
 
   const clearSearch = useCallback(() => {
     if (debounceRef.current) clearTimeout(debounceRef.current)
-    // Invalidate any in-flight response so it can't repopulate the cleared box.
+    // Invalidate any in-flight response so it can't repopulate the cleared box,
+    // and reset the spinner so a superseded request's finally can't leave it
+    // stuck true (which would keep the library grid hidden).
     searchReqRef.current += 1
     setSearchQuery('')
     setSearchResults(null)
+    setIsSearching(false)
     searchInputRef.current?.focus()
   }, [])
 
   const handleDelete = useCallback((id: string) => {
     setChats(prev => prev.filter(c => c.id !== id))
     setTotal(prev => (prev !== null && prev > 0 ? prev - 1 : prev))
+    // Mirror the sidebar's own delete path (chat-menu-item.tsx) so the Recent
+    // list + count don't go stale: `current-chat-deleted` resets the chat on
+    // screen if it's the deleted one, and `chat-history-updated` triggers the
+    // sidebar's debounced router.refresh().
+    window.dispatchEvent(
+      new CustomEvent('current-chat-deleted', { detail: { chatId: id } })
+    )
+    window.dispatchEvent(new CustomEvent('chat-history-updated'))
   }, [])
 
   const handleClearAll = useCallback(() => {
@@ -427,6 +443,9 @@ export default function LibraryPage() {
         setChats([])
         setNextOffset(null)
         setTotal(0)
+        // Mirror the sidebar's own clear path (clear-history-action.tsx) so its
+        // Recent list + count refresh instead of leaving clickable dead rows.
+        window.dispatchEvent(new CustomEvent('chat-history-updated'))
         router.push('/')
       } else {
         toast.error(res?.error ?? 'Failed to clear chats')
