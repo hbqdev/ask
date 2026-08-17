@@ -142,13 +142,6 @@ export default function AppSidebar({
       </SidebarHeader>
 
       <SidebarContent className="px-2 py-2">
-        {/* Recent list — expanded (and mobile) only. */}
-        <RecentChatsSection
-          chats={recentChats}
-          onNavigate={closeDrawerOnMobile}
-          className="group-data-[collapsible=icon]:hidden"
-        />
-
         {/* Expanded nav — labelled rows. */}
         <nav className="flex flex-col gap-0.5 px-1 group-data-[collapsible=icon]:hidden">
           {NAV_ITEMS.map(({ href, icon: Icon, label, exact }) => {
@@ -209,6 +202,13 @@ export default function AppSidebar({
             )
           })}
         </nav>
+
+        {/* Recent list — below the nav — expanded (and mobile) only. */}
+        <RecentChatsSection
+          chats={recentChats}
+          onNavigate={closeDrawerOnMobile}
+          className="mt-2 group-data-[collapsible=icon]:hidden"
+        />
       </SidebarContent>
 
       <SidebarFooter className="gap-2 border-t border-border/40 px-2 pb-4 pt-2">
