@@ -82,6 +82,17 @@ import { BaseStreamConfig } from './types'
 // Constants
 const DEFAULT_CHAT_TITLE = 'Untitled'
 
+// Cap on how many attached documentRetrieval sources are injected per turn.
+// Every prior attachment re-retrieves each turn (spec §7) and each source's
+// assistant-tool-call + tool-result pair is pushed onto modelMessages AFTER
+// truncateMessages already ran — so the injected excerpts ESCAPE the context-
+// window budget entirely. With many/large attachments this can push the request
+// past the model's window → a provider 400 that kills a turn that DID retrieve,
+// which is not fail-open. Per-source chunks are already bounded (topK=10), so an
+// 8-source cap bounds the worst case predictably (a token-budget system is the
+// documented Slice-2 fast-follow, deliberately out of scope here).
+const MAX_INJECTED_DOC_SOURCES = 8
+
 export async function createChatStreamResponse(
   config: BaseStreamConfig
 ): Promise<Response> {
@@ -578,8 +589,25 @@ export async function createChatStreamResponse(
           }
         }
 
-        if (documentArtifacts.length > 0) {
-          for (const a of documentArtifacts) {
+        // Bound the injected sources before BOTH the injection loop and the
+        // prompt-clause mapping below, so the model input and the researcher's
+        // citation-permission clause stay in sync over the same capped set.
+        // The array is ordered history-docs-first then this turn's URLs last, so
+        // keeping the LAST N biases toward the most-recently-attached docs plus
+        // this turn's URLs. Never a silent truncation — say what was dropped.
+        let injectedDocSources = documentArtifacts
+        if (documentArtifacts.length > MAX_INJECTED_DOC_SOURCES) {
+          const dropped = documentArtifacts.length - MAX_INJECTED_DOC_SOURCES
+          injectedDocSources = documentArtifacts.slice(
+            -MAX_INJECTED_DOC_SOURCES
+          )
+          console.warn(
+            `[docs] injected sources capped at ${MAX_INJECTED_DOC_SOURCES}; dropped ${dropped} oldest attached source(s) to stay within the model context window`
+          )
+        }
+
+        if (injectedDocSources.length > 0) {
+          for (const a of injectedDocSources) {
             // (a) Write the UI part as two raw chunks (no `dynamic` flag → the
             //     client reducer builds a static tool-documentRetrieval part
             //     that lands on onFinish's persisted assistant message).
@@ -591,7 +619,7 @@ export async function createChatStreamResponse(
             modelMessages.push(a.modelMessages[0], a.modelMessages[1])
           }
           perfLog(
-            `[docs] injected ${documentArtifacts.length} citable documentRetrieval source(s)`
+            `[docs] injected ${injectedDocSources.length} citable documentRetrieval source(s)`
           )
         }
 
@@ -616,8 +644,9 @@ export async function createChatStreamResponse(
           recallBlock: recall.block,
           fullContentSink,
           // Name each injected retrieval's citable toolCallId so the prompt can
-          // permit citing it (without this the model discards the anchor).
-          documentRetrievalSources: documentArtifacts.map(a => ({
+          // permit citing it (without this the model discards the anchor). Uses
+          // the capped set so the clause matches exactly what was injected.
+          documentRetrievalSources: injectedDocSources.map(a => ({
             toolCallId: a.toolCallId,
             title: a.part.output.results[0]?.title ?? ''
           }))
