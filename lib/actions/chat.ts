@@ -79,11 +79,14 @@ export async function countChats(): Promise<number> {
 
 /**
  * Search the current user's chat history by title and message text.
+ *
+ * Keyword-only by default (instant, trigram-indexed). Pass
+ * `includeSemantic` (explicit submit) to also blend in semantic recall.
  */
-export async function searchChats(query: string) {
+export async function searchChats(query: string, includeSemantic = false) {
   const userId = await getCurrentUserId()
   if (!userId) return []
-  return dbActions.searchUserChats(userId, query)
+  return dbActions.searchUserChats(userId, query, { includeSemantic })
 }
 
 /**

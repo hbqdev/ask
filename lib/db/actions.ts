@@ -797,17 +797,24 @@ function searchMinScore(): number {
  * content). Extracted with an injectable keyword search so it is
  * unit-testable without a DB.
  *
- * Both arms always run, concurrently. Keyword results come first and keep
- * their existing order (today's behavior is preserved byte-for-byte);
- * semantic hits not already present are appended, then the union is
- * sliced to `limit`. The vector arm has no distance threshold (see
- * lib/db/recall-actions.ts), so once the index is non-empty it returns
- * hits for virtually any query — it can no longer be trusted alone to
- * decide "no results". "No results" is only honest when both arms agree,
- * which is why the semantic arm is gated by searchMinScore(): gibberish
- * queries no longer manufacture 5 unrelated hits. Welcome side effect: if
- * the reranker is down, the semantic arm fails closed to no hits and the
- * union floors out at keyword-only — exactly the intended degradation.
+ * When `includeSemantic` is true both arms run concurrently. Keyword
+ * results come first and keep their existing order (today's behavior is
+ * preserved byte-for-byte); semantic hits not already present are appended,
+ * then the union is sliced to `limit`. The vector arm has no distance
+ * threshold (see lib/db/recall-actions.ts), so once the index is non-empty
+ * it returns hits for virtually any query — it can no longer be trusted
+ * alone to decide "no results". "No results" is only honest when both arms
+ * agree, which is why the semantic arm is gated by searchMinScore():
+ * gibberish queries no longer manufacture 5 unrelated hits. Welcome side
+ * effect: if the reranker is down, the semantic arm fails closed to no hits
+ * and the union floors out at keyword-only — exactly the intended
+ * degradation.
+ *
+ * When `includeSemantic` is false (the as-you-type default) the semantic
+ * arm is skipped ENTIRELY — no embedding round-trip, no pgvector query, no
+ * reranker network call — so debounced keystrokes stay instant off the
+ * trigram-indexed keyword arm alone. The blend is opt-in behind an explicit
+ * submit (see app/library/page.tsx).
  */
 export async function searchUserChatsHybrid(
   userId: string,
@@ -817,7 +824,8 @@ export async function searchUserChatsHybrid(
     userId: string,
     query: string,
     limit: number
-  ) => Promise<ChatSearchResult[]>
+  ) => Promise<ChatSearchResult[]>,
+  includeSemantic = true
 ): Promise<ChatSearchResult[]> {
   const semanticSearch = async (): Promise<ChatSearchResult[]> => {
     try {
@@ -852,9 +860,12 @@ export async function searchUserChatsHybrid(
     }
   }
 
+  // The keyword arm always runs. The semantic arm is gated: when it's off,
+  // semanticSearch() is never invoked (so recallSearch / the embedder /
+  // reranker are never touched) and the union floors out at keyword-only.
   const [keywordResults, semanticResults] = await Promise.all([
     keywordSearch(userId, query, limit),
-    semanticSearch()
+    includeSemantic ? semanticSearch() : Promise.resolve<ChatSearchResult[]>([])
   ])
 
   const seen = new Set(keywordResults.map(r => r.chatId))
@@ -865,14 +876,25 @@ export async function searchUserChatsHybrid(
 
 /**
  * Full-text search across chat titles and message text.
- * Unions keyword and semantic recall — see searchUserChatsHybrid.
+ *
+ * Keyword-only by default (fast, trigram-indexed) so the as-you-type path
+ * stays instant. Pass `includeSemantic: true` to also blend in semantic
+ * recall — reserved for an explicit submit, since that arm costs an
+ * embedding + pgvector + reranker round-trip. See searchUserChatsHybrid.
  */
 export async function searchUserChats(
   userId: string,
   query: string,
-  limit = 20
+  options: { includeSemantic?: boolean; limit?: number } = {}
 ): Promise<ChatSearchResult[]> {
-  return searchUserChatsHybrid(userId, query, limit, searchUserChatsKeyword)
+  const { includeSemantic = false, limit = 20 } = options
+  return searchUserChatsHybrid(
+    userId,
+    query,
+    limit,
+    searchUserChatsKeyword,
+    includeSemantic
+  )
 }
 
 function extractSnippet(text: string, query: string): string {
