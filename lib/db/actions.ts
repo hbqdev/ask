@@ -469,6 +469,42 @@ export async function countUserChats(userId: string): Promise<number> {
   })
 }
 
+/**
+ * Slim, RLS-scoped list of a user's most-recently-active chats for the
+ * sidebar Recent section. Selects ONLY the fields the rail needs
+ * (id/title/lastViewedAt/createdAt) and orders by `lastViewedAt DESC NULLS
+ * LAST, createdAt DESC` — the exact shape of `chats_user_id_last_viewed_at_idx`
+ * — so the read is index-only and cheap enough to refetch on every
+ * chat create/delete/rename. Fail-open: a query error yields an empty list
+ * rather than crashing the layout that renders the sidebar.
+ */
+export async function getRecentChats(
+  userId: string,
+  limit = 10
+): Promise<Pick<Chat, 'id' | 'title' | 'lastViewedAt' | 'createdAt'>[]> {
+  try {
+    return await withRLS(userId, async tx => {
+      return tx
+        .select({
+          id: chats.id,
+          title: chats.title,
+          lastViewedAt: chats.lastViewedAt,
+          createdAt: chats.createdAt
+        })
+        .from(chats)
+        .where(eq(chats.userId, userId))
+        .orderBy(
+          sql`${chats.lastViewedAt} DESC NULLS LAST`,
+          desc(chats.createdAt)
+        )
+        .limit(limit)
+    })
+  } catch (error) {
+    console.error('Error fetching recent chats:', error)
+    return []
+  }
+}
+
 export interface ChatBadgeData {
   searchMode?: SearchMode
   fileCount: number
