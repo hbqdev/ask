@@ -78,6 +78,19 @@ export async function countChats(): Promise<number> {
 }
 
 /**
+ * The current user's most-recently-active chats for the sidebar Recent list.
+ * Guests (no signed-in user) get an empty list. Slim select, ordered
+ * newest-viewed first (see dbActions.getRecentChats).
+ */
+export async function getRecentChats(
+  limit = 10
+): Promise<Pick<Chat, 'id' | 'title' | 'lastViewedAt' | 'createdAt'>[]> {
+  const userId = await getCurrentUserId()
+  if (!userId) return []
+  return dbActions.getRecentChats(userId, limit)
+}
+
+/**
  * Search the current user's chat history by title and message text.
  *
  * Keyword-only by default (instant, trigram-indexed). Pass

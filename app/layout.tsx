@@ -1,5 +1,6 @@
 import type { Metadata, Viewport } from 'next'
 
+import { countChats, getRecentChats } from '@/lib/actions/chat'
 import { getCurrentUserId } from '@/lib/auth/get-current-user'
 import { ChatHeaderProvider } from '@/lib/contexts/chat-header-context'
 import { UserProvider } from '@/lib/contexts/user-context'
@@ -62,6 +63,22 @@ export default async function RootLayout({
 
   const userId = user?.id ?? (await getCurrentUserId())
 
+  // Server-render the sidebar's Recent list + real chat count. Fail-open: any
+  // read error yields an empty list / zero rather than crashing the layout.
+  // A client island in AppSidebar refreshes these on chat create/delete/rename.
+  let recentChats: Awaited<ReturnType<typeof getRecentChats>> = []
+  let chatCount = 0
+  if (userId) {
+    try {
+      ;[recentChats, chatCount] = await Promise.all([
+        getRecentChats(10),
+        countChats()
+      ])
+    } catch (error) {
+      console.error('Failed to load sidebar chat data (non-fatal):', error)
+    }
+  }
+
   return (
     <html lang="en" suppressHydrationWarning>
       <body className="fixed inset-0 flex flex-col font-sans antialiased overflow-hidden">
@@ -77,13 +94,19 @@ export default async function RootLayout({
                 defaultOpen={true}
                 style={
                   {
-                    '--sidebar-width': '80px',
-                    '--sidebar-width-mobile': '220px'
+                    '--sidebar-width': '16rem',
+                    '--sidebar-width-icon': '80px'
                   } as React.CSSProperties
                 }
               >
                 <LibraryProvider>
-                  {userId && <AppSidebar user={user} />}
+                  {userId && (
+                    <AppSidebar
+                      user={user}
+                      recentChats={recentChats}
+                      chatCount={chatCount}
+                    />
+                  )}
                   <KeyboardShortcutHandler />
                   <ChatHeaderProvider>
                     <div className="flex flex-col flex-1 min-w-0">
