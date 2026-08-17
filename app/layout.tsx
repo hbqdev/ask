@@ -70,9 +70,13 @@ export default async function RootLayout({
   let chatCount = 0
   if (userId) {
     try {
+      // Settle the two reads independently so a count failure can't discard a
+      // successfully-fetched Recent list (and vice versa). `countChats`
+      // (`countUserChats`) is deliberately a throwing primitive — the fallback
+      // lives here at the call site, not in the DB layer.
       ;[recentChats, chatCount] = await Promise.all([
-        getRecentChats(10),
-        countChats()
+        getRecentChats(10).catch(() => []),
+        countChats().catch(() => 0)
       ])
     } catch (error) {
       console.error('Failed to load sidebar chat data (non-fatal):', error)
