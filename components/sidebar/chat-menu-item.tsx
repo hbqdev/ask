@@ -38,7 +38,16 @@ import {
 import { Spinner } from '../ui/spinner'
 
 interface ChatMenuItemProps {
-  chat: DBChat
+  // Only the fields the row actually renders — lets the slim `getRecentChats`
+  // projection (id/title/createdAt) drive the sidebar Recent list without
+  // materialising a full Chat row. A full DBChat still satisfies this shape.
+  chat: Pick<DBChat, 'id' | 'title' | 'createdAt'>
+  // Which date to show in the row's subtitle. Recent uses `lastViewedAt`
+  // (falling back to `createdAt`) so the subtitle matches its date group;
+  // defaults to `createdAt` for the library's created-order lists.
+  displayDate?: Date | string
+  // Fired on row click (e.g. close the mobile drawer after navigating).
+  onNavigate?: () => void
 }
 
 const formatDateWithTime = (date: Date | string) => {
@@ -79,7 +88,11 @@ const formatDateWithTime = (date: Date | string) => {
   }
 }
 
-export function ChatMenuItem({ chat }: ChatMenuItemProps) {
+export function ChatMenuItem({
+  chat,
+  displayDate,
+  onNavigate
+}: ChatMenuItemProps) {
   const pathname = usePathname()
   const path = `/search/${chat.id}`
   const isActive = pathname === path
@@ -138,12 +151,12 @@ export function ChatMenuItem({ chat }: ChatMenuItemProps) {
         isActive={isActive}
         className="h-auto flex-col gap-0.5 items-start p-2 pr-8"
       >
-        <Link href={path}>
+        <Link href={path} onClick={onNavigate}>
           <div className="text-xs font-medium truncate select-none w-full">
             {chat.title}
           </div>
           <div className="text-xs text-muted-foreground w-full">
-            {formatDateWithTime(chat.createdAt)}
+            {formatDateWithTime(displayDate ?? chat.createdAt)}
           </div>
         </Link>
       </SidebarMenuButton>
