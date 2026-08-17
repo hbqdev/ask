@@ -37,6 +37,34 @@ import {
 } from './prompts/search-mode-prompts'
 import { applyAnswerDeadline } from './answer-deadline'
 
+// The pasted-URL branch fills a source's title from the fetched page's <title>,
+// which is attacker-controlled when the user pastes a hostile link. That title
+// is interpolated verbatim into the SYSTEM prompt (a more privileged position
+// than tool-message content), so a title carrying newlines, quotes, or
+// backticks could break out of its `"..."` wrapper and inject system-level
+// instructions. Neutralize it before interpolation: flatten every control char
+// to a space so nothing spans lines, drop the delimiters it could exploit,
+// collapse whitespace, and clip. Pure + exported so it can be unit-tested.
+const MAX_SOURCE_TITLE_CHARS = 200
+
+export function sanitizeSourceTitle(title: unknown): string {
+  const cleaned = String(title ?? '')
+    // Control chars (incl. newlines, tabs, CR, DEL) → a single space so the
+    // title can never break onto a new prompt line.
+    .replace(/[\u0000-\u001f\u007f]+/g, ' ')
+    // Backticks and double-quotes could close the `"..."` wrapper: drop the
+    // backtick outright, soften the double-quote to a single quote.
+    .replace(/`/g, '')
+    .replace(/"/g, "'")
+    // Collapse any whitespace runs the control-char pass introduced, then trim.
+    .replace(/\s+/g, ' ')
+    .trim()
+  if (!cleaned) return 'attached source'
+  return cleaned.length > MAX_SOURCE_TITLE_CHARS
+    ? cleaned.slice(0, MAX_SOURCE_TITLE_CHARS) + '…'
+    : cleaned
+}
+
 // Used when the query classifier (lib/agents/query-classifier.ts) decides
 // this turn needs no new research — a pure clarification/confirmation about
 // something already established in this conversation. Tools stay available
@@ -692,7 +720,10 @@ The conversation history is background context, not a to-do list. Any topic from
     if (documentRetrievalSources && documentRetrievalSources.length > 0) {
       const many = documentRetrievalSources.length > 1
       const list = documentRetrievalSources
-        .map(s => `- "${s.title}" — toolCallId: ${s.toolCallId}`)
+        .map(
+          s =>
+            `- "${sanitizeSourceTitle(s.title)}" — toolCallId: ${s.toolCallId}`
+        )
         .join('\n')
       systemPrompt =
         systemPrompt +
