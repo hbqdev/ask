@@ -104,6 +104,42 @@ describe('searchUserChatsHybrid', () => {
     expect(res[0].chatId).toBe('c9')
   })
 
+  it('skips the semantic arm entirely when includeSemantic is false', async () => {
+    const keywordSearch = vi.fn(async () => [keywordRow('c9', 'Old')])
+
+    const res = await searchUserChatsHybrid(
+      'u1',
+      'backups',
+      20,
+      keywordSearch,
+      false
+    )
+
+    // The whole point of the fast path: no embedding/vector/rerank round-trip.
+    expect(recallSearch).not.toHaveBeenCalled()
+    expect(keywordSearch).toHaveBeenCalledOnce()
+    expect(res).toHaveLength(1)
+    expect(res[0].chatId).toBe('c9')
+  })
+
+  it('runs the semantic arm when includeSemantic is true', async () => {
+    vi.mocked(recallSearch).mockResolvedValue([hit])
+    const keywordSearch = vi.fn(async () => [keywordRow('c9', 'Old')])
+
+    const res = await searchUserChatsHybrid(
+      'u1',
+      'backups',
+      20,
+      keywordSearch,
+      true
+    )
+
+    expect(recallSearch).toHaveBeenCalledOnce()
+    expect(res).toHaveLength(2)
+    expect(res[0].chatId).toBe('c9') // keyword first
+    expect(res[1].chatId).toBe('c1') // semantic appended
+  })
+
   it('respects limit, slicing the merged union', async () => {
     vi.mocked(recallSearch).mockResolvedValue([
       { ...hit, chunkId: 'k1', chatId: 's1' },
