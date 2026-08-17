@@ -230,6 +230,22 @@ describe('sanitizeSourceTitle', () => {
       'Q3 Financial Report 2026'
     )
   })
+
+  it('flattens C1 controls (NEL U+0085) and Unicode line separators to spaces', () => {
+    // U+0085 (NEL), U+2028 (LS), U+2029 (PS) can render as line breaks; none
+    // may survive into the single-line system-prompt interpolation.
+    const input =
+      'a' +
+      String.fromCodePoint(0x85) +
+      'b' +
+      String.fromCodePoint(0x2028) +
+      'c' +
+      String.fromCodePoint(0x2029) +
+      'd'
+    const out = sanitizeSourceTitle(input)
+    expect(out).toBe('a b c d')
+    expect(out.length).toBe(7)
+  })
 })
 
 describe('createResearcher — generateImage tool registration', () => {

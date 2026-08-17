@@ -52,7 +52,7 @@ export function sanitizeSourceTitle(title: unknown): string {
   const cleaned = String(title ?? '')
     // Control chars (incl. newlines, tabs, CR, DEL) → a single space so the
     // title can never break onto a new prompt line.
-    .replace(/[\u0000-\u001f\u007f]+/g, ' ')
+    .replace(/[\u0000-\u001f\u007f-\u009f]+/g, ' ')
     // Backticks and double-quotes could close the `"..."` wrapper: drop the
     // backtick outright, soften the double-quote to a single quote.
     .replace(/`/g, '')
