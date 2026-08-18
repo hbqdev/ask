@@ -16,6 +16,10 @@ export function useVoiceDictation(onTranscript: (text: string) => void) {
   const streamRef = useRef<MediaStream | null>(null)
   // stop() = finish + transcribe; cancel() = discard. onstop reads this.
   const discardRef = useRef(false)
+  // Press-and-hold can release before the recorder exists (the getUserMedia
+  // permission prompt is still open). stop()/cancel() flag this so start() aborts
+  // once the stream resolves instead of leaving a hot mic with no way to stop it.
+  const pendingStopRef = useRef(false)
 
   const releaseStream = useCallback(() => {
     streamRef.current?.getTracks().forEach(t => t.stop())
@@ -27,9 +31,20 @@ export function useVoiceDictation(onTranscript: (text: string) => void) {
     // Guard a double-start (two quick clicks before the recorder exists).
     if (recorderRef.current) return
     discardRef.current = false
+    pendingStopRef.current = false
     let s: MediaStream | undefined
     try {
       s = await navigator.mediaDevices.getUserMedia({ audio: true })
+      // A hold released (or a cancel) while the permission prompt was open: abort
+      // before going live so the mic never opens with no way to stop it.
+      if (pendingStopRef.current) {
+        s.getTracks().forEach(t => t.stop())
+        streamRef.current = null
+        setStream(null)
+        setState('idle')
+        pendingStopRef.current = false
+        return
+      }
       streamRef.current = s
       setStream(s)
       const recorder = new MediaRecorder(s)
@@ -86,7 +101,12 @@ export function useVoiceDictation(onTranscript: (text: string) => void) {
   const stop = useCallback(() => {
     discardRef.current = false
     const r = recorderRef.current
-    if (r && r.state !== 'inactive') r.stop()
+    if (r && r.state !== 'inactive') {
+      r.stop()
+    } else {
+      // Recorder not built yet (start() pending): tell start() to abort on resolve.
+      pendingStopRef.current = true
+    }
   }, [])
 
   const cancel = useCallback(() => {
@@ -94,9 +114,12 @@ export function useVoiceDictation(onTranscript: (text: string) => void) {
     const r = recorderRef.current
     if (r && r.state !== 'inactive') {
       r.stop()
-    } else {
+    } else if (streamRef.current) {
       releaseStream()
       setState('idle')
+    } else {
+      // Recorder not built yet (start() pending): tell start() to abort on resolve.
+      pendingStopRef.current = true
     }
   }, [releaseStream])
 

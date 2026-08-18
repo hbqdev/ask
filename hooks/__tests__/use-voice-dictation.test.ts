@@ -83,6 +83,46 @@ describe('useVoiceDictation (click-to-toggle)', () => {
     expect(result.current.stream).toBeNull()
   })
 
+  it('stop() during a pending start aborts before going live (no hot mic)', async () => {
+    // Press-and-hold released while the getUserMedia permission prompt is still
+    // open: stop() runs before the recorder exists. The mic must not go live.
+    const track = { stop: vi.fn() }
+    let resolveGum: (s: unknown) => void = () => {}
+    ;(navigator as unknown as { mediaDevices: unknown }).mediaDevices = {
+      getUserMedia: vi.fn(
+        () => new Promise(res => (resolveGum = res as (s: unknown) => void))
+      )
+    }
+    let constructed = false
+    ;(globalThis as unknown as { MediaRecorder: unknown }).MediaRecorder =
+      class {
+        constructor() {
+          constructed = true
+        }
+        start() {}
+      }
+    const { result } = renderHook(() => useVoiceDictation(vi.fn()))
+
+    let startPromise: Promise<void> = Promise.resolve()
+    act(() => {
+      startPromise = result.current.start()
+    })
+    // Release before the recorder exists → flags a pending stop.
+    act(() => {
+      result.current.stop()
+    })
+    // getUserMedia resolves after the release: start() must abort and stop tracks.
+    await act(async () => {
+      resolveGum({ getTracks: () => [track] })
+      await startPromise
+    })
+
+    expect(constructed).toBe(false)
+    expect(track.stop).toHaveBeenCalled()
+    expect(result.current.state).toBe('idle')
+    expect(result.current.stream).toBeNull()
+  })
+
   it('an empty recording short-circuits to idle without POSTing', async () => {
     class EmptyRecorder extends FakeRecorder {
       stop() {
