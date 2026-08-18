@@ -20,6 +20,11 @@ export function useVoiceDictation(onTranscript: (text: string) => void) {
   // permission prompt is still open). stop()/cancel() flag this so start() aborts
   // once the stream resolves instead of leaving a hot mic with no way to stop it.
   const pendingStopRef = useRef(false)
+  // Set synchronously at the top of start(), before the async getUserMedia, so a
+  // second start() that fires while the first is still awaiting the stream (mouse
+  // pointerdown + the trailing click) is dropped — recorderRef isn't set yet, so
+  // it alone can't guard that window, and a double getUserMedia = a hot mic.
+  const startingRef = useRef(false)
 
   const releaseStream = useCallback(() => {
     streamRef.current?.getTracks().forEach(t => t.stop())
@@ -28,8 +33,10 @@ export function useVoiceDictation(onTranscript: (text: string) => void) {
   }, [])
 
   const start = useCallback(async () => {
-    // Guard a double-start (two quick clicks before the recorder exists).
-    if (recorderRef.current) return
+    // Guard a double-start: an existing recorder, or a start() already awaiting
+    // the stream (the synchronous startingRef closes the pointerdown+click race).
+    if (recorderRef.current || startingRef.current) return
+    startingRef.current = true
     discardRef.current = false
     pendingStopRef.current = false
     let s: MediaStream | undefined
@@ -43,6 +50,7 @@ export function useVoiceDictation(onTranscript: (text: string) => void) {
         setStream(null)
         setState('idle')
         pendingStopRef.current = false
+        startingRef.current = false
         return
       }
       streamRef.current = s
@@ -87,6 +95,7 @@ export function useVoiceDictation(onTranscript: (text: string) => void) {
       }
       recorder.start()
       recorderRef.current = recorder
+      startingRef.current = false
       setState('recording')
     } catch {
       // getUserMedia denied, or MediaRecorder construction threw after the mic
@@ -94,6 +103,7 @@ export function useVoiceDictation(onTranscript: (text: string) => void) {
       s?.getTracks().forEach(t => t.stop())
       streamRef.current = null
       setStream(null)
+      startingRef.current = false
       setState('idle')
     }
   }, [onTranscript, releaseStream])
