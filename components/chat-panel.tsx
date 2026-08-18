@@ -45,6 +45,7 @@ import {
   setCookie,
   subscribeToCookieChange
 } from '@/lib/utils/cookies'
+import { shouldStopOnRelease } from '@/lib/voice/gesture'
 import { warmOnIntent } from '@/lib/warm/warm-trigger'
 
 import { useClientSettingEnabled } from '@/hooks/use-client-setting'
@@ -229,10 +230,10 @@ export function ChatPanel({
     [input, handleInputChange]
   )
 
-  // Click-to-dictate: the mic button starts a recording; while recording (or
-  // transcribing) the composer swaps in the RecordingBar (live waveform +
-  // stop/cancel). stop() feeds the transcript to handleTranscript (which drops
-  // it into the composer for review + manual send).
+  // Tap-or-hold dictation: the mic button starts a recording on press; while
+  // recording (or transcribing) the composer swaps in the RecordingBar (live
+  // waveform + stop/cancel). stop() feeds the transcript to handleTranscript
+  // (which drops it into the composer for review + manual send).
   const {
     state: micState,
     stream: micStream,
@@ -240,6 +241,39 @@ export function ChatPanel({
     stop: micStop,
     cancel: micCancel
   } = useVoiceDictation(handleTranscript)
+
+  // Gesture detection lives here in the parent because MicButton unmounts the
+  // moment recording starts (RecordingBar replaces it), so the pointer release
+  // for a press-and-hold can't be caught on the button — we listen at the window.
+  // A quick tap (< threshold) keeps click-to-toggle (stopped via the bar); a hold
+  // (>= threshold) is push-to-talk and auto-stops on release.
+  const micPressStartRef = useRef<number>(0)
+  const micReleaseCleanupRef = useRef<(() => void) | null>(null)
+
+  const handleMicPressStart = useCallback(() => {
+    // Drop any listeners left over from a prior gesture before starting a new one.
+    micReleaseCleanupRef.current?.()
+    micPressStartRef.current = performance.now()
+    void micStart()
+
+    const onRelease = () => {
+      micReleaseCleanupRef.current?.()
+      const held = performance.now() - micPressStartRef.current
+      // Hold → finalize + transcribe; tap → leave recording for the bar to stop.
+      if (shouldStopOnRelease(held)) micStop()
+    }
+    const cleanup = () => {
+      window.removeEventListener('pointerup', onRelease)
+      window.removeEventListener('pointercancel', onRelease)
+      micReleaseCleanupRef.current = null
+    }
+    micReleaseCleanupRef.current = cleanup
+    window.addEventListener('pointerup', onRelease, { once: true })
+    window.addEventListener('pointercancel', onRelease, { once: true })
+  }, [micStart, micStop])
+
+  // Safety net: if the panel unmounts mid-gesture, drop the window listeners.
+  useEffect(() => () => micReleaseCleanupRef.current?.(), [])
 
   // Listen for keyboard shortcut events
   // Uses defaultPrevented to prevent duplicate handling
@@ -907,7 +941,7 @@ export function ChatPanel({
               )}
               {voiceEnabled && (
                 <MicButton
-                  onStart={micStart}
+                  onPressStart={handleMicPressStart}
                   disabled={isLoading || micState !== 'idle'}
                 />
               )}
