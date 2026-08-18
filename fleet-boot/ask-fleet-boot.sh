@@ -34,6 +34,59 @@ reconcile() {
   log "$name -> $(docker inspect -f '{{.State.Status}}' "$name" 2>/dev/null || echo missing)"
 }
 
+# True once a container reports healthy (or, if it has no healthcheck, running).
+# Polls up to $2 seconds. A container WITH a healthcheck must reach 'healthy' —
+# 'starting'/'unhealthy'/'restarting' don't count, which is what catches the
+# boot-time strand where the app crash-loops (migration can't reach its DB).
+app_healthy() {
+  local c="$1" max="$2" i
+  for i in $(seq 1 "$max"); do
+    case "$(docker inspect -f '{{if .State.Health}}{{.State.Health.Status}}{{else}}{{.State.Status}}{{end}}' "$c" 2>/dev/null)" in
+      healthy | running) return 0 ;;
+    esac
+    sleep 1
+  done
+  return 1
+}
+
+# Reconcile one multi-compose-file APP stack (prod/staging/lab on the app host).
+# Unlike reconcile() (single default compose file, GPU boxes), this passes the
+# stack's real -f set and gates on HEALTH, escalating only when the app doesn't
+# come up healthy:
+#   1. `up -d`  — start anything missing (a healthy stack ends here, untouched).
+#   2. not healthy -> `up -d --force-recreate <service>` — reattaches the app to
+#      its networks; fixes the reboot strand where it rejoined only shared-infra
+#      and crash-looped on ENOTFOUND (the exact fix applied by hand 2026-08-17).
+#   3. still not healthy -> `down && up -d` — full network reset (last resort).
+# Usage: reconcile_app_stack <dir> <container> <service> <-f file ...>
+reconcile_app_stack() {
+  local dir="$1" container="$2" service="$3"
+  shift 3
+  local files=("$@")
+  [ -d "$dir" ] || {
+    log "skip $container (missing $dir)"
+    return 0
+  }
+  ( cd "$dir" && docker compose "${files[@]}" up -d ) >/dev/null 2>&1
+  if app_healthy "$container" 180; then
+    log "$container -> healthy"
+    return 0
+  fi
+  log "$container not healthy after 'up' — force-recreating $service (network reattach)"
+  ( cd "$dir" && docker compose "${files[@]}" up -d --force-recreate "$service" ) >/dev/null 2>&1
+  if app_healthy "$container" 180; then
+    log "$container -> healthy after force-recreate"
+    return 0
+  fi
+  log "$container still unhealthy — full down/up (network reset)"
+  ( cd "$dir" && docker compose "${files[@]}" down && docker compose "${files[@]}" up -d ) >/dev/null 2>&1
+  if app_healthy "$container" 240; then
+    log "$container -> healthy after down/up"
+  else
+    log "$container -> STILL UNHEALTHY ($(docker inspect -f '{{.State.Status}}' "$container" 2>/dev/null || echo missing)) — needs a human"
+  fi
+}
+
 # Wait for Ollama to answer, then load a model resident (keep_alive=-1) so the
 # GPU isn't cold on the first request.
 warm() {
@@ -91,6 +144,19 @@ case "$HOST" in
     ;;
   Serenity)
     warm granite4.1:8b
+    ;;
+  MiniNightFury)
+    # The app host: reconcile the three Ask stacks onto their networks so a
+    # reboot never strands the app container (see reconcile_app_stack). prod
+    # first (public), then staging, then lab. Shared tts/degoog/searxng carry
+    # their own restart policies; cloudflared/imagen are systemd units.
+    reconcile_app_stack /home/nightfury/selfhosted/ask-prod ask ask \
+      -f docker-compose.yaml -f docker-compose.vpn.yaml
+    reconcile_app_stack /home/nightfury/selfhosted/ask ask-admin-feature ask \
+      -f docker-compose.yaml -f docker-compose.admin-feature.yaml \
+      -f docker-compose.vpn.yaml -f docker-compose.vpn.admin-feature.yaml
+    reconcile_app_stack /home/nightfury/selfhosted/ask-flow ask-lab ask \
+      -f docker-compose.yaml -f docker-compose.lab.yaml -f docker-compose.vpn.lab.yaml
     ;;
   *)
     log "unknown host '$HOST' — nothing to do"
