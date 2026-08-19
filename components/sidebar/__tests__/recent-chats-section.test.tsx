@@ -1,6 +1,6 @@
 import React from 'react'
 
-import { render, screen } from '@testing-library/react'
+import { fireEvent, render, screen } from '@testing-library/react'
 import { beforeEach, describe, expect, test, vi } from 'vitest'
 
 // ChatMenuItem (rendered per row) pulls in next/navigation + a delete server
@@ -62,6 +62,7 @@ const CHATS: RecentChat[] = [
 describe('RecentChatsSection', () => {
   beforeEach(() => {
     vi.clearAllMocks()
+    localStorage.clear()
   })
 
   test('renders a row per chat, date-grouped Today / Yesterday / Previous', () => {
@@ -124,5 +125,35 @@ describe('RecentChatsSection', () => {
     expect(row).not.toBeNull()
     // SidebarMenuButton stamps data-active on the active row.
     expect(row).toHaveAttribute('data-active', 'true')
+  })
+
+  test('folds the whole list when the Recent header is toggled, and persists it', () => {
+    renderSection(<RecentChatsSection chats={CHATS} />)
+    // Expanded by default: rows + groups + See all are visible.
+    expect(screen.getByText('Today chat')).toBeInTheDocument()
+
+    const toggle = screen.getByRole('button', { name: /recent/i })
+    expect(toggle).toHaveAttribute('aria-expanded', 'true')
+    fireEvent.click(toggle)
+
+    // Collapsed: the list, group labels, and "See all" are gone; header stays.
+    expect(screen.queryByText('Today chat')).not.toBeInTheDocument()
+    expect(screen.queryByText('Today')).not.toBeInTheDocument()
+    expect(
+      screen.queryByRole('link', { name: /see all/i })
+    ).not.toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /recent/i })).toHaveAttribute(
+      'aria-expanded',
+      'false'
+    )
+    expect(localStorage.getItem('ask:recent-collapsed')).toBe('true')
+  })
+
+  test('starts folded when the persisted state says collapsed', () => {
+    localStorage.setItem('ask:recent-collapsed', 'true')
+    renderSection(<RecentChatsSection chats={CHATS} />)
+    // The mount effect reads the persisted value → renders collapsed.
+    expect(screen.getByText('Recent')).toBeInTheDocument()
+    expect(screen.queryByText('Today chat')).not.toBeInTheDocument()
   })
 })
