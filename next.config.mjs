@@ -47,11 +47,11 @@ const nextConfig = {
           },
           {
             key: 'Permissions-Policy',
-            // microphone=(self): the voice-dictation feature needs getUserMedia
-            // on our OWN origin (still denied to embedded third parties, and the
-            // browser still prompts the user). camera/geolocation/payment stay
-            // fully denied — the app doesn't use them.
-            value: 'camera=(), microphone=(self), geolocation=(), payment=()'
+            // microphone=(self): voice dictation needs getUserMedia; geolocation=(self):
+            // the weather widget needs the Geolocation API — both on our OWN origin only
+            // (still denied to embedded third parties, and the browser still prompts the
+            // user). camera/payment stay fully denied — the app doesn't use them.
+            value: 'camera=(), microphone=(self), geolocation=(self), payment=()'
           }
         ]
       }

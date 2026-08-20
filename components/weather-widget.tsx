@@ -448,7 +448,7 @@ export function WeatherWidget({ className }: { className?: string }) {
           // Permission denied — try IP fallback
           await tryIpFallback()
         },
-        { timeout: 5000 }
+        { enableHighAccuracy: false, timeout: 15000, maximumAge: 600000 }
       )
     }
 
