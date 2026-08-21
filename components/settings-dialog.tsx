@@ -247,8 +247,8 @@ function PreferencesTab() {
       </SettingRow>
 
       <SettingRow
-        title="Show weather widget"
-        description="Display the weather card on the home screen."
+        title="Show weather in the sidebar"
+        description="Display the weather card at the top of the sidebar."
         inline
       >
         <SettingSwitch

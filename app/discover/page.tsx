@@ -43,7 +43,7 @@ function thumbUrl(raw: string) {
 
 function SmallNewsCard({ item }: { item: Discover }) {
   return (
-    <div className="relative rounded-3xl overflow-hidden bg-[#f6f8fa] dark:bg-[#161b22] shadow-sm shadow-black/10 dark:shadow-black/25 group flex flex-col">
+    <div className="relative rounded-3xl overflow-hidden bg-card shadow-sm shadow-black/10 dark:shadow-black/25 group flex flex-col">
       <a
         href={item.url}
         target="_blank"
@@ -257,10 +257,10 @@ const Page = () => {
       <div
         ref={scrollContainerRef}
         onScroll={handleScroll}
-        className="h-full overflow-y-auto bg-[#ffffff] dark:bg-[#0d1117]"
+        className="h-full overflow-y-auto bg-background"
       >
         <div className="w-full max-w-screen-lg mx-auto px-4">
-          <div className="sticky top-0 z-20 flex flex-col items-center pt-10 border-b border-[#e8edf1] dark:border-[#21262d] pb-6 px-2 bg-[#ffffff] dark:bg-[#0d1117]">
+          <div className="sticky top-0 z-20 flex flex-col items-center pt-10 border-b border-border pb-6 px-2 bg-background">
             <div className="flex items-center justify-center">
               <IconWorld size={45} className="mb-2.5" />
               <h1
@@ -329,7 +329,7 @@ const Page = () => {
                         sections.push(
                           <hr
                             key={`sep-${index}`}
-                            className="border-t border-[#e8edf1] dark:border-[#21262d] my-3 w-full"
+                            className="border-t border-border my-3 w-full"
                           />
                         )
                       }
@@ -349,7 +349,7 @@ const Page = () => {
                         sections.push(
                           <hr
                             key={`sep-${index}-after`}
-                            className="border-t border-[#e8edf1] dark:border-[#21262d] my-3 w-full"
+                            className="border-t border-border my-3 w-full"
                           />
                         )
                       }
@@ -376,7 +376,7 @@ const Page = () => {
                         sections.push(
                           <hr
                             key={`sep-${index}-after-small`}
-                            className="border-t border-[#e8edf1] dark:border-[#21262d] my-3 w-full"
+                            className="border-t border-border my-3 w-full"
                           />
                         )
                       }
@@ -395,7 +395,7 @@ const Page = () => {
                             sections.push(
                               <hr
                                 key={`sep-double-${index + i}`}
-                                className="border-t border-[#e8edf1] dark:border-[#21262d] my-3 w-full"
+                                className="border-t border-border my-3 w-full"
                               />
                             )
                           }
@@ -416,7 +416,7 @@ const Page = () => {
                         sections.push(
                           <hr
                             key={`sep-${index}-after-major`}
-                            className="border-t border-[#e8edf1] dark:border-[#21262d] my-3 w-full"
+                            className="border-t border-border my-3 w-full"
                           />
                         )
                       }

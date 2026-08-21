@@ -47,7 +47,10 @@ const nextConfig = {
           },
           {
             key: 'Permissions-Policy',
-            value: 'camera=(), microphone=(), geolocation=(), payment=()'
+            // microphone=(self): voice dictation (getUserMedia); geolocation=(self):
+            // the weather widget's Geolocation API — both own-origin only (browser
+            // still prompts). camera/payment stay denied — the app doesn't use them.
+            value: 'camera=(), microphone=(self), geolocation=(self), payment=()'
           }
         ]
       }

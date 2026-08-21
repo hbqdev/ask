@@ -50,6 +50,7 @@ import { warmOnIntent } from '@/lib/warm/warm-trigger'
 import { useClientSettingEnabled } from '@/hooks/use-client-setting'
 
 import { useArtifact } from './artifact/artifact-context'
+import { AskHeadline } from './ui/ask-headline'
 import { Button } from './ui/button'
 import {
   Tooltip,
@@ -57,17 +58,16 @@ import {
   TooltipProvider,
   TooltipTrigger
 } from './ui/tooltip'
-import { WildBreathLogo } from './ui/wild-breath-logo'
+import { WildBreathField } from './ui/wild-breath-field'
 import { MicButton } from './voice/mic-button'
 import { ActionButtons } from './action-buttons'
+import { DiscoverBriefing } from './discover-briefing'
 import { FileUploadButton } from './file-upload-button'
 import { MessageNavigationDots } from './message-navigation-dots'
 import { ModelSelectorClient } from './model-selector-client'
-import { NewsArticleWidget } from './news-article-widget'
 import { SearchModeSelector } from './search-mode-selector'
 import { SourceSelector } from './source-selector'
 import { UploadedFileList } from './uploaded-file-list'
-import { WeatherWidget } from './weather-widget'
 
 // Constants for timing delays
 const INPUT_UPDATE_DELAY_MS = 10 // Delay to ensure input value is updated before form submission
@@ -155,7 +155,10 @@ export function ChatPanel({
   const isFirstRender = useRef(true)
   const [isComposing, setIsComposing] = useState(false) // Composition state
   const [enterDisabled, setEnterDisabled] = useState(false) // Disable Enter after composition ends
-  const [isInputFocused, setIsInputFocused] = useState(false) // Track input focus
+  // Focus glow is CSS-driven (focus-within on the composer shell). The setter
+  // is retained for the existing focus/blur/submit bookkeeping; the value is
+  // no longer read, so it's left unbound.
+  const [, setIsInputFocused] = useState(false)
   // Large pastes become separate "content cards" (the target), keeping the
   // textarea for the instruction. See PASTE_CARD_MIN_CHARS.
   const [contentCards, setContentCards] = useState<string[]>([])
@@ -185,7 +188,6 @@ export function ChatPanel({
     isGuest,
     isCloudDeployment
   })
-  const showWeatherWidget = useClientSettingEnabled('showWeatherWidget')
   const showNewsWidget = useClientSettingEnabled('showNewsWidget')
 
   const handleCompositionStart = () => setIsComposing(true)
@@ -443,6 +445,495 @@ export function ChatPanel({
     }
   }
 
+  const composer = (
+    <form
+      onSubmit={e => {
+        // Pasted attachments (content cards / URL chips) are sent as
+        // structured data parts alongside the instruction text part — no
+        // in-band markers. The server maps them to the model prompt.
+        if (
+          contentCards.length > 0 ||
+          quotedContexts.length > 0 ||
+          urlCards.length > 0
+        ) {
+          e.preventDefault()
+          if (adaptiveModeSubmitBlocked) {
+            onAdaptiveModeAuthRequired?.()
+            return
+          }
+          if (!hasAvailableModels) {
+            toast.error('No enabled model is available')
+            return
+          }
+          const uploaded = uploadedFiles.filter(f => f.status === 'uploaded')
+          const parts = [
+            ...contentCards.map(text => ({
+              type: 'data-pastedContent',
+              data: { text }
+            })),
+            ...quotedContexts.map(text => ({
+              type: 'data-quotedContext',
+              data: { text }
+            })),
+            ...urlCards.map(url => ({
+              type: 'data-sourceUrl',
+              data: { url }
+            })),
+            ...uploaded.map(f => ({
+              type: 'file',
+              url: f.url!,
+              filename: f.name!,
+              mediaType:
+                f.mediaType ?? f.file?.type ?? 'application/octet-stream',
+              key: f.key
+            })),
+            ...(input.trim() ? [{ type: 'text', text: input }] : [])
+          ]
+          if (contentCards.length > 0) {
+            captureClient('content_card_submitted', {
+              cardCount: contentCards.length,
+              chars: contentCards.reduce((sum, c) => sum + c.length, 0)
+            })
+          }
+          if (urlCards.length > 0) {
+            captureClient('url_card_submitted', {
+              cardCount: urlCards.length
+            })
+          }
+          setContentCards([])
+          setQuotedContexts([])
+          setUrlCards([])
+          setUploadedFiles([])
+          handleInputChange({
+            target: { value: '' }
+          } as React.ChangeEvent<HTMLTextAreaElement>)
+          append({ role: 'user', parts })
+          setIsInputFocused(false)
+          inputRef.current?.blur()
+          return
+        }
+        if (adaptiveModeSubmitBlocked) {
+          e.preventDefault()
+          onAdaptiveModeAuthRequired?.()
+          return
+        }
+
+        if (!hasAvailableModels) {
+          e.preventDefault()
+          toast.error('No enabled model is available')
+          return
+        }
+        handleSubmit(e)
+        // Reset focus state after submission
+        setIsInputFocused(false)
+        inputRef.current?.blur()
+      }}
+      className={cn(
+        'max-w-full w-full mx-auto relative',
+        // Homepage empty state gets a wider composer; the docked (in-chat)
+        // width is unchanged.
+        messages.length === 0 ? 'md:max-w-[880px]' : 'md:max-w-3xl'
+      )}
+    >
+      {/* Scroll to bottom button */}
+      {messages.length > 0 && (
+        <div
+          className={cn(
+            'transition-opacity duration-[120ms] ease-[var(--motion-ease-out)]',
+            showScrollToBottomButton
+              ? 'opacity-100'
+              : 'pointer-events-none opacity-0'
+          )}
+        >
+          <Button
+            type="button"
+            variant="outline"
+            size="icon"
+            className="absolute -top-10 right-0 z-20 size-8 rounded-full shadow-md"
+            onClick={handleScrollToBottom}
+            title="Scroll to bottom"
+          >
+            <ChevronDown size={16} />
+          </Button>
+        </div>
+      )}
+      {/* Message navigation dots */}
+      {sections.length > 0 && (
+        <div
+          className={cn(
+            'transition-opacity duration-[120ms] ease-[var(--motion-ease-out)]',
+            !showScrollToBottomButton && status === 'ready'
+              ? 'opacity-100'
+              : 'pointer-events-none opacity-0'
+          )}
+        >
+          <MessageNavigationDots sections={sections} />
+        </div>
+      )}
+
+      <div
+        className={cn(
+          // Glass composer shell (ported from the homepage mockup). Theme-aware:
+          // fill/border use tokens (bg-card/60, border-border/70) so light mode
+          // stays intact; the translucent fill + backdrop blur let the hero's
+          // three-body field show through. Arbitrary values carry the glassy
+          // float shadow + inner top highlight. Focus-within swaps in a soft
+          // pink glow (reads on both themes) matching the mockup's accent.
+          'relative flex w-full flex-col gap-2 rounded-3xl border border-border/70 bg-card/60 backdrop-blur-xl shadow-[0_18px_60px_-15px_rgba(0,0,0,0.55),inset_0_1px_0_rgba(255,255,255,0.06)] transition-[box-shadow,border-color] duration-[140ms] ease-[var(--motion-ease-out)] focus-within:border-[#ff96c8]/45 focus-within:shadow-[0_22px_70px_-10px_rgba(255,90,150,0.18),0_0_0_1px_rgba(255,150,200,0.30),inset_0_1px_0_rgba(255,255,255,0.06)]'
+        )}
+      >
+        {contentCards.length > 0 && (
+          <div className="flex flex-col gap-1.5 px-3 pt-3">
+            {contentCards.map((card, i) => (
+              <div
+                key={i}
+                className="relative rounded-xl border border-input bg-background px-3 py-2"
+              >
+                <div className="mb-1 flex items-center justify-between gap-2">
+                  <span className="flex items-center gap-1.5 text-xs font-medium text-muted-foreground">
+                    <FileText className="size-3.5 shrink-0" />
+                    Pasted content · {card.length.toLocaleString()} chars
+                  </span>
+                  <TooltipProvider delayDuration={200}>
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <button
+                          type="button"
+                          aria-label="Expand to text"
+                          className="shrink-0 rounded p-1 text-muted-foreground hover:bg-muted hover:text-foreground"
+                          onClick={() => {
+                            captureClient('content_card_expanded', {
+                              chars: card.length
+                            })
+                            setContentCards(prev =>
+                              prev.filter((_, j) => j !== i)
+                            )
+                            handleInputChange({
+                              target: {
+                                value: input ? `${input}\n\n${card}` : card
+                              }
+                            } as React.ChangeEvent<HTMLTextAreaElement>)
+                            inputRef.current?.focus()
+                          }}
+                        >
+                          <ArrowsDiagonal className="size-3.5" />
+                        </button>
+                      </TooltipTrigger>
+                      <TooltipContent className="text-xs">
+                        Expand to text
+                      </TooltipContent>
+                    </Tooltip>
+                  </TooltipProvider>
+                </div>
+                <p className="line-clamp-2 whitespace-pre-wrap break-words text-xs text-muted-foreground/80">
+                  {card}
+                </p>
+              </div>
+            ))}
+          </div>
+        )}
+        {quotedContexts.length > 0 && (
+          <div className="flex flex-col gap-1.5 px-3 pt-3">
+            {quotedContexts.map((card, i) => (
+              <div
+                key={i}
+                className="relative rounded-xl border border-input bg-background px-3 py-2"
+              >
+                <div className="mb-1 flex items-center justify-between gap-2">
+                  <span className="flex items-center gap-1.5 text-xs font-medium text-muted-foreground">
+                    <FileText className="size-3.5 shrink-0" />
+                    Quoted context · {card.length.toLocaleString()} chars
+                  </span>
+                  <button
+                    type="button"
+                    aria-label="Remove quoted context"
+                    className="shrink-0 rounded p-1 text-muted-foreground hover:bg-muted hover:text-foreground"
+                    onClick={() => {
+                      setQuotedContexts(prev => prev.filter((_, j) => j !== i))
+                    }}
+                  >
+                    <X className="size-3.5" />
+                  </button>
+                </div>
+                <p className="line-clamp-2 whitespace-pre-wrap break-words text-xs text-muted-foreground/80">
+                  {card}
+                </p>
+              </div>
+            ))}
+          </div>
+        )}
+        {urlCards.length > 0 && (
+          <div className="flex flex-wrap gap-1.5 px-3 pt-3">
+            {urlCards.map((url, i) => {
+              let host = url
+              try {
+                host = new URL(url).host.replace(/^www\./, '')
+              } catch {}
+              return (
+                <span
+                  key={i}
+                  className="inline-flex items-center gap-1.5 rounded-full border border-input bg-background py-1 pl-2 pr-1 text-xs text-muted-foreground"
+                >
+                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                  <img
+                    src={`https://www.google.com/s2/favicons?domain=${host}&sz=32`}
+                    alt=""
+                    width={14}
+                    height={14}
+                    className="size-3.5 shrink-0 rounded-sm"
+                  />
+                  <span className="max-w-[180px] truncate">{host}</span>
+                  <button
+                    type="button"
+                    aria-label="Remove URL"
+                    className="shrink-0 rounded p-0.5 hover:bg-muted hover:text-foreground"
+                    onClick={() => {
+                      captureClient('url_card_removed')
+                      setUrlCards(prev => prev.filter((_, j) => j !== i))
+                    }}
+                  >
+                    <X className="size-3" />
+                  </button>
+                </span>
+              )
+            })}
+          </div>
+        )}
+        <Textarea
+          ref={inputRef}
+          name="input"
+          rows={2}
+          maxRows={5}
+          tabIndex={0}
+          onCompositionStart={handleCompositionStart}
+          onCompositionEnd={handleCompositionEnd}
+          onFocus={() => {
+            setIsInputFocused(true)
+            warmOnIntent()
+          }}
+          onBlur={() => setIsInputFocused(false)}
+          placeholder={
+            messages.length > 0 ? 'Reply...' : 'What would you like to know?'
+          }
+          spellCheck={false}
+          value={input}
+          disabled={isLoading || isToolInvocationInProgress()}
+          className="resize-none w-full min-h-12 bg-transparent border-0 p-3 md:p-4 text-sm placeholder:text-muted-foreground focus-visible:outline-hidden disabled:cursor-not-allowed disabled:opacity-50"
+          onChange={e => {
+            // Typing is the signal that survives a long compose: focus alone
+            // decays (~45s) before a slow typist hits send. Throttled to one
+            // ping per window, so this is not a request per keystroke.
+            warmOnIntent()
+            handleInputChange(e)
+          }}
+          onPaste={e => {
+            // Image paste (e.g. screenshot → ⌘V). Must run before text
+            // branches — getData('text') on an image paste is usually empty.
+            if (e.clipboardData?.items) {
+              const imageItem = Array.from(e.clipboardData.items).find(
+                item =>
+                  item.kind === 'file' &&
+                  (item.type === 'image/png' || item.type === 'image/jpeg')
+              )
+              if (imageItem) {
+                e.preventDefault()
+                const blob = imageItem.getAsFile()
+                if (blob) {
+                  const ext = blob.type === 'image/png' ? 'png' : 'jpg'
+                  const stamp = new Date()
+                    .toISOString()
+                    .replace(/[-:]/g, '')
+                    .replace(/\..+/, '')
+                    .replace('T', '-')
+                  void handleFiles([
+                    new File([blob], `pasted-image-${stamp}.${ext}`, {
+                      type: blob.type
+                    })
+                  ])
+                }
+                return
+              }
+            }
+
+            const text = e.clipboardData.getData('text')
+            const trimmed = text.trim()
+            // Only when the textarea is empty — a URL pasted mid-sentence
+            // should stay inline, not get yanked into a chip.
+            if (BARE_URL_RE.test(trimmed) && input.trim().length === 0) {
+              e.preventDefault()
+              setUrlCards(prev => [...prev, trimmed])
+              captureClient('url_card_created')
+              return
+            }
+            if (text.length >= PASTE_CARD_MIN_CHARS) {
+              e.preventDefault()
+              setContentCards(prev => [...prev, text])
+              captureClient('content_card_created', {
+                chars: text.length,
+                lines: text.split('\n').length
+              })
+            }
+          }}
+          onKeyDown={e => {
+            // e.nativeEvent.isComposing stays true on the keydown that
+            // confirms an IME candidate, even after React-level
+            // isComposing has flipped.
+            if (
+              e.key !== 'Enter' ||
+              isComposing ||
+              (e.nativeEvent as KeyboardEvent).isComposing ||
+              enterDisabled
+            ) {
+              return
+            }
+
+            // Plain Enter (no modifiers) → submit
+            if (!e.shiftKey && !e.altKey && !e.metaKey && !e.ctrlKey) {
+              if (!hasPendingInput) {
+                e.preventDefault()
+                return
+              }
+              e.preventDefault()
+              const textarea = e.target as HTMLTextAreaElement
+              textarea.form?.requestSubmit()
+              setIsInputFocused(false)
+              textarea.blur()
+              return
+            }
+
+            // Shift+Enter falls through to textarea default (inserts \n).
+            // Alt/Option+Enter on macOS does NOT insert \n by default,
+            // so insert it manually to match user expectation.
+            if (e.altKey && !e.shiftKey && !e.metaKey && !e.ctrlKey) {
+              e.preventDefault()
+              const textarea = e.target as HTMLTextAreaElement
+              const start = textarea.selectionStart ?? input.length
+              const end = textarea.selectionEnd ?? input.length
+              const next = input.slice(0, start) + '\n' + input.slice(end)
+              handleInputChange({
+                target: { value: next }
+              } as React.ChangeEvent<HTMLTextAreaElement>)
+              requestAnimationFrame(() => {
+                textarea.selectionStart = textarea.selectionEnd = start + 1
+              })
+            }
+          }}
+        />
+
+        {/* Bottom menu area */}
+        <div className="flex items-center justify-between p-2 md:p-3">
+          <div className="flex items-center gap-2">
+            {!isGuest && <FileUploadButton onFileSelect={handleFiles} />}
+            <SearchModeSelector
+              isAdaptiveAuthRequired={isAdaptiveAuthRequired}
+              onAdaptiveAuthRequired={onAdaptiveModeAuthRequired}
+            />
+            <SourceSelector />
+            {voiceEnabled && (
+              <TooltipProvider delayDuration={200}>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="icon"
+                      aria-label="Read answers aloud"
+                      aria-pressed={voiceMode}
+                      onClick={() => onVoiceModeChange?.(!voiceMode)}
+                      className={cn(
+                        'size-8 shrink-0 rounded-full',
+                        voiceMode ? 'text-foreground' : 'text-muted-foreground'
+                      )}
+                    >
+                      {voiceMode ? (
+                        <Volume className="size-4" />
+                      ) : (
+                        <VolumeOff className="size-4" />
+                      )}
+                    </Button>
+                  </TooltipTrigger>
+                  <TooltipContent className="text-xs">
+                    {voiceMode
+                      ? 'Voice mode on — answers read aloud'
+                      : 'Read answers aloud'}
+                  </TooltipContent>
+                </Tooltip>
+              </TooltipProvider>
+            )}
+            {voiceEnabled && (
+              <MicButton onTranscript={handleTranscript} disabled={isLoading} />
+            )}
+          </div>
+          <div className="flex items-center gap-2">
+            {!isCloudDeployment && modelSelectorData && (
+              <ModelSelectorClient data={modelSelectorData} />
+            )}
+            {messages.length > 0 && (
+              <Button
+                variant="outline"
+                size="icon"
+                onClick={handleNewChat}
+                className="shrink-0 size-8 md:size-10 rounded-full group"
+                type="button"
+                disabled={isLoading}
+              >
+                <MessageCirclePlus className="size-4 transition-transform duration-[140ms] ease-[var(--motion-ease-out)] group-hover:rotate-12" />
+              </Button>
+            )}
+            <Button
+              type={isLoading ? 'button' : 'submit'}
+              size={'icon'}
+              className={cn(
+                isLoading && 'animate-pulse',
+                'size-8 md:size-10 rounded-full'
+              )}
+              disabled={(!hasPendingInput && !isLoading) || !hasAvailableModels}
+              onClick={isLoading ? stop : undefined}
+              title={
+                hasAvailableModels ? undefined : 'No enabled model is available'
+              }
+            >
+              {isLoading ? (
+                <Square className="size-4 md:size-5" />
+              ) : (
+                <ArrowUp className="size-4 md:size-5" />
+              )}
+            </Button>
+          </div>
+        </div>
+      </div>
+
+      {/* Action buttons for prompt suggestions */}
+      {messages.length === 0 && (
+        <ActionButtons
+          onSelectPrompt={message => {
+            // Set the input value and submit
+            handleInputChange({
+              target: { value: message }
+            } as React.ChangeEvent<HTMLTextAreaElement>)
+            // Submit the form after a small delay to ensure the input is updated
+            setTimeout(() => {
+              inputRef.current?.form?.requestSubmit()
+              // Reset focus state after action button submission
+              setIsInputFocused(false)
+              inputRef.current?.blur()
+            }, INPUT_UPDATE_DELAY_MS)
+          }}
+          onCategoryClick={category => {
+            // Set the category in the input
+            handleInputChange({
+              target: { value: category }
+            } as React.ChangeEvent<HTMLTextAreaElement>)
+            // Focus the input
+            inputRef.current?.focus()
+          }}
+          inputRef={inputRef}
+          className="mt-4 hidden md:block"
+        />
+      )}
+    </form>
+  )
+
   return (
     <div
       className={cn(
@@ -452,518 +943,61 @@ export function ChatPanel({
           : 'px-4 md:px-6'
       )}
     >
-      {messages.length === 0 && (
-        <div className="mb-6 md:mb-10 flex flex-col items-center gap-2 md:gap-4">
-          <WildBreathLogo className="size-16 md:size-20" />
-          <h1 className="text-xl md:text-2xl font-medium text-foreground">
-            What would you like to know?
-          </h1>
-        </div>
-      )}
-
-      {messages.length === 0 && (showWeatherWidget || showNewsWidget) && (
-        <div className="max-w-full md:max-w-3xl w-full mx-auto mb-3 flex flex-col sm:flex-row gap-3">
-          {showWeatherWidget && (
-            <div className="flex-1 min-w-0">
-              <WeatherWidget />
-            </div>
-          )}
-          {showNewsWidget && (
-            <div className="flex-1 min-w-0">
-              <NewsArticleWidget />
-            </div>
-          )}
-        </div>
-      )}
-      {uploadedFiles.length > 0 && (
-        <UploadedFileList files={uploadedFiles} onRemove={handleFileRemove} />
-      )}
-      <form
-        onSubmit={e => {
-          // Pasted attachments (content cards / URL chips) are sent as
-          // structured data parts alongside the instruction text part — no
-          // in-band markers. The server maps them to the model prompt.
-          if (
-            contentCards.length > 0 ||
-            quotedContexts.length > 0 ||
-            urlCards.length > 0
-          ) {
-            e.preventDefault()
-            if (adaptiveModeSubmitBlocked) {
-              onAdaptiveModeAuthRequired?.()
-              return
-            }
-            if (!hasAvailableModels) {
-              toast.error('No enabled model is available')
-              return
-            }
-            const uploaded = uploadedFiles.filter(f => f.status === 'uploaded')
-            const parts = [
-              ...contentCards.map(text => ({
-                type: 'data-pastedContent',
-                data: { text }
-              })),
-              ...quotedContexts.map(text => ({
-                type: 'data-quotedContext',
-                data: { text }
-              })),
-              ...urlCards.map(url => ({
-                type: 'data-sourceUrl',
-                data: { url }
-              })),
-              ...uploaded.map(f => ({
-                type: 'file',
-                url: f.url!,
-                filename: f.name!,
-                mediaType:
-                  f.mediaType ?? f.file?.type ?? 'application/octet-stream',
-                key: f.key
-              })),
-              ...(input.trim() ? [{ type: 'text', text: input }] : [])
-            ]
-            if (contentCards.length > 0) {
-              captureClient('content_card_submitted', {
-                cardCount: contentCards.length,
-                chars: contentCards.reduce((sum, c) => sum + c.length, 0)
-              })
-            }
-            if (urlCards.length > 0) {
-              captureClient('url_card_submitted', {
-                cardCount: urlCards.length
-              })
-            }
-            setContentCards([])
-            setQuotedContexts([])
-            setUrlCards([])
-            setUploadedFiles([])
-            handleInputChange({
-              target: { value: '' }
-            } as React.ChangeEvent<HTMLTextAreaElement>)
-            append({ role: 'user', parts })
-            setIsInputFocused(false)
-            inputRef.current?.blur()
-            return
-          }
-          if (adaptiveModeSubmitBlocked) {
-            e.preventDefault()
-            onAdaptiveModeAuthRequired?.()
-            return
-          }
-
-          if (!hasAvailableModels) {
-            e.preventDefault()
-            toast.error('No enabled model is available')
-            return
-          }
-          handleSubmit(e)
-          // Reset focus state after submission
-          setIsInputFocused(false)
-          inputRef.current?.blur()
-        }}
-        className={cn('max-w-full md:max-w-3xl w-full mx-auto relative')}
-      >
-        {/* Scroll to bottom button */}
-        {messages.length > 0 && (
-          <div
-            className={cn(
-              'transition-opacity duration-[120ms] ease-[var(--motion-ease-out)]',
-              showScrollToBottomButton
-                ? 'opacity-100'
-                : 'pointer-events-none opacity-0'
-            )}
-          >
-            <Button
-              type="button"
-              variant="outline"
-              size="icon"
-              className="absolute -top-10 right-0 z-20 size-8 rounded-full shadow-md"
-              onClick={handleScrollToBottom}
-              title="Scroll to bottom"
-            >
-              <ChevronDown size={16} />
-            </Button>
-          </div>
-        )}
-        {/* Message navigation dots */}
-        {sections.length > 0 && (
-          <div
-            className={cn(
-              'transition-opacity duration-[120ms] ease-[var(--motion-ease-out)]',
-              !showScrollToBottomButton && status === 'ready'
-                ? 'opacity-100'
-                : 'pointer-events-none opacity-0'
-            )}
-          >
-            <MessageNavigationDots sections={sections} />
-          </div>
-        )}
-
-        <div
-          className={cn(
-            'relative flex w-full flex-col gap-2 rounded-3xl border border-input bg-muted transition-[box-shadow] duration-[140ms] ease-[var(--motion-ease-out)]',
-            isInputFocused &&
-              'ring-1 ring-ring/20 ring-offset-1 ring-offset-background/50'
-          )}
-        >
-          {contentCards.length > 0 && (
-            <div className="flex flex-col gap-1.5 px-3 pt-3">
-              {contentCards.map((card, i) => (
-                <div
-                  key={i}
-                  className="relative rounded-xl border border-input bg-background px-3 py-2"
-                >
-                  <div className="mb-1 flex items-center justify-between gap-2">
-                    <span className="flex items-center gap-1.5 text-xs font-medium text-muted-foreground">
-                      <FileText className="size-3.5 shrink-0" />
-                      Pasted content · {card.length.toLocaleString()} chars
-                    </span>
-                    <TooltipProvider delayDuration={200}>
-                      <Tooltip>
-                        <TooltipTrigger asChild>
-                          <button
-                            type="button"
-                            aria-label="Expand to text"
-                            className="shrink-0 rounded p-1 text-muted-foreground hover:bg-muted hover:text-foreground"
-                            onClick={() => {
-                              captureClient('content_card_expanded', {
-                                chars: card.length
-                              })
-                              setContentCards(prev =>
-                                prev.filter((_, j) => j !== i)
-                              )
-                              handleInputChange({
-                                target: {
-                                  value: input ? `${input}\n\n${card}` : card
-                                }
-                              } as React.ChangeEvent<HTMLTextAreaElement>)
-                              inputRef.current?.focus()
-                            }}
-                          >
-                            <ArrowsDiagonal className="size-3.5" />
-                          </button>
-                        </TooltipTrigger>
-                        <TooltipContent className="text-xs">
-                          Expand to text
-                        </TooltipContent>
-                      </Tooltip>
-                    </TooltipProvider>
-                  </div>
-                  <p className="line-clamp-2 whitespace-pre-wrap break-words text-xs text-muted-foreground/80">
-                    {card}
-                  </p>
-                </div>
-              ))}
-            </div>
-          )}
-          {quotedContexts.length > 0 && (
-            <div className="flex flex-col gap-1.5 px-3 pt-3">
-              {quotedContexts.map((card, i) => (
-                <div
-                  key={i}
-                  className="relative rounded-xl border border-input bg-background px-3 py-2"
-                >
-                  <div className="mb-1 flex items-center justify-between gap-2">
-                    <span className="flex items-center gap-1.5 text-xs font-medium text-muted-foreground">
-                      <FileText className="size-3.5 shrink-0" />
-                      Quoted context · {card.length.toLocaleString()} chars
-                    </span>
-                    <button
-                      type="button"
-                      aria-label="Remove quoted context"
-                      className="shrink-0 rounded p-1 text-muted-foreground hover:bg-muted hover:text-foreground"
-                      onClick={() => {
-                        setQuotedContexts(prev =>
-                          prev.filter((_, j) => j !== i)
-                        )
-                      }}
-                    >
-                      <X className="size-3.5" />
-                    </button>
-                  </div>
-                  <p className="line-clamp-2 whitespace-pre-wrap break-words text-xs text-muted-foreground/80">
-                    {card}
-                  </p>
-                </div>
-              ))}
-            </div>
-          )}
-          {urlCards.length > 0 && (
-            <div className="flex flex-wrap gap-1.5 px-3 pt-3">
-              {urlCards.map((url, i) => {
-                let host = url
-                try {
-                  host = new URL(url).host.replace(/^www\./, '')
-                } catch {}
-                return (
-                  <span
-                    key={i}
-                    className="inline-flex items-center gap-1.5 rounded-full border border-input bg-background py-1 pl-2 pr-1 text-xs text-muted-foreground"
-                  >
-                    {/* eslint-disable-next-line @next/next/no-img-element */}
-                    <img
-                      src={`https://www.google.com/s2/favicons?domain=${host}&sz=32`}
-                      alt=""
-                      width={14}
-                      height={14}
-                      className="size-3.5 shrink-0 rounded-sm"
-                    />
-                    <span className="max-w-[180px] truncate">{host}</span>
-                    <button
-                      type="button"
-                      aria-label="Remove URL"
-                      className="shrink-0 rounded p-0.5 hover:bg-muted hover:text-foreground"
-                      onClick={() => {
-                        captureClient('url_card_removed')
-                        setUrlCards(prev => prev.filter((_, j) => j !== i))
-                      }}
-                    >
-                      <X className="size-3" />
-                    </button>
-                  </span>
-                )
-              })}
-            </div>
-          )}
-          <Textarea
-            ref={inputRef}
-            name="input"
-            rows={2}
-            maxRows={5}
-            tabIndex={0}
-            onCompositionStart={handleCompositionStart}
-            onCompositionEnd={handleCompositionEnd}
-            onFocus={() => {
-              setIsInputFocused(true)
-              warmOnIntent()
-            }}
-            onBlur={() => setIsInputFocused(false)}
-            placeholder={messages.length > 0 ? 'Reply...' : 'Ask anything...'}
-            spellCheck={false}
-            value={input}
-            disabled={isLoading || isToolInvocationInProgress()}
-            className="resize-none w-full min-h-12 bg-transparent border-0 p-3 md:p-4 text-sm placeholder:text-muted-foreground focus-visible:outline-hidden disabled:cursor-not-allowed disabled:opacity-50"
-            onChange={e => {
-              // Typing is the signal that survives a long compose: focus alone
-              // decays (~45s) before a slow typist hits send. Throttled to one
-              // ping per window, so this is not a request per keystroke.
-              warmOnIntent()
-              handleInputChange(e)
-            }}
-            onPaste={e => {
-              // Image paste (e.g. screenshot → ⌘V). Must run before text
-              // branches — getData('text') on an image paste is usually empty.
-              if (e.clipboardData?.items) {
-                const imageItem = Array.from(e.clipboardData.items).find(
-                  item =>
-                    item.kind === 'file' &&
-                    (item.type === 'image/png' || item.type === 'image/jpeg')
-                )
-                if (imageItem) {
-                  e.preventDefault()
-                  const blob = imageItem.getAsFile()
-                  if (blob) {
-                    const ext = blob.type === 'image/png' ? 'png' : 'jpg'
-                    const stamp = new Date()
-                      .toISOString()
-                      .replace(/[-:]/g, '')
-                      .replace(/\..+/, '')
-                      .replace('T', '-')
-                    void handleFiles([
-                      new File([blob], `pasted-image-${stamp}.${ext}`, {
-                        type: blob.type
-                      })
-                    ])
-                  }
-                  return
-                }
-              }
-
-              const text = e.clipboardData.getData('text')
-              const trimmed = text.trim()
-              // Only when the textarea is empty — a URL pasted mid-sentence
-              // should stay inline, not get yanked into a chip.
-              if (BARE_URL_RE.test(trimmed) && input.trim().length === 0) {
-                e.preventDefault()
-                setUrlCards(prev => [...prev, trimmed])
-                captureClient('url_card_created')
-                return
-              }
-              if (text.length >= PASTE_CARD_MIN_CHARS) {
-                e.preventDefault()
-                setContentCards(prev => [...prev, text])
-                captureClient('content_card_created', {
-                  chars: text.length,
-                  lines: text.split('\n').length
-                })
-              }
-            }}
-            onKeyDown={e => {
-              // e.nativeEvent.isComposing stays true on the keydown that
-              // confirms an IME candidate, even after React-level
-              // isComposing has flipped.
-              if (
-                e.key !== 'Enter' ||
-                isComposing ||
-                (e.nativeEvent as KeyboardEvent).isComposing ||
-                enterDisabled
-              ) {
-                return
-              }
-
-              // Plain Enter (no modifiers) → submit
-              if (!e.shiftKey && !e.altKey && !e.metaKey && !e.ctrlKey) {
-                if (!hasPendingInput) {
-                  e.preventDefault()
-                  return
-                }
-                e.preventDefault()
-                const textarea = e.target as HTMLTextAreaElement
-                textarea.form?.requestSubmit()
-                setIsInputFocused(false)
-                textarea.blur()
-                return
-              }
-
-              // Shift+Enter falls through to textarea default (inserts \n).
-              // Alt/Option+Enter on macOS does NOT insert \n by default,
-              // so insert it manually to match user expectation.
-              if (e.altKey && !e.shiftKey && !e.metaKey && !e.ctrlKey) {
-                e.preventDefault()
-                const textarea = e.target as HTMLTextAreaElement
-                const start = textarea.selectionStart ?? input.length
-                const end = textarea.selectionEnd ?? input.length
-                const next = input.slice(0, start) + '\n' + input.slice(end)
-                handleInputChange({
-                  target: { value: next }
-                } as React.ChangeEvent<HTMLTextAreaElement>)
-                requestAnimationFrame(() => {
-                  textarea.selectionStart = textarea.selectionEnd = start + 1
-                })
-              }
-            }}
-          />
-
-          {/* Bottom menu area */}
-          <div className="flex items-center justify-between p-2 md:p-3">
-            <div className="flex items-center gap-2">
-              {!isGuest && <FileUploadButton onFileSelect={handleFiles} />}
-              <SearchModeSelector
-                isAdaptiveAuthRequired={isAdaptiveAuthRequired}
-                onAdaptiveAuthRequired={onAdaptiveModeAuthRequired}
-              />
-              <SourceSelector />
-              {voiceEnabled && (
-                <TooltipProvider delayDuration={200}>
-                  <Tooltip>
-                    <TooltipTrigger asChild>
-                      <Button
-                        type="button"
-                        variant="ghost"
-                        size="icon"
-                        aria-label="Read answers aloud"
-                        aria-pressed={voiceMode}
-                        onClick={() => onVoiceModeChange?.(!voiceMode)}
-                        className={cn(
-                          'size-8 shrink-0 rounded-full',
-                          voiceMode
-                            ? 'text-foreground'
-                            : 'text-muted-foreground'
-                        )}
-                      >
-                        {voiceMode ? (
-                          <Volume className="size-4" />
-                        ) : (
-                          <VolumeOff className="size-4" />
-                        )}
-                      </Button>
-                    </TooltipTrigger>
-                    <TooltipContent className="text-xs">
-                      {voiceMode
-                        ? 'Voice mode on — answers read aloud'
-                        : 'Read answers aloud'}
-                    </TooltipContent>
-                  </Tooltip>
-                </TooltipProvider>
-              )}
-              {voiceEnabled && (
-                <MicButton
-                  onTranscript={handleTranscript}
-                  disabled={isLoading}
+      {messages.length === 0 ? (
+        <>
+          {/* Full-bleed three-body field behind the hero; the field lifts the
+              dance to ~32% height so the suns sit above the heading. */}
+          <section className="relative flex min-h-[68vh] w-full flex-col items-center justify-center">
+            <WildBreathField className="pointer-events-none absolute inset-0 z-0" />
+            {/* Radial scrim for text legibility over the field. Dark mode
+                darkens the centre; light mode lifts it with a soft white wash.
+                Two stacked divs so the gradient follows the theme class. */}
+            <div
+              aria-hidden="true"
+              className="pointer-events-none absolute inset-0 z-[1] dark:hidden"
+              style={{
+                background:
+                  'radial-gradient(58% 52% at 50% 42%, rgba(255,255,255,0.55) 0%, rgba(255,255,255,0.22) 46%, transparent 74%)'
+              }}
+            />
+            <div
+              aria-hidden="true"
+              className="pointer-events-none absolute inset-0 z-[1] hidden dark:block"
+              style={{
+                background:
+                  'radial-gradient(58% 52% at 50% 42%, rgba(6,5,12,0.6) 0%, rgba(6,5,12,0.22) 46%, transparent 74%)'
+              }}
+            />
+            <div className="relative z-10 flex w-full flex-col items-center">
+              <div className="mb-6 flex flex-col items-center gap-2 md:mb-10 md:gap-4">
+                <AskHeadline />
+              </div>
+              {uploadedFiles.length > 0 && (
+                <UploadedFileList
+                  files={uploadedFiles}
+                  onRemove={handleFileRemove}
                 />
               )}
+              {composer}
             </div>
-            <div className="flex items-center gap-2">
-              {!isCloudDeployment && modelSelectorData && (
-                <ModelSelectorClient data={modelSelectorData} />
-              )}
-              {messages.length > 0 && (
-                <Button
-                  variant="outline"
-                  size="icon"
-                  onClick={handleNewChat}
-                  className="shrink-0 size-8 md:size-10 rounded-full group"
-                  type="button"
-                  disabled={isLoading}
-                >
-                  <MessageCirclePlus className="size-4 transition-transform duration-[140ms] ease-[var(--motion-ease-out)] group-hover:rotate-12" />
-                </Button>
-              )}
-              <Button
-                type={isLoading ? 'button' : 'submit'}
-                size={'icon'}
-                className={cn(
-                  isLoading && 'animate-pulse',
-                  'size-8 md:size-10 rounded-full'
-                )}
-                disabled={
-                  (!hasPendingInput && !isLoading) || !hasAvailableModels
-                }
-                onClick={isLoading ? stop : undefined}
-                title={
-                  hasAvailableModels
-                    ? undefined
-                    : 'No enabled model is available'
-                }
-              >
-                {isLoading ? (
-                  <Square className="size-4 md:size-5" />
-                ) : (
-                  <ArrowUp className="size-4 md:size-5" />
-                )}
-              </Button>
-            </div>
-          </div>
-        </div>
+          </section>
 
-        {/* Action buttons for prompt suggestions */}
-        {messages.length === 0 && (
-          <ActionButtons
-            onSelectPrompt={message => {
-              // Set the input value and submit
-              handleInputChange({
-                target: { value: message }
-              } as React.ChangeEvent<HTMLTextAreaElement>)
-              // Submit the form after a small delay to ensure the input is updated
-              setTimeout(() => {
-                inputRef.current?.form?.requestSubmit()
-                // Reset focus state after action button submission
-                setIsInputFocused(false)
-                inputRef.current?.blur()
-              }, INPUT_UPDATE_DELAY_MS)
-            }}
-            onCategoryClick={category => {
-              // Set the category in the input
-              handleInputChange({
-                target: { value: category }
-              } as React.ChangeEvent<HTMLTextAreaElement>)
-              // Focus the input
-              inputRef.current?.focus()
-            }}
-            inputRef={inputRef}
-            className="mt-2 hidden md:block"
-          />
-        )}
-      </form>
+          {/* Discover briefing below the hero. */}
+          <div className="mx-auto w-full max-w-6xl px-4 pb-16 md:px-6">
+            {showNewsWidget && <DiscoverBriefing />}
+          </div>
+        </>
+      ) : (
+        <>
+          {uploadedFiles.length > 0 && (
+            <UploadedFileList
+              files={uploadedFiles}
+              onRemove={handleFileRemove}
+            />
+          )}
+          {composer}
+        </>
+      )}
     </div>
   )
 }
