@@ -1,4 +1,5 @@
 import type { Metadata, Viewport } from 'next'
+import { Hanken_Grotesk, Instrument_Serif } from 'next/font/google'
 
 import { countChats, getRecentChats } from '@/lib/actions/chat'
 import { getCurrentUserId } from '@/lib/auth/get-current-user'
@@ -19,6 +20,30 @@ import { PostHogProvider } from '@/components/posthog-provider'
 import { ThemeProvider } from '@/components/theme-provider'
 
 import './globals.css'
+
+// Instrument Serif powers the homepage "Ask anything." hero headline. Loaded
+// via next/font/google so it self-hosts at build time (no runtime request to
+// Google — CSP-safe). Exposed as the --font-instrument-serif CSS variable on
+// <body>; consumed through the `font-instrument-serif` Tailwind utility.
+const instrumentSerif = Instrument_Serif({
+  weight: '400',
+  style: ['normal', 'italic'],
+  subsets: ['latin'],
+  display: 'swap',
+  fallback: ['Georgia', 'serif'],
+  variable: '--font-instrument-serif'
+})
+
+// Hanken Grotesk is the mockup's body sans. Loaded via next/font/google so it
+// self-hosts at build time (no runtime request to Google — CSP-safe). Exposed
+// as the --font-hanken CSS variable on <body>; wired into --font-sans in
+// app/globals.css so all body text uses it app-wide.
+const hankenGrotesk = Hanken_Grotesk({
+  weight: ['400', '500', '600', '700'],
+  subsets: ['latin'],
+  display: 'swap',
+  variable: '--font-hanken'
+})
 
 const title = 'Ask'
 const description =
@@ -85,7 +110,9 @@ export default async function RootLayout({
 
   return (
     <html lang="en" suppressHydrationWarning>
-      <body className="fixed inset-0 flex flex-col font-sans antialiased overflow-hidden">
+      <body
+        className={`${hankenGrotesk.variable} ${instrumentSerif.variable} fixed inset-0 flex flex-col font-sans antialiased overflow-hidden`}
+      >
         <ThemeProvider
           attribute="class"
           defaultTheme="system"

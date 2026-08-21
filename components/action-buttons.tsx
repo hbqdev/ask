@@ -2,53 +2,44 @@
 
 import { useEffect, useRef, useState } from 'react'
 
-import {
-  IconBulb as Bulb,
-  IconPencil as Pencil,
-  IconScale as Scale,
-  IconSearch as Search,
-  IconSettings as Settings,
-  IconTool as Tool,
-  type TablerIcon
-} from '@tabler/icons-react'
+import { IconSearch as Search } from '@tabler/icons-react'
 
 import { captureClient } from '@/lib/analytics/posthog-client'
 import { cn } from '@/lib/utils'
-
-import { Button } from './ui/button'
 
 // Constants for timing delays
 const FOCUS_OUT_DELAY_MS = 100 // Delay to ensure focus has actually moved
 
 interface ActionCategory {
-  icon: TablerIcon
+  // Cosmic-mockup accent dot shown before the label (parity with .starter .dot).
+  dot: string
   label: string
   key: string
 }
 
 const actionCategories: ActionCategory[] = [
   {
-    icon: Scale,
+    dot: '#ff85ac',
     label: 'Decide',
     key: 'decide'
   },
   {
-    icon: Tool,
+    dot: '#ffca8a',
     label: 'Troubleshoot',
     key: 'troubleshoot'
   },
   {
-    icon: Settings,
+    dot: '#8ecdf5',
     label: 'How-to',
     key: 'howto'
   },
   {
-    icon: Bulb,
+    dot: '#a596f5',
     label: 'Understand',
     key: 'understand'
   },
   {
-    icon: Pencil,
+    dot: '#7ee0b6',
     label: 'Create',
     key: 'create'
   }
@@ -188,26 +179,27 @@ export function ActionButtons({
           activeCategory ? 'opacity-0 pointer-events-none' : 'opacity-100'
         )}
       >
-        <div className="flex flex-wrap justify-center gap-2 px-2">
-          {actionCategories.map(category => {
-            const Icon = category.icon
-            return (
-              <Button
-                key={category.key}
-                type="button"
-                variant="outline"
-                size="sm"
-                className={cn(
-                  'flex items-center gap-2 whitespace-nowrap rounded-full',
-                  'text-xs sm:text-sm px-3 sm:px-4'
-                )}
-                onClick={() => handleCategoryClick(category)}
-              >
-                <Icon className="h-3 w-3 sm:h-4 sm:w-4" />
-                <span>{category.label}</span>
-              </Button>
-            )
-          })}
+        <div className="flex flex-wrap justify-center gap-2.5 px-2">
+          {actionCategories.map(category => (
+            <button
+              key={category.key}
+              type="button"
+              className={cn(
+                // Cosmic-mockup .starter — theme-aware token border/fill so it
+                // stays legible in light mode; the accent dot carries the colour.
+                'inline-flex items-center gap-2 whitespace-nowrap rounded-xl border border-border bg-foreground/[0.02] px-3.5 py-2 text-[13.5px] font-medium text-muted-foreground transition-colors',
+                'hover:border-foreground/20 hover:text-foreground'
+              )}
+              onClick={() => handleCategoryClick(category)}
+            >
+              <span
+                aria-hidden="true"
+                className="size-1.5 shrink-0 rounded-full"
+                style={{ backgroundColor: category.dot }}
+              />
+              <span>{category.label}</span>
+            </button>
+          ))}
         </div>
       </div>
 
