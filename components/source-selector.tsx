@@ -77,8 +77,10 @@ export function SourceSelector() {
           type="button"
           aria-label="Select sources"
           className={cn(
-            'flex items-center gap-1.5 rounded-full border bg-background px-2 py-1.5 text-xs font-medium sm:px-3',
-            'text-muted-foreground hover:text-foreground transition-colors',
+            // Cosmic-mockup .pill — theme-aware foreground/[alpha] fill (see
+            // SearchModeSelector).
+            'flex items-center gap-1.5 rounded-full border border-border bg-foreground/[0.03] px-2.5 py-1.5 text-[12.5px] font-medium',
+            'text-muted-foreground transition-colors hover:bg-foreground/[0.06] hover:text-foreground',
             open && 'text-foreground'
           )}
         >

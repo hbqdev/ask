@@ -15,6 +15,8 @@ import {
 import { SHORTCUT_EVENTS } from '@/lib/keyboard-shortcuts'
 import { cn } from '@/lib/utils'
 
+import { useClientSettingEnabled } from '@/hooks/use-client-setting'
+
 import {
   Sidebar,
   SidebarContent,
@@ -28,8 +30,9 @@ import {
   type RecentChat,
   RecentChatsSection
 } from './sidebar/recent-chats-section'
-import { WildBreathGlyph } from './ui/wild-breath-logo'
+import { WildBreathLogo } from './ui/wild-breath-logo'
 import SidebarAccountMenu from './sidebar-account-menu'
+import { SidebarWeather } from './sidebar-weather'
 
 const NAV_ITEMS = [
   { href: '/', icon: IconHome, label: 'Home', exact: true },
@@ -61,6 +64,10 @@ export default function AppSidebar({
   const pathname = usePathname()
   const router = useRouter()
   const { isMobile, setOpenMobile } = useSidebar()
+
+  // Same setting the chat panel reads, so the Settings toggle keeps the sidebar
+  // weather card in sync with the (now removed) home-screen widget.
+  const showWeatherWidget = useClientSettingEnabled('showWeatherWidget')
 
   // Live-refresh the server-rendered Recent list + count. The sidebar itself is
   // a client island, but its data comes from the server layout, so a
@@ -110,8 +117,14 @@ export default function AppSidebar({
           onClick={closeDrawerOnMobile}
           className="flex size-9 items-center justify-center self-center rounded-lg transition-colors duration-150 hover:bg-muted/50"
         >
-          <WildBreathGlyph className="size-6" />
+          <WildBreathLogo className="size-6" />
         </Link>
+
+        {/* Weather card — directly under the brand, expanded only. Gated by the
+            Settings toggle; hidden on the icon rail. */}
+        {showWeatherWidget && (
+          <SidebarWeather className="group-data-[collapsible=icon]:hidden" />
+        )}
 
         {/* Expanded: full-width labelled New-chat button. */}
         <Link

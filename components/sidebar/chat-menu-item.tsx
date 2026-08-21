@@ -155,7 +155,10 @@ export function ChatMenuItem({
           <div className="text-xs font-medium truncate select-none w-full">
             {chat.title}
           </div>
-          <div className="text-xs text-muted-foreground w-full">
+          <div
+            className="text-xs text-muted-foreground w-full"
+            suppressHydrationWarning
+          >
             {formatDateWithTime(displayDate ?? chat.createdAt)}
           </div>
         </Link>
