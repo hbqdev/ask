@@ -4,11 +4,11 @@ FROM node:22-slim AS builder
 WORKDIR /app
 
 # Install bun for dependency management
-RUN npm install -g bun
+RUN npm install -g bun@1.3.14
 
 # Install dependencies (separated for better cache utilization)
 COPY package.json bun.lock ./
-RUN bun install
+RUN bun install || (rm -rf node_modules && bun install) || (rm -rf node_modules && bun install)
 
 # Copy source code and build
 COPY . .
@@ -25,7 +25,7 @@ WORKDIR /app
 RUN apt-get update && apt-get install -y --no-install-recommends poppler-utils && rm -rf /var/lib/apt/lists/*
 
 # Install bun for dependency management (used for migrations)
-RUN npm install -g bun
+RUN npm install -g bun@1.3.14
 
 # Copy only necessary files from builder
 COPY --from=builder /app/.next ./.next
