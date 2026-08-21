@@ -132,12 +132,12 @@ export function NewsArticleWidget({ className }: { className?: string }) {
               />
             </div>
             <div className="flex-1 min-w-0 pr-7">
-              <p className="text-sm font-semibold leading-snug line-clamp-2 group-hover:text-cyan-600 dark:group-hover:text-cyan-400 transition-colors duration-200">
+              <p className="text-sm font-semibold leading-snug line-clamp-2 group-hover:text-violet-600 dark:group-hover:text-violet-400 transition-colors duration-200">
                 {article.title}
               </p>
               <div className="mt-0.5 flex items-center gap-1.5 min-w-0">
                 {article.category && (
-                  <span className="shrink-0 rounded bg-cyan-500/10 px-1 py-px text-[9px] font-semibold uppercase tracking-wide text-cyan-700 dark:text-cyan-300">
+                  <span className="shrink-0 rounded bg-violet-500/10 px-1 py-px text-[9px] font-semibold uppercase tracking-wide text-violet-700 dark:text-violet-300">
                     {article.category}
                   </span>
                 )}
@@ -151,7 +151,7 @@ export function NewsArticleWidget({ className }: { className?: string }) {
             href={summaryHref(article.url)}
             title={SUMMARIZE_LABEL}
             aria-label={SUMMARIZE_LABEL}
-            className="absolute right-3 top-1/2 -translate-y-1/2 flex size-6 shrink-0 items-center justify-center rounded-full bg-cyan-500/15 text-cyan-700 dark:text-cyan-300 hover:bg-cyan-500/25 border border-cyan-500/30"
+            className="absolute right-3 top-1/2 -translate-y-1/2 flex size-6 shrink-0 items-center justify-center rounded-full bg-violet-500/15 text-violet-700 dark:text-violet-300 hover:bg-violet-500/25 border border-violet-500/30"
           >
             <IconSparkles className="size-3.5" />
           </a>

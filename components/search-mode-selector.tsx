@@ -74,9 +74,11 @@ export function SearchModeSelector({
         <button
           type="button"
           className={cn(
-            'inline-flex items-center gap-1.5 rounded-full border bg-background px-2 py-1.5 text-xs font-medium shadow-none sm:px-3',
+            // Cosmic-mockup .pill — theme-aware: foreground/[alpha] fill reads as
+            // a subtle light tint in dark, a subtle dark tint in light.
+            'inline-flex items-center gap-1.5 rounded-full border border-border bg-foreground/[0.03] px-2.5 py-1.5 text-[12.5px] font-medium text-muted-foreground shadow-none',
             'transition-[background-color,color,box-shadow,transform]',
-            'hover:bg-muted focus:outline-none'
+            'hover:bg-foreground/[0.06] focus:outline-none'
           )}
           aria-label="Select search mode"
         >

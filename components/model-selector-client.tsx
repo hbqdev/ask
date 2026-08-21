@@ -103,13 +103,13 @@ export function ModelSelectorClient({ data }: ModelSelectorClientProps) {
           variant="outline"
           role="combobox"
           aria-expanded={open}
-          className="h-auto gap-1 rounded-full border-none bg-muted px-3 py-2 text-sm shadow-none transition-[background-color,color,box-shadow,transform]"
+          className="h-auto gap-1.5 rounded-full border border-border bg-foreground/[0.03] px-2.5 py-1.5 font-mono text-[11.5px] font-medium text-muted-foreground shadow-none hover:bg-foreground/[0.06]"
         >
           <Cpu className="size-3.5 text-sky-500 shrink-0" />
-          <span className="hidden truncate max-w-40 text-xs font-medium sm:inline">
+          <span className="hidden truncate max-w-40 text-[11.5px] font-medium sm:inline">
             {selectedModel.name}
           </span>
-          <span className="truncate max-w-24 text-xs font-medium sm:hidden">
+          <span className="truncate max-w-24 text-[11.5px] font-medium sm:hidden">
             {modelShortName(selectedModel.name)}
           </span>
           <ChevronDown
