@@ -29,7 +29,13 @@ const DIM = 0.62 // overall brightness ceiling (dark mode)
 const DIM_LIGHT = 0.7 // overall brightness ceiling (light mode)
 const TR = 22 // trail length
 
-export function WildBreathField({ className }: { className?: string }) {
+export function WildBreathField({
+  className,
+  intensity = 0
+}: {
+  className?: string
+  intensity?: number
+}) {
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const { resolvedTheme } = useTheme()
 
@@ -40,6 +46,15 @@ export function WildBreathField({ className }: { className?: string }) {
   useEffect(() => {
     modeRef.current = resolvedTheme === 'light' ? 'light' : 'dark'
   }, [resolvedTheme])
+
+  // Same ref-mirror trick for intensity: the engine effect runs once (empty
+  // deps), so a prop read inside would freeze at the mount value. Mirroring it
+  // into a ref lets the draw loop pick up new intensities each frame. Clamped
+  // to [0,1]; at the default 0 every derived boost is exactly 1 (no-op).
+  const intensityRef = useRef(0)
+  useEffect(() => {
+    intensityRef.current = Math.max(0, Math.min(1, intensity))
+  }, [intensity])
 
   useEffect(() => {
     const cv = canvasRef.current
@@ -82,9 +97,12 @@ export function WildBreathField({ className }: { className?: string }) {
       if (!running) return
       const DT = Math.min(0.045, (now - prev) / 1000)
       prev = now
-      T += DT * SPEED
+      // Intensity accelerates the whole simulation. At intensity 0, boost is
+      // exactly 1, so the clock and integration step are byte-for-byte today's.
+      const boost = 1 + intensityRef.current * 0.8 // up to +80% motion
+      T += DT * SPEED * boost
       breathe(b, T)
-      advance(b, DT * SPEED)
+      advance(b, DT * SPEED * boost)
       recenter(b)
       hue = (hue + DT * 16) % 360
 
@@ -119,8 +137,15 @@ export function WildBreathField({ className }: { className?: string }) {
 
       // fixed camera: barycentre pinned at origin, lifted above the heading
       const light = modeRef.current === 'light'
-      const scale = Math.min(W, H) * 0.22
-      const a = (light ? DIM_LIGHT : DIM) * fade
+      // Intensity enlarges the orbs (bigger scale) and brightens them (higher
+      // alpha ceiling, clamped to 1). At intensity 0 both multipliers are 1;
+      // the brightness clamp is a true no-op there since the base a never
+      // exceeds DIM_LIGHT (0.7) < 1.
+      const scale = Math.min(W, H) * 0.22 * (1 + intensityRef.current * 0.25)
+      const a = Math.min(
+        1,
+        (light ? DIM_LIGHT : DIM) * fade * (1 + intensityRef.current * 0.5)
+      )
       const vc = H * 0.32
       const X = (x: number) => W / 2 + x * scale
       const Y = (y: number) => vc + y * scale
