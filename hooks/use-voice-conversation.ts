@@ -190,6 +190,24 @@ export function useVoiceConversation(
     }
   }, [deps.answer, deps.chatStatus, listen, setPhase])
 
+  // Spec §8: a backgrounded tab must not keep a hot mic. While active, pause the
+  // detector and stop any playback when the tab is hidden, and re-arm on return
+  // only if we were listening and not muted. This gates the physical mic only —
+  // it never changes the state-machine phase.
+  useEffect(() => {
+    if (!active) return
+    const onVisibility = () => {
+      if (document.visibilityState === 'hidden') {
+        detectorRef.current?.pause()
+        d.current.stopSpeaking()
+      } else if (phaseRef.current === 'listening' && !mutedRef.current) {
+        detectorRef.current?.start()
+      }
+    }
+    document.addEventListener('visibilitychange', onVisibility)
+    return () => document.removeEventListener('visibilitychange', onVisibility)
+  }, [active])
+
   const setMuted = useCallback((m: boolean) => {
     mutedRef.current = m
     setMutedState(m)

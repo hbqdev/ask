@@ -89,10 +89,94 @@ describe('useVoiceConversation', () => {
     await waitFor(() => expect(result.current.phase).toBe('thinking'))
 
     // answer streams in
-    rerender({ d: { ...base.deps, chatStatus: 'ready', answer: { key: 'm1', text: 'The capital is Paris.' } } })
-    await waitFor(() => expect(base.deps.condense).toHaveBeenCalledWith('The capital is Paris.', expect.anything()))
+    rerender({
+      d: {
+        ...base.deps,
+        chatStatus: 'ready',
+        answer: { key: 'm1', text: 'The capital is Paris.' }
+      }
+    })
+    await waitFor(() =>
+      expect(base.deps.condense).toHaveBeenCalledWith(
+        'The capital is Paris.',
+        expect.anything()
+      )
+    )
     await waitFor(() => expect(base.deps.speak).toHaveBeenCalledWith('Paris.'))
     await waitFor(() => expect(result.current.phase).toBe('listening'))
+  })
+
+  it('does not re-arm the mic until speak() resolves (self-talk guard)', async () => {
+    // Inject a speak() that stays PENDING until the test resolves it, modelling
+    // TTS playback that is still audible. The mic must NOT re-arm meanwhile, or
+    // the VAD would transcribe the assistant's own voice (infinite self-talk).
+    let resolveSpeak!: () => void
+    const speak = vi.fn(
+      () =>
+        new Promise<void>(r => {
+          resolveSpeak = r
+        })
+    )
+    const base = makeDeps({ speak })
+    const { result, rerender } = renderHook(
+      ({ d }: { d: VoiceConversationDeps }) => useVoiceConversation(true, d),
+      { initialProps: { d: base.deps } }
+    )
+    await waitFor(() => expect(result.current.phase).toBe('listening'))
+    expect(base.detector.start).toHaveBeenCalledTimes(1) // armed once
+
+    await act(async () => base.fire(new Float32Array([0.2, 0.2])))
+    await waitFor(() => expect(result.current.phase).toBe('thinking'))
+
+    rerender({
+      d: {
+        ...base.deps,
+        chatStatus: 'ready',
+        answer: { key: 'm1', text: 'The capital is Paris.' }
+      }
+    })
+    await waitFor(() => expect(base.deps.speak).toHaveBeenCalledWith('Paris.'))
+
+    // speak() still pending → phase held at 'speaking', mic NOT re-armed.
+    expect(result.current.phase).toBe('speaking')
+    expect(base.detector.start).toHaveBeenCalledTimes(1)
+
+    // Playback completes → now safe to re-arm and return to listening.
+    await act(async () => {
+      resolveSpeak()
+    })
+    await waitFor(() => expect(result.current.phase).toBe('listening'))
+    expect(base.detector.start).toHaveBeenCalledTimes(2)
+  })
+
+  it('pauses the mic when hidden and re-arms when visible again (spec §8)', async () => {
+    const { deps, detector } = makeDeps()
+    const { result } = renderHook(() => useVoiceConversation(true, deps))
+    await waitFor(() => expect(result.current.phase).toBe('listening'))
+    detector.pause.mockClear()
+    detector.start.mockClear()
+
+    // Tab backgrounded → mic paused and any playback stopped.
+    Object.defineProperty(document, 'visibilityState', {
+      configurable: true,
+      get: () => 'hidden'
+    })
+    await act(async () => {
+      document.dispatchEvent(new Event('visibilitychange'))
+    })
+    expect(detector.pause).toHaveBeenCalled()
+    expect(deps.stopSpeaking).toHaveBeenCalled()
+    expect(detector.start).not.toHaveBeenCalled()
+
+    // Tab foregrounded while still listening → mic re-armed.
+    Object.defineProperty(document, 'visibilityState', {
+      configurable: true,
+      get: () => 'visible'
+    })
+    await act(async () => {
+      document.dispatchEvent(new Event('visibilitychange'))
+    })
+    expect(detector.start).toHaveBeenCalled()
   })
 
   it('shows an error then re-listens when the chat errors', async () => {
@@ -107,7 +191,9 @@ describe('useVoiceConversation', () => {
 
     rerender({ d: { ...base.deps, chatStatus: 'error', answer: null } })
     await waitFor(() => expect(result.current.phase).toBe('error'))
-    await act(async () => { await vi.advanceTimersByTimeAsync(1600) })
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(1600)
+    })
     expect(result.current.phase).toBe('listening')
   })
 
