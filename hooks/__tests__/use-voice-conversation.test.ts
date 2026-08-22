@@ -111,6 +111,36 @@ describe('useVoiceConversation', () => {
     expect(result.current.phase).toBe('listening')
   })
 
+  it('still re-listens when the effect re-runs during the error hold', async () => {
+    const base = makeDeps()
+    const { result, rerender } = renderHook(
+      ({ d }: { d: VoiceConversationDeps }) => useVoiceConversation(true, d),
+      { initialProps: { d: base.deps } }
+    )
+    await waitFor(() => expect(result.current.phase).toBe('listening'))
+    await act(async () => base.fire(new Float32Array([0.2])))
+    await waitFor(() => expect(result.current.phase).toBe('thinking'))
+
+    rerender({ d: { ...base.deps, chatStatus: 'error', answer: null } })
+    await waitFor(() => expect(result.current.phase).toBe('error'))
+
+    // A re-render lands mid-hold (Task 6 derives `answer` as a fresh object each
+    // render, so its identity changes). This forces the answer/error effect to
+    // re-run while phase is already 'error'. The pending re-listen timer must
+    // survive that re-run — not be cancelled by an effect cleanup.
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(500)
+    })
+    rerender({
+      d: { ...base.deps, chatStatus: 'error', answer: { key: 'm9', text: 'x' } }
+    })
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(1600)
+    })
+    expect(result.current.phase).toBe('listening')
+  })
+
   it('tears down on end()', async () => {
     const { deps, detector } = makeDeps()
     const { result } = renderHook(() => useVoiceConversation(true, deps))

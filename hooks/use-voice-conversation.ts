@@ -60,6 +60,7 @@ export function useVoiceConversation(
   const detectorRef = useRef<SpeechDetector | null>(null)
   const abortRef = useRef<AbortController | null>(null)
   const spokenKeyRef = useRef<string | null>(null)
+  const errorTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const mutedRef = useRef(false)
   const liveRef = useRef(false)
 
@@ -120,6 +121,10 @@ export function useVoiceConversation(
       cancelled = true
       liveRef.current = false
       abortRef.current?.abort()
+      if (errorTimerRef.current) {
+        clearTimeout(errorTimerRef.current)
+        errorTimerRef.current = null
+      }
       d.current.stopSpeaking()
       detectorRef.current?.destroy()
       detectorRef.current = null
@@ -133,11 +138,21 @@ export function useVoiceConversation(
     if (deps.chatStatus === 'error') {
       setErrorText('Something went wrong.')
       setPhase('error')
-      const t = setTimeout(() => {
-        setErrorText(null)
-        listen()
-      }, ERROR_HOLD_MS)
-      return () => clearTimeout(t)
+      // Schedule the re-listen on a ref, idempotently, and DO NOT clear it in an
+      // effect cleanup. This effect re-runs whenever deps.answer/chatStatus
+      // change identity (Task 6 derives `answer` fresh each render), and a
+      // cleanup-based timer would be cancelled by that re-run — then the re-run
+      // hits the `phase !== 'thinking'` guard above and returns without
+      // rescheduling, stranding us in 'error'. The timer is cleared only on
+      // teardown (end()/lifecycle cleanup) so it can't fire after unmount.
+      if (errorTimerRef.current == null) {
+        errorTimerRef.current = setTimeout(() => {
+          errorTimerRef.current = null
+          setErrorText(null)
+          listen()
+        }, ERROR_HOLD_MS)
+      }
+      return
     }
     const ans = deps.answer
     if (
@@ -177,6 +192,10 @@ export function useVoiceConversation(
   const end = useCallback(() => {
     liveRef.current = false
     abortRef.current?.abort()
+    if (errorTimerRef.current) {
+      clearTimeout(errorTimerRef.current)
+      errorTimerRef.current = null
+    }
     d.current.stopSpeaking()
     detectorRef.current?.destroy()
     detectorRef.current = null
