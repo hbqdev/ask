@@ -26,8 +26,13 @@ sources), not chit-chat. This is "Voice Slice 3".
   is a documented v2.
 - **Context/persistence:** each turn is a normal message on a **real `chatId`** — the
   conversation carries context across turns and is **saved to history** like any chat.
-- **Spoken reply:** the **existing Slice-1 gist** (granite-condensed 2–3 sentences), not
-  the full answer — concise for the ear.
+- **Spoken reply:** a **short condensed reply** (2–3 sentences), concise for the ear.
+  NOTE (verified 2026-08-22): the on-screen Listen button now reads the **full cleaned
+  answer** aloud — `emitSpokenGist` streams the whole answer as `data-spokenGist` (no model
+  call). A full-answer read every turn is far too long for a conversation loop, so the loop
+  must instead speak the **condensed** version via the existing `condenseForSpeech`
+  (granite4.1:8b → 2–3 sentences, `lib/voice/spoken-gist.ts`) — already built, just not
+  currently wired to the stream. Confirm this wiring at plan time.
 - **Surface:** a **dedicated voice-first view** — a full-screen conversation screen with
   a Wild-Breath orb reacting to state, the live transcript, the answer text + source
   chips, and a single **End** control.
@@ -38,8 +43,11 @@ sources), not chit-chat. This is "Voice Slice 3".
 
 - `POST /api/voice/transcribe` (Whisper STT, gated + authed) — one call per captured turn.
 - `POST /api/voice/speak` (Kokoro TTS) + `hooks/use-speech-playback.ts` — speak the gist.
-- The **gist pipeline** (granite4.1:8b → `data-spokenGist` streamed part) — already emitted
-  on voice turns; the loop consumes it exactly as Slice 1 does.
+- The **spoken-text pipeline** — two builders exist: `emitSpokenGist` (streams the *full
+  cleaned answer* as `data-spokenGist`; what the on-screen Listen button speaks today) and
+  `condenseForSpeech` (granite4.1:8b → 2–3 sentence gist, `spoken-gist.ts`, currently
+  unwired). The loop speaks the **condensed** version to keep turns short — a small,
+  contained wiring change, not new infrastructure.
 - The **chat stream** (`useChat` / `create-chat-stream-response.ts`) — each turn is a
   normal submit on the shared `chatId`; answer, citations, and source cards render
   unchanged.
