@@ -106,6 +106,7 @@ export function useVoiceConversation(
   useEffect(() => {
     if (!active) return
     liveRef.current = true
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- effect-driven state-machine transition responding to external async chat state; not render-derivable
     setErrorText(null)
     let cancelled = false
     d.current
@@ -142,6 +143,7 @@ export function useVoiceConversation(
   useEffect(() => {
     if (phaseRef.current !== 'thinking') return
     if (deps.chatStatus === 'error') {
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- effect-driven state-machine transition responding to external async chat state; not render-derivable
       setErrorText('Something went wrong.')
       setPhase('error')
       // Schedule the re-listen on a ref, idempotently, and DO NOT clear it in an
