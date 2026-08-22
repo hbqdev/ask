@@ -68,12 +68,16 @@ export function useVoiceConversation(
   const spokenKeyRef = useRef<string | null>(null)
   const errorTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const mutedRef = useRef(false)
+  const hiddenRef = useRef(false)
   const liveRef = useRef(false)
 
   const listen = useCallback(() => {
     if (!liveRef.current) return
     setPhase('listening')
-    if (!mutedRef.current) detectorRef.current?.start()
+    // Arm the physical mic only when neither muted nor backgrounded. When hidden
+    // we still enter 'listening' (the state machine is untouched); the mic is
+    // armed later by the visibilitychange handler once the tab returns.
+    if (!mutedRef.current && !hiddenRef.current) detectorRef.current?.start()
   }, [setPhase])
 
   const onSpeechEnd = useCallback(
@@ -118,7 +122,7 @@ export function useVoiceConversation(
         }
         detectorRef.current = det
         setPhase('listening')
-        if (!mutedRef.current) det.start()
+        if (!mutedRef.current && !hiddenRef.current) det.start()
       })
       .catch(() => {
         setErrorText('Microphone unavailable.')
@@ -196,8 +200,13 @@ export function useVoiceConversation(
   // it never changes the state-machine phase.
   useEffect(() => {
     if (!active) return
+    // Seed from the current visibility so a tab that is already hidden when the
+    // loop starts never arms the mic (guards SSR / no-document).
+    hiddenRef.current =
+      typeof document !== 'undefined' && document.visibilityState === 'hidden'
     const onVisibility = () => {
-      if (document.visibilityState === 'hidden') {
+      hiddenRef.current = document.visibilityState === 'hidden'
+      if (hiddenRef.current) {
         detectorRef.current?.pause()
         d.current.stopSpeaking()
       } else if (phaseRef.current === 'listening' && !mutedRef.current) {

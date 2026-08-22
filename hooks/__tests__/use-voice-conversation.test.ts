@@ -179,6 +179,69 @@ describe('useVoiceConversation', () => {
     expect(detector.start).toHaveBeenCalled()
   })
 
+  it('never arms the mic while the tab is hidden, even after a turn falls through to listening', async () => {
+    // Residual hot-mic gap: a reply that finishes (speak() settles) while the tab
+    // is hidden makes the loop return to 'listening'. The phase change is fine,
+    // but the physical mic must stay cold until the user returns to the tab.
+    Object.defineProperty(document, 'visibilityState', {
+      configurable: true,
+      get: () => 'visible'
+    })
+    let resolveSpeak!: () => void
+    const speak = vi.fn(
+      () =>
+        new Promise<void>(r => {
+          resolveSpeak = r
+        })
+    )
+    const base = makeDeps({ speak })
+    const { result, rerender } = renderHook(
+      ({ d }: { d: VoiceConversationDeps }) => useVoiceConversation(true, d),
+      { initialProps: { d: base.deps } }
+    )
+    await waitFor(() => expect(result.current.phase).toBe('listening'))
+    base.detector.start.mockClear() // drop the initial arm; count re-arms only
+
+    await act(async () => base.fire(new Float32Array([0.2, 0.2])))
+    await waitFor(() => expect(result.current.phase).toBe('thinking'))
+    rerender({
+      d: {
+        ...base.deps,
+        chatStatus: 'ready',
+        answer: { key: 'm1', text: 'The capital is Paris.' }
+      }
+    })
+    await waitFor(() => expect(base.deps.speak).toHaveBeenCalledWith('Paris.'))
+    expect(result.current.phase).toBe('speaking')
+
+    // Tab backgrounded mid-reply.
+    Object.defineProperty(document, 'visibilityState', {
+      configurable: true,
+      get: () => 'hidden'
+    })
+    await act(async () => {
+      document.dispatchEvent(new Event('visibilitychange'))
+    })
+
+    // Playback ends while hidden → phase returns to 'listening' but the mic must
+    // NOT be armed (the hot-mic-while-hidden bug).
+    await act(async () => {
+      resolveSpeak()
+    })
+    await waitFor(() => expect(result.current.phase).toBe('listening'))
+    expect(base.detector.start).not.toHaveBeenCalled()
+
+    // Returning to the foreground arms the mic for the waiting turn.
+    Object.defineProperty(document, 'visibilityState', {
+      configurable: true,
+      get: () => 'visible'
+    })
+    await act(async () => {
+      document.dispatchEvent(new Event('visibilitychange'))
+    })
+    expect(base.detector.start).toHaveBeenCalled()
+  })
+
   it('shows an error then re-listens when the chat errors', async () => {
     const base = makeDeps()
     const { result, rerender } = renderHook(
