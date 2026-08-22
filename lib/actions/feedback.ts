@@ -15,10 +15,11 @@ export async function updateMessageFeedback(
   userId: string | null = null
 ): Promise<{ success: boolean; error?: string }> {
   try {
-    // A caller with no identity may not write to anyone's message. Previously a
-    // null userId still reached the UPDATE below, and the RLS policy that was
-    // meant to scope it never evaluates — the app role is superuser and every
-    // table is relforcerowsecurity=f — so the check has to be here, in SQL.
+    // A caller with no identity may not write to anyone's message. The app runs
+    // as the non-owner `app_user` role, so RLS scopes the UPDATE — but this guard
+    // stays required as defense-in-depth and for the owner-URL fallback
+    // (DATABASE_RESTRICTED_URL unset → RLS bypassed). Previously a null userId
+    // reached the UPDATE below with neither guard, so keep the check here.
     if (!userId) {
       return { success: false, error: 'Not authenticated' }
     }

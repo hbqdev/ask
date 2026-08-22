@@ -80,7 +80,19 @@ const lc = (v: unknown): unknown =>
 export function coerceQuality(v: unknown): unknown {
   const s = lc(v)
   if (typeof s !== 'string') return v
-  if (['premium', 'high', 'hd', 'ultra', 'max', 'best', '4k', 'top', 'pro'].includes(s))
+  if (
+    [
+      'premium',
+      'high',
+      'hd',
+      'ultra',
+      'max',
+      'best',
+      '4k',
+      'top',
+      'pro'
+    ].includes(s)
+  )
     return 'premium'
   if (['standard', 'normal', 'medium', 'default', 'low', 'basic'].includes(s))
     return 'standard'
@@ -90,13 +102,42 @@ export function coerceQuality(v: unknown): unknown {
 export function coerceTask(v: unknown): unknown {
   const s = lc(v)
   if (typeof s !== 'string') return v
-  if (['photoreal', 'photo', 'photograph', 'photography', 'realistic', 'real'].includes(s))
+  if (
+    [
+      'photoreal',
+      'photo',
+      'photograph',
+      'photography',
+      'realistic',
+      'real'
+    ].includes(s)
+  )
     return 'photoreal'
-  if (['illustration', 'illustrated', 'art', 'artwork', 'drawing', 'cartoon', 'anime'].includes(s))
+  if (
+    [
+      'illustration',
+      'illustrated',
+      'art',
+      'artwork',
+      'drawing',
+      'cartoon',
+      'anime'
+    ].includes(s)
+  )
     return 'illustration'
-  if (['design-text', 'design', 'typography', 'text', 'poster', 'graphic'].includes(s))
+  if (
+    [
+      'design-text',
+      'design',
+      'typography',
+      'text',
+      'poster',
+      'graphic'
+    ].includes(s)
+  )
     return 'design-text'
-  if (['logo-svg', 'logo', 'svg', 'vector', 'icon'].includes(s)) return 'logo-svg'
+  if (['logo-svg', 'logo', 'svg', 'vector', 'icon'].includes(s))
+    return 'logo-svg'
   if (['draft-fast', 'draft', 'fast', 'quick', 'rough'].includes(s))
     return 'draft-fast'
   return s // 'general' passes through; anything else → caught to undefined

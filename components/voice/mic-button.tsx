@@ -1,12 +1,5 @@
 'use client'
-import {
-  IconLoader2 as Loader,
-  IconMicrophone as Microphone
-} from '@tabler/icons-react'
-
-import { cn } from '@/lib/utils'
-
-import { useVoiceDictation } from '@/hooks/use-voice-dictation'
+import { IconMicrophone as Microphone } from '@tabler/icons-react'
 
 import { Button } from '../ui/button'
 import {
@@ -16,19 +9,21 @@ import {
   TooltipTrigger
 } from '../ui/tooltip'
 
-// Push-to-talk mic for dictation. Hold to record, release to transcribe; the
-// transcript is handed to onTranscript (the composer drops it into the input).
+// Tap-or-hold dictate trigger. Recording starts on press (pointerdown) so a
+// press-and-hold goes live immediately; the parent times the gesture to tell a
+// quick tap (click-to-toggle, stopped via RecordingBar) from a hold (push-to-talk,
+// stopped on release). onClick is the keyboard path (Enter/Space fire a click but
+// no pointerdown); for a mouse, pointerdown starts recording and the trailing
+// click is a harmless no-op (the hook's double-start guard). Once recording
+// starts, the composer swaps in the RecordingBar. This stays a dumb button — all
+// gesture timing lives in the parent.
 export function MicButton({
-  onTranscript,
+  onPressStart,
   disabled
 }: {
-  onTranscript: (text: string) => void
+  onPressStart: () => void
   disabled?: boolean
 }) {
-  const { state, start, stop } = useVoiceDictation(onTranscript)
-  const recording = state === 'recording'
-  const busy = state === 'transcribing'
-
   return (
     <TooltipProvider delayDuration={200}>
       <Tooltip>
@@ -37,33 +32,16 @@ export function MicButton({
             type="button"
             variant="ghost"
             size="icon"
-            aria-label={recording ? 'Stop recording' : 'Dictate'}
-            aria-pressed={recording}
-            disabled={disabled || busy}
-            onPointerDown={() => {
-              if (!busy) void start()
-            }}
-            onPointerUp={() => {
-              if (recording) stop()
-            }}
-            onPointerLeave={() => {
-              if (recording) stop()
-            }}
-            className={cn(
-              'size-8 shrink-0 rounded-full',
-              recording ? 'text-red-500' : 'text-muted-foreground'
-            )}
+            aria-label="Dictate (tap or hold)"
+            disabled={disabled}
+            onPointerDown={() => onPressStart()}
+            onClick={() => onPressStart()}
+            className="size-8 shrink-0 rounded-full text-muted-foreground"
           >
-            {busy ? (
-              <Loader className="size-4 animate-spin" />
-            ) : (
-              <Microphone className="size-4" />
-            )}
+            <Microphone className="size-4" />
           </Button>
         </TooltipTrigger>
-        <TooltipContent className="text-xs">
-          {busy ? 'Transcribing…' : 'Hold to dictate'}
-        </TooltipContent>
+        <TooltipContent className="text-xs">Tap or hold to talk</TooltipContent>
       </Tooltip>
     </TooltipProvider>
   )

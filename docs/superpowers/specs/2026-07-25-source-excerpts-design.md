@@ -262,3 +262,58 @@ No schema, prompt, or UI changes. Both rerank tiers
   by leaving crawl and ranking untouched.
 - **The classifier's 8-15.6 s.** The most consistent overhead measured, and
   the next thing worth attacking, but unrelated to prompt size.
+
+## Result — measured 2026-08-01
+
+Run on staging (:3739), one build, `SEARCH_EXCERPTS_ENABLED` toggled between
+arms, five questions per arm in one conversation, same order. Four turns per arm
+retrieved; the PostgreSQL HOT question was gated off by `needsSources` in **both**
+arms and is excluded.
+
+| metric (mean of 4 retrieving turns)  | excerpts ON | excerpts OFF | delta   |
+| ------------------------------------ | ----------- | ------------ | ------- |
+| `last_prompt_tokens` (per-step size) | 43,332      | 45,572       | **−5%** |
+| `prompt_tokens` (summed over steps)  | 208,032     | 109,608      | +90%    |
+| steps                                | 7.25        | 3.0          | +142%   |
+| tool calls                           | 6.5         | 2.0          | +225%   |
+| `total_ms`                           | 111,057     | 95,224       | +17%    |
+| search → first prose                 | 14,371      | 26,455       | −46%    |
+
+**The change did not do the thing it was built to do.** Its entire purpose was
+cutting prompt size; per model call that came to −5%, inside noise. The one
+metric it won is the interval it targeted (search → first prose, −46%), and that
+win is swallowed whole by taking 2.4x the steps, which made turns 17% slower and
+spent 90% more prompt tokens overall.
+
+**Failure mode 1 reproduced, and it is the reason to stop.** Section "Risks"
+called citation-without-support the most dangerous outcome because it is
+invisible. With excerpts on, two independently probed turns misattributed:
+
+- GPU specs question: `575 W` cited to `knowledge.broadcom.com/.../manually-renew-cluster-certificates.html`,
+  `360 W` cited to `kubernetes.io` — both sources belonging to the _previous_
+  turn about kubeadm.
+- Next.js 16.2 question: **all six** claims cited that same Broadcom Kubernetes
+  page, and no Next.js source appeared in the rendered source list at all.
+
+With excerpts off, the same two questions on the same build produced
+**word-for-word equivalent answer text** with correct attribution
+(`gamertech corsair hardwarepedia`, and `makerkit`). Content parity, attribution
+divergence.
+
+**Limits of this run.** n=4 retrieving turns per arm, one run each. This spec
+itself records roughly 2x run-to-run variance, so the latency and step deltas are
+directional, not settled. Search is live, so the arms did not retrieve identical
+URLs and the step counts are not perfectly controlled — the "URL list must be
+identical between arms" check could not be applied as written. The citation
+finding does not depend on any of that: it is a direct read of rendered output,
+and it repeated across two unrelated questions.
+
+**Stop condition.** This spec says to raise `PASSAGES_PER_SOURCE` before
+abandoning the approach. That remains untried and is the one path back. But the
+per-step size win is already absent at the current setting, so more passages
+would trade away what little there was to gain.
+
+**Verdict: do not ship. Recommend `SEARCH_EXCERPTS_ENABLED=false`.** Note that
+prod's `.env` has had it set to `true` — see the audit note in
+`docker-compose.admin-feature.yaml`; the "staging only" claim was false, so this
+has been prod behaviour, not an experiment.

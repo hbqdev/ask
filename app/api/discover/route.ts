@@ -3,6 +3,7 @@ import type { DegoogResponse } from '@/lib/types'
 import { decodeHtmlEntities } from '@/lib/utils/decode-html-entities'
 import { fetchDegoogJson } from '@/lib/utils/degoog-client'
 import { dedupeByUrl, isDisplayable, shuffle } from '@/lib/utils/discover-mix'
+import { fetchSearxngJson } from '@/lib/utils/searxng-client'
 
 const websitesForTopic = {
   tech: {
@@ -212,36 +213,36 @@ async function searchSearxng(
   query: string,
   opts: { engines: string[]; pageno: number; language: string }
 ): Promise<{ results: DiscoverItem[] }> {
-  const apiUrl = process.env.SEARXNG_API_URL
-  if (!apiUrl) return { results: [] }
-
-  const url = new URL(`${apiUrl}/search?format=json`)
-  url.searchParams.append('q', query)
-  if (opts.engines) url.searchParams.append('engines', opts.engines.join(','))
-  if (opts.pageno) url.searchParams.append('pageno', String(opts.pageno))
-  if (opts.language) url.searchParams.append('language', opts.language)
-
-  const controller = new AbortController()
-  const timeoutId = setTimeout(() => controller.abort(), 10000)
-
   try {
-    const res = await fetch(url.toString(), { signal: controller.signal })
-    if (!res.ok) return { results: [] }
-    const data = await res.json()
+    // Route through the shared SearXNG client so discover inherits the
+    // primary->fallback breaker. Previously this raw-fetched SEARXNG_API_URL
+    // directly: it only ever hit primary, and during a SearXNG outage every
+    // (unauthenticated) discover request paid the full 10s timeout with no
+    // breaker relief — an amplification vector unique to this route.
+    const { data } = await fetchSearxngJson(
+      baseUrl => {
+        const url = new URL(`${baseUrl}/search?format=json`)
+        url.searchParams.append('q', query)
+        if (opts.engines)
+          url.searchParams.append('engines', opts.engines.join(','))
+        if (opts.pageno) url.searchParams.append('pageno', String(opts.pageno))
+        if (opts.language) url.searchParams.append('language', opts.language)
+        return url.toString()
+      },
+      { timeoutMs: 10000 }
+    )
     // Sources return HTML-encoded text (e.g. &#x27;, &quot;); the feed renders
     // these fields directly as React text nodes, which do not decode entities.
-    const results: DiscoverItem[] = (data.results ?? []).map(
-      (r: DiscoverItem) => ({
-        ...r,
-        title: decodeHtmlEntities(r.title),
-        content: decodeHtmlEntities(r.content)
-      })
-    )
+    const results: DiscoverItem[] = (
+      (data as { results?: DiscoverItem[] } | undefined)?.results ?? []
+    ).map((r: DiscoverItem) => ({
+      ...r,
+      title: decodeHtmlEntities(r.title),
+      content: decodeHtmlEntities(r.content)
+    }))
     return { results }
   } catch {
     return { results: [] }
-  } finally {
-    clearTimeout(timeoutId)
   }
 }
 
@@ -322,7 +323,11 @@ export const GET = async (req: Request) => {
     const params = new URL(req.url).searchParams
     const rawTopic = params.get('topic') || 'tech'
     const isPreview = params.get('mode') === 'preview'
-    const page = Math.max(1, Number(params.get('page')) || 1)
+    // Clamp: page is attacker-controlled on this unauthenticated route and was
+    // unbounded above, so a script could cache-bust / walk arbitrarily deep to
+    // amplify the ~24-upstream-call fan-out. 20 pages is far more than the feed
+    // scrolls to in practice.
+    const page = Math.min(20, Math.max(1, Number(params.get('page')) || 1))
 
     // Mixed multi-category feed for the home news widget. Kept as its own path
     // so the Discover page's per-topic behavior below is untouched.

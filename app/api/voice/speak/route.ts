@@ -2,7 +2,10 @@ import { getCurrentUserId } from '@/lib/auth/get-current-user'
 import { isVoiceEnabled } from '@/lib/voice/config'
 import { synthesizeSpeech } from '@/lib/voice/tts-client'
 
-const MAX_TEXT = 5000
+// Read-aloud now speaks the full (cleaned) answer, not a short gist, so the cap
+// is generous — enough for a long research answer. emit-spoken-gist truncates
+// beyond ~20k chars, so this is a backstop against abuse, not the normal path.
+const MAX_TEXT = 20000
 
 export async function POST(req: Request): Promise<Response> {
   // Feature-gated: when off, the endpoint does not exist.

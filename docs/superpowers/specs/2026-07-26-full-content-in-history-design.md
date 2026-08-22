@@ -171,3 +171,8 @@ discrete and far more informative than a mean; prefer it.
   decision.
 - **Re-enabling `SEARCH_EXCERPTS_ENABLED` by default.** This spec makes
   excerpts viable; whether they ship stays a separate call once measured.
+
+  **Measured 2026-08-01: do not ship.** Per-step prompt size fell only 5% (the
+  entire point of the change), while steps rose 142% and turns ran 17% slower,
+  and citation-without-support reproduced on two of two probed turns. See the
+  "Result" section of `2026-07-25-source-excerpts-design.md`.

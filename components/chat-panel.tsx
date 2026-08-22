@@ -45,9 +45,11 @@ import {
   setCookie,
   subscribeToCookieChange
 } from '@/lib/utils/cookies'
+import { shouldStopOnRelease } from '@/lib/voice/gesture'
 import { warmOnIntent } from '@/lib/warm/warm-trigger'
 
 import { useClientSettingEnabled } from '@/hooks/use-client-setting'
+import { useVoiceDictation } from '@/hooks/use-voice-dictation'
 
 import { useArtifact } from './artifact/artifact-context'
 import { AskHeadline } from './ui/ask-headline'
@@ -60,6 +62,7 @@ import {
 } from './ui/tooltip'
 import { WildBreathField } from './ui/wild-breath-field'
 import { MicButton } from './voice/mic-button'
+import { RecordingBar } from './voice/recording-bar'
 import { ActionButtons } from './action-buttons'
 import { DiscoverBriefing } from './discover-briefing'
 import { FileUploadButton } from './file-upload-button'
@@ -221,17 +224,58 @@ export function ChatPanel({
       handleInputChange({
         target: { value: next }
       } as React.ChangeEvent<HTMLTextAreaElement>)
-      // Auto-submit for a hands-free feel. Mirror ActionButtons: a short delay
-      // (INPUT_UPDATE_DELAY_MS, already defined in this file) lets the controlled
-      // input value settle before requestSubmit reads it.
-      setTimeout(() => {
-        inputRef.current?.form?.requestSubmit()
-        setIsInputFocused(false)
-        inputRef.current?.blur()
-      }, INPUT_UPDATE_DELAY_MS)
+      // Drop the transcript into the composer and focus it so the user can
+      // review/edit and send manually (no auto-submit).
+      setIsInputFocused(true)
+      inputRef.current?.focus()
     },
     [input, handleInputChange]
   )
+
+  // Tap-or-hold dictation: the mic button starts a recording on press; while
+  // recording (or transcribing) the composer swaps in the RecordingBar (live
+  // waveform + stop/cancel). stop() feeds the transcript to handleTranscript
+  // (which drops it into the composer for review + manual send).
+  const {
+    state: micState,
+    stream: micStream,
+    start: micStart,
+    stop: micStop,
+    cancel: micCancel
+  } = useVoiceDictation(handleTranscript)
+
+  // Gesture detection lives here in the parent because MicButton unmounts the
+  // moment recording starts (RecordingBar replaces it), so the pointer release
+  // for a press-and-hold can't be caught on the button — we listen at the window.
+  // A quick tap (< threshold) keeps click-to-toggle (stopped via the bar); a hold
+  // (>= threshold) is push-to-talk and auto-stops on release.
+  const micPressStartRef = useRef<number>(0)
+  const micReleaseCleanupRef = useRef<(() => void) | null>(null)
+
+  const handleMicPressStart = useCallback(() => {
+    // Drop any listeners left over from a prior gesture before starting a new one.
+    micReleaseCleanupRef.current?.()
+    micPressStartRef.current = performance.now()
+    void micStart()
+
+    const onRelease = () => {
+      micReleaseCleanupRef.current?.()
+      const held = performance.now() - micPressStartRef.current
+      // Hold → finalize + transcribe; tap → leave recording for the bar to stop.
+      if (shouldStopOnRelease(held)) micStop()
+    }
+    const cleanup = () => {
+      window.removeEventListener('pointerup', onRelease)
+      window.removeEventListener('pointercancel', onRelease)
+      micReleaseCleanupRef.current = null
+    }
+    micReleaseCleanupRef.current = cleanup
+    window.addEventListener('pointerup', onRelease, { once: true })
+    window.addEventListener('pointercancel', onRelease, { once: true })
+  }, [micStart, micStop])
+
+  // Safety net: if the panel unmounts mid-gesture, drop the window listeners.
+  useEffect(() => () => micReleaseCleanupRef.current?.(), [])
 
   // Listen for keyboard shortcut events
   // Uses defaultPrevented to prevent duplicate handling
@@ -582,6 +626,16 @@ export function ChatPanel({
           'relative flex w-full flex-col gap-2 rounded-3xl border border-border/70 bg-card/60 backdrop-blur-xl shadow-[0_18px_60px_-15px_rgba(0,0,0,0.55),inset_0_1px_0_rgba(255,255,255,0.06)] transition-[box-shadow,border-color] duration-[140ms] ease-[var(--motion-ease-out)] focus-within:border-[#ff96c8]/45 focus-within:shadow-[0_22px_70px_-10px_rgba(255,90,150,0.18),0_0_0_1px_rgba(255,150,200,0.30),inset_0_1px_0_rgba(255,255,255,0.06)]'
         )}
       >
+        {voiceEnabled && micState !== 'idle' && (
+          <div className="absolute inset-0 z-20 flex min-h-[64px] items-center rounded-3xl bg-muted">
+            <RecordingBar
+              stream={micStream}
+              state={micState}
+              onStop={micStop}
+              onCancel={micCancel}
+            />
+          </div>
+        )}
         {contentCards.length > 0 && (
           <div className="flex flex-col gap-1.5 px-3 pt-3">
             {contentCards.map((card, i) => (
@@ -861,7 +915,10 @@ export function ChatPanel({
               </TooltipProvider>
             )}
             {voiceEnabled && (
-              <MicButton onTranscript={handleTranscript} disabled={isLoading} />
+              <MicButton
+                onPressStart={handleMicPressStart}
+                disabled={isLoading || micState !== 'idle'}
+              />
             )}
           </div>
           <div className="flex items-center gap-2">

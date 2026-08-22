@@ -3,42 +3,70 @@ import { useCallback, useRef, useState } from 'react'
 
 type DictationState = 'idle' | 'recording' | 'transcribing'
 
-// Push-to-talk capture: start() opens the mic and records; stop() finalizes,
-// POSTs the audio to /api/voice/transcribe, and resolves the transcript via
-// onTranscript. Fail-quiet: any error returns to idle so the mic UI never
-// wedges and typing is always available (mirrors use-speech-playback).
+// Click-to-toggle mic capture. start() opens the mic and records; stop()
+// finalizes and POSTs the audio to /api/voice/transcribe, resolving the
+// transcript via onTranscript; cancel() discards the take. The live MediaStream
+// is exposed so a waveform can visualize input. Fail-quiet: any error returns to
+// idle so the UI never wedges and typing is always available.
 export function useVoiceDictation(onTranscript: (text: string) => void) {
   const [state, setState] = useState<DictationState>('idle')
+  const [stream, setStream] = useState<MediaStream | null>(null)
   const recorderRef = useRef<MediaRecorder | null>(null)
   const chunksRef = useRef<Blob[]>([])
   const streamRef = useRef<MediaStream | null>(null)
-  // Set by stop() when it fires before the recorder exists (user released the
-  // button during the first-use permission prompt). Tells the in-flight start()
-  // to release the mic instead of recording — closes the "hot mic" race.
-  const cancelledRef = useRef(false)
+  // stop() = finish + transcribe; cancel() = discard. onstop reads this.
+  const discardRef = useRef(false)
+  // Press-and-hold can release before the recorder exists (the getUserMedia
+  // permission prompt is still open). stop()/cancel() flag this so start() aborts
+  // once the stream resolves instead of leaving a hot mic with no way to stop it.
+  const pendingStopRef = useRef(false)
+  // Set synchronously at the top of start(), before the async getUserMedia, so a
+  // second start() that fires while the first is still awaiting the stream (mouse
+  // pointerdown + the trailing click) is dropped — recorderRef isn't set yet, so
+  // it alone can't guard that window, and a double getUserMedia = a hot mic.
+  const startingRef = useRef(false)
+
+  const releaseStream = useCallback(() => {
+    streamRef.current?.getTracks().forEach(t => t.stop())
+    streamRef.current = null
+    setStream(null)
+  }, [])
 
   const start = useCallback(async () => {
-    cancelledRef.current = false
-    let stream: MediaStream | undefined
+    // Guard a double-start: an existing recorder, or a start() already awaiting
+    // the stream (the synchronous startingRef closes the pointerdown+click race).
+    if (recorderRef.current || startingRef.current) return
+    startingRef.current = true
+    discardRef.current = false
+    pendingStopRef.current = false
+    let s: MediaStream | undefined
     try {
-      stream = await navigator.mediaDevices.getUserMedia({ audio: true })
-      if (cancelledRef.current) {
-        // Released during the permission prompt: never open the recorder, and
-        // stop the tracks so the mic goes cold immediately.
-        stream.getTracks().forEach(t => t.stop())
+      s = await navigator.mediaDevices.getUserMedia({ audio: true })
+      // A hold released (or a cancel) while the permission prompt was open: abort
+      // before going live so the mic never opens with no way to stop it.
+      if (pendingStopRef.current) {
+        s.getTracks().forEach(t => t.stop())
         streamRef.current = null
-        cancelledRef.current = false
+        setStream(null)
         setState('idle')
+        pendingStopRef.current = false
+        startingRef.current = false
         return
       }
-      streamRef.current = stream
-      const recorder = new MediaRecorder(stream)
+      streamRef.current = s
+      setStream(s)
+      const recorder = new MediaRecorder(s)
       chunksRef.current = []
       recorder.ondataavailable = e => {
         if (e.data.size) chunksRef.current.push(e.data)
       }
       recorder.onstop = async () => {
-        streamRef.current?.getTracks().forEach(t => t.stop())
+        recorderRef.current = null
+        releaseStream()
+        if (discardRef.current) {
+          setState('idle')
+          return
+        }
         const blob = new Blob(chunksRef.current, {
           type: recorder.mimeType || 'audio/webm'
         })
@@ -67,25 +95,43 @@ export function useVoiceDictation(onTranscript: (text: string) => void) {
       }
       recorder.start()
       recorderRef.current = recorder
+      startingRef.current = false
       setState('recording')
     } catch {
-      // If getUserMedia opened the mic before MediaRecorder construction threw,
-      // release the tracks so a failed start never leaves the mic live.
-      stream?.getTracks().forEach(t => t.stop())
+      // getUserMedia denied, or MediaRecorder construction threw after the mic
+      // opened — release any tracks so a failed start never leaves the mic live.
+      s?.getTracks().forEach(t => t.stop())
+      streamRef.current = null
+      setStream(null)
+      startingRef.current = false
       setState('idle')
     }
-  }, [onTranscript])
+  }, [onTranscript, releaseStream])
 
   const stop = useCallback(() => {
+    discardRef.current = false
     const r = recorderRef.current
     if (r && r.state !== 'inactive') {
       r.stop()
     } else {
-      // Recorder not created yet (still awaiting the permission prompt): tell
-      // the in-flight start() to abandon and release the mic once it resolves.
-      cancelledRef.current = true
+      // Recorder not built yet (start() pending): tell start() to abort on resolve.
+      pendingStopRef.current = true
     }
   }, [])
 
-  return { state, start, stop }
+  const cancel = useCallback(() => {
+    discardRef.current = true
+    const r = recorderRef.current
+    if (r && r.state !== 'inactive') {
+      r.stop()
+    } else if (streamRef.current) {
+      releaseStream()
+      setState('idle')
+    } else {
+      // Recorder not built yet (start() pending): tell start() to abort on resolve.
+      pendingStopRef.current = true
+    }
+  }, [releaseStream])
+
+  return { state, stream, start, stop, cancel }
 }

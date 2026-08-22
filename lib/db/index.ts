@@ -86,37 +86,54 @@ export const dbAdmin =
 // Helper type for all tables
 export type Schema = typeof schema
 
-// Verify restricted user permissions on startup
-if (process.env.DATABASE_RESTRICTED_URL && !isTest) {
-  // Only run verification in server environments, not during build
-  if (typeof window === 'undefined' && process.env.NODE_ENV !== 'production') {
-    ;(async () => {
-      try {
-        const result = await db.execute<{ current_user: string }>(
-          sql`SELECT current_user`
+// Fail-fast RLS guard. When auth is on, cross-user isolation depends ENTIRELY on
+// the app connecting through a role that cannot bypass row-level security. A
+// wrong-worktree / overlay-missing `compose up` can silently put the app on the
+// owner URL — the base compose even DEFAULTS DATABASE_RESTRICTED_URL to the owner
+// connection — and it boots green with RLS fully off, returning every user's
+// private data. So verify the ACTUAL runtime role and REFUSE TO SERVE if it can
+// bypass RLS while auth is enabled: a loud crash-loop beats a silent cross-user
+// leak. (The previous check was gated NODE_ENV!=='production' AND warn-only, so
+// it never ran in prod — exactly where it was needed.)
+const authEnabled = process.env.ENABLE_AUTH === 'true'
+if (!isTest && typeof window === 'undefined') {
+  ;(async () => {
+    try {
+      const rows = await db.execute<{
+        current_user: string
+        rolsuper: boolean | null
+        rolbypassrls: boolean | null
+      }>(
+        sql`SELECT current_user,
+                   (SELECT rolsuper FROM pg_roles WHERE rolname = current_user) AS rolsuper,
+                   (SELECT rolbypassrls FROM pg_roles WHERE rolname = current_user) AS rolbypassrls`
+      )
+      const row = rows[0]
+      const bypassesRls = Boolean(row?.rolsuper || row?.rolbypassrls)
+
+      if (isDevelopment) {
+        console.log(
+          '[DB] connected as',
+          row?.current_user,
+          bypassesRls ? '(RLS BYPASSED)' : '(RLS enforced)'
         )
-        const currentUser = result[0]?.current_user
-
-        if (isDevelopment) {
-          console.log('[DB] ✓ Connection verified as user:', currentUser)
-        }
-
-        // Verify it's the restricted user (app_user)
-        if (
-          currentUser &&
-          !currentUser.includes('app_user') &&
-          !currentUser.includes('neondb_owner')
-        ) {
-          console.warn(
-            '[DB] ⚠️ Warning: Expected app_user but connected as:',
-            currentUser
-          )
-        }
-      } catch (error) {
-        console.error('[DB] ✗ Failed to verify database connection:', error)
-        // Log the error but don't terminate the application
-        // This allows development to continue even with connection issues
       }
-    })()
-  }
+
+      if (authEnabled && bypassesRls) {
+        console.error(
+          `[DB] FATAL: ENABLE_AUTH=true but the app connected as "${row?.current_user}", ` +
+            'a role that BYPASSES row-level security — cross-user isolation is OFF. ' +
+            'Refusing to serve. Check DATABASE_RESTRICTED_URL and that the deploy used ' +
+            'the correct worktree/overlay (RLS enforces only through the non-owner app_user role).'
+        )
+        // Fail closed: exit so the container restart policy surfaces the misconfig
+        // loudly instead of the app quietly serving other users' data.
+        process.exit(1)
+      }
+    } catch (error) {
+      // Transient connectivity/permission error on the check itself — log, but do
+      // NOT exit, so a momentary DB blip can't crash-loop a correctly-configured app.
+      console.error('[DB] RLS guard could not verify the runtime role:', error)
+    }
+  })()
 }

@@ -83,3 +83,19 @@ the 40-type packet protocol · wholesale cross-encoder replacement (keep it; add
   deep-research experiment code + A/B harness, deleted eval result artifacts (gitignored).
   Experiment preserved in git tag `onyx-parity-experiment`; findings retained in this roadmap
   + memory. Lab now carries only this roadmap doc over the prod/staging baseline.
+- 2026-08-07..08: H2 (per-page crop). Crop-position shadow instrument built (v1 read-scoped,
+  v2 citation-scoped) + a lab crop A/B: 20k recovers ~22% of sources' best content (shadow
+  tail-loss ~0.45→~0.2) with no visible TTFT hit. Shipped 20k + shadow to prod+staging behind
+  env flags for a real-traffic read (`crop-20k-shadow-live` memory). Crop-position finding: the
+  crop touches only the ONE advanced (deep-crawled) search/turn; answers cite broadly across
+  uncropped basic searches, so its answer-impact is bounded.
+- 2026-08-08: Re-surveyed vs a refreshed clone (ff47db7 → 5200dad, thru 08-07; tag
+  v4.5.0-cloud.5; 46 commits, 20 feat). **Almost all new work is OUT of scope:** enterprise
+  usage/spending-limits/analytics/log-export admin, connectors (sharepoint, web-connector),
+  the DESKTOP app (summon shortcuts), and the Opal design system. **The one net-new capability
+  is "Craft"** — Onyx's new "AI coworker": an agentic K8s-isolated sandbox (OpenCode runtime)
+  that executes code / builds webapps / produces durable artifacts, with permissioned retrieval,
+  secret injection, and action-approval gating. It's the UNION of already-tracked Code Execution
+  (#8) + Artifacts (#7), scaled up and enterprise-wrapped — not a new small gap. In-scope gap
+  list unchanged; the mobile "force-a-tool + per-agent enable/disable" commit reinforces Custom
+  Agents (#5) as a real Onyx feature.
