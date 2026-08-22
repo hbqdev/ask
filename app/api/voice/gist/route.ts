@@ -31,7 +31,8 @@ export async function POST(req: Request): Promise<Response> {
         'Cache-Control': 'no-store'
       }
     })
-  } catch {
+  } catch (e) {
+    console.warn('[voice] /gist failed:', e)
     return new Response('Gist unavailable', { status: 503 })
   }
 }
