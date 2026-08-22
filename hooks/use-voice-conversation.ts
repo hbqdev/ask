@@ -44,7 +44,13 @@ export function useVoiceConversation(
   deps: VoiceConversationDeps
 ): VoiceConversationApi {
   const d = useRef(deps)
-  d.current = deps
+  // Mirror the latest deps into a ref inside an effect (never during render, per
+  // react-hooks/refs). No dependency array: this must run on every render, and
+  // it is declared before all other effects/callbacks so d.current is refreshed
+  // before any later effect in the same commit reads the injected functions.
+  useEffect(() => {
+    d.current = deps
+  })
 
   const [phase, setPhaseState] = useState<ConversationPhase>('idle')
   const [transcript, setTranscript] = useState('')
