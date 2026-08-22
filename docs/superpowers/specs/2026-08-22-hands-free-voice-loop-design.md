@@ -181,16 +181,15 @@ No new backend endpoints. No DB schema changes (turns persist through the normal
   hotword to end by voice, TTS voice selection, streaming/progressive gist playback, mobile
   touch polish.
 
-## 11. Build strategy (resolve at planning)
+## 11. Build strategy — RESOLVED
 
-The current voice stack (tap-vs-hold MicButton `onPressStart`, RecordingBar, WaveformVisualizer,
-`use-voice-dictation`) lives on **`dev`/`admin-feature`**; **`flow-design` (the lab) still has the
-OLD hold-only voice** — see [[voice-mode-slice1-status]]. So the usual "build lab-first on
-flow-design" is wrong here (it would build on stale voice and re-conflict on the port).
-**Recommendation:** build on a branch off **`dev`** (current voice + the just-shipped redesign)
-and point a test instance at it (e.g. temporarily run the lab container from that branch, since
-getUserMedia needs HTTPS the true mic test is prod anyway). Alternative: first reconcile
-flow-design's voice up to current, then build lab-first as normal. Decide before the plan.
+The lab was reconciled onto prod on 2026-08-22 (merge `dd7e0ca1`, see
+[[lab-reconciled-to-prod]]): **`flow-design` now contains all of `dev`**, including the current
+tap-vs-hold voice stack. So build **lab-first on `flow-design`** as normal (lab :3742), then port
+to staging/prod with `git cherry-pick -x`. Caveat unchanged: the true live-mic test needs prod
+HTTPS (getUserMedia has no secure context on the plain-http LAN lab), so schedule a prod mic
+verification after the port — the server paths (transcribe / chat stream / speak) are exercisable
+earlier.
 
 ## 12. Non-goals (v1)
 
