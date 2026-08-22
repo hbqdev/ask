@@ -34,6 +34,13 @@
 
 set -uo pipefail
 
+# PROD runs from the ask-prod worktree; STAGING runs from the ask worktree.
+# These MUST NOT be conflated: base docker-compose.yaml is `name: ask-stack`
+# (= prod), so recreating the ask-prod stack from $ASK (staging) would rebuild
+# prod on STAGING's .env — wrong DATABASE_RESTRICTED_URL and OLLAMA_MODELS —
+# while still reporting a green :3738 health check. Same class as the
+# model-manager mis-wiring fixed 2026-08-09.
+ASK_PROD=/home/nightfury/selfhosted/ask-prod
 ASK=/home/nightfury/selfhosted/ask
 DEGOOG=/home/nightfury/selfhosted/degoog
 PUBLIC_SEARXNG=/home/nightfury/selfhosted/searxng
@@ -44,7 +51,7 @@ ONLY="${1:-all}"
 
 # name | dir | project | compose file args
 STACKS=(
-  "ask-prod|$ASK|ask-stack|-f docker-compose.yaml -f docker-compose.vpn.yaml"
+  "ask-prod|$ASK_PROD|ask-stack|-f docker-compose.yaml -f docker-compose.vpn.yaml"
   "ask-staging|$ASK|ask-stack-admin-feature|-f docker-compose.yaml -f docker-compose.admin-feature.yaml -f docker-compose.vpn.yaml -f docker-compose.vpn.admin-feature.yaml"
   "degoog|$DEGOOG|degoog|-f docker-compose.yaml -f docker-compose.vpn.yaml"
   "public-searxng|$PUBLIC_SEARXNG|searxng|-f docker-compose.yaml -f docker-compose.vpn.yaml"

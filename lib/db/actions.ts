@@ -137,9 +137,11 @@ export async function upsertMessage(
     // served to every viewer (app/search/[id]/page.tsx), so a foreign id is not
     // hard to come by.
     //
-    // The RLS WITH CHECK policies were the intended defence and never run: the
-    // app role is superuser (rolbypassrls=t) and every table is
-    // relforcerowsecurity=f, so the check has to be here.
+    // Defense-in-depth, and load-bearing. The app runs as the non-owner
+    // `app_user` role (DATABASE_RESTRICTED_URL), so the RLS WITH CHECK policies
+    // DO enforce — but this in-app check is still required: on any stack where
+    // DATABASE_RESTRICTED_URL is unset the app falls back to the owner role
+    // (RLS bypassed), and then this predicate is the ONLY guard. Keep it.
     if (userId) {
       const [existing] = await tx
         .select({ chatId: messages.chatId, ownerId: chats.userId })
@@ -1019,12 +1021,13 @@ export async function updateChatTitle(
 ): Promise<Chat | null> {
   const capped = title.substring(0, CHAT_TITLE_MAX_LENGTH)
   return withOptionalRLS(userId || null, async tx => {
-    // Ownership is enforced HERE, in the predicate, not by the RLS policy.
-    // The policy exists but never runs: the app connects as `morphic`, which is
-    // both table owner and superuser (rolsuper/rolbypassrls = t) while every
-    // table is relforcerowsecurity = f, so RLS is bypassed unconditionally.
-    // updateChatVisibility directly above already checks ownership explicitly;
-    // this function was the odd one out, updating by chat id alone.
+    // Ownership is enforced HERE, in the predicate, as defense-in-depth. The
+    // app runs as the non-owner `app_user` role (DATABASE_RESTRICTED_URL), so
+    // RLS also enforces — but this predicate stays required: on a stack with
+    // DATABASE_RESTRICTED_URL unset the app falls back to the owner role (RLS
+    // bypassed) and this is the only guard. updateChatVisibility directly above
+    // checks ownership too; this function was the odd one out, updating by chat
+    // id alone.
     const [updatedChat] = await tx
       .update(chats)
       .set({ title: capped })

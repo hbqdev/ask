@@ -307,10 +307,10 @@ export function RenderMessage({
   }
 
   // Voice "read-aloud": the finished answer carries a data-spokenGist part
-  // (see lib/voice/emit-spoken-gist.ts) with a short spoken summary. When the
-  // client voice flag is on and a gist is present, show a Listen control + the
-  // gist as a caption under the answer. autoPlay is scoped to the latest
-  // message so navigating into an old chat never re-speaks every past answer.
+  // (see lib/voice/emit-spoken-gist.ts) with the answer text cleaned for speech.
+  // When the client voice flag is on, show a Listen control that reads the
+  // answer aloud (no caption — it would just duplicate the on-screen answer).
+  // autoPlay is scoped to the latest message so an old chat never re-speaks.
   if (process.env.NEXT_PUBLIC_VOICE_ENABLED === 'true') {
     const gistPart = (message.parts as any[] | undefined)?.find(
       (part: any) => part.type === 'data-spokenGist'
@@ -318,12 +318,11 @@ export function RenderMessage({
     const gist: string = gistPart?.data?.text ?? ''
     if (gist) {
       elements.push(
-        <div
-          key={`${messageId}-voice`}
-          className="mt-1 flex flex-col gap-1 px-3"
-        >
-          <SpeakButton gistText={gist} autoPlay={voiceMode && isLatestMessage} />
-          <p className="text-xs italic text-muted-foreground">{gist}</p>
+        <div key={`${messageId}-voice`} className="mt-1 px-3">
+          <SpeakButton
+            gistText={gist}
+            autoPlay={voiceMode && isLatestMessage}
+          />
         </div>
       )
     }
