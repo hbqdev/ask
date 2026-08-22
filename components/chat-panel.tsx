@@ -63,6 +63,8 @@ import {
 import { WildBreathField } from './ui/wild-breath-field'
 import { MicButton } from './voice/mic-button'
 import { RecordingBar } from './voice/recording-bar'
+import { TalkButton } from './voice/talk-button'
+import { VoiceConversation } from './voice/voice-conversation'
 import { ActionButtons } from './action-buttons'
 import { DiscoverBriefing } from './discover-briefing'
 import { FileUploadButton } from './file-upload-button'
@@ -167,6 +169,8 @@ export function ChatPanel({
   const [contentCards, setContentCards] = useState<string[]>([])
   // A single pasted URL becomes a lightweight favicon chip (see BARE_URL_RE).
   const [urlCards, setUrlCards] = useState<string[]>([])
+  // Hands-free voice loop overlay (opened by the TalkButton, gated on voiceEnabled).
+  const [talkOpen, setTalkOpen] = useState(false)
   const { close: closeArtifact } = useArtifact()
   const isLoading = status === 'submitted' || status === 'streaming'
   const hasPendingInput =
@@ -920,6 +924,12 @@ export function ChatPanel({
                 disabled={isLoading || micState !== 'idle'}
               />
             )}
+            {voiceEnabled && (
+              <TalkButton
+                onClick={() => setTalkOpen(true)}
+                disabled={isLoading}
+              />
+            )}
           </div>
           <div className="flex items-center gap-2">
             {!isCloudDeployment && modelSelectorData && (
@@ -992,69 +1002,74 @@ export function ChatPanel({
   )
 
   return (
-    <div
-      className={cn(
-        'w-full bg-background group/form-container shrink-0',
-        messages.length > 0
-          ? 'sticky bottom-0 px-2 pb-2 md:pb-4'
-          : 'px-4 md:px-6'
-      )}
-    >
-      {messages.length === 0 ? (
-        <>
-          {/* Full-bleed three-body field behind the hero; the field lifts the
+    <>
+      <div
+        className={cn(
+          'w-full bg-background group/form-container shrink-0',
+          messages.length > 0
+            ? 'sticky bottom-0 px-2 pb-2 md:pb-4'
+            : 'px-4 md:px-6'
+        )}
+      >
+        {messages.length === 0 ? (
+          <>
+            {/* Full-bleed three-body field behind the hero; the field lifts the
               dance to ~32% height so the suns sit above the heading. */}
-          <section className="relative flex min-h-[68vh] w-full flex-col items-center justify-center">
-            <WildBreathField className="pointer-events-none absolute inset-0 z-0" />
-            {/* Radial scrim for text legibility over the field. Dark mode
+            <section className="relative flex min-h-[68vh] w-full flex-col items-center justify-center">
+              <WildBreathField className="pointer-events-none absolute inset-0 z-0" />
+              {/* Radial scrim for text legibility over the field. Dark mode
                 darkens the centre; light mode lifts it with a soft white wash.
                 Two stacked divs so the gradient follows the theme class. */}
-            <div
-              aria-hidden="true"
-              className="pointer-events-none absolute inset-0 z-[1] dark:hidden"
-              style={{
-                background:
-                  'radial-gradient(58% 52% at 50% 42%, rgba(255,255,255,0.55) 0%, rgba(255,255,255,0.22) 46%, transparent 74%)'
-              }}
-            />
-            <div
-              aria-hidden="true"
-              className="pointer-events-none absolute inset-0 z-[1] hidden dark:block"
-              style={{
-                background:
-                  'radial-gradient(58% 52% at 50% 42%, rgba(6,5,12,0.6) 0%, rgba(6,5,12,0.22) 46%, transparent 74%)'
-              }}
-            />
-            <div className="relative z-10 flex w-full flex-col items-center">
-              <div className="mb-6 flex flex-col items-center gap-2 md:mb-10 md:gap-4">
-                <AskHeadline />
+              <div
+                aria-hidden="true"
+                className="pointer-events-none absolute inset-0 z-[1] dark:hidden"
+                style={{
+                  background:
+                    'radial-gradient(58% 52% at 50% 42%, rgba(255,255,255,0.55) 0%, rgba(255,255,255,0.22) 46%, transparent 74%)'
+                }}
+              />
+              <div
+                aria-hidden="true"
+                className="pointer-events-none absolute inset-0 z-[1] hidden dark:block"
+                style={{
+                  background:
+                    'radial-gradient(58% 52% at 50% 42%, rgba(6,5,12,0.6) 0%, rgba(6,5,12,0.22) 46%, transparent 74%)'
+                }}
+              />
+              <div className="relative z-10 flex w-full flex-col items-center">
+                <div className="mb-6 flex flex-col items-center gap-2 md:mb-10 md:gap-4">
+                  <AskHeadline />
+                </div>
+                {uploadedFiles.length > 0 && (
+                  <UploadedFileList
+                    files={uploadedFiles}
+                    onRemove={handleFileRemove}
+                  />
+                )}
+                {composer}
               </div>
-              {uploadedFiles.length > 0 && (
-                <UploadedFileList
-                  files={uploadedFiles}
-                  onRemove={handleFileRemove}
-                />
-              )}
-              {composer}
-            </div>
-          </section>
+            </section>
 
-          {/* Discover briefing below the hero. */}
-          <div className="mx-auto w-full max-w-6xl px-4 pb-16 md:px-6">
-            {showNewsWidget && <DiscoverBriefing />}
-          </div>
-        </>
-      ) : (
-        <>
-          {uploadedFiles.length > 0 && (
-            <UploadedFileList
-              files={uploadedFiles}
-              onRemove={handleFileRemove}
-            />
-          )}
-          {composer}
-        </>
+            {/* Discover briefing below the hero. */}
+            <div className="mx-auto w-full max-w-6xl px-4 pb-16 md:px-6">
+              {showNewsWidget && <DiscoverBriefing />}
+            </div>
+          </>
+        ) : (
+          <>
+            {uploadedFiles.length > 0 && (
+              <UploadedFileList
+                files={uploadedFiles}
+                onRemove={handleFileRemove}
+              />
+            )}
+            {composer}
+          </>
+        )}
+      </div>
+      {voiceEnabled && talkOpen && (
+        <VoiceConversation onClose={() => setTalkOpen(false)} />
       )}
-    </div>
+    </>
   )
 }
