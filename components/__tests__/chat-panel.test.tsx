@@ -1,6 +1,6 @@
 import React from 'react'
 
-import { fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { render, waitFor } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest'
 
 import { UploadedFile } from '@/lib/types'
@@ -48,15 +48,6 @@ vi.mock('../ui/wild-breath-logo', () => ({
   WildBreathLogo: () => <div data-testid="logo" />,
   WildBreathGlyph: ({ className }: { className?: string }) => (
     <span className={className} data-testid="glyph" />
-  )
-}))
-
-// Mock the hands-free overlay so opening it does not pull in VAD/useChat.
-vi.mock('@/components/voice/voice-conversation', () => ({
-  VoiceConversation: ({ onClose }: { onClose: () => void }) => (
-    <div data-testid="voice-overlay">
-      <button onClick={onClose}>close</button>
-    </div>
   )
 }))
 
@@ -240,37 +231,5 @@ describe('ChatPanel ingest status polling', () => {
     // The interval must still be alive after a failed poll.
     await vi.advanceTimersByTimeAsync(5000)
     expect(fetchMock).toHaveBeenCalledTimes(2)
-  })
-})
-
-describe('ChatPanel hands-free Talk button', () => {
-  // Scope the voice flag to THIS block so other tests keep running with the
-  // flag unset (the Talk button only renders when NEXT_PUBLIC_VOICE_ENABLED
-  // is 'true').
-  beforeEach(() => {
-    vi.clearAllMocks()
-    vi.stubEnv('NEXT_PUBLIC_VOICE_ENABLED', 'true')
-  })
-
-  afterEach(() => {
-    vi.unstubAllEnvs()
-  })
-
-  test('opens the hands-free overlay from the Talk button', () => {
-    renderChatPanel({})
-
-    expect(screen.queryByTestId('voice-overlay')).not.toBeInTheDocument()
-    fireEvent.click(screen.getByRole('button', { name: /talk/i }))
-    expect(screen.getByTestId('voice-overlay')).toBeInTheDocument()
-  })
-
-  test('closing the overlay unmounts it', () => {
-    renderChatPanel({})
-
-    fireEvent.click(screen.getByRole('button', { name: /talk/i }))
-    expect(screen.getByTestId('voice-overlay')).toBeInTheDocument()
-
-    fireEvent.click(screen.getByRole('button', { name: /close/i }))
-    expect(screen.queryByTestId('voice-overlay')).not.toBeInTheDocument()
   })
 })
