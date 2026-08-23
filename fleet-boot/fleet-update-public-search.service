@@ -1,0 +1,10 @@
+[Unit]
+Description=Weekly image update for the public search stacks (SearXNG + degoog)
+After=docker.service network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=nightfury
+Environment=PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+ExecStart=/home/nightfury/selfhosted/ask-flow/fleet-boot/update-public-search.sh
