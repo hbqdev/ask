@@ -14,9 +14,9 @@
 - **The Cloudflare tunnel repoint is a USER ACTION** (Phase 5) — do not attempt it; surface it.
 
 ## Topology after migration (accurate call map for Ask@.17)
-- **Local on .17:** whisper (:8788), reranker (:8787), TTS (Kokoro on the **P2200**), each env's own searxng+postgres+redis+gluetun.
-- **Remote LAN (unchanged / newly-remote):** Ollama chat LLM `.231:11434` (newly remote — negligible, inference-bound), crawl4ai `.231:11235` (newly remote), embeddings `.160:8788` (unchanged), secondary LLM `.171:11434` (unchanged).
-- crawl4ai reference changes from container-name to LAN IP (see Phase 0).
+- **Local on .17:** whisper (:8788), reranker (:8787), TTS (Kokoro on the **P2200**), **Ollama (:11434 — already running on .17; it's a Cloud proxy so inference is Ollama Cloud regardless)**, each env's own searxng+postgres+redis+gluetun.
+- **Remote LAN:** crawl4ai `.231:11235` (newly remote — negligible, crawl-bound), embeddings `.160:8788` (unchanged), secondary LLM `.171:11434` (unchanged).
+- crawl4ai reference changes from container-name → LAN IP (Phase 0.1); Ollama URLs repoint to .17 (Phase 1.2), which requires .17's Ollama to be Cloud-authed (Phase 0.7).
 
 ## Per-env facts
 | env | worktree (.231) | branch | project | app port | notes |
@@ -37,6 +37,7 @@ DB: postgres user `morphic`, db `morphic` (per env, separate volume). TTS P2200 
 - [ ] **0.4 VPN egress from .17.** Confirm the wireguard creds in each `.env` are present and that gluetun on .17 will get the VPN's public IP (same LAN → same provider POP; verify in Phase 2).
 - [ ] **0.5 Get the code onto .17.** Clone the repo on .17 and create the three checkouts mirroring .231's worktrees (dev, admin-feature, flow-design). Match the paths the compose/scripts assume, or set the corresponding env/paths. Record the chosen layout (e.g. `/home/nightfury/selfhosted/ask{,-flow,-prod}` on .17 too).
 - [ ] **0.6 Snapshot current state for rollback proof.** On .231: `docker ps` list + `git -C ask-prod rev-parse HEAD` (all 3) recorded; note current tunnel ingress config path.
+- [ ] **0.7 Ollama Cloud auth on .17 (USER-assisted).** .17 already runs ollama (:11434, v0.32.1) but is NOT signed into Ollama Cloud (no `~/.ollama/id_ed25519`; only a local `qwen3-vl:4b`). Ask's chat models are `*:cloud`, so sign .17's ollama into the SAME Ollama Cloud account (`ollama signin`, or transfer .231's `~/.ollama` auth) and verify a cloud model answers via `curl http://192.168.50.17:11434/...`. **Fallback if this can't be done:** leave the Ollama URLs pointed at `192.168.50.231:11434` (LAN, negligible) — the migration still works.
 
 ---
 
@@ -47,7 +48,7 @@ For EACH env (do lab fully first as the rehearsal, then staging, then prod):
 - [ ] **1.1 Copy `.env`** from the .231 worktree to the matching .17 checkout (over a secure copy — it holds VPN creds + API tokens). Do NOT commit `.env` (gitignored).
 - [ ] **1.2 Apply `.env` rewrites:**
   - `CRAWL4AI_URL=http://crawl4ai:11235` → **`http://192.168.50.231:11235`**.
-  - Leave `OLLAMA_BASE_URL`, `CLASSIFIER_OLLAMA_BASE_URL`, `NEXT_PUBLIC_OLLAMA_BASE_URL` = `192.168.50.231:11434` (Ollama stays on .231).
+  - `OLLAMA_BASE_URL`, `CLASSIFIER_OLLAMA_BASE_URL`, `NEXT_PUBLIC_OLLAMA_BASE_URL` → **.17's ollama** (`http://192.168.50.17:11434`) — it's a Cloud proxy (see 0.7), so this just moves the proxy local. (`NEXT_PUBLIC_*` is a LAN URL used client-side; keep it a reachable .17 address.)
   - Leave `RERANKER_URL=192.168.50.17:8787`, `EMBEDDING_SERVICE_URL=192.168.50.160:8788`, `LOCAL_LLM_BASE_URL=192.168.50.171:11434` unchanged.
   - `SEARXNG_API_URL=http://ask-searxng...:8080` stays (searxng moves with the stack, same network).
 - [ ] **1.3 Apply compose rewrites** (these live in `docker-compose.yaml`, committed): `WHISPER_SERVICE_URL` (=`192.168.50.17:8788`) and `TTS_SERVICE_URL` — after the move these are local; keep the IP (`192.168.50.17`) which still resolves on .17, or switch to the container/localhost. **TTS: add a GPU reservation pinning the P2200:**
@@ -95,7 +96,9 @@ For EACH env (do lab fully first as the rehearsal, then staging, then prod):
 
 ## Phase 5 — Public cutover — **USER ACTION (reminder)**
 
-- [ ] **5.1 >> USER: reconfigure the Cloudflare tunnel** so `ask.hbqnexus.win` (and any staging/lab hostnames) point at **`http://192.168.50.17:3738`** (etc.) instead of the .231 localhost ports. cloudflared stays on .231; only its ingress targets change. Reload cloudflared.
+The tunnel serves **ONLY prod's public DNS** (`ask.hbqnexus.win`). Staging + lab are LAN-only — accessed directly at `192.168.50.17:3739` / `:3742`, so they need **no DNS change**. The user does this switchover after everything is moved + verified.
+
+- [ ] **5.1 >> USER: switch over the Cloudflare tunnel** — repoint ONLY the prod ingress (`ask.hbqnexus.win`) from `.231`'s `localhost:3738` to **`http://192.168.50.17:3738`** and reload cloudflared (it stays on .231; only the ingress target changes).
 - [ ] **5.2 Verify public** `https://ask.hbqnexus.win` serves from .17 (login, a query, voice). Confirm the test account works ([[ask-test-account]]).
 - **Rollback (fast):** repoint the tunnel back to .231 + `up -d` the old prod stack.
 

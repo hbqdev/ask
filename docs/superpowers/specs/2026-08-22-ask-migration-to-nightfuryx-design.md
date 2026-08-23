@@ -18,7 +18,8 @@ Move all three Ask stacks (prod, staging, lab) off **MiniNightFury** (192.168.50
 - **crawl4ai stays on MiniNightFury.** Its work is single-thread / tail-latency bound ([[crawl4ai-parallelism-ceiling]]) and MiniNightFury's Alder Lake P-cores are faster single-thread than NightFuryX's Zen2 cores. Ask reaches it as a sub-ms LAN call. Its memory-watchdog + cgroup-cap ([[crawl4ai-cgroup-blind]]) stay as-is.
 - **TTS (ask-tts, Kokoro) moves to NightFuryX, pinned to the Quadro P2200** (GPU 1, UUID `GPU-7b3c2a28-e2ae-9cd4-2e25-7e7d164548c9`, 5GB) — a dedicated GPU, isolated from the 2080 Ti that whisper/reranker/ingestor share. (Today ask-tts runs CPU-only on MiniNightFury, which has no NVIDIA GPU — so this is also a TTS speedup.)
 - **Public SearXNG + public degoog stay on MiniNightFury** — standalone public services, not Ask.
-- **Cloudflared stays on MiniNightFury** (host process). The tunnel ingress is repointed to NightFuryX — **this is a USER action** (the user reconfigures the tunnel post-migration).
+- **Cloudflared stays on MiniNightFury** (host process) and serves **only prod's public DNS** (`ask.hbqnexus.win`); staging + lab are LAN-only (no DNS). Repointing the prod ingress to NightFuryX is a **USER action**, done after everything is moved + verified.
+- **Ollama → NightFuryX.** `OLLAMA_BASE_URL` is a *Cloud proxy* (models are `*:cloud`; inference is Ollama Cloud), so Ask uses the ollama already running on .17 (:11434) instead of .231 — removing the cross-host dependency. Requires signing .17's ollama into Ollama Cloud (it isn't yet).
 - **Downtime OK** → simple `pg_dump`→restore + cutover per env; **order lab → staging → prod**; old stacks kept **stopped-but-intact** on MiniNightFury for instant rollback.
 
 ## Topology
@@ -71,6 +72,7 @@ Per env (×3): `ask[-env]` app, `ask-searxng[-env]`, `ask-gluetun[-env]`, `ask-p
 - **VPN egress from NightFuryX** — verify the provider accepts gluetun from the new host before trusting search.
 - **GPU/VRAM** — TTS on the dedicated P2200 avoids 2080 Ti contention; verify Kokoro fits in 5GB.
 - **DB cutover write-loss** — dump at cutover (after quiescing writes / accepting the brief window).
+- **.17 Ollama not Cloud-authed** — it runs but has no signin key (only a local `qwen3-vl:4b`); sign it into Ollama Cloud (user-assisted) before cutover, or fall back to `.231`'s ollama over the LAN.
 
 ## Non-goals
 
