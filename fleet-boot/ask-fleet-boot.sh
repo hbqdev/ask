@@ -18,6 +18,19 @@ log() { echo "[ask-fleet-boot] $(date '+%H:%M:%S') $*"; }
 
 OLLAMA="http://localhost:11434"
 
+# Wait for the Docker daemon to answer before reconciling anything. On the WSL2
+# / Docker Desktop app host this systemd oneshot can fire before Docker
+# Desktop's engine (and /dev/net/tun for the gluetun VPN sidecars) is ready.
+wait_docker() {
+  local i
+  for i in $(seq 1 60); do
+    docker info >/dev/null 2>&1 && { log "docker daemon ready"; return 0; }
+    sleep 2
+  done
+  log "docker daemon NOT ready after 120s — proceeding anyway"
+  return 1
+}
+
 # Bring a compose project up; if its container still isn't running afterward
 # (stale network, etc.), recreate it on a fresh network. Recreates ONLY when
 # broken, so a healthy container is never needlessly reloaded.
@@ -130,6 +143,7 @@ warm_whisper() {
 
 HOST="$(hostname)"
 log "starting on $HOST"
+wait_docker
 case "$HOST" in
   NightFuryX)
     reconcile /home/nightfury/selfhosted/reranker-qwen reranker-qwen
@@ -137,6 +151,22 @@ case "$HOST" in
     reconcile /home/nightfury/selfhosted/whisper       ask-whisper
     warm qwen3-vl:4b
     warm_whisper
+    # The Ask app tier moved here in the 2026-08-23 migration. On a cold boot
+    # the gluetun VPN sidecars lose the /dev/net/tun race and exit 127, taking
+    # searxng (network_mode: service:gluetun) with them; restart:unless-stopped
+    # gives up after its backoff, leaving the apps up but search dead. Let
+    # Docker Desktop networking settle, then reconcile all three stacks
+    # (reconcile_app_stack's first move is a full `up -d`, which restarts the
+    # dead sidecars) plus model-manager.
+    sleep 15
+    reconcile_app_stack /home/nightfury/selfhosted/ask-prod ask ask \
+      -f docker-compose.yaml -f docker-compose.vpn.yaml
+    reconcile_app_stack /home/nightfury/selfhosted/ask ask-admin-feature ask \
+      -f docker-compose.yaml -f docker-compose.admin-feature.yaml \
+      -f docker-compose.vpn.yaml -f docker-compose.vpn.admin-feature.yaml
+    reconcile_app_stack /home/nightfury/selfhosted/ask-flow ask-lab ask \
+      -f docker-compose.yaml -f docker-compose.lab.yaml -f docker-compose.vpn.lab.yaml
+    reconcile /home/nightfury/selfhosted/ask/selfhosted/model-manager model-manager
     ;;
   NightFuryS)
     reconcile /home/nightfury/selfhosted/embedder embedder
@@ -146,17 +176,11 @@ case "$HOST" in
     warm granite4.1:8b
     ;;
   MiniNightFury)
-    # The app host: reconcile the three Ask stacks onto their networks so a
-    # reboot never strands the app container (see reconcile_app_stack). prod
-    # first (public), then staging, then lab. Shared tts/degoog/searxng carry
-    # their own restart policies; cloudflared/imagen are systemd units.
-    reconcile_app_stack /home/nightfury/selfhosted/ask-prod ask ask \
-      -f docker-compose.yaml -f docker-compose.vpn.yaml
-    reconcile_app_stack /home/nightfury/selfhosted/ask ask-admin-feature ask \
-      -f docker-compose.yaml -f docker-compose.admin-feature.yaml \
-      -f docker-compose.vpn.yaml -f docker-compose.vpn.admin-feature.yaml
-    reconcile_app_stack /home/nightfury/selfhosted/ask-flow ask-lab ask \
-      -f docker-compose.yaml -f docker-compose.lab.yaml -f docker-compose.vpn.lab.yaml
+    # The Ask app stacks MOVED to NightFuryX (2026-08-23 migration) and are
+    # reconciled there now. What remains here — crawl4ai, public searxng/degoog
+    # — carries its own restart: unless-stopped; cloudflared is a Windows
+    # service. crawl4ai is the one Ask dependency worth nudging on boot.
+    reconcile /home/nightfury/selfhosted/crawl4ai crawl4ai
     ;;
   *)
     log "unknown host '$HOST' — nothing to do"
