@@ -1,0 +1,13 @@
+[Unit]
+Description=Weekly: update the Ask app stacks (prod + staging) on NightFuryX
+# No docker.service on .17 — Docker Desktop provides the daemon; the timer only
+# fires while the WSL distro (and thus Docker Desktop) is up, so network-online
+# is the only meaningful gate.
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=nightfury
+Environment=PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+ExecStart=/home/nightfury/selfhosted/ask-prod/fleet-boot/update-ask.sh
