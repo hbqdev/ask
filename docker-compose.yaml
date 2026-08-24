@@ -30,7 +30,7 @@ services:
       # Applies to prod (base) + staging (overlay merges base); the lab overlay
       # overrides TTS/WHISPER to its own lab services.
       VOICE_ENABLED: 'true'
-      TTS_SERVICE_URL: 'http://192.168.50.231:8890'
+      TTS_SERVICE_URL: 'http://192.168.50.17:8890'
       WHISPER_SERVICE_URL: 'http://192.168.50.17:8788'
       VOICE_STT_MODEL: 'Systran/faster-distil-whisper-large-v3'
       # Pin the image EDIT model to one consistent, strong editor instead of
