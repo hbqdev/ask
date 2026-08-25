@@ -11,7 +11,6 @@ import type {
 } from '@/lib/types/ai'
 import type { DynamicToolPart } from '@/lib/types/dynamic-tools'
 
-import { SpeakButton } from './voice/speak-button'
 import { AnswerSection } from './answer-section'
 import { DynamicToolDisplay } from './dynamic-tool-display'
 import { GeneratedImageSection } from './generated-image-section'
@@ -158,6 +157,19 @@ export function RenderMessage({
     (status === 'streaming' || status === 'submitted')
   const isStreamingComplete = !isThisMessageStreaming
 
+  // Voice read-aloud: the finished answer carries a data-spokenGist part (see
+  // lib/voice/emit-spoken-gist.ts) — the answer text cleaned for speech. It's
+  // attached to the FINAL answer's action row below so the Listen control sits
+  // inline with copy/share (not on its own line).
+  const gistPart = (message.parts as any[] | undefined)?.find(
+    (part: any) => part.type === 'data-spokenGist'
+  )
+  const spokenGist: string =
+    process.env.NEXT_PUBLIC_VOICE_ENABLED === 'true'
+      ? (gistPart?.data?.text ?? '')
+      : ''
+  const voiceAutoPlay = Boolean(voiceMode && isLatestMessage)
+
   // Where each ResearchProcessSection landed in `elements`, so the pass below
   // can settle which of them is still live once the whole message is segmented.
   const processIndices: number[] = []
@@ -245,6 +257,8 @@ export function RenderMessage({
           status={status}
           citationMaps={citationMaps}
           onQuoteContext={onQuoteContext}
+          spokenGist={isLastTextPart ? spokenGist : undefined}
+          voiceAutoPlay={isLastTextPart ? voiceAutoPlay : undefined}
         />
       )
     } else if (part.type === 'tool-generateImage') {
@@ -304,28 +318,6 @@ export function RenderMessage({
       elements[i] as React.ReactElement<{ hasSubsequentText?: boolean }>,
       { hasSubsequentText: true }
     )
-  }
-
-  // Voice "read-aloud": the finished answer carries a data-spokenGist part
-  // (see lib/voice/emit-spoken-gist.ts) with the answer text cleaned for speech.
-  // When the client voice flag is on, show a Listen control that reads the
-  // answer aloud (no caption — it would just duplicate the on-screen answer).
-  // autoPlay is scoped to the latest message so an old chat never re-speaks.
-  if (process.env.NEXT_PUBLIC_VOICE_ENABLED === 'true') {
-    const gistPart = (message.parts as any[] | undefined)?.find(
-      (part: any) => part.type === 'data-spokenGist'
-    )
-    const gist: string = gistPart?.data?.text ?? ''
-    if (gist) {
-      elements.push(
-        <div key={`${messageId}-voice`} className="mt-1 px-3">
-          <SpeakButton
-            gistText={gist}
-            autoPlay={voiceMode && isLatestMessage}
-          />
-        </div>
-      )
-    }
   }
 
   return <>{elements}</>
