@@ -45,7 +45,7 @@ export function useSpeechPlayback() {
   }, [teardown])
 
   const speak = useCallback(
-    async (text: string) => {
+    async (text: string, opts?: { voice?: string; speed?: number }) => {
       // Supersede any prior playback/fetch; this call becomes the current one.
       genRef.current++
       const gen = genRef.current
@@ -57,7 +57,11 @@ export function useSpeechPlayback() {
         const res = await fetch('/api/voice/speak', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ text }),
+          body: JSON.stringify({
+            text,
+            voice: opts?.voice,
+            speed: opts?.speed
+          }),
           signal: controller.signal
         })
         if (gen !== genRef.current) return // superseded while fetching
