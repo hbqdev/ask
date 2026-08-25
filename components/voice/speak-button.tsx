@@ -1,14 +1,22 @@
 'use client'
 import { useEffect, useRef } from 'react'
 
+import {
+  IconLoader2,
+  IconPlayerStopFilled,
+  IconVolume
+} from '@tabler/icons-react'
+
 import { DEFAULT_TTS_SPEED, DEFAULT_TTS_VOICE } from '@/lib/voice/voices'
 
 import { useClientSettingValue } from '@/hooks/use-client-setting'
 import { useSpeechPlayback } from '@/hooks/use-speech-playback'
 
-// A "Listen" control shown on an answer. In voice mode (autoPlay) it plays the
-// gist as soon as it arrives; otherwise it's a manual button. Renders nothing
-// until there is a gist to speak.
+import { Button } from '@/components/ui/button'
+
+// A "Listen" control for an answer, styled to sit inline with the other answer
+// actions (copy/share/…). In voice mode (autoPlay) it reads the answer as soon
+// as it arrives; the manual click re-reads it. Renders nothing without a gist.
 export function SpeakButton({
   gistText,
   autoPlay
@@ -18,7 +26,7 @@ export function SpeakButton({
 }) {
   const { speak, stop, state } = useSpeechPlayback()
 
-  // Per-user read-aloud voice + speed (Settings), applied to each playback.
+  // Per-user read-aloud voice + speed (from Settings/the voice popover).
   const voice = useClientSettingValue('voiceTtsVoice', DEFAULT_TTS_VOICE)
   const speedStr = useClientSettingValue(
     'voiceTtsSpeed',
@@ -42,20 +50,25 @@ export function SpeakButton({
 
   if (!gistText) return null
 
+  const playing = state === 'playing'
+  const loading = state === 'loading'
   return (
-    <button
+    <Button
       type="button"
-      aria-label={state === 'playing' ? 'Stop' : 'Listen'}
-      onClick={() =>
-        state === 'playing' ? stop() : speak(gistText, { voice, speed })
-      }
-      className="text-muted-foreground hover:text-foreground text-xs"
+      variant="ghost"
+      size="icon"
+      onClick={() => (playing ? stop() : speak(gistText, { voice, speed }))}
+      className="rounded-full"
+      aria-label={playing ? 'Stop reading aloud' : 'Listen to this answer'}
+      title={playing ? 'Stop' : loading ? 'Loading…' : 'Listen'}
     >
-      {state === 'playing'
-        ? '■ Stop'
-        : state === 'loading'
-          ? '… Loading'
-          : '▶ Listen'}
-    </button>
+      {loading ? (
+        <IconLoader2 size={14} className="animate-spin" />
+      ) : playing ? (
+        <IconPlayerStopFilled size={14} />
+      ) : (
+        <IconVolume size={14} />
+      )}
+    </Button>
   )
 }

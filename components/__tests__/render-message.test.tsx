@@ -8,8 +8,22 @@ import type { UIMessage } from '@/lib/types/ai'
 import { endsInActiveResearch, RenderMessage } from '../render-message'
 
 vi.mock('../answer-section', () => ({
-  AnswerSection: ({ content }: { content: string }) => (
-    <div data-testid="answer-section">{content}</div>
+  AnswerSection: ({
+    content,
+    spokenGist,
+    voiceAutoPlay
+  }: {
+    content: string
+    spokenGist?: string
+    voiceAutoPlay?: boolean
+  }) => (
+    <div
+      data-testid="answer-section"
+      data-spoken-gist={spokenGist ?? ''}
+      data-voice-autoplay={String(!!voiceAutoPlay)}
+    >
+      {content}
+    </div>
   )
 }))
 
@@ -564,7 +578,9 @@ describe('RenderMessage voice read-aloud', () => {
       ]
     }) as UIMessage
 
-  test('mounts the speak button + gist caption when the flag is on', () => {
+  test('passes the gist + autoplay to the final answer when the flag is on', () => {
+    // The Listen control now lives in the answer's action row (MessageActions),
+    // so render-message hands the gist + autoplay to AnswerSection as props.
     process.env.NEXT_PUBLIC_VOICE_ENABLED = 'true'
     render(
       <RenderMessage
@@ -576,14 +592,12 @@ describe('RenderMessage voice read-aloud', () => {
         voiceMode
       />
     )
-    const button = screen.getByTestId('speak-button')
-    expect(button).toHaveAttribute('data-gist', 'the spoken gist')
-    expect(button).toHaveAttribute('data-autoplay', 'true')
-    // The gist also renders as a visible caption under the answer.
-    expect(screen.getByText('the spoken gist')).toBeInTheDocument()
+    const section = screen.getByTestId('answer-section')
+    expect(section).toHaveAttribute('data-spoken-gist', 'the spoken gist')
+    expect(section).toHaveAttribute('data-voice-autoplay', 'true')
   })
 
-  test('renders no voice UI when the flag is off (byte-identical to today)', () => {
+  test('passes no gist when the flag is off (byte-identical to today)', () => {
     delete process.env.NEXT_PUBLIC_VOICE_ENABLED
     render(
       <RenderMessage
@@ -595,8 +609,10 @@ describe('RenderMessage voice read-aloud', () => {
         voiceMode
       />
     )
-    expect(screen.queryByTestId('speak-button')).not.toBeInTheDocument()
-    expect(screen.queryByText('the spoken gist')).not.toBeInTheDocument()
+    expect(screen.getByTestId('answer-section')).toHaveAttribute(
+      'data-spoken-gist',
+      ''
+    )
   })
 
   test('does not auto-play a non-latest answer even with voice mode on', () => {
@@ -613,8 +629,8 @@ describe('RenderMessage voice read-aloud', () => {
         voiceMode
       />
     )
-    expect(screen.getByTestId('speak-button')).toHaveAttribute(
-      'data-autoplay',
+    expect(screen.getByTestId('answer-section')).toHaveAttribute(
+      'data-voice-autoplay',
       'false'
     )
   })
