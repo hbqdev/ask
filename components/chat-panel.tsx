@@ -63,6 +63,7 @@ import {
 import { WildBreathField } from './ui/wild-breath-field'
 import { MicButton } from './voice/mic-button'
 import { RecordingBar } from './voice/recording-bar'
+import { VoiceSettingsPopover } from './voice/voice-settings-popover'
 import { ActionButtons } from './action-buttons'
 import { DiscoverBriefing } from './discover-briefing'
 import { FileUploadButton } from './file-upload-button'
@@ -884,35 +885,40 @@ export function ChatPanel({
             />
             <SourceSelector />
             {voiceEnabled && (
-              <TooltipProvider delayDuration={200}>
-                <Tooltip>
-                  <TooltipTrigger asChild>
-                    <Button
-                      type="button"
-                      variant="ghost"
-                      size="icon"
-                      aria-label="Read answers aloud"
-                      aria-pressed={voiceMode}
-                      onClick={() => onVoiceModeChange?.(!voiceMode)}
-                      className={cn(
-                        'size-8 shrink-0 rounded-full',
-                        voiceMode ? 'text-foreground' : 'text-muted-foreground'
-                      )}
-                    >
-                      {voiceMode ? (
-                        <Volume className="size-4" />
-                      ) : (
-                        <VolumeOff className="size-4" />
-                      )}
-                    </Button>
-                  </TooltipTrigger>
-                  <TooltipContent className="text-xs">
-                    {voiceMode
-                      ? 'Voice mode on — answers read aloud'
-                      : 'Read answers aloud'}
-                  </TooltipContent>
-                </Tooltip>
-              </TooltipProvider>
+              <div className="flex items-center gap-0.5">
+                <TooltipProvider delayDuration={200}>
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="icon"
+                        aria-label="Read answers aloud"
+                        aria-pressed={voiceMode}
+                        onClick={() => onVoiceModeChange?.(!voiceMode)}
+                        className={cn(
+                          'size-8 shrink-0 rounded-full',
+                          voiceMode
+                            ? 'text-foreground'
+                            : 'text-muted-foreground'
+                        )}
+                      >
+                        {voiceMode ? (
+                          <Volume className="size-4" />
+                        ) : (
+                          <VolumeOff className="size-4" />
+                        )}
+                      </Button>
+                    </TooltipTrigger>
+                    <TooltipContent className="text-xs">
+                      {voiceMode
+                        ? 'Voice mode on — answers read aloud'
+                        : 'Read answers aloud'}
+                    </TooltipContent>
+                  </Tooltip>
+                </TooltipProvider>
+                <VoiceSettingsPopover />
+              </div>
             )}
             {voiceEnabled && (
               <MicButton

@@ -44,6 +44,7 @@ import {
   DialogHeader,
   DialogTitle
 } from './ui/dialog'
+import { SpeakButton } from './voice/speak-button'
 import { ChatShare } from './chat-share'
 import { RetryButton } from './retry-button'
 
@@ -63,6 +64,10 @@ interface MessageActionsProps {
   status?: UseChatHelpers<UIMessage<unknown, UIDataTypes, UITools>>['status']
   visible?: boolean
   citationMaps?: Record<string, Record<number, SearchResultItem>>
+  /** Cleaned answer text for read-aloud (from the data-spokenGist part). */
+  spokenGist?: string
+  /** Auto-read this answer aloud (voice mode + latest message). */
+  voiceAutoPlay?: boolean
 }
 
 export function MessageActions({
@@ -80,7 +85,9 @@ export function MessageActions({
   className,
   status,
   visible = true,
-  citationMaps
+  citationMaps,
+  spokenGist,
+  voiceAutoPlay = false
 }: MessageActionsProps) {
   const [feedbackScore, setFeedbackScore] = useState<number | null>(
     initialFeedbackScore ?? null
@@ -239,6 +246,9 @@ export function MessageActions({
       >
         <div className="flex items-center gap-0.5">
           {reload && <RetryButton reload={reload} messageId={messageId} />}
+          {spokenGist && (
+            <SpeakButton gistText={spokenGist} autoPlay={voiceAutoPlay} />
+          )}
           <Button
             variant="ghost"
             size="icon"
