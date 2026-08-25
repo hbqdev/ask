@@ -17,6 +17,12 @@ import { toast } from 'sonner'
 import { deleteAccount, updateEmail } from '@/lib/actions/account'
 import { createClient } from '@/lib/supabase/client'
 import { cn } from '@/lib/utils'
+import {
+  DEFAULT_TTS_SPEED,
+  DEFAULT_TTS_VOICE,
+  TTS_SPEEDS,
+  TTS_VOICES
+} from '@/lib/voice/voices'
 
 import {
   AlertDialog,
@@ -200,6 +206,9 @@ function PreferencesTab() {
   const [measureUnit, setMeasureUnit] = useState('metric')
   const [showWeather, setShowWeather] = useState(true)
   const [showNews, setShowNews] = useState(true)
+  const [ttsVoice, setTtsVoice] = useState(DEFAULT_TTS_VOICE)
+  const [ttsSpeed, setTtsSpeed] = useState(String(DEFAULT_TTS_SPEED))
+  const voiceOn = process.env.NEXT_PUBLIC_VOICE_ENABLED === 'true'
 
   useEffect(() => {
     // Reads localStorage after mount (client-only) — intentional, so the
@@ -209,6 +218,8 @@ function PreferencesTab() {
     setMeasureUnit(lsGet('measureUnit') ?? 'metric')
     setShowWeather(lsGet('showWeatherWidget') !== 'false')
     setShowNews(lsGet('showNewsWidget') !== 'false')
+    setTtsVoice(lsGet('voiceTtsVoice') ?? DEFAULT_TTS_VOICE)
+    setTtsSpeed(lsGet('voiceTtsSpeed') ?? String(DEFAULT_TTS_SPEED))
     /* eslint-enable react-hooks/set-state-in-effect */
   }, [])
 
@@ -273,6 +284,38 @@ function PreferencesTab() {
           }}
         />
       </SettingRow>
+
+      {voiceOn && (
+        <>
+          <SettingRow
+            title="Read-aloud voice"
+            description="The voice used when reading answers aloud."
+          >
+            <SettingSelect
+              value={ttsVoice}
+              onChange={v => {
+                setTtsVoice(v)
+                lsSet('voiceTtsVoice', v)
+              }}
+              options={TTS_VOICES.map(o => ({ value: o.id, label: o.label }))}
+            />
+          </SettingRow>
+
+          <SettingRow
+            title="Read-aloud speed"
+            description="How fast answers are read aloud."
+          >
+            <SettingSelect
+              value={ttsSpeed}
+              onChange={v => {
+                setTtsSpeed(v)
+                lsSet('voiceTtsSpeed', v)
+              }}
+              options={TTS_SPEEDS}
+            />
+          </SettingRow>
+        </>
+      )}
     </div>
   )
 }
