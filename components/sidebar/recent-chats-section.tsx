@@ -97,6 +97,11 @@ export function RecentChatsSection({
   // who had it collapsed, which is acceptable for a sidebar fold.
   const [collapsed, setCollapsed] = useState(false)
   useEffect(() => {
+    // Intentional post-mount hydration from localStorage (see the note above):
+    // it must run after mount to keep SSR/CSR markup in sync, and it keeps
+    // working in private mode where the persisted write below no-ops. This
+    // one-shot external-store read is outside what set-state-in-effect targets.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     setCollapsed(localStorage.getItem(RECENT_COLLAPSED_KEY) === 'true')
   }, [])
 
