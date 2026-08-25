@@ -1,5 +1,5 @@
 'use client'
-import { useEffect } from 'react'
+import { useEffect, useRef } from 'react'
 
 import { useSpeechPlayback } from '@/hooks/use-speech-playback'
 
@@ -15,8 +15,16 @@ export function SpeakButton({
 }) {
   const { speak, stop, state } = useSpeechPlayback()
 
+  // Auto-play a given gist at most once. Without this, any re-run of the effect
+  // with the same answer (a re-render/re-mount while it's still the latest
+  // message) would restart the read-aloud from the top.
+  const autoSpokenRef = useRef<string | null>(null)
+
   useEffect(() => {
-    if (autoPlay && gistText) speak(gistText)
+    if (autoPlay && gistText && autoSpokenRef.current !== gistText) {
+      autoSpokenRef.current = gistText
+      speak(gistText)
+    }
     return () => stop()
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [autoPlay, gistText])
@@ -30,7 +38,11 @@ export function SpeakButton({
       onClick={() => (state === 'playing' ? stop() : speak(gistText))}
       className="text-muted-foreground hover:text-foreground text-xs"
     >
-      {state === 'playing' ? '■ Stop' : state === 'loading' ? '… Loading' : '▶ Listen'}
+      {state === 'playing'
+        ? '■ Stop'
+        : state === 'loading'
+          ? '… Loading'
+          : '▶ Listen'}
     </button>
   )
 }
