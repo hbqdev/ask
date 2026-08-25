@@ -19,6 +19,7 @@ describe('synthesizeSpeech', () => {
       model: 'kokoro',
       input: 'hello',
       voice: 'af_heart',
+      speed: 1.2, // default from ttsSpeed()
       response_format: 'mp3'
     })
   })
