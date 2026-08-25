@@ -54,6 +54,8 @@ export type AnswerSectionProps = {
   isCloudDeployment?: boolean
   libraryAvailable?: boolean
   onQuoteContext?: (text: string) => void
+  spokenGist?: string
+  voiceAutoPlay?: boolean
 }
 
 export function AnswerSection({
@@ -71,7 +73,9 @@ export function AnswerSection({
   isGuest = false,
   isCloudDeployment = false,
   libraryAvailable = true,
-  onQuoteContext
+  onQuoteContext,
+  spokenGist,
+  voiceAutoPlay
 }: AnswerSectionProps) {
   const contentRef = useRef<HTMLDivElement>(null)
   const [selection, setSelection] = useState<{
@@ -327,6 +331,8 @@ export function AnswerSection({
             status={status}
             visible={showActions}
             citationMaps={citationMaps}
+            spokenGist={spokenGist}
+            voiceAutoPlay={voiceAutoPlay}
           />
         </div>
       )}
