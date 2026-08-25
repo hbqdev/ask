@@ -17,6 +17,15 @@ export function ttsVoice(): string {
   return process.env.VOICE_TTS_VOICE || 'af_heart'
 }
 
+// Kokoro synthesis speed. 1.0 is the model's natural rate, which reads a full
+// answer a touch slowly; default a bit faster and let a deployment tune it via
+// VOICE_TTS_SPEED. Clamped to Kokoro's supported 0.5–2.0 range.
+export function ttsSpeed(): number {
+  const raw = Number(process.env.VOICE_TTS_SPEED)
+  const speed = Number.isFinite(raw) && raw > 0 ? raw : 1.2
+  return Math.min(2, Math.max(0.5, speed))
+}
+
 // Local model that condenses an answer into a spoken gist — the same resident
 // granite4.1:8b the title generator / memory extractor use.
 export function gistModelId(): string {
