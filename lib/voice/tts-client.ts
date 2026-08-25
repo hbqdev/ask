@@ -1,10 +1,10 @@
-import { ttsServiceUrl, ttsVoice } from './config'
+import { ttsServiceUrl, ttsSpeed, ttsVoice } from './config'
 
 // POST text to the self-hosted Kokoro service and return its streaming audio
 // body so the route can pipe it straight to the browser (progressive playback).
 export async function synthesizeSpeech(
   text: string,
-  opts: { voice?: string; signal?: AbortSignal } = {}
+  opts: { voice?: string; speed?: number; signal?: AbortSignal } = {}
 ): Promise<ReadableStream<Uint8Array>> {
   const base = ttsServiceUrl()
   if (!base) throw new Error('TTS service is not configured (TTS_SERVICE_URL)')
@@ -20,6 +20,7 @@ export async function synthesizeSpeech(
       model: 'kokoro',
       input: text,
       voice: opts.voice ?? ttsVoice(),
+      speed: opts.speed ?? ttsSpeed(),
       response_format: 'mp3'
     }),
     signal: opts.signal
