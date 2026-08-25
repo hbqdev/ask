@@ -1,6 +1,7 @@
 import { getCurrentUserId } from '@/lib/auth/get-current-user'
 import { isVoiceEnabled } from '@/lib/voice/config'
 import { synthesizeSpeech } from '@/lib/voice/tts-client'
+import { clampSpeed, isValidVoice } from '@/lib/voice/voices'
 
 // Read-aloud now speaks the full (cleaned) answer, not a short gist, so the cap
 // is generous — enough for a long research answer. emit-spoken-gist truncates
@@ -15,8 +16,10 @@ export async function POST(req: Request): Promise<Response> {
   if (!userId) return new Response('Unauthorized', { status: 401 })
 
   let text: unknown
+  let voice: unknown
+  let speed: unknown
   try {
-    ;({ text } = await req.json())
+    ;({ text, voice, speed } = await req.json())
   } catch {
     return new Response('Bad request', { status: 400 })
   }
@@ -24,8 +27,15 @@ export async function POST(req: Request): Promise<Response> {
     return new Response('Invalid text', { status: 400 })
   }
 
+  // Per-user preferences from Settings, validated here. Anything missing or
+  // invalid falls through to the deployment defaults (ttsVoice/ttsSpeed).
+  const opts = {
+    voice: isValidVoice(voice) ? voice : undefined,
+    speed: typeof speed === 'number' ? clampSpeed(speed) : undefined
+  }
+
   try {
-    const audio = await synthesizeSpeech(text)
+    const audio = await synthesizeSpeech(text, opts)
     return new Response(audio, {
       headers: {
         // Kokoro service streams mp3; adjust if the service is configured for wav.
