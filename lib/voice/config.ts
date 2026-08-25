@@ -1,3 +1,5 @@
+import { clampSpeed, DEFAULT_TTS_SPEED, DEFAULT_TTS_VOICE } from './voices'
+
 // Voice is gated by a single flag so text users see zero change and the two
 // endpoints stay disabled unless a deployment opts in. Off everywhere except the
 // lab overlay (docker-compose.lab.yaml). Read per-call (not at import) so a lab
@@ -12,18 +14,19 @@ export function ttsServiceUrl(): string | undefined {
   return process.env.TTS_SERVICE_URL || undefined
 }
 
-// A Kokoro voice id. af_heart is a warm default; overridable per deployment.
+// The deployment-default Kokoro voice (a per-user pick from Settings overrides
+// it in the /speak request). Overridable per deployment via VOICE_TTS_VOICE.
 export function ttsVoice(): string {
-  return process.env.VOICE_TTS_VOICE || 'af_heart'
+  return process.env.VOICE_TTS_VOICE || DEFAULT_TTS_VOICE
 }
 
-// Kokoro synthesis speed. 1.0 is the model's natural rate, which reads a full
-// answer a touch slowly; default a bit faster and let a deployment tune it via
+// The deployment-default synthesis speed (a per-user pick from Settings
+// overrides it in the /speak request). 1.0 is Kokoro's natural rate, which
+// reads a full answer a touch slowly; default a bit faster, tunable via
 // VOICE_TTS_SPEED. Clamped to Kokoro's supported 0.5–2.0 range.
 export function ttsSpeed(): number {
   const raw = Number(process.env.VOICE_TTS_SPEED)
-  const speed = Number.isFinite(raw) && raw > 0 ? raw : 1.2
-  return Math.min(2, Math.max(0.5, speed))
+  return clampSpeed(Number.isFinite(raw) && raw > 0 ? raw : DEFAULT_TTS_SPEED)
 }
 
 // Local model that condenses an answer into a spoken gist — the same resident
