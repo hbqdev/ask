@@ -3,7 +3,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { eq } from 'drizzle-orm'
 import path from 'node:path'
 
-import { db } from '@/lib/db'
+import { dbAdmin } from '@/lib/db'
 import { completeIngestFailure, markFileReady } from '@/lib/db/file-actions'
 import { libraryFiles as files } from '@/lib/db/schema'
 import { storeExtractedChunks } from '@/lib/embeddings/upload-rag'
@@ -32,7 +32,10 @@ export async function POST(req: NextRequest) {
   if (typeof fileId !== 'string')
     return NextResponse.json({ error: 'bad request' }, { status: 400 })
 
-  const rows = await db
+  // Ingest is a machine endpoint with no user session, so look the file up with
+  // the admin (RLS-bypassing) client — the restricted `db` sees zero rows
+  // without an app.current_user_id and would 404 every completion.
+  const rows = await dbAdmin
     .select()
     .from(files)
     .where(eq(files.id, fileId))
