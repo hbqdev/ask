@@ -43,6 +43,40 @@ async function fileExists(p: string): Promise<boolean> {
   }
 }
 
+// Bounded server-side wait so the FIRST reply sees ingested content instead of
+// telling the user "still being processed, ask again." Re-polls the file row
+// until it leaves pending/processing (reaches ready/failed/expired) or the
+// deadline passes; returns the most recent row (possibly still pending on
+// timeout). Scoped by the caller to the non-vision/document path only — a
+// vision-capable model renders an image's pixels immediately and never waits.
+// Bounds are read from env at call time (so tests can override them):
+//   INGEST_WAIT_TIMEOUT_MS (default 120000) — timeoutMs <= 0 skips polling
+//   INGEST_WAIT_POLL_MS    (default 1500)
+async function waitForIngestReady(
+  objectKey: string,
+  currentRow: Awaited<ReturnType<typeof findFileByObjectKey>>
+): Promise<Awaited<ReturnType<typeof findFileByObjectKey>>> {
+  const timeoutMs = Number(process.env.INGEST_WAIT_TIMEOUT_MS ?? 120000)
+  const pollMs = Number(process.env.INGEST_WAIT_POLL_MS ?? 1500)
+  if (timeoutMs <= 0) return currentRow
+
+  let row = currentRow
+  const deadline = Date.now() + timeoutMs
+  while (Date.now() < deadline) {
+    await new Promise(r => setTimeout(r, pollMs))
+    try {
+      const next = await findFileByObjectKey(objectKey)
+      row = next
+      const status = next?.status
+      if (status !== 'pending' && status !== 'processing') return row
+    } catch {
+      // A transient lookup failure must not abort the wait — keep polling and
+      // fall back to the last good row on timeout.
+    }
+  }
+  return row
+}
+
 // Extract the plain text from the most recent user turn's text parts.
 // Used as the RAG query when a file is also attached to that message.
 function extractUserQuery(parts: any[]): string {
@@ -97,7 +131,7 @@ async function transformPart(
       err
     )
   }
-  const status = row?.status ?? 'ready' // pre-feature files (or a lookup error) have no row
+  let status = row?.status ?? 'ready' // pre-feature files (or a lookup error) have no row
 
   // An expired file has been tombstoned by the TTL sweep: its bytes and chunks
   // are gone from disk, so there is nothing to render for ANY model (vision
@@ -123,6 +157,17 @@ async function transformPart(
   const visionImage = isImage && modelHasVision
 
   if (!visionImage) {
+    // Ingest is the content source on this path (non-vision model, or any
+    // document), so give the first turn a bounded chance to see the extracted
+    // text before falling back to the "ask again" note. Env-tunable; a
+    // vision+image already rendered its pixels above and never reaches here.
+    if (status === 'pending' || status === 'processing') {
+      const updated = await waitForIngestReady(objectKey, row)
+      if (updated) {
+        row = updated
+        status = updated.status ?? status
+      }
+    }
     if (status === 'pending' || status === 'processing') {
       const stage = row?.ingestStage || 'queued'
       return [
