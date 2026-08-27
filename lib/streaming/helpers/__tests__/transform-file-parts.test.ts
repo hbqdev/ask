@@ -64,6 +64,10 @@ afterAll(async () => {
 
 beforeEach(() => {
   vi.resetAllMocks()
+  // Existing tests mock findFileByObjectKey with a constant status, so disable
+  // the bounded ingest wait (timeoutMs <= 0 skips polling) to keep them
+  // exercising the pre-wait behavior. The one wait test overrides these.
+  process.env.INGEST_WAIT_TIMEOUT_MS = '0'
 })
 
 function fileUrl(objectKey: string): string {
@@ -234,6 +238,41 @@ describe('transformFileParts', () => {
         text: '[Attached file: processing-notxt.txt — still being processed (embedding). Its content is not available yet; tell the user to ask again shortly.]'
       }
     ])
+  })
+
+  it('non-vision document: waits for background ingest, then yields the extracted content on the first turn', async () => {
+    // Ingest starts processing and becomes ready mid-wait; the bounded poller
+    // should keep re-checking and then extract, NOT return the "ask again" note.
+    vi.mocked(findFileByObjectKey)
+      .mockResolvedValueOnce({ status: 'processing' } as any)
+      .mockResolvedValueOnce({ status: 'processing' } as any)
+      .mockResolvedValue({ status: 'ready' } as any)
+    vi.mocked(queryFileChunks).mockResolvedValue({
+      filename: 'slow.txt',
+      chunks: ['freshly ingested content']
+    })
+    const objectKey = 'u1/chats/c1/slow.txt'
+    await writeUploadFile(objectKey, 'on-disk bytes')
+
+    const prevTimeout = process.env.INGEST_WAIT_TIMEOUT_MS
+    const prevPoll = process.env.INGEST_WAIT_POLL_MS
+    process.env.INGEST_WAIT_TIMEOUT_MS = '500'
+    process.env.INGEST_WAIT_POLL_MS = '5'
+    try {
+      const result = await run([filePart(objectKey, { filename: 'slow.txt' })])
+
+      expect(result).toEqual([
+        {
+          type: 'text',
+          text: '[Attached document: slow.txt]\n\nRelevant excerpts:\n\nfreshly ingested content\n\n[Attachment slow.txt — URL: /uploads/u1/chats/c1/slow.txt]'
+        }
+      ])
+      // It re-polled the row rather than short-circuiting on the first status.
+      expect(vi.mocked(findFileByObjectKey).mock.calls.length).toBeGreaterThan(1)
+    } finally {
+      process.env.INGEST_WAIT_TIMEOUT_MS = prevTimeout
+      process.env.INGEST_WAIT_POLL_MS = prevPoll
+    }
   })
 
   // ── failed ─────────────────────────────────────────────────────────────────
