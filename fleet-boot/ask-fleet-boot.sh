@@ -100,6 +100,40 @@ reconcile_app_stack() {
   fi
 }
 
+# Explicitly (re)bring a stack's gluetun VPN sidecar + searxng up, retrying
+# until gluetun is healthy. On a cold boot gluetun can lose the /dev/net/tun
+# race and exit 127 EVEN after the daemon is ready, taking searxng
+# (network_mode: service:gluetun) down with it — and the app stack itself comes
+# up healthy (it does NOT share gluetun's namespace), so reconcile_app_stack is
+# satisfied and never retries the dead sidecar, leaving search silently dead
+# until a human nudges it (observed after every power loss). /dev/net/tun
+# becomes available shortly after boot, so a few spaced retries of
+# `up -d gluetun searxng` win hands-off. Recreating/starting gluetun gives it a
+# fresh network namespace, so searxng is brought up in the same command to
+# reattach. Usage: ensure_vpn_search <dir> <gluetun_container> <searxng_container> <-f file ...>
+ensure_vpn_search() {
+  local dir="$1" gluetun="$2" searxng="$3"
+  shift 3
+  local files=("$@")
+  [ -d "$dir" ] || {
+    log "skip vpn/search (missing $dir)"
+    return 0
+  }
+  local i gstate sstate
+  for i in $(seq 1 6); do
+    gstate="$(docker inspect -f '{{if .State.Health}}{{.State.Health.Status}}{{else}}{{.State.Status}}{{end}}' "$gluetun" 2>/dev/null || echo missing)"
+    sstate="$(docker inspect -f '{{.State.Status}}' "$searxng" 2>/dev/null || echo missing)"
+    if { [ "$gstate" = healthy ] || [ "$gstate" = running ]; } && [ "$sstate" = running ]; then
+      log "$gluetun/$searxng ok (gluetun=$gstate searxng=$sstate)"
+      return 0
+    fi
+    log "attempt $i: gluetun=$gstate searxng=$sstate — bringing up gluetun+searxng"
+    ( cd "$dir" && docker compose "${files[@]}" up -d gluetun searxng ) >/dev/null 2>&1
+    sleep 10
+  done
+  log "$gluetun/$searxng STILL down after retries — needs a human"
+}
+
 # Wait for Ollama to answer, then load a model resident (keep_alive=-1) so the
 # GPU isn't cold on the first request.
 warm() {
@@ -151,13 +185,9 @@ case "$HOST" in
     reconcile /home/nightfury/selfhosted/whisper       ask-whisper
     warm qwen3-vl:4b
     warm_whisper
-    # The Ask app tier moved here in the 2026-08-23 migration. On a cold boot
-    # the gluetun VPN sidecars lose the /dev/net/tun race and exit 127, taking
-    # searxng (network_mode: service:gluetun) with them; restart:unless-stopped
-    # gives up after its backoff, leaving the apps up but search dead. Let
-    # Docker Desktop networking settle, then reconcile all three stacks
-    # (reconcile_app_stack's first move is a full `up -d`, which restarts the
-    # dead sidecars) plus model-manager.
+    # The Ask app tier moved here in the 2026-08-23 migration. Let Docker
+    # Desktop networking settle, then reconcile all three app stacks (gates on
+    # the app's own health) plus model-manager.
     sleep 15
     reconcile_app_stack /home/nightfury/selfhosted/ask-prod ask ask \
       -f docker-compose.yaml -f docker-compose.vpn.yaml
@@ -165,6 +195,17 @@ case "$HOST" in
       -f docker-compose.yaml -f docker-compose.admin-feature.yaml \
       -f docker-compose.vpn.yaml -f docker-compose.vpn.admin-feature.yaml
     reconcile_app_stack /home/nightfury/selfhosted/ask-flow ask-lab ask \
+      -f docker-compose.yaml -f docker-compose.lab.yaml -f docker-compose.vpn.lab.yaml
+    # reconcile_app_stack gates on the APP, which comes up healthy WITHOUT
+    # gluetun, so it never notices the cold-boot-wedged VPN sidecars. Explicitly
+    # retry gluetun+searxng for each stack so search survives a power loss
+    # hands-off (the recurring manual nudge after every outage).
+    ensure_vpn_search /home/nightfury/selfhosted/ask-prod ask-gluetun ask-searxng \
+      -f docker-compose.yaml -f docker-compose.vpn.yaml
+    ensure_vpn_search /home/nightfury/selfhosted/ask ask-gluetun-admin-feature ask-searxng-admin-feature \
+      -f docker-compose.yaml -f docker-compose.admin-feature.yaml \
+      -f docker-compose.vpn.yaml -f docker-compose.vpn.admin-feature.yaml
+    ensure_vpn_search /home/nightfury/selfhosted/ask-flow ask-gluetun-lab ask-searxng-lab \
       -f docker-compose.yaml -f docker-compose.lab.yaml -f docker-compose.vpn.lab.yaml
     reconcile /home/nightfury/selfhosted/ask/selfhosted/model-manager model-manager
     ;;
