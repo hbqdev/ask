@@ -15,7 +15,7 @@ describe('buildClassifierTelemetry', () => {
       modelMs: 6870,
       inputTokens: 929,
       outputTokens: 52,
-      model: 'granite4.1:8b',
+      model: 'granite4.2:8b',
       outcome: 'ok'
     })
     const obj = JSON.parse(line.slice('[latency:classify] '.length))
@@ -27,7 +27,7 @@ describe('buildClassifierTelemetry', () => {
       overhead_ms: 2130,
       prompt_tokens: 929,
       gen_tokens: 52,
-      model: 'granite4.1:8b',
+      model: 'granite4.2:8b',
       outcome: 'ok'
     })
   })
@@ -40,7 +40,7 @@ describe('buildClassifierTelemetry', () => {
       modelMs: 4000,
       inputTokens: 900,
       outputTokens: 100,
-      model: 'granite4.1:8b',
+      model: 'granite4.2:8b',
       outcome: 'ok'
     })
     const obj = JSON.parse(line.slice('[latency:classify] '.length))
@@ -51,7 +51,7 @@ describe('buildClassifierTelemetry', () => {
     const line = buildClassifierTelemetry({
       totalMs: 100,
       modelMs: 120,
-      model: 'granite4.1:8b',
+      model: 'granite4.2:8b',
       outcome: 'ok'
     })
     const obj = JSON.parse(line.slice('[latency:classify] '.length))
@@ -62,7 +62,7 @@ describe('buildClassifierTelemetry', () => {
     const line = buildClassifierTelemetry({
       totalMs: 5000,
       modelMs: 4000,
-      model: 'granite4.1:8b',
+      model: 'granite4.2:8b',
       outcome: 'ok'
     })
     const obj = JSON.parse(line.slice('[latency:classify] '.length))
@@ -77,7 +77,7 @@ describe('buildClassifierTelemetry', () => {
     const line = buildClassifierTelemetry({
       totalMs: 12000,
       modelMs: 12000,
-      model: 'granite4.1:8b',
+      model: 'granite4.2:8b',
       outcome: 'failed'
     })
     expect(JSON.parse(line.slice('[latency:classify] '.length)).outcome).toBe(
