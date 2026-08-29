@@ -32,7 +32,7 @@ export function ttsSpeed(): number {
 // Local model that condenses an answer into a spoken gist — the same resident
 // granite4.1:8b the title generator / memory extractor use.
 export function gistModelId(): string {
-  return process.env.VOICE_GIST_MODEL_ID || 'granite4.1:8b'
+  return process.env.VOICE_GIST_MODEL_ID || 'granite4.2:8b'
 }
 
 // Container-to-container URL for the self-hosted Whisper STT service. Unset ⇒

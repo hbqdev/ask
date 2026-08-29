@@ -35,7 +35,7 @@ describe('voice config', () => {
     delete process.env.VOICE_TTS_VOICE
     delete process.env.VOICE_GIST_MODEL_ID
     expect(ttsVoice()).toBe('af_heart')
-    expect(gistModelId()).toBe('granite4.1:8b')
+    expect(gistModelId()).toBe('granite4.2:8b')
     process.env.VOICE_TTS_VOICE = 'am_adam'
     process.env.VOICE_GIST_MODEL_ID = 'llama3.2:3b'
     expect(ttsVoice()).toBe('am_adam')
