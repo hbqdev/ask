@@ -51,7 +51,7 @@ services:
       # most accurate (5/5), against granite4.1:8b local at 2.19s and 3/5.
       # Cloud models are proxied through the main Ollama host, not the
       # dedicated classifier host.
-      CLASSIFIER_MODEL_ID: 'glm-5.2:cloud'
+      CLASSIFIER_MODEL_ID: 'glm-5.3-flash:cloud'
       CLASSIFIER_OLLAMA_BASE_URL: 'http://192.168.50.231:11434'
       # Pre-crawl snippet gate, ENFORCING. Phase 2 of
       # docs/superpowers/specs/2026-07-26-snippet-gate-design.md.

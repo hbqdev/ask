@@ -132,7 +132,7 @@ services:
       # (gpt-image-2 was tried first but times out >120s at usable quality.)
       # Shell-overridable; unset falls back to rotation.
       REPLICATE_IMAGE_EDIT_MODEL: ${REPLICATE_IMAGE_EDIT_MODEL:-google/nano-banana-2}
-      CLASSIFIER_MODEL_ID: 'glm-5.2:cloud'
+      CLASSIFIER_MODEL_ID: 'glm-5.3-flash:cloud'
       CLASSIFIER_OLLAMA_BASE_URL: 'http://192.168.50.231:11434'
       # Per-tool-call payload logging: the arms differ in WHICH tools they
       # call and in what order, which the [latency] line only counts.
