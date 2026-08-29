@@ -81,7 +81,7 @@ services:
       # and never measured; shell-settable so it can be.
       SEARCH_SNIPPET_GATE: ${SEARCH_SNIPPET_GATE:-off}
       SEARCH_SNIPPET_GATE_TOP_N: ${SEARCH_SNIPPET_GATE_TOP_N:-40}
-      CLASSIFIER_MODEL_ID: 'glm-5.2:cloud'
+      CLASSIFIER_MODEL_ID: 'glm-5.3-flash:cloud'
       CLASSIFIER_OLLAMA_BASE_URL: 'http://192.168.50.231:11434'
       # Per-tool-call payload logging: the arms differ in WHICH tools they
       # call and in what order, which the [latency] line only counts.
