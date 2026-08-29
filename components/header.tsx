@@ -28,7 +28,17 @@ export const Header: React.FC<HeaderProps> = ({ showGuestMenu = false }) => {
     <header
       className={cn(
         'absolute top-0 right-0 p-2 md:p-3 flex justify-between items-center z-10 backdrop-blur-sm lg:backdrop-blur-none bg-background/80 lg:bg-transparent transition-[width] duration-200 ease-linear',
-        open ? 'md:w-[calc(100%-var(--sidebar-width))]' : 'md:w-full',
+        // Track the content area's left edge in BOTH sidebar states so the
+        // pl-14 toggle-clearance below (calibrated for the open state) also
+        // holds when collapsed. The sidebar reserves --sidebar-width when open
+        // and shrinks to the --sidebar-width-icon rail when collapsed (it is
+        // collapsible="icon", not offcanvas), so the header must subtract the
+        // icon-rail width too — `md:w-full` here let the header slide under the
+        // rail, leaving the toggle (which floats at rail-edge + p-4) past the
+        // pl-14 reserve so long titles overlapped it.
+        open
+          ? 'md:w-[calc(100%-var(--sidebar-width))]'
+          : 'md:w-[calc(100%-var(--sidebar-width-icon))]',
         'w-full',
         // The sidebar toggle floats at the content area's top-left (absolute,
         // p-4 inset) in BOTH states — it is rendered unconditionally now so it
