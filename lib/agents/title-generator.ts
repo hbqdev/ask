@@ -29,7 +29,7 @@ import { isTracingEnabled } from '../utils/telemetry'
 // promises a change without a redeploy and a frozen constant cannot deliver
 // one. Costs nothing — this runs once per new chat.
 function titleModelId(): string {
-  return process.env.TITLE_MODEL_ID || 'granite4.1:8b'
+  return process.env.TITLE_MODEL_ID || 'granite4.2:8b'
 }
 // Titling one sentence is fast; a local model that has not answered in 8s is
 // not going to produce a better title than the user's own words.

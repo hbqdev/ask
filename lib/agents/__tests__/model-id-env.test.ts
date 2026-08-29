@@ -16,7 +16,7 @@ describe('serenity model ids are env-driven', () => {
     it(`${file} reads ${envVar} from env with granite default`, () => {
       const src = readFileSync(join(process.cwd(), file), 'utf8')
       expect(src).toContain(`process.env.${envVar}`)
-      expect(src).toContain(`'granite4.1:8b'`)
+      expect(src).toContain(`'granite4.2:8b'`)
     })
   }
 })
