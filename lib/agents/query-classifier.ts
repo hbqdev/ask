@@ -29,7 +29,7 @@ import { buildClassifierTelemetry } from './query-classifier-telemetry'
 // now that the classifier host is GPU-accelerating it (was CPU-only
 // due to a stale GPU driver, since fixed) — warm latency on
 // GPU is back down in the sub-second range that made 3b viable on CPU.
-const CLASSIFIER_MODEL_ID = process.env.CLASSIFIER_MODEL_ID ?? 'granite4.1:8b'
+const CLASSIFIER_MODEL_ID = process.env.CLASSIFIER_MODEL_ID ?? 'granite4.2:8b'
 
 // Short — this is a small structured-output call, not a research turn. If
 // it doesn't come back quickly, fall back rather than delay the real

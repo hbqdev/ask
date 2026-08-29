@@ -43,8 +43,8 @@ export function buildWarmRequests(
     ? env.LOCAL_LLM_BASE_URL || ''
     : env.CLASSIFIER_OLLAMA_BASE_URL || env.OLLAMA_BASE_URL || ''
   const warmModel = classifierIsCloud
-    ? env.MEMORY_EXTRACTOR_MODEL_ID || 'granite4.1:8b'
-    : env.CLASSIFIER_MODEL_ID || 'granite4.1:8b'
+    ? env.MEMORY_EXTRACTOR_MODEL_ID || 'granite4.2:8b'
+    : env.CLASSIFIER_MODEL_ID || 'granite4.2:8b'
   if (classifierBase) {
     requests.push({
       url: `${trimSlash(classifierBase)}/api/generate`,

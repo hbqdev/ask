@@ -6,7 +6,7 @@ import type { MemoryCandidate } from '../memory/types'
 import { createTimeoutFetch } from '../utils/fetch-with-timeout'
 import { localLlmBaseUrl } from '../utils/local-llm-host'
 
-const MODEL_ID = process.env.MEMORY_EXTRACTOR_MODEL_ID ?? 'granite4.1:8b'
+const MODEL_ID = process.env.MEMORY_EXTRACTOR_MODEL_ID ?? 'granite4.2:8b'
 const TIMEOUT_MS = 10_000
 
 const schema = z.object({
