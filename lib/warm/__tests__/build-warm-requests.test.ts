@@ -6,14 +6,14 @@ describe('buildWarmRequests', () => {
   it('builds a tiny 1-token classifier generate that pins the model resident', () => {
     const reqs = buildWarmRequests({
       CLASSIFIER_OLLAMA_BASE_URL: 'http://classifier:11434',
-      CLASSIFIER_MODEL_ID: 'granite4.1:8b'
+      CLASSIFIER_MODEL_ID: 'granite4.2:8b'
     })
 
     expect(reqs).toHaveLength(1)
     expect(reqs[0].url).toBe('http://classifier:11434/api/generate')
     const body = JSON.parse(reqs[0].body)
     expect(body).toMatchObject({
-      model: 'granite4.1:8b',
+      model: 'granite4.2:8b',
       stream: false,
       keep_alive: -1,
       options: { num_predict: 1 }
