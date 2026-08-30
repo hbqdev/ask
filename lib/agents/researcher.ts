@@ -13,7 +13,7 @@ import { getMemoryInjection } from '../memory/inject'
 import { getRelatedQuestionsSpecPrompt } from '../render/prompt'
 import type { FullContentByToolCall } from '../search/rehydrate-full-content'
 import { calculateTool } from '../tools/calculate'
-import { fetchTool } from '../tools/fetch'
+import { createFetchTool } from '../tools/fetch'
 import {
   createGenerateImageTool,
   isImageGenEnabled
@@ -453,7 +453,11 @@ export async function createResearcher({
   // a REAL toolCallId whose results the model may cite. Without a prompt clause
   // naming these ids, the citation-integrity rule below silently discards the
   // anchor (SPIKE finding #1), so the retrieved chunks would be uncitable.
-  documentRetrievalSources
+  documentRetrievalSources,
+  // Folds each search/fetch call's stage timings into the per-turn [latency]
+  // line (create-chat-stream-response owns the LatencyTracker). Additive
+  // telemetry only; undefined (e.g. ephemeral turns) leaves the tools untimed.
+  onToolTiming
 }: {
   model: string
   modelConfig?: Model
@@ -502,6 +506,9 @@ export async function createResearcher({
   // Attached-source retrievals injected this turn — each a citable toolCallId +
   // its display title. Empty/undefined leaves the citation rules untouched.
   documentRetrievalSources?: { toolCallId: string; title: string }[]
+  // Reports a completed search/fetch call's stage durations (ms) so the
+  // per-turn [latency] line can accumulate them. Additive telemetry only.
+  onToolTiming?: (kind: 'search' | 'fetch', stages: Record<string, number>) => void
 }) {
   try {
     const currentDate = new Date().toLocaleString()
@@ -534,8 +541,12 @@ export async function createResearcher({
       intent,
       firstSearchDepth,
       chatId: currentChatId,
-      fullContentSink
+      fullContentSink,
+      onToolTiming
     })
+    // Per-request fetch instance so this turn's fetch calls report their wall
+    // time into the same tracker. Untimed default instance stays for url-rag.
+    const fetchTool = createFetchTool({ onToolTiming })
     const askQuestionTool = createQuestionTool(model)
     const todoTools = createTodoTools()
 
