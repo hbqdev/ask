@@ -598,9 +598,12 @@ export async function POST(request: Request) {
       // final line". Every warm cache hit turned a free instant result into a
       // hard tool failure. Stream mode is the default
       // (SEARCH_STREAM_PREVIEW !== 'false'), so this was the normal path.
+      // Additive `timings`: lets lib/tools/search.ts fold this search's stage
+      // durations into the per-turn [latency] line without a log join. A cache
+      // hit only spent cache_ms, so that is all this carries.
       if (wantsStream) {
         return new Response(
-          `${JSON.stringify({ type: 'final', ...cachedResults })}\n`,
+          `${JSON.stringify({ type: 'final', ...cachedResults, timings: timer.timings() })}\n`,
           {
             headers: {
               'Content-Type': 'application/x-ndjson; charset=utf-8',
@@ -609,7 +612,7 @@ export async function POST(request: Request) {
           }
         )
       }
-      return NextResponse.json(cachedResults)
+      return NextResponse.json({ ...cachedResults, timings: timer.timings() })
     }
     timer.set('cache', 'miss')
 
@@ -666,7 +669,10 @@ export async function POST(request: Request) {
               write({ type: 'preview', ...preview })
             )
             await finish(results)
-            write({ type: 'final', ...results })
+            // `timings` read AFTER finish so every stage (including the final
+            // returned-count mark) is present. Additive field folded into the
+            // per-turn [latency] line by lib/tools/search.ts.
+            write({ type: 'final', ...results, timings: timer.timings() })
           } catch (error) {
             console.error('Advanced search error (stream):', error)
             write({
@@ -691,7 +697,7 @@ export async function POST(request: Request) {
 
     const results = await runSearch()
     await finish(results)
-    return NextResponse.json(results)
+    return NextResponse.json({ ...results, timings: timer.timings() })
   } catch (error) {
     console.error('Advanced search error:', error)
     return NextResponse.json(

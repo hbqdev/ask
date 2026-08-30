@@ -43,6 +43,12 @@ export class LatencyTracker {
   // wrong source for one belonging to another turn — so without a counter here
   // there is no signal at all that citations are failing.
   private citations: { total: number; unresolved: number } | null = null
+  // Per-turn SUM of tool stage timings (ms), folded in from the search and
+  // fetch tools so the turn line is self-contained for step attribution
+  // instead of needing a join against the separate [latency:search] line. A
+  // turn makes MULTIPLE search/fetch calls; each stage is a sequential real
+  // cost, so they accumulate. Only keys ending in `_ms` are summed.
+  private readonly toolTimings: Record<string, number> = {}
 
   constructor(
     private readonly meta: Meta,
@@ -98,6 +104,27 @@ export class LatencyTracker {
     this.citations = audit
   }
 
+  /**
+   * Fold one tool call's stage timings into the per-turn totals. A turn can
+   * make several search/fetch calls, so each `_ms` stage is ACCUMULATED (the
+   * costs are sequential and real): sum crawl_ms/enrich_ms/rerank_ms across
+   * searches, search_ms across searches, fetch_ms across fetches. `kind` is
+   * advisory — stages are keyed by name — but distinguishes the two callers in
+   * case a future stage name collides. Fully guarded: telemetry must never
+   * break a turn.
+   */
+  addToolTiming(_kind: 'search' | 'fetch', stages: Record<string, number>): void {
+    try {
+      for (const [k, v] of Object.entries(stages)) {
+        if (k.endsWith('_ms') && typeof v === 'number' && Number.isFinite(v)) {
+          this.toolTimings[k] = (this.toolTimings[k] ?? 0) + v
+        }
+      }
+    } catch {
+      // Telemetry must never break a turn.
+    }
+  }
+
   /** Emit the single per-turn line. */
   emit(extra: {
     skipSearch?: boolean | null
@@ -116,12 +143,42 @@ export class LatencyTracker {
       // so this isolates prompt processing from tool round trips.
       const lastToolAt = this.partLastSeen['tool-output-available']
       const textAt = this.streamParts['text-start']
-      const ingest =
+      // answer_wait = last tool output → first prose. Uses partLastSeen for the
+      // tool side so a multi-step turn measures from the LAST tool round trip,
+      // not the first. Emitted under answer_wait_ms (clearer name) AND the
+      // legacy ingest_ms so existing dashboards keep resolving.
+      const answerWait =
         typeof lastToolAt === 'number' &&
         typeof textAt === 'number' &&
         textAt >= lastToolAt
           ? textAt - lastToolAt
           : null
+      // Derived stream-offset fields, all best-effort (a missing part simply
+      // omits its field):
+      //   gen_ms       — prose generation span, text-start → text-end.
+      //   first_step_ms — offset of the agent's first step (pre-work + the
+      //                   initial model read before any tool call).
+      const textEndAt = this.streamParts['text-end']
+      const genMs =
+        typeof textAt === 'number' &&
+        typeof textEndAt === 'number' &&
+        textEndAt >= textAt
+          ? textEndAt - textAt
+          : null
+      const firstStepAt = this.streamParts['start-step']
+      // Folded tool totals: only the keys that belong on the turn line, and
+      // only when non-zero (a turn that never crawled shouldn't emit crawl_ms:0).
+      const foldedToolTimings: Record<string, number> = {}
+      for (const k of [
+        'search_ms',
+        'crawl_ms',
+        'enrich_ms',
+        'rerank_ms',
+        'fetch_ms'
+      ]) {
+        const v = this.toolTimings[k]
+        if (typeof v === 'number' && v > 0) foldedToolTimings[k] = v
+      }
       // ABORT FORENSICS. A turn that ends in `abort` is either a user pressing
       // stop or a provider that went silent, and the existing marks cannot tell
       // them apart without reconstructing the gap by hand every time.
@@ -173,7 +230,17 @@ export class LatencyTracker {
           ttft_ms: ttft,
           steps: this.partCounts['start-step'] ?? 0,
           tool_calls: this.partCounts['tool-input-available'] ?? 0,
-          ...(ingest !== null && { ingest_ms: ingest }),
+          ...(answerWait !== null && {
+            // Same value under both keys: answer_wait_ms is the clearer name,
+            // ingest_ms is kept for back-compat with existing dashboards.
+            answer_wait_ms: answerWait,
+            ingest_ms: answerWait
+          }),
+          ...(genMs !== null && { gen_ms: genMs }),
+          ...(typeof firstStepAt === 'number' && { first_step_ms: firstStepAt }),
+          // Search/fetch stage timings folded in from the tools (summed across
+          // this turn's calls), so the turn line stands alone for attribution.
+          ...foldedToolTimings,
           ...(streamSeen && { stream: this.streamParts }),
           ...(typeof this.usage?.inputTokens === 'number' && {
             prompt_tokens: this.usage.inputTokens
