@@ -42,6 +42,24 @@ export class StageTimer {
     this.fields[name] = value
   }
 
+  /**
+   * Snapshot of the recorded DURATION fields (keys ending in `_ms`), so a
+   * caller can fold these stage timings into another line — e.g. the per-turn
+   * [latency] line accumulating a search's crawl/enrich/rerank cost. Counts
+   * and path markers set via `set()` are excluded. Never throws.
+   */
+  timings(): Record<string, number> {
+    const out: Record<string, number> = {}
+    try {
+      for (const [k, v] of Object.entries(this.fields)) {
+        if (k.endsWith('_ms') && typeof v === 'number') out[k] = v
+      }
+    } catch {
+      // Telemetry must never break the pipeline it measures.
+    }
+    return out
+  }
+
   /** Emit the single tagged line. */
   emit(extra: Meta = {}): void {
     try {
