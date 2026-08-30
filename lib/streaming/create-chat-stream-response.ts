@@ -649,7 +649,11 @@ export async function createChatStreamResponse(
           documentRetrievalSources: injectedDocSources.map(a => ({
             toolCallId: a.toolCallId,
             title: a.part.output.results[0]?.title ?? ''
-          }))
+          })),
+          // Fold each search/fetch call's stage timings into the turn's
+          // [latency] line. addToolTiming is itself guarded, so this can never
+          // break a turn.
+          onToolTiming: (kind, stages) => latency.addToolTiming(kind, stages)
         })
 
         llmStart = performance.now()

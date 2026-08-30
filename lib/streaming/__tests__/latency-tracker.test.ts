@@ -295,6 +295,113 @@ describe('LatencyTracker.emit — retrieval decision', () => {
   })
 })
 
+// Step attribution folded onto the turn line. The search-pipeline stage
+// timings used to live ONLY in a separate [latency:search] line (joined by
+// chatId) and fetch had no timing at all, so the turn line could not be read on
+// its own. addToolTiming sums each call's stages into per-turn totals, and emit
+// folds the ones that belong on the turn line.
+describe('LatencyTracker.emit — folded tool timings', () => {
+  it('accumulates search + fetch stage timings across multiple calls', () => {
+    const lines: string[] = []
+    const t = new LatencyTracker(
+      { chatId: 'c1', mode: 'balanced' },
+      fakeClock([0, 1000]),
+      l => lines.push(l)
+    )
+    // A turn makes several search/fetch calls; each stage is a sequential real
+    // cost, so they SUM.
+    t.addToolTiming('search', {
+      search_ms: 100,
+      crawl_ms: 200,
+      enrich_ms: 300,
+      rerank_ms: 50
+    })
+    t.addToolTiming('search', { search_ms: 40, crawl_ms: 60 })
+    t.addToolTiming('fetch', { fetch_ms: 500 })
+    t.addToolTiming('fetch', { fetch_ms: 250 })
+    t.emit({})
+    const obj = JSON.parse(lines[0].slice('[latency] '.length))
+    expect(obj.search_ms).toBe(140)
+    expect(obj.crawl_ms).toBe(260)
+    expect(obj.enrich_ms).toBe(300)
+    expect(obj.rerank_ms).toBe(50)
+    expect(obj.fetch_ms).toBe(750)
+  })
+
+  it('omits every folded key on a turn that made no timed tool calls', () => {
+    const lines: string[] = []
+    const t = new LatencyTracker(
+      { chatId: 'c1', mode: 'balanced' },
+      fakeClock([0, 1000]),
+      l => lines.push(l)
+    )
+    t.emit({})
+    const obj = JSON.parse(lines[0].slice('[latency] '.length))
+    for (const k of ['search_ms', 'crawl_ms', 'enrich_ms', 'rerank_ms', 'fetch_ms']) {
+      expect(obj).not.toHaveProperty(k)
+    }
+  })
+
+  it('ignores non-duration keys and never folds a zero total', () => {
+    const lines: string[] = []
+    const t = new LatencyTracker(
+      { chatId: 'c1', mode: 'balanced' },
+      fakeClock([0, 1000]),
+      l => lines.push(l)
+    )
+    // `returned` is a count, not a duration (no _ms), so it is never summed;
+    // a stage that summed to 0 is not emitted (crawl_ms: 0 would be noise).
+    t.addToolTiming('search', { returned: 12 } as never)
+    t.addToolTiming('search', { search_ms: 80, crawl_ms: 0 })
+    t.emit({})
+    const obj = JSON.parse(lines[0].slice('[latency] '.length))
+    expect(obj).not.toHaveProperty('returned')
+    expect(obj).not.toHaveProperty('crawl_ms')
+    expect(obj.search_ms).toBe(80)
+  })
+})
+
+// Derived stream-offset fields. These are computed in emit() from the existing
+// first-/last-seen part offsets, so the turn line explains the post-tool gap
+// (answer_wait_ms), the prose generation span (gen_ms) and the pre-first-step
+// cost (first_step_ms) without any extra measurement.
+describe('LatencyTracker.emit — derived stream fields', () => {
+  it('derives first_step_ms, answer_wait_ms (== ingest_ms) and gen_ms', () => {
+    const lines: string[] = []
+    // start=0; parts read 2000 (start-step), 9000 (last tool out), 11000
+    // (text-start), 15000 (text-end); emit reads 20000.
+    const t = new LatencyTracker(
+      { chatId: 'c1', mode: 'balanced' },
+      fakeClock([0, 2000, 9000, 11000, 15000, 20000]),
+      l => lines.push(l)
+    )
+    t.markStreamPart('start-step') // 2000
+    t.markStreamPart('tool-output-available') // 9000
+    t.markStreamPart('text-start') // 11000
+    t.markStreamPart('text-end') // 15000
+    t.emit({})
+    const obj = JSON.parse(lines[0].slice('[latency] '.length))
+    expect(obj.first_step_ms).toBe(2000) // offset of the first step
+    expect(obj.answer_wait_ms).toBe(2000) // 11000 - 9000
+    expect(obj.ingest_ms).toBe(2000) // back-compat alias
+    expect(obj.gen_ms).toBe(4000) // 15000 - 11000
+  })
+
+  it('omits gen_ms when text-end never arrived (aborted mid-prose)', () => {
+    const lines: string[] = []
+    const t = new LatencyTracker(
+      { chatId: 'c1', mode: 'balanced' },
+      fakeClock([0, 3000, 8000]),
+      l => lines.push(l)
+    )
+    t.markStreamPart('text-start') // 3000, no text-end
+    t.emit({})
+    const obj = JSON.parse(lines[0].slice('[latency] '.length))
+    expect(obj).not.toHaveProperty('gen_ms')
+    expect(obj).not.toHaveProperty('first_step_ms')
+  })
+})
+
 // Abort forensics. An aborted turn is either a user pressing stop or a
 // provider that went silent, and the raw marks cannot separate them without
 // reconstructing the gap by hand. Measured across 208 prod+staging turns the
