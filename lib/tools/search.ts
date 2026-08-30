@@ -69,6 +69,13 @@ export type SearchToolOptions = {
   // searches down to 'basic' — the model deep-reads specific URLs via the
   // fetch tool instead of re-running advanced crawls.
   firstSearchDepth?: 'basic' | 'advanced'
+  // Folds this search's stage timings (search_ms, and for the advanced
+  // pipeline crawl_ms/enrich_ms/rerank_ms) into the per-turn [latency] line,
+  // so that line is self-contained and needs no join against [latency:search].
+  // Advanced-pipeline timings ride back in the route's NDJSON `timings` field;
+  // basic-path timings come from this tool's own StageTimer. Additive and
+  // fully guarded — a telemetry failure must never affect the search.
+  onToolTiming?: (kind: 'search' | 'fetch', stages: Record<string, number>) => void
 }
 
 // Ollama's web-search API clamps max_results to 10 server-side (verified by
@@ -330,6 +337,10 @@ export function createSearchTool(
       // Use the original query as is - any provider-specific handling will be done in the provider
       const filledQuery = query
       let searchResult: SearchResults
+      // Stage timings the advanced-search route sends back in its final NDJSON /
+      // JSON payload (crawl_ms/enrich_ms/rerank_ms/search_ms…). Undefined on the
+      // basic path, where the tool's own toolTimer carries the timings instead.
+      let advancedTimings: Record<string, number> | undefined
 
       // Kick the expansion-variant searches off in parallel with the main
       // search below. Bounded: if the expander hasn't resolved shortly
@@ -535,6 +546,9 @@ export function createSearchTool(
               } else if (msg?.type === 'final') {
                 finalFull = (msg as { fullResults?: SearchResultItem[] })
                   .fullResults
+                advancedTimings = (
+                  msg as { timings?: Record<string, number> }
+                ).timings
                 finalResult = {
                   results: msg.results ?? [],
                   query: msg.query ?? filledQuery,
@@ -551,6 +565,8 @@ export function createSearchTool(
           } else {
             const body = await response.json()
             searchResult = body
+            advancedTimings = (body as { timings?: Record<string, number> })
+              ?.timings
             recordFull(body?.fullResults)
           }
         } else {
@@ -777,6 +793,31 @@ export function createSearchTool(
         toolTimer.set('images', counts.images)
         toolTimer.set('videos', counts.videos)
         toolTimer.emit()
+      }
+
+      // Fold this search's stage timings into the per-turn [latency] line so it
+      // is self-contained. Advanced-pipeline timings ride back in the route's
+      // payload (advancedTimings); basic-path timings come from this tool's own
+      // toolTimer. A turn makes several searches — the tracker SUMS these keys.
+      // Fully guarded: telemetry must never break a search.
+      try {
+        if (toolOptions?.onToolTiming) {
+          const stages = routeReportsTelemetry
+            ? advancedTimings
+            : toolTimer?.timings()
+          if (stages) {
+            const picked: Record<string, number> = {}
+            for (const k of ['search_ms', 'crawl_ms', 'enrich_ms', 'rerank_ms']) {
+              const v = stages[k]
+              if (typeof v === 'number' && Number.isFinite(v)) picked[k] = v
+            }
+            if (Object.keys(picked).length > 0) {
+              toolOptions.onToolTiming('search', picked)
+            }
+          }
+        }
+      } catch {
+        // Telemetry must never break a search.
       }
 
       logToolPayload('search', query, {

@@ -638,79 +638,108 @@ async function routeOneUrl(url: string): Promise<SearchResultsType> {
   return fetchWithRescueChain(url)
 }
 
-export const fetchTool = tool({
-  description:
-    'Fetch content from any URL — HTML pages, JavaScript-rendered pages, bot-protected pages, and PDFs are all handled automatically via an internal fallback chain, so there is no need to choose a fetch strategy. The "type" param is accepted for backward compatibility but both values behave identically. For YouTube URLs (youtube.com/watch, youtube.com/shorts, youtu.be), the tool fetches the video\'s transcript/captions instead of the HTML page, so the video\'s actual spoken content becomes available to cite.',
-  inputSchema: fetchSchema,
-  async *execute({ url, type: _type = 'regular' }) {
-    const urls = normalizeFetchUrls(url)
+export type FetchToolOptions = {
+  // Reports this fetch call's total wall time (ms) to the per-turn latency
+  // tracker, so the turn's [latency] line carries fetch_ms without a separate
+  // line to join. Additive telemetry: the call is fully guarded so a failure
+  // here can never affect the fetch. Undefined (the default instance, the
+  // url-rag driver) leaves fetch untimed exactly as before.
+  onToolTiming?: (kind: 'fetch', stages: Record<string, number>) => void
+}
 
-    // Yield initial fetching state. `url` echoes the caller's shape so the UI
-    // and persisted messages keep working for single-url calls.
-    yield {
-      state: 'fetching' as const,
-      url: urls.length === 1 ? urls[0] : urls
-    }
+export function createFetchTool(options?: FetchToolOptions) {
+  return tool({
+    description:
+      'Fetch content from any URL — HTML pages, JavaScript-rendered pages, bot-protected pages, and PDFs are all handled automatically via an internal fallback chain, so there is no need to choose a fetch strategy. The "type" param is accepted for backward compatibility but both values behave identically. For YouTube URLs (youtube.com/watch, youtube.com/shorts, youtu.be), the tool fetches the video\'s transcript/captions instead of the HTML page, so the video\'s actual spoken content becomes available to cite.',
+    inputSchema: fetchSchema,
+    async *execute({ url, type: _type = 'regular' }) {
+      // Total wall time in the tool, reported in `finally` so both a success
+      // and the graceful-failure placeholder are measured.
+      const fetchStartedAt = performance.now()
+      const urls = normalizeFetchUrls(url)
 
-    try {
-      if (urls.length === 0) {
-        throw new Error('No usable URL was provided')
+      // Yield initial fetching state. `url` echoes the caller's shape so the UI
+      // and persisted messages keep working for single-url calls.
+      yield {
+        state: 'fetching' as const,
+        url: urls.length === 1 ? urls[0] : urls
       }
 
-      // Concurrent, because the point of batching is to pay ONE model round
-      // trip instead of N. Bounded because these share the Crawl4AI and
-      // FlareSolverr backends with the crawl stage, where unbounded fan-out
-      // measured worse than bounded. Each url carries its own 40s deadline,
-      // so a batch costs about the slowest page, not the sum.
-      const settled = await mapWithConcurrency(urls, FETCH_MAX_URLS, u =>
-        fetchOneUrl(u)
-      )
-
-      const merged: SearchResultsType = { results: [], query: '', images: [] }
-      const failures: string[] = []
-      settled.forEach((outcome, i) => {
-        if (outcome instanceof Error) {
-          // A dead url in a batch must not lose the others' content.
-          failures.push(urls[i])
-          console.error(`[fetch] failed for ${urls[i]}:`, outcome.message)
-          return
+      try {
+        if (urls.length === 0) {
+          throw new Error('No usable URL was provided')
         }
-        merged.results.push(...outcome.results)
-        if (outcome.images?.length) merged.images.push(...outcome.images)
-      })
 
-      if (merged.results.length === 0) {
-        throw new Error(
-          `Fetch failed for all ${urls.length} URL(s): ${failures.join(', ')}`
+        // Concurrent, because the point of batching is to pay ONE model round
+        // trip instead of N. Bounded because these share the Crawl4AI and
+        // FlareSolverr backends with the crawl stage, where unbounded fan-out
+        // measured worse than bounded. Each url carries its own 40s deadline,
+        // so a batch costs about the slowest page, not the sum.
+        const settled = await mapWithConcurrency(urls, FETCH_MAX_URLS, u =>
+          fetchOneUrl(u)
         )
-      }
 
-      logToolPayload('fetch', urls.join(' '), { results: merged.results })
-
-      yield {
-        state: 'complete' as const,
-        ...merged
-      }
-    } catch (error) {
-      const message =
-        error instanceof Error ? error.message : 'Unknown fetch error'
-      console.error('Fetch error:', message)
-      // Return a graceful result so the agent can continue rather than crashing the stream
-      yield {
-        state: 'complete' as const,
-        results: [
-          {
-            title: `Fetch failed: ${url}`,
-            content: `Could not retrieve this page (${message}). Skip this URL and continue with other sources.`,
-            url
+        const merged: SearchResultsType = { results: [], query: '', images: [] }
+        const failures: string[] = []
+        settled.forEach((outcome, i) => {
+          if (outcome instanceof Error) {
+            // A dead url in a batch must not lose the others' content.
+            failures.push(urls[i])
+            console.error(`[fetch] failed for ${urls[i]}:`, outcome.message)
+            return
           }
-        ],
-        query: '',
-        images: []
+          merged.results.push(...outcome.results)
+          if (outcome.images?.length) merged.images.push(...outcome.images)
+        })
+
+        if (merged.results.length === 0) {
+          throw new Error(
+            `Fetch failed for all ${urls.length} URL(s): ${failures.join(', ')}`
+          )
+        }
+
+        logToolPayload('fetch', urls.join(' '), { results: merged.results })
+
+        yield {
+          state: 'complete' as const,
+          ...merged
+        }
+      } catch (error) {
+        const message =
+          error instanceof Error ? error.message : 'Unknown fetch error'
+        console.error('Fetch error:', message)
+        // Return a graceful result so the agent can continue rather than crashing the stream
+        yield {
+          state: 'complete' as const,
+          results: [
+            {
+              title: `Fetch failed: ${url}`,
+              content: `Could not retrieve this page (${message}). Skip this URL and continue with other sources.`,
+              url
+            }
+          ],
+          query: '',
+          images: []
+        }
+      } finally {
+        // Additive telemetry: report total wall time in the tool for this call,
+        // fully guarded so it can never break a fetch.
+        try {
+          options?.onToolTiming?.('fetch', {
+            fetch_ms: Math.round(performance.now() - fetchStartedAt)
+          })
+        } catch {
+          // Telemetry must never break a fetch.
+        }
       }
     }
-  }
-})
+  })
+}
+
+// Default fetch tool instance (no per-turn timing). Preserves the prior
+// singleton import for the url-rag driver and the ResearcherTools type; the
+// researcher builds a timed instance per request via createFetchTool.
+export const fetchTool = createFetchTool()
 
 // Export type for UI tool invocation
 export type FetchUIToolInvocation = UIToolInvocation<typeof fetchTool>
