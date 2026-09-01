@@ -26,11 +26,21 @@ describe('SearXNGSearchProvider', () => {
     delete process.env.SEARXNG_API_URL
   })
 
-  it('requests only general,images categories when video content_type is not requested', async () => {
+  it('requests only the general category at basic depth when video content_type is not requested', async () => {
     const fetchMock = vi.fn().mockResolvedValue(mockSearxngResponse([]))
     vi.stubGlobal('fetch', fetchMock)
 
     await provider.search('bike tire', 10, 'basic', [], [], {})
+
+    const calledUrl = new URL(fetchMock.mock.calls[0][0])
+    expect(calledUrl.searchParams.get('categories')).toBe('general')
+  })
+
+  it('requests general,images at advanced depth (images are kept on the primary search)', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(mockSearxngResponse([]))
+    vi.stubGlobal('fetch', fetchMock)
+
+    await provider.search('bike tire', 10, 'advanced', [], [], {})
 
     const calledUrl = new URL(fetchMock.mock.calls[0][0])
     expect(calledUrl.searchParams.get('categories')).toBe('general,images')
@@ -71,9 +81,7 @@ describe('SearXNGSearchProvider', () => {
     })
 
     const calledUrl = new URL(fetchMock.mock.calls[0][0])
-    expect(calledUrl.searchParams.get('categories')).toBe(
-      'general,images,videos'
-    )
+    expect(calledUrl.searchParams.get('categories')).toBe('general,videos')
   })
 
   it('maps videos-category results into SerperSearchResultItem shape', async () => {
@@ -163,7 +171,9 @@ describe('SearXNGSearchProvider', () => {
     )
     vi.stubGlobal('fetch', fetchMock)
 
-    const result = await provider.search('query', 10, 'basic', [], [], {
+    // Images are only requested at advanced depth now, so exercise this
+    // image/general separation at advanced depth.
+    const result = await provider.search('query', 10, 'advanced', [], [], {
       content_types: ['video']
     })
 
@@ -206,21 +216,19 @@ describe('SearXNGSearchProvider', () => {
       content_types: ['it']
     })
     let calledUrl = new URL(fetchMock.mock.calls[0][0])
-    expect(calledUrl.searchParams.get('categories')).toBe('general,images,it')
+    expect(calledUrl.searchParams.get('categories')).toBe('general,it')
 
     await provider.search('eiffel tower', 10, 'basic', [], [], {
       content_types: ['map']
     })
     calledUrl = new URL(fetchMock.mock.calls[1][0])
-    expect(calledUrl.searchParams.get('categories')).toBe('general,images,map')
+    expect(calledUrl.searchParams.get('categories')).toBe('general,map')
 
     await provider.search('bohemian rhapsody', 10, 'basic', [], [], {
       content_types: ['music']
     })
     calledUrl = new URL(fetchMock.mock.calls[2][0])
-    expect(calledUrl.searchParams.get('categories')).toBe(
-      'general,images,music'
-    )
+    expect(calledUrl.searchParams.get('categories')).toBe('general,music')
   })
 
   it('adds the news category when requested', async () => {
@@ -232,7 +240,7 @@ describe('SearXNGSearchProvider', () => {
     })
 
     const calledUrl = new URL(fetchMock.mock.calls[0][0])
-    expect(calledUrl.searchParams.get('categories')).toBe('general,images,news')
+    expect(calledUrl.searchParams.get('categories')).toBe('general,news')
   })
 
   it('merges it/map/music/news category results into the plain results array, not a dedicated field', async () => {
@@ -288,7 +296,7 @@ describe('SearXNGSearchProvider', () => {
     expect(result.videos).toEqual([])
   })
 
-  it('appends the intent category (code -> it) on top of general,images', async () => {
+  it('appends the intent category (code -> it) on top of general', async () => {
     const fetchMock = vi.fn().mockResolvedValue(mockSearxngResponse([]))
     vi.stubGlobal('fetch', fetchMock)
 
@@ -297,7 +305,7 @@ describe('SearXNGSearchProvider', () => {
     })
 
     const calledUrl = new URL(fetchMock.mock.calls[0][0])
-    expect(calledUrl.searchParams.get('categories')).toBe('general,images,it')
+    expect(calledUrl.searchParams.get('categories')).toBe('general,it')
   })
 
   it('adds nothing for intent=general', async () => {
@@ -309,7 +317,7 @@ describe('SearXNGSearchProvider', () => {
     })
 
     const calledUrl = new URL(fetchMock.mock.calls[0][0])
-    expect(calledUrl.searchParams.get('categories')).toBe('general,images')
+    expect(calledUrl.searchParams.get('categories')).toBe('general')
   })
 
   it('does not apply intent routing in the exclusive academic branch', async () => {
