@@ -9,10 +9,8 @@ import type {
   UIMessageMetadata,
   UITools
 } from '@/lib/types/ai'
-import type { DynamicToolPart } from '@/lib/types/dynamic-tools'
 
 import { AnswerSection } from './answer-section'
-import { DynamicToolDisplay } from './dynamic-tool-display'
 import { GeneratedImageSection } from './generated-image-section'
 import ResearchProcessSection from './research-process-section'
 import { UserFileSection } from './user-file-section'
@@ -60,7 +58,13 @@ export function endsInActiveResearch(message: UIMessage): boolean {
       // activity cue — it never joins the research process, so it must not
       // count as research-live here (else the footer glyph would yield to a
       // process indicator that never renders).
-      (part.type?.startsWith?.('tool-') && part.type !== 'tool-generateImage')
+      (part.type?.startsWith?.('tool-') &&
+        part.type !== 'tool-generateImage') ||
+      // Dynamic tools (calculate, get_weather, remember, recall, MCP) are
+      // research steps too — they buffer into the accordion like typed tools.
+      // A generateImage that arrives as a dynamic-tool is the standalone image
+      // card (same exclusion as tool-generateImage above), so it must not count.
+      (part.type === 'dynamic-tool' && part.toolName !== 'generateImage')
     ) {
       live = true
     } else if (
@@ -261,7 +265,15 @@ export function RenderMessage({
           voiceAutoPlay={isLastTextPart ? voiceAutoPlay : undefined}
         />
       )
-    } else if (part.type === 'tool-generateImage') {
+    } else if (
+      part.type === 'tool-generateImage' ||
+      // generateImage can also surface as a dynamic-tool part (it is not one of
+      // the client's statically-typed UITools): live it streams as
+      // tool-generateImage, but a reloaded turn can rehydrate the image tool as
+      // a dynamic-tool. Both forms are answer content — the standalone image
+      // card — never a buried research step.
+      (part.type === 'dynamic-tool' && part.toolName === 'generateImage')
+    ) {
       // Generated images are answer content, not research process — they
       // render standalone, never buried in the collapsed accordion.
       flushBuffer(`seg-${index}`)
@@ -280,19 +292,16 @@ export function RenderMessage({
       // links are found under "Completed N steps"). Empty recall parts are
       // dropped so they can't render a blank step.
       (part.type === 'data-recall' && part.data?.chats?.length) ||
-      // tool-generateImage is handled by the standalone branch above; every
-      // other tool-* part is research process and buffers into the accordion.
-      (part.type?.startsWith?.('tool-') && part.type !== 'tool-generateImage')
+      // tool-generateImage / the generateImage image card are handled above;
+      // every other tool-* part is research process and buffers.
+      (part.type?.startsWith?.('tool-') && part.type !== 'tool-generateImage') ||
+      // Dynamic tools (calculate, get_weather, remember, recall, MCP mcp__*)
+      // are ordinary research steps: buffer them into the accordion so they
+      // collapse under "Completed N steps" instead of rendering as a
+      // standalone, un-collapsible "Custom Tool" box.
+      part.type === 'dynamic-tool'
     ) {
       buffer.push(part)
-    } else if (part.type === 'dynamic-tool') {
-      flushBuffer(`seg-${index}`)
-      elements.push(
-        <DynamicToolDisplay
-          key={`${messageId}-dynamic-tool-${index}`}
-          part={part as DynamicToolPart}
-        />
-      )
     }
   })
   // Flush tail (no subsequent text)
@@ -300,10 +309,10 @@ export function RenderMessage({
 
   // A research section is still "in progress" only when it is the TRAILING
   // element of the whole message. Anything rendered after it — a generated
-  // image, the answer, a dynamic tool, or another research section — means it
-  // has finished and must stop spinning. The image and dynamic-tool branches
-  // above flush mid-stream with hasSubsequentText defaulting to false, so a
-  // section followed by a standalone element used to keep claiming to be live:
+  // image, the answer, or another research section — means it has finished and
+  // must stop spinning. The image branch above flushes mid-stream with
+  // hasSubsequentText defaulting to false, so a section followed by a
+  // standalone element used to keep claiming to be live:
   // a spinning glyph + an elapsed timer (WaitingQuote) counting next to the
   // thing that came after it. The classic image turn — classifier ->
   // tool-generateImage -> text — has a single research section, so the old

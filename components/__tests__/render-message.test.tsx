@@ -419,12 +419,119 @@ describe('RenderMessage', () => {
     ])
   })
 
+  test('buffers a dynamic-tool (calculate) into the research process, not a standalone box', () => {
+    // Regression: calculate (and get_weather/remember/recall/MCP tools) arrive
+    // as AI-SDK dynamic-tool parts. They must ride inside the collapsible
+    // "Completed N steps" accordion like every other tool step, never as the
+    // standalone, un-collapsible "Custom Tool" box.
+    const message: UIMessage = {
+      id: 'assistant-msg',
+      role: 'assistant',
+      parts: [
+        {
+          type: 'tool-search',
+          toolCallId: 'tool-1',
+          state: 'output-available',
+          input: {},
+          output: {}
+        } as any,
+        {
+          type: 'dynamic-tool',
+          toolName: 'calculate',
+          toolCallId: 'tool-2',
+          state: 'output-available',
+          input: { expression: '2+2' },
+          output: { result: '4' }
+        } as any,
+        { type: 'text', text: '## The answer is 4' } as any
+      ]
+    } as UIMessage
+
+    render(
+      <RenderMessage
+        message={message}
+        messageId={message.id}
+        getIsOpen={() => true}
+        onOpenChange={() => {}}
+      />
+    )
+
+    // Single research section holding both the search and the calculate step.
+    const sections = screen.getAllByTestId('research-process')
+    expect(sections).toHaveLength(1)
+    expect(sections[0]).toHaveTextContent('tool-search,dynamic-tool')
+    // No standalone "Custom Tool" box.
+    expect(screen.queryByTestId('dynamic-tool')).not.toBeInTheDocument()
+    expect(screen.getByTestId('answer-section')).toHaveTextContent(
+      '## The answer is 4'
+    )
+  })
+
+  test('renders a generateImage dynamic-tool part as a standalone image, not in the accordion', () => {
+    // generateImage can rehydrate as a dynamic-tool part on reload; like the
+    // typed tool-generateImage part it is answer content and must render as the
+    // standalone image card, never a buried research step or a "Custom Tool" box.
+    const message: UIMessage = {
+      id: 'assistant-msg',
+      role: 'assistant',
+      parts: [
+        {
+          type: 'tool-search',
+          toolCallId: 'tool-1',
+          state: 'output-available',
+          input: {},
+          output: {}
+        } as any,
+        {
+          type: 'dynamic-tool',
+          toolName: 'generateImage',
+          toolCallId: 'tool-2',
+          state: 'output-available',
+          input: { prompt: 'a red fox' },
+          output: { imageUrl: '/uploads/u/fox.png', prompt: 'a red fox' }
+        } as any,
+        { type: 'text', text: '## Here is your image' } as any
+      ]
+    } as UIMessage
+
+    const { container } = render(
+      <RenderMessage
+        message={message}
+        messageId={message.id}
+        getIsOpen={() => true}
+        onOpenChange={() => {}}
+      />
+    )
+
+    // The research process holds only the search step — not the image.
+    const sections = screen.getAllByTestId('research-process')
+    expect(sections).toHaveLength(1)
+    expect(sections[0]).toHaveTextContent('tool-search')
+    expect(sections[0]).not.toHaveTextContent('dynamic-tool')
+    // The image renders standalone, and never as a "Custom Tool" box.
+    expect(screen.getByTestId('generated-image')).toBeInTheDocument()
+    expect(screen.queryByTestId('dynamic-tool')).not.toBeInTheDocument()
+
+    const order = Array.from(
+      container.querySelectorAll(
+        '[data-testid="research-process"], [data-testid="generated-image"], [data-testid="answer-section"]'
+      )
+    ).map(node => node.getAttribute('data-testid'))
+    expect(order).toEqual([
+      'research-process',
+      'generated-image',
+      'answer-section'
+    ])
+  })
+
   test('leaves only the last research section in progress when the stream is split', () => {
-    // A generated image or an MCP tool lands mid-stream and carves the research
-    // process into several sections. Only the final one is still running: the
-    // earlier ones must be marked as having subsequent content, or each renders
-    // its own live indicator — two spinning glyphs, two elapsed timers counting
-    // from different mount times, and two /api/quotes fetches.
+    // A generated image lands mid-stream and carves the research process into
+    // sections. Only the final one is still running: the earlier ones must be
+    // marked as having subsequent content, or each renders its own live
+    // indicator — two spinning glyphs, two elapsed timers counting from
+    // different mount times, and two /api/quotes fetches. A dynamic MCP tool
+    // does NOT carve the process — it buffers into the accordion alongside the
+    // other steps — so the split here comes only from the image.
     const message: UIMessage = {
       id: 'assistant-msg',
       role: 'assistant',
@@ -476,8 +583,14 @@ describe('RenderMessage', () => {
       />
     )
 
+    // Two sections: [tool-search] before the image, then
+    // [reasoning, dynamic-tool, tool-fetch] after it (the dynamic MCP tool now
+    // buffers into the accordion rather than rendering standalone).
     const sections = screen.getAllByTestId('research-process')
-    expect(sections).toHaveLength(3)
+    expect(sections).toHaveLength(2)
+    // The dynamic MCP tool rides inside the trailing section, not standalone.
+    expect(screen.queryByTestId('dynamic-tool')).not.toBeInTheDocument()
+    expect(sections[1]).toHaveTextContent('reasoning,dynamic-tool,tool-fetch')
 
     const live = sections.filter(
       section => section.getAttribute('data-has-subsequent-text') === 'false'

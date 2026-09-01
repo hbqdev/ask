@@ -31,6 +31,12 @@ vi.mock('../tool-section', () => ({
   )
 }))
 
+vi.mock('../dynamic-tool-display', () => ({
+  DynamicToolDisplay: ({ part }: any) => (
+    <div data-testid="dynamic-tool-display">{part.toolName}</div>
+  )
+}))
+
 describe('ResearchProcessSection', () => {
   const mockGetIsOpen = vi.fn()
   const mockOnOpenChange = vi.fn()
@@ -94,6 +100,43 @@ describe('ResearchProcessSection', () => {
       )
 
       expect(screen.getByTestId('tool-section')).toBeInTheDocument()
+    })
+
+    test('renders a dynamic-tool (calculate) as a step inside the process', () => {
+      // Dynamic tools must render inside the accordion via DynamicToolDisplay
+      // (ToolSection has no case for them), so they collapse under "Completed N
+      // steps" instead of appearing as a standalone box.
+      const message = {
+        id: 'test-message',
+        role: 'assistant' as const,
+        parts: [
+          {
+            type: 'dynamic-tool',
+            toolName: 'calculate',
+            toolCallId: 'dyn-1',
+            state: 'output-available',
+            input: { expression: '2+2' },
+            output: { result: '4' }
+          }
+        ]
+      } as unknown as UIMessage
+
+      // Parent summary defaults open, so the inner step is present.
+      render(
+        <ResearchProcessSection
+          message={message}
+          messageId="test-dynamic"
+          getIsOpen={mockGetIsOpen}
+          onOpenChange={mockOnOpenChange}
+        />
+      )
+
+      expect(screen.getByTestId('dynamic-tool-display')).toHaveTextContent(
+        'calculate'
+      )
+      // Rendered as a normal step, not via ToolSection.
+      expect(screen.queryByTestId('tool-section')).not.toBeInTheDocument()
+      expect(screen.getByText('Completed 1 step')).toBeInTheDocument()
     })
 
     test('renders recall attribution as a step inside the process', () => {
