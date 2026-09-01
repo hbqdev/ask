@@ -171,7 +171,18 @@ export class SearXNGSearchProvider extends BaseSearchProvider {
           const intentCategory = options?.intent
             ? intentToCategory(options.intent)
             : null
-          const categoryList = ['general', 'images', ...extraCategories]
+          // Images are the SLOW half of a SearXNG query: most image engines are
+          // rate-limited/CAPTCHA'd, so SearXNG blocks on the per-engine timeout
+          // waiting for them — measured ~+3.5s over general-only (0.5s -> 4s),
+          // and it compounds across the 3 concurrent expansion variants + the
+          // model's follow-up searches. Only the PRIMARY `advanced` search
+          // surfaces image cards; the `basic` searches are text URL-discovery
+          // that never shows images. So request images only at advanced depth
+          // (intent can still add it below for an explicitly visual query).
+          const categoryList =
+            searchDepth === 'advanced'
+              ? ['general', 'images', ...extraCategories]
+              : ['general', ...extraCategories]
           if (intentCategory && !categoryList.includes(intentCategory)) {
             categoryList.push(intentCategory)
           }
