@@ -18,6 +18,7 @@ import {
 import { WildBreathGlyph } from './ui/wild-breath-logo'
 import { type AttachmentsPart, AttachmentsSection } from './attachments-section'
 import { type ClassifierPart, ClassifierSection } from './classifier-section'
+import { DynamicToolDisplay } from './dynamic-tool-display'
 import { ReasoningSection } from './reasoning-section'
 import { type RecallPart, RecallSection } from './recall-section'
 import { ToolSection } from './tool-section'
@@ -59,6 +60,15 @@ function isToolPart(part: MessagePart): part is ToolPart {
   return (
     (part.type?.startsWith?.('tool-') && part.type !== 'dynamic-tool') ?? false
   )
+}
+
+// Dynamic tools (calculate, get_weather, remember, recall, MCP mcp__*) arrive
+// as AI-SDK `dynamic-tool` parts. They are ordinary research steps and must
+// render inside the accordion — not as a standalone, un-collapsible box — so
+// they're a distinct step kind here (ToolSection's switch has no case for
+// them; DynamicToolDisplay renders them instead).
+function isDynamicToolPart(part: MessagePart): part is DynamicToolPart {
+  return part.type === 'dynamic-tool'
 }
 
 function isTextPart(part: MessagePart): part is TextPart {
@@ -248,6 +258,13 @@ function RenderPart({
     )
   }
 
+  if (isDynamicToolPart(part)) {
+    // Reuse the shared DynamicToolDisplay, placed inside the step wrapper so it
+    // collapses under "Completed N steps" like every other step. It manages its
+    // own always-expanded body, so no open/close wiring is needed here.
+    return <DynamicToolDisplay part={part} />
+  }
+
   if (isReasoningPart(part)) {
     const isOpen = isSingle
       ? getIsOpen(partId, 'reasoning', hasSubsequent)
@@ -422,9 +439,10 @@ export function ResearchProcessSection({
             {groups.map((grp, gidx) => (
               <div key={`${messageId}-grp-${sidx}-${gidx}`}>
                 {grp.map((part, pidx) => {
-                  const partId = isToolPart(part)
-                    ? part.toolCallId
-                    : `${messageId}-${part.type}-${sidx}-${gidx}-${pidx}`
+                  const partId =
+                    isToolPart(part) || isDynamicToolPart(part)
+                      ? part.toolCallId
+                      : `${messageId}-${part.type}-${sidx}-${gidx}-${pidx}`
 
                   return (
                     <RenderPart
