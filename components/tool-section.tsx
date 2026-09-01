@@ -72,6 +72,30 @@ export function ToolSection({
     }
   }
 
+  // calculate is a registered tool but not in the statically-typed ToolPart
+  // union, so it has no switch case below and would fall to `default: null` —
+  // an empty step in the live stream. Render the expression -> result inline so
+  // a freshly-run calculation shows inside the accordion (on reload it arrives
+  // as a dynamic-tool and renders via DynamicToolDisplay).
+  if ((tool.type as string) === 'tool-calculate') {
+    const inp = (tool as { input?: { expression?: string } }).input
+    const out = (tool as { output?: { expression?: string; result?: string } })
+      .output
+    const expr = out?.expression ?? inp?.expression
+    if (!expr) return null
+    return (
+      <div className="my-1 flex flex-wrap items-baseline gap-x-2 rounded-md bg-muted/40 px-3 py-2 font-mono text-sm">
+        <span className="text-muted-foreground">{expr}</span>
+        {out?.result != null && (
+          <>
+            <span className="text-muted-foreground">=</span>
+            <span className="font-semibold">{out.result}</span>
+          </>
+        )}
+      </div>
+    )
+  }
+
   switch (tool.type) {
     case 'tool-search':
       return (
