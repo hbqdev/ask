@@ -1,6 +1,11 @@
 import { type JSONValue, tool, UIToolInvocation } from 'ai'
 
 import {
+  type RankedPassage,
+  rerankByEmbedding,
+  type RerankedDoc
+} from '@/lib/embeddings/rerank'
+import {
   cosineSimilarity,
   embedTexts,
   getConfiguredModel
@@ -11,13 +16,19 @@ import {
   redisCacheIO,
   withBasicSearchCache
 } from '@/lib/search/basic-search-cache'
+import { buildExcerptContent } from '@/lib/search/build-excerpt'
 import type { FullContentByToolCall } from '@/lib/search/rehydrate-full-content'
 import { buildSearchTelemetryTag } from '@/lib/telemetry/search-tag'
 import { StageTimer } from '@/lib/telemetry/stage-timer'
 import { normalizeUrl } from '@/lib/tools/search/providers/merge-degoog'
 import { SearchResultItem, SearchResults } from '@/lib/types'
+import type { SearchMode } from '@/lib/types/search'
 import { readNdjson } from '@/lib/utils/ndjson'
-import { isOllamaSearchConfigured } from '@/lib/utils/ollama-search-client'
+import {
+  fetchOllamaSearch,
+  isOllamaSearchConfigured,
+  type OllamaSearchResult
+} from '@/lib/utils/ollama-search-client'
 import {
   getGeneralSearchProviderType,
   getSearchToolDescription
@@ -63,6 +74,14 @@ export type SearchToolOptions = {
   // Auto-detected intent for this turn (query classifier). Passed to both
   // search paths; additively routes to intent-specific engines.
   intent?: import('./search/intent').SearchIntent
+  // The turn's search tier (speed/balanced/quality), forwarded by the
+  // researcher. In 'speed' mode the FIRST real search of the turn answers
+  // directly from Ollama-web full page bodies — one pass, no SearXNG snippet
+  // fan-out and no crawl — falling through to today's basic SearXNG path only
+  // when Ollama-web is unconfigured, errors, or returns nothing. Undefined
+  // (older callers, url-rag) behaves exactly as before. balanced/quality are
+  // untouched.
+  searchMode?: SearchMode
   // Depth for the FIRST search of the turn (set by researcher per mode):
   // 'advanced' for balanced/quality, 'basic' for speed/skip. Depth tiering
   // forces only the first search to this depth, then tiers subsequent
@@ -130,6 +149,77 @@ export function resolveEffectiveDepth(opts: {
   return searchAPI === 'searxng' && envDefaultAdvanced
     ? 'advanced'
     : modelRequestedDepth
+}
+
+// Speed mode's fast path: answer from Ollama-web full page bodies in one pass
+// (no SearXNG snippet fan-out, no crawl). Gated to speed mode only, and only
+// when Ollama-web is actually available — an empty/absent key or an explicit
+// OLLAMA_SEARCH_ENABLED=off both disable it, so the turn degrades to the basic
+// SearXNG path. Pure + exported so the gate is unit-testable; the branch that
+// consumes it lives inside execute(), unreachable from a test without a full
+// tool-call context (embeddings, network).
+export function shouldUseOllamaWebSpeed(opts: {
+  searchMode?: SearchMode
+  ollamaConfigured: boolean
+  ollamaEnabledEnv?: string
+}): boolean {
+  return (
+    opts.searchMode === 'speed' &&
+    opts.ollamaConfigured &&
+    opts.ollamaEnabledEnv !== 'off'
+  )
+}
+
+// Map Ollama-web results (each already a full page body) into the search
+// tool's result shape. Every item carries `content`, so the model reads it
+// directly — the same way it consumes Ollama results inside the advanced route
+// today — and nothing is queued for crawl.
+export function mapOllamaWebResults(
+  results: OllamaSearchResult[],
+  query: string,
+  toolCallId?: string
+): SearchResults {
+  const mapped: SearchResultItem[] = results.map(r => ({
+    title: r.title,
+    url: r.url,
+    content: r.content
+  }))
+  const out: SearchResults = {
+    results: mapped,
+    images: [],
+    query,
+    number_of_results: mapped.length
+  }
+  if (toolCallId) out.toolCallId = toolCallId
+  return out
+}
+
+// Passage-level selection for the fast (speed) path. The crawl path trims each
+// crawled page to its top-ranked passages before the model reads it; the fast
+// path skips the crawl but must do the SAME trimming, because Ollama-web hands
+// back FULL page bodies (6-40k chars x ~10 results) and dumping all of that
+// into the answering prompt balloons prompt tokens (~73-89k measured) and
+// stalls the first token by seconds. This maps each reranked doc's topPassages
+// back to its source BY IDENTITY (the doc we passed IS the OllamaSearchResult,
+// since it already satisfies RerankableDoc), preserving the ORIGINAL result
+// order so citation anchoring is untouched, and keeps ALL sources — a source
+// that yielded no passages falls back to its full body via buildExcerptContent.
+// Pure + exported so it is unit-testable without the reranker's network.
+export function applyOllamaWebExcerpts(
+  results: OllamaSearchResult[],
+  reranked: RerankedDoc<OllamaSearchResult>[]
+): { results: OllamaSearchResult[]; passages: number } {
+  const passagesByDoc = new Map<OllamaSearchResult, RankedPassage[]>()
+  for (const r of reranked) passagesByDoc.set(r.doc, r.topPassages)
+  let passages = 0
+  const out = results.map(r => {
+    const top = passagesByDoc.get(r) ?? []
+    passages += top.length
+    // fallback = the source's original full body, so a source that produced no
+    // passages keeps its content rather than going empty (and un-citable).
+    return { ...r, content: buildExcerptContent(top, r.content) }
+  })
+  return { results: out, passages }
 }
 
 // Widen the first search of a turn with expansion-variant results:
@@ -341,6 +431,167 @@ export function createSearchTool(
       // JSON payload (crawl_ms/enrich_ms/rerank_ms/search_ms…). Undefined on the
       // basic path, where the tool's own toolTimer carries the timings instead.
       let advancedTimings: Record<string, number> | undefined
+
+      // FAST mode, single pass. Ollama-web returns FULL page bodies (~1s
+      // measured), so a speed turn can answer straight from that content with
+      // NO SearXNG snippet fan-out and NO crawl. Only for speed mode, and only
+      // for a REAL search — a dedup-skipped reformulation returned above and
+      // never reaches here. Fully guarded: any miss (unconfigured, throw, or
+      // zero results) falls through to today's basic SearXNG path unchanged, so
+      // this can only add a fast path, never break a turn. Does not touch
+      // balanced/quality, and never claims the turn's advanced-crawl slot
+      // (speed's firstSearchDepth is 'basic', so that slot is irrelevant here).
+      const ollamaWebSpeedEnabled = shouldUseOllamaWebSpeed({
+        searchMode: toolOptions?.searchMode,
+        ollamaConfigured: isOllamaSearchConfigured(),
+        ollamaEnabledEnv: process.env.OLLAMA_SEARCH_ENABLED
+      })
+      if (ollamaWebSpeedEnabled) {
+        const ollamaMaxEnv = Number(process.env.OLLAMA_SEARCH_MAX_RESULTS)
+        const speedOllamaMax =
+          Number.isFinite(ollamaMaxEnv) && ollamaMaxEnv > 0
+            ? Math.min(ollamaMaxEnv, OLLAMA_SEARCH_HARD_MAX)
+            : OLLAMA_SEARCH_HARD_MAX
+        // Tool-emitted [latency:search] line, tagged provider:'ollama-web' so
+        // it is unmistakable in the log and distinct from both the route's
+        // advanced line and the tool's own searxng lines. No crawl/enrich/
+        // rerank stages exist on this path, so only search_ms is recorded —
+        // that absence is the proof there was no crawl.
+        const speedTimer = new StageTimer('latency:search', {
+          ...buildSearchTelemetryTag({ chatId: toolOptions?.chatId }),
+          depth: 'basic',
+          intent: toolOptions?.intent ?? 'general',
+          provider: 'ollama-web',
+          kind: 'speed-ollama'
+        })
+        try {
+          const ollamaResults = await speedTimer.time('search_ms', () =>
+            fetchOllamaSearch(filledQuery, speedOllamaMax)
+          )
+          if (ollamaResults && ollamaResults.length > 0) {
+            // Passage-level selection, exactly what the crawl path does: send
+            // the model each source's top-ranked passages instead of its whole
+            // body. Ollama-web returns FULL pages (6-40k chars x ~10 results),
+            // which ballooned the prompt to ~73-89k tokens and stalled the
+            // first token; trimming to topPassages keeps ALL sources (every one
+            // still citable) while cutting the prompt to ~7-15k tokens. topK is
+            // the full result count — we trim bytes per source, never drop a
+            // source. Fully guarded: any rerank failure falls back to the full
+            // bodies, so this can slim the prompt but never break the answer.
+            let contentResults = ollamaResults
+            let excerpted = false
+            const rerankStart = performance.now()
+            try {
+              // SPEED path uses the LOCAL BI-ENCODER unconditionally
+              // (all-MiniLM-L6-v2, ~199ms/100 passages CPU — ~30x faster than
+              // the cross-encoder service). Ollama-web already returns ranked,
+              // relevant results, so bi-encoder passage selection is enough to
+              // shrink the prompt without paying the cross-encoder's 5-7s on
+              // the critical path. The crawl/advanced path (in
+              // /api/advanced-search) keeps the cross-encoder — only this fast
+              // path drops it.
+              const reranked = await rerankByEmbedding(
+                ollamaResults,
+                filledQuery,
+                ollamaResults.length
+              )
+              const applied = applyOllamaWebExcerpts(ollamaResults, reranked)
+              contentResults = applied.results
+              excerpted = true
+              speedTimer.mark('rerank_ms', performance.now() - rerankStart)
+              speedTimer.set('passages', applied.passages)
+            } catch (error) {
+              // Never break the answer over a rerank outage — keep full bodies.
+              speedTimer.mark('rerank_ms', performance.now() - rerankStart)
+              speedTimer.set(
+                'rerank_error',
+                error instanceof Error ? error.name : 'unknown'
+              )
+              console.warn(
+                '[search] speed rerank failed, using full ollama-web bodies:',
+                error
+              )
+            }
+            // The model reads the excerpted content; mapOllamaWebResults just
+            // carries {title,url,content} through — nothing is queued for crawl.
+            const speedResult = mapOllamaWebResults(
+              contentResults,
+              filledQuery,
+              context?.toolCallId
+            )
+            // Persist the FULL bodies for conversation history (same as the
+            // crawl path's fullResults) so a follow-up turn keeps the depth the
+            // excerpt dropped. Only when excerpting actually shrank the payload.
+            if (excerpted) {
+              recordFull(
+                mapOllamaWebResults(ollamaResults, filledQuery).results
+              )
+            }
+            speedTimer.set('returned', speedResult.results.length)
+            speedTimer.emit()
+            // Fold search_ms (and rerank_ms, when the passage selection ran)
+            // into the per-turn [latency] line. There is no crawl_ms/enrich_ms
+            // to fold — that absence downstream is what shows the turn skipped
+            // the crawl. Fully guarded.
+            try {
+              if (toolOptions?.onToolTiming) {
+                // timings() returns every recorded *_ms field, so search_ms and
+                // (when the rerank ran) rerank_ms both fold into the per-turn
+                // [latency] line. crawl_ms/enrich_ms are absent by design here —
+                // that absence is the proof the fast path skipped the crawl.
+                const stages = speedTimer.timings()
+                const picked: Record<string, number> = {}
+                for (const k of ['search_ms', 'rerank_ms']) {
+                  const v = stages[k]
+                  if (typeof v === 'number' && Number.isFinite(v)) picked[k] = v
+                }
+                if (Object.keys(picked).length > 0) {
+                  toolOptions.onToolTiming('search', picked)
+                }
+              }
+            } catch {
+              // Telemetry must never break a search.
+            }
+            logToolPayload('search', query, {
+              results: speedResult.results,
+              images: speedResult.images
+            })
+            // Record this query for later in-turn dedup, exactly as the normal
+            // path does once its search succeeds.
+            if (currentQueryEmbedding) {
+              executedQueries.push({
+                mode: search_mode,
+                query,
+                embedding: currentQueryEmbedding
+              })
+            }
+            console.log(
+              `[search] speed mode answered from ollama-web (${speedResult.results.length} results, no crawl)`
+            )
+            yield {
+              state: 'complete' as const,
+              ...speedResult
+            }
+            return
+          }
+          // Zero results — record the miss on the line so it is visible, then
+          // fall through to the basic SearXNG path below.
+          speedTimer.set('returned', 0)
+          speedTimer.set('fallthrough', 'empty')
+          speedTimer.emit()
+        } catch (error) {
+          // Never let an Ollama-web failure break the turn: emit the attempt so
+          // a slow/failing call is still measured, then fall through to basic
+          // SearXNG exactly as if Ollama-web were unconfigured.
+          speedTimer.set('error', error instanceof Error ? error.name : 'unknown')
+          speedTimer.set('fallthrough', 'error')
+          speedTimer.emit()
+          console.warn(
+            '[search] speed ollama-web failed, falling back to searxng:',
+            error
+          )
+        }
+      }
 
       // Kick the expansion-variant searches off in parallel with the main
       // search below. Bounded: if the expander hasn't resolved shortly
