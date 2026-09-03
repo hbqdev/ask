@@ -539,6 +539,11 @@ export async function createResearcher({
       timeRange: needsRecent ? 'month' : undefined,
       expandedQueries: expandedQueriesPromise,
       intent,
+      // Lets the search tool take the speed-mode fast path (answer from
+      // Ollama-web full page bodies, no crawl) without inferring the tier from
+      // firstSearchDepth — which is also 'basic' for skip and exclusive-source
+      // turns, so it cannot stand in for 'speed'.
+      searchMode,
       firstSearchDepth,
       chatId: currentChatId,
       fullContentSink,
