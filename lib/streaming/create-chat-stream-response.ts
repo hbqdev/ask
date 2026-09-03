@@ -202,7 +202,7 @@ export async function createChatStreamResponse(
     // here, in parallel with the message-prep pipeline below, and awaited
     // just before constructing the researcher agent — the classifier call
     // (local, ~1-8s) overlaps with that work instead of adding pure latency.
-    // Bypassed (always search) in two unambiguous cases not worth a
+    // Bypassed (always search) in three unambiguous cases not worth a
     // classifier call:
     // - the message contains a URL: the search-mode prompts already say to
     //   fetch it directly;
@@ -210,11 +210,19 @@ export async function createChatStreamResponse(
     //   (temperature 0), so re-classifying would reproduce a wrong skip
     //   verbatim — treating Retry as "do it properly, with research" gives
     //   the user a built-in override for misclassified turns.
+    // - speed mode (searchMode==='speed'): the classifier is a ~9s local
+    //   Ollama call whose only outputs speed uses are skipSearch and
+    //   standaloneQuery — and the default already gives speed exactly what it
+    //   wants (skipSearch:false → always search; standaloneQuery:raw → search
+    //   the raw query; expandedQueries:[] → speed skips expansion anyway, see
+    //   wantsExpansion below). So speed takes the default classification
+    //   instead of paying the classifier wall.
     const latestMessageForModel = messagesToModel[messagesToModel.length - 1]
     const latestMessageText = getTextFromParts(latestMessageForModel?.parts)
     const containsUrl = /https?:\/\/\S+/i.test(latestMessageText)
     const isRegenerate = trigger?.startsWith('regenerate') ?? false
-    const bypassClassifier = containsUrl || isRegenerate
+    const bypassClassifier =
+      containsUrl || isRegenerate || searchMode === 'speed'
     const classifyStart = performance.now()
     const classificationPromise: Promise<QueryClassification> = bypassClassifier
       ? Promise.resolve({
@@ -247,9 +255,15 @@ export async function createChatStreamResponse(
     // On a gated (skipSearch) turn this speculative recall still runs to
     // completion in the background and is discarded — gating removes the
     // user-facing wait, not the reranker load.
-    const speculativeRecall = userId
-      ? getRecallInjection(userId, latestMessageText, chatId)
-      : Promise.resolve({ block: '', hits: [] })
+    // Speed mode skips past-conversation recall (personalization) to stay
+    // fast: with the classifier bypassed above, chooseRecall returns
+    // 'speculative' (standaloneQuery===latestMessageText), which awaits this
+    // promise — so resolving it instantly empty makes recall_ms ~0 and imposes
+    // no reranker load.
+    const speculativeRecall =
+      userId && searchMode !== 'speed'
+        ? getRecallInjection(userId, latestMessageText, chatId)
+        : Promise.resolve({ block: '', hits: [] })
 
     // Declared in outer scope (same pattern as titlePromise above) so the
     // memory-extraction block in onFinish — a sibling property of execute on
