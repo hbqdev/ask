@@ -46,12 +46,16 @@ services:
       # omits the variable, all three stacks were running identical strict
       # behaviour that looked deliberately configured on two of them.
       SEARCH_QUALITY_FILTER: 'relaxed'
-      # Classifier on a cloud model. Bake-off across six candidates on five
-      # ground-truth cases: glm-5.2 was both fastest (0.82s median) and the
-      # most accurate (5/5), against granite4.1:8b local at 2.19s and 3/5.
+      # Classifier on a cloud model. Re-bake-off 2026-09-03 across all seven
+      # stack cloud models on ground-truth cases: deepseek-v4-pro:cloud is the
+      # fastest USABLE one (925ms isolated / ~1.1-1.3s real-turn), with gating
+      # identical to local granite and a better follow-up rewrite. It replaces
+      # glm-5.3-flash:cloud, which was ~2.2s and spiked to ~10s on the
+      # rewrite+expansion follow-up turn. (kimi-k3/minimax returned empty/failed
+      # tool-calls; qwen3.5:397b + kimi-k2.6 were slower.)
       # Cloud models are proxied through the main Ollama host, not the
       # dedicated classifier host.
-      CLASSIFIER_MODEL_ID: 'glm-5.3-flash:cloud'
+      CLASSIFIER_MODEL_ID: 'deepseek-v4-pro:cloud'
       CLASSIFIER_OLLAMA_BASE_URL: 'http://192.168.50.231:11434'
       # Pre-crawl snippet gate, ENFORCING. Phase 2 of
       # docs/superpowers/specs/2026-07-26-snippet-gate-design.md.
