@@ -959,10 +959,13 @@ async function advancedSearchXNGSearch(
     // Skip-crawl set: every source here carries its own usable content, so its
     // API-returned text goes straight to the pool and the crawl step below
     // never fetches these URLs. Ollama returns full page bodies; Tavily returns
-    // relevance paragraphs; Brave returns descriptions; LangSearch returns
-    // summaries. This holds in BOTH balanced and quality — so in balanced there
-    // is effectively nothing left to crawl, while quality crawls only the
-    // SearXNG/degoog links (which are link+snippet and need it).
+    // relevance paragraphs; LangSearch returns summaries.
+    //
+    // Brave is deliberately NOT here — its 1-2 sentence descriptions are too
+    // thin to survive a strict quality filter (>50 words) un-crawled, so Brave's
+    // URLs ARE crawled for full page text. It's a handful of URLs, far less than
+    // the SearXNG/degoog fan-out, so the cost is small: balanced crawls only
+    // Brave, quality crawls Brave + SearXNG/degoog.
     //
     // (LangSearch's summary is lossy — lowercased, punctuation space-separated —
     // so this trades some casing fidelity for zero crawl latency on those URLs;
@@ -970,7 +973,6 @@ async function advancedSearchXNGSearch(
     const prefetchedUrls = new Set<string>([
       ...ollamaResults.map(r => r.url),
       ...tavilyResults.map(r => r.url),
-      ...braveResults.map(r => r.url),
       ...langSearchResults.map(r => r.url)
     ])
 
