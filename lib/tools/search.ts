@@ -758,6 +758,10 @@ export function createSearchTool(
               query: filledQuery,
               maxResults: effectiveMaxResults,
               searchDepth: effectiveSearchDepthForAPI,
+              // Tier signal. balanced and quality both send searchDepth
+              // 'advanced'; this is what lets the route drop SearXNG + degoog
+              // (and their crawl) for balanced while keeping them for quality.
+              searchMode: toolOptions?.searchMode,
               includeDomains: include_domains,
               excludeDomains: exclude_domains,
               timeRange: toolOptions?.timeRange,

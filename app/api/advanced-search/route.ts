@@ -548,6 +548,12 @@ export async function POST(request: Request) {
     query,
     maxResults,
     searchDepth,
+    // Search tier (speed/balanced/quality) forwarded by lib/tools/search.ts.
+    // balanced and quality both map to searchDepth 'advanced', so this is the
+    // ONLY signal that distinguishes them: balanced hits content-bearing APIs
+    // only (no SearXNG/degoog, no crawl); quality adds SearXNG + degoog and
+    // crawls those. Undefined (legacy/url-rag callers) behaves like quality.
+    searchMode,
     includeDomains,
     excludeDomains,
     timeRange,
@@ -565,11 +571,15 @@ export async function POST(request: Request) {
     : undefined
 
   try {
+    // searchMode is part of the key: balanced and quality share searchDepth
+    // 'advanced' but now hit DIFFERENT source sets (balanced drops SearXNG +
+    // degoog), so without this a balanced result could be served to a quality
+    // request and vice versa.
     const cacheKey = `search:${query}:${maxResults}:${searchDepth}:${
-      Array.isArray(includeDomains) ? includeDomains.join(',') : ''
-    }:${Array.isArray(excludeDomains) ? excludeDomains.join(',') : ''}:${
-      effectiveTimeRange ?? ''
-    }:${typeof intent === 'string' ? intent : ''}:${useOllama ? `oll${typeof ollamaMaxResults === 'number' ? ollamaMaxResults : 5}` : ''}`
+      typeof searchMode === 'string' ? searchMode : ''
+    }:${Array.isArray(includeDomains) ? includeDomains.join(',') : ''}:${
+      Array.isArray(excludeDomains) ? excludeDomains.join(',') : ''
+    }:${effectiveTimeRange ?? ''}:${typeof intent === 'string' ? intent : ''}:${useOllama ? `oll${typeof ollamaMaxResults === 'number' ? ollamaMaxResults : 5}` : ''}`
 
     // Per-search stage timings. This is the half of the turn the [latency]
     // line cannot see: it is emitted from the chat pipeline, while the search
@@ -629,7 +639,10 @@ export async function POST(request: Request) {
         typeof ollamaMaxResults === 'number' ? ollamaMaxResults : 5,
         timer,
         onPreview,
-        chatId
+        chatId,
+        typeof searchMode === 'string'
+          ? (searchMode as 'speed' | 'balanced' | 'quality')
+          : undefined
       )
 
     const finish = async (results: SearXNGSearchResults) => {
@@ -734,7 +747,11 @@ async function advancedSearchXNGSearch(
    */
   onPreview?: (preview: SearXNGSearchResults) => void,
   // Join key for the shadow crop-position measurement (against [cite-urls]).
-  chatId?: string
+  chatId?: string,
+  // Search tier. 'balanced' fires content-bearing APIs only (Ollama-web +
+  // Tavily + Brave + LangSearch) and skips SearXNG + degoog entirely; 'quality'
+  // (and undefined, for legacy callers) adds SearXNG + degoog and crawls those.
+  searchMode?: 'speed' | 'balanced' | 'quality'
 ): Promise<SearXNGSearchResults> {
   const searchStartedAt = performance.now()
   if (!process.env.SEARXNG_API_URL && !process.env.SEARXNG_FALLBACK_API_URL) {
@@ -797,6 +814,16 @@ async function advancedSearchXNGSearch(
       return u.toString()
     }
 
+    // Source tiering by mode. balanced hits content-bearing APIs ONLY
+    // (Ollama-web + Tavily + Brave + LangSearch, all fired below and all
+    // carrying their own usable text) and never touches SearXNG or degoog —
+    // those return links+snippets that only earn their place once crawled, and
+    // balanced does not crawl. quality (and any legacy caller with no explicit
+    // mode) keeps SearXNG + degoog firing so their results reach the crawler.
+    const includeSearxngDegoog = searchMode !== 'balanced'
+    timer.set('mode', searchMode ?? 'legacy')
+    timer.set('tier_sources', includeSearxngDegoog ? 'apis+searxng' : 'apis')
+
     const [
       searxngSettled,
       degoogWebSettled,
@@ -808,11 +835,16 @@ async function advancedSearchXNGSearch(
       langSearchSettled
     ] = await timer.time('search_ms', () =>
       Promise.allSettled([
-        fetchSearxngJson(buildUrl),
-        DEGOOG_ENABLED
+        // balanced skips SearXNG entirely — resolve a synthetic empty response
+        // so the rest of the pipeline (which reads data.results/query/images
+        // off this) runs unchanged with an empty SearXNG contribution.
+        includeSearxngDegoog
+          ? fetchSearxngJson(buildUrl)
+          : Promise.resolve(null),
+        includeSearxngDegoog && DEGOOG_ENABLED
           ? fetchDegoogJson(degoogUrl('web'))
           : Promise.resolve(null),
-        DEGOOG_ENABLED && intent === 'news'
+        includeSearxngDegoog && DEGOOG_ENABLED && intent === 'news'
           ? fetchDegoogJson(degoogUrl('news'))
           : Promise.resolve(null),
         // OFF by default. SearXNG already returns images in the SAME request
@@ -827,7 +859,7 @@ async function advancedSearchXNGSearch(
         // (Brave returned 429 forty-six times in 12h). There is no 'images'
         // SearchIntent to gate on, so this is an explicit switch rather than a
         // condition that would silently never fire.
-        DEGOOG_ENABLED && DEGOOG_IMAGES_ENABLED
+        includeSearxngDegoog && DEGOOG_ENABLED && DEGOOG_IMAGES_ENABLED
           ? fetchDegoogJson(degoogUrl('images'))
           : Promise.resolve(null),
         useOllama
@@ -852,8 +884,21 @@ async function advancedSearchXNGSearch(
       ])
     )
 
+    // A rejected SearXNG fetch still throws (it is the hard dependency of the
+    // quality tier). In balanced mode SearXNG was never fired — the branch
+    // resolves null — so the search proceeds on the content-bearing APIs alone
+    // with a synthetic empty SearXNG response.
     if (searxngSettled.status === 'rejected') throw searxngSettled.reason
-    const { data: rawData, baseUrlUsed: apiUrl } = searxngSettled.value
+    const searxngValue = searxngSettled.value as {
+      data: unknown
+      baseUrlUsed: string
+    } | null
+    const rawData = searxngValue?.data ?? {
+      results: [],
+      query,
+      number_of_results: 0
+    }
+    const apiUrl = searxngValue?.baseUrlUsed ?? ''
 
     const degoogOf = (
       s: PromiseSettledResult<{ data: unknown } | null>
@@ -911,10 +956,23 @@ async function advancedSearchXNGSearch(
       )
     }
 
-    // NOT extended with LangSearch urls: its `summary` is long but lossy
-    // (lowercased, punctuation space-separated), so those pages still get
-    // crawled for clean text. See merge-langsearch.ts.
-    const prefetchedUrls = new Set(ollamaResults.map(r => r.url))
+    // Skip-crawl set: every source here carries its own usable content, so its
+    // API-returned text goes straight to the pool and the crawl step below
+    // never fetches these URLs. Ollama returns full page bodies; Tavily returns
+    // relevance paragraphs; Brave returns descriptions; LangSearch returns
+    // summaries. This holds in BOTH balanced and quality — so in balanced there
+    // is effectively nothing left to crawl, while quality crawls only the
+    // SearXNG/degoog links (which are link+snippet and need it).
+    //
+    // (LangSearch's summary is lossy — lowercased, punctuation space-separated —
+    // so this trades some casing fidelity for zero crawl latency on those URLs;
+    // measured to be worth it vs. paying a crawl per LangSearch result.)
+    const prefetchedUrls = new Set<string>([
+      ...ollamaResults.map(r => r.url),
+      ...tavilyResults.map(r => r.url),
+      ...braveResults.map(r => r.url),
+      ...langSearchResults.map(r => r.url)
+    ])
 
     const data = rawData as SearXNGResponse
 
@@ -951,10 +1009,9 @@ async function advancedSearchXNGSearch(
     }
 
     // Tavily is block-immune (runs on Tavily's own IPs), so fold it into the
-    // candidate pool before crawl+rerank to recover the Google/Bing-tier
-    // sources our IP-blocked SearXNG scrapers miss. Snippet-only, so — unlike
-    // Ollama — these URLs are NOT marked prefetched and get crawled for full
-    // content by the step below.
+    // candidate pool before rerank to recover the Google/Bing-tier sources our
+    // IP-blocked SearXNG scrapers miss. Its relevance-paragraph content is used
+    // as-is (URLs marked prefetched above), NOT crawled.
     if (tavilyResults.length > 0) {
       generalResults = mergeTavilyIntoSearxngResults(
         generalResults,
@@ -963,8 +1020,10 @@ async function advancedSearchXNGSearch(
       )
     }
 
-    // Brave API: same reasoning as Tavily — block-immune, snippet-only, so it
-    // joins the candidate pool before crawl+rerank and its URLs get crawled.
+    // Brave API: same reasoning as Tavily — block-immune, joins the candidate
+    // pool before rerank. Its description text is used as-is (prefetched, not
+    // crawled). If a description is too thin to clear isQualityContent it is
+    // dropped rather than crawled — the accepted trade for zero crawl latency.
     if (braveResults.length > 0) {
       generalResults = mergeBraveIntoSearxngResults(
         generalResults,
@@ -973,9 +1032,10 @@ async function advancedSearchXNGSearch(
       )
     }
 
-    // LangSearch: same treatment again — block-immune discovery, and its text
-    // is bounded and lossy rather than clean page content, so its URLs join the
-    // candidate pool and get crawled like Tavily's and Brave's.
+    // LangSearch: same treatment again — block-immune discovery. Its summary is
+    // bounded and lossy (lowercased) rather than clean page content, but it now
+    // joins the pool as-is (prefetched, not crawled) — we accept the casing loss
+    // to spend zero crawl time on these URLs.
     if (langSearchResults.length > 0) {
       generalResults = mergeLangSearchIntoSearxngResults(
         generalResults,
@@ -1164,7 +1224,8 @@ async function advancedSearchXNGSearch(
         Promise.all(
           candidates.map(async result => {
             if (prefetchedUrls.has(result.url)) {
-              // Ollama already fetched this — keep its content, don't crawl.
+              // Content-bearing API result (Ollama / Tavily / Brave /
+              // LangSearch) — keep its API-returned content, don't crawl.
               return {
                 ...result,
                 content: highlightQueryTerms(
