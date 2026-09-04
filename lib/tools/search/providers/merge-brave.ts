@@ -11,11 +11,11 @@ import { normalizeUrl } from './merge-degoog'
  * scraped from our IP), so its URLs should survive the candidate-pool cap and
  * win a dedup collision against a scraped snippet.
  *
- * Like Tavily and unlike Ollama, Brave returns only snippets, so its URLs are
- * NOT marked prefetched — the advanced route crawls them with Crawl4AI for full
- * content. The snippet is just the placeholder `content` until then. Marking
- * them prefetched would skip the crawl and leave a snippet that fails
- * isQualityContent (>50 words) and disappears from the pool entirely.
+ * Like Tavily and Ollama, Brave's URLs are marked prefetched by the advanced
+ * route, so the crawler skips them and Brave's own description `content` (set on
+ * each merged item below) feeds the reranker and model directly. A description
+ * too thin to clear isQualityContent is dropped rather than crawled — the
+ * accepted trade for spending zero crawl time on these block-immune sources.
  */
 export function mergeBraveIntoSearxngResults(
   searxngResults: SearXNGResult[],

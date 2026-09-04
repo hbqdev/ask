@@ -70,10 +70,12 @@ describe('mergeBraveIntoSearxngResults', () => {
     expect(mergeBraveIntoSearxngResults(searxng, [], 10)).toEqual(searxng)
   })
 
-  it('does NOT mark Brave results prefetched — they carry snippets, not page text', () => {
+  it('carries Brave content as-is and adds no per-item marker (route decides prefetch by url)', () => {
     const out = mergeBraveIntoSearxngResults([], [bv('https://a.test')], 10)
-    // A prefetched marker would make the crawler skip it, leaving a snippet
-    // that then fails isQualityContent and vanishes from the pool.
+    // Prefetch (skip-crawl) is now decided by the advanced route via a URL set,
+    // not by a property on the merged item — the merge stays a plain result
+    // whose `content` is Brave's own description, used as-is when the route
+    // marks the URL prefetched.
     expect('prefetched' in out[0]).toBe(false)
     expect(out[0].content).toBe('brave snippet')
   })

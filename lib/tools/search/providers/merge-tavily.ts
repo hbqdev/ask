@@ -6,11 +6,10 @@ import { normalizeUrl } from './merge-degoog'
 /**
  * Merge Tavily results into a SearXNG candidate list for the ADVANCED path.
  *
- * Unlike Ollama (which carries FULL page content and is therefore marked
- * prefetched so the crawler skips it), Tavily returns only snippets — so its
- * URLs are NOT marked prefetched: the advanced route crawls them with Crawl4AI
- * for full content, exactly like SearXNG/degoog results. Tavily's snippet is
- * the placeholder `content` until the crawl fills it in.
+ * Like Ollama, Tavily's URLs are marked prefetched by the advanced route, so
+ * the crawler skips them and Tavily's own relevance-paragraph `content` (set on
+ * each merged item below) is what the reranker and model read. Only
+ * SearXNG/degoog links (quality tier) reach Crawl4AI.
  *
  * Tavily results go first so its block-immune sources survive the candidate-pool
  * cap, and win the dedup on a URL collision with a SearXNG/degoog snippet.
