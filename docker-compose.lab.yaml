@@ -82,11 +82,18 @@ services:
       DEGOOG_API_KEY: ${DEGOOG_API_KEY:-}
       TAVILY_MERGE_ENABLED: 'on'
       # Tavily, Brave and Langsearch keys now come from .env unset-overridden,
-      # i.e. inherited exactly as staging inherits them. Ollama search stays
-      # off because staging has it off too — matching means matching the
-      # absences as well as the presences.
-      OLLAMA_SEARCH_ENABLED: 'off'
-      OLLAMA_SEARCH_API_KEY: ''
+      # i.e. inherited exactly as staging inherits them.
+      #
+      # Ollama-web ENABLED on lab (inherited from .env, key len 57) to build +
+      # measure the speed-tier redesign: FAST mode answers from Ollama-web full
+      # page bodies in one pass, no crawl. This diverges from the staging-parity
+      # the two lines below used to hold ('off' + empty key) — revert to
+      #   OLLAMA_SEARCH_ENABLED: 'off'
+      #   OLLAMA_SEARCH_API_KEY: ''
+      # to restore that parity. NB: the same gate also re-activates Ollama in
+      # the SearXNG merge for balanced/quality on lab, not just the speed path.
+      OLLAMA_SEARCH_ENABLED: ${OLLAMA_SEARCH_ENABLED:-}
+      OLLAMA_SEARCH_API_KEY: ${OLLAMA_SEARCH_API_KEY:-}
 
       # --- held constant across every arm ----------------------------------
       # Pinned rather than inherited so an arm can never be accidentally
@@ -132,7 +139,7 @@ services:
       # (gpt-image-2 was tried first but times out >120s at usable quality.)
       # Shell-overridable; unset falls back to rotation.
       REPLICATE_IMAGE_EDIT_MODEL: ${REPLICATE_IMAGE_EDIT_MODEL:-google/nano-banana-2}
-      CLASSIFIER_MODEL_ID: 'glm-5.3-flash:cloud'
+      CLASSIFIER_MODEL_ID: 'deepseek-v4-pro:cloud'
       CLASSIFIER_OLLAMA_BASE_URL: 'http://192.168.50.231:11434'
       # Per-tool-call payload logging: the arms differ in WHICH tools they
       # call and in what order, which the [latency] line only counts.
