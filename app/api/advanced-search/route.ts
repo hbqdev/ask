@@ -961,19 +961,33 @@ async function advancedSearchXNGSearch(
     // never fetches these URLs. Ollama returns full page bodies; Tavily returns
     // relevance paragraphs; LangSearch returns summaries.
     //
-    // Brave is deliberately NOT here — its 1-2 sentence descriptions are too
-    // thin to survive a strict quality filter (>50 words) un-crawled, so Brave's
-    // URLs ARE crawled for full page text. It's a handful of URLs, far less than
-    // the SearXNG/degoog fan-out, so the cost is small: balanced crawls only
-    // Brave, quality crawls Brave + SearXNG/degoog.
+    // Brave is a PARTIAL exception, capped by BRAVE_CRAWL_MAX (default 3). Its
+    // 1-2 sentence descriptions are too thin to survive a strict quality filter
+    // (>50 words) un-crawled, so to stay citable Brave's URLs are crawled for
+    // full page text — but Brave returns ~10 URLs and crawling all of them is
+    // expensive: measured on prod, balanced was crawling 10 Brave pages at
+    // ~17s (`crawled=10 crawl_ms=17307`), roughly doubling balanced's search
+    // stage (whose whole point is fast/no-crawl). So only the TOP
+    // BRAVE_CRAWL_MAX Brave results (by Brave's own returned rank — merge-brave
+    // preserves that order) stay OUT of this set and get crawled/likely-cited;
+    // the rest are added here so they skip the crawl and keep just their thin
+    // snippet content in the pool for ranking. This cap applies in BOTH
+    // balanced and quality. BRAVE_CRAWL_MAX=0 prefetches ALL Brave (crawl none).
     //
     // (LangSearch's summary is lossy — lowercased, punctuation space-separated —
     // so this trades some casing fidelity for zero crawl latency on those URLs;
     // measured to be worth it vs. paying a crawl per LangSearch result.)
+    const braveCrawlMaxRaw = Number(process.env.BRAVE_CRAWL_MAX ?? 3)
+    const BRAVE_CRAWL_MAX =
+      Number.isFinite(braveCrawlMaxRaw) && braveCrawlMaxRaw >= 0
+        ? Math.floor(braveCrawlMaxRaw)
+        : 3
     const prefetchedUrls = new Set<string>([
       ...ollamaResults.map(r => r.url),
       ...tavilyResults.map(r => r.url),
-      ...langSearchResults.map(r => r.url)
+      ...langSearchResults.map(r => r.url),
+      // Brave beyond the top BRAVE_CRAWL_MAX skips crawl (top-N still crawled).
+      ...braveResults.slice(BRAVE_CRAWL_MAX).map(r => r.url)
     ])
 
     const data = rawData as SearXNGResponse
