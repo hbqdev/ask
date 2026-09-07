@@ -33,8 +33,23 @@ const CLASSIFIER_MODEL_ID = process.env.CLASSIFIER_MODEL_ID ?? 'granite4.2:8b'
 
 // Short — this is a small structured-output call, not a research turn. If
 // it doesn't come back quickly, fall back rather than delay the real
-// response (see classifyQuery's catch block).
+// response (see classifyQuery's catch block). This is the OUTER hard bound on
+// the HTTP call; the soft budget below caps the turn's wait well before it.
 const CLASSIFIER_TIMEOUT_MS = 10_000
+
+// Soft budget, tighter than the hard timeout above. The fused classify+expand
+// call sits on the turn's critical path — search waits on skipSearch +
+// standaloneQuery — and its tail is heavy: prod shows ~4.6s median with ~18% of
+// turns riding the full 10s hard timeout. This caps that tail. If the call has
+// not resolved within the budget, abort the in-flight request (freeing the
+// shared classifier host) and proceed on the graceful always-search fallback,
+// exactly as a real timeout would — just sooner. Set CLASSIFIER_BUDGET_MS <= 0
+// (or >= CLASSIFIER_TIMEOUT_MS) to effectively disable the soft cap and rely on
+// the hard timeout alone.
+const CLASSIFIER_BUDGET_MS = (() => {
+  const n = Number(process.env.CLASSIFIER_BUDGET_MS)
+  return Number.isFinite(n) && n > 0 ? n : 4000
+})()
 
 // How many trailing messages (both user and assistant) to show the
 // classifier. Wide enough that a follow-up referring to an EARLIER turn
@@ -277,14 +292,23 @@ export async function classifyQuery({
   }
 
   try {
+    // Soft-budget the fused call: budgetController aborts the in-flight HTTP
+    // request when CLASSIFIER_BUDGET_MS elapses, so a slow tail frees the shared
+    // classifier host instead of running to the 10s hard timeout. Combined with
+    // the caller's abortSignal so a client disconnect still cuts it short too.
+    const budgetController = new AbortController()
+    const combinedSignal = abortSignal
+      ? AbortSignal.any([abortSignal, budgetController.signal])
+      : budgetController.signal
+
     // createTimeoutFetch enforces CLASSIFIER_TIMEOUT_MS on the actual HTTP
     // call regardless of whether ai-sdk-ollama forwards the AI SDK's own
     // abortSignal (it doesn't — see the same fix in registry.ts), and also
-    // merges in the caller's abortSignal so a client disconnect still cuts
-    // this short.
+    // merges in the combined signal (caller disconnect + soft budget) so either
+    // cuts this short.
     const provider = createOllama({
       baseURL: classifierBaseUrl,
-      fetch: createTimeoutFetch(CLASSIFIER_TIMEOUT_MS, abortSignal)
+      fetch: createTimeoutFetch(CLASSIFIER_TIMEOUT_MS, combinedSignal)
     })
 
     // Tool calling, NOT Output.object. Ollama's `format: <json schema>`
@@ -299,9 +323,15 @@ export async function classifyQuery({
     let modelMs = 0
     let usage: { inputTokens?: number; outputTokens?: number } | undefined
     let classification: z.infer<typeof classifierSchema> | undefined
+    let budgetExceeded = false
+    let budgetTimer: ReturnType<typeof setTimeout> | undefined
 
     try {
-      const result = await generateText({
+      // Race the fused call against the soft budget. The gen arm maps BOTH
+      // outcomes to a value so it never rejects — that way, when the budget arm
+      // wins, the still-pending generateText cannot surface as an unhandled
+      // rejection once it aborts.
+      const genArm = generateText({
         // keep_alive: -1 keeps a LOCAL model resident in Ollama's memory —
         // otherwise the default 5-minute idle timeout unloads it and the next
         // classification pays a cold-load penalty. Harmless for cloud models.
@@ -325,7 +355,7 @@ export async function classifyQuery({
         system: `${CLASSIFIER_SYSTEM_PROMPT}\n\nCurrent date and time: ${new Date().toLocaleString()}`,
         prompt: `Conversation so far:\n${history}\n\nLatest message: ${latestMessage}`,
         temperature: 0,
-        abortSignal,
+        abortSignal: combinedSignal,
         tools: {
           classify: tool({
             description:
@@ -348,15 +378,56 @@ export async function classifyQuery({
         // outcome:'empty' to the durable sink, so the rate is measurable rather
         // than assumed.
         toolChoice: 'required'
+      }).then(
+        result => ({ kind: 'ok' as const, result }),
+        error => ({ kind: 'err' as const, error })
+      )
+
+      const budgetArm = new Promise<{ kind: 'budget' }>(resolve => {
+        budgetTimer = setTimeout(() => {
+          // Cut the wasted in-flight call loose from the shared host.
+          budgetController.abort(
+            new DOMException(
+              'classifier soft budget exceeded',
+              'TimeoutError'
+            )
+          )
+          resolve({ kind: 'budget' })
+        }, CLASSIFIER_BUDGET_MS)
       })
+
+      const raced = await Promise.race([genArm, budgetArm])
       modelMs = performance.now() - modelStart
-      usage = result.usage
-      const call = result.toolCalls?.[0]
-      if (call && call.toolName === 'classify') {
-        classification = call.input as z.infer<typeof classifierSchema>
+
+      if (raced.kind === 'budget') {
+        budgetExceeded = true
+      } else if (raced.kind === 'err') {
+        // A genuine failure within budget — route to the outer catch so it
+        // reports outcome:'failed' exactly as before.
+        throw raced.error
+      } else {
+        usage = raced.result.usage
+        const call = raced.result.toolCalls?.[0]
+        if (call && call.toolName === 'classify') {
+          classification = call.input as z.infer<typeof classifierSchema>
+        }
       }
     } finally {
+      if (budgetTimer) clearTimeout(budgetTimer)
       if (modelMs === 0) modelMs = performance.now() - modelStart
+    }
+
+    // Budget expired before the model answered: fall back to always-search,
+    // same graceful path as a real timeout, and record it under a distinct
+    // outcome so the soft cap's firing rate is measurable rather than assumed.
+    if (budgetExceeded) {
+      emitClassifierTelemetry({
+        totalMs: performance.now() - startedAt,
+        modelMs,
+        model: CLASSIFIER_MODEL_ID,
+        outcome: 'budget'
+      })
+      return fallback
     }
 
     const ok = Boolean(classification?.standaloneQuery.trim())
