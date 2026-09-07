@@ -22,7 +22,15 @@
 // circuit-breaker contract so it drops into the same Promise.allSettled fan-out.
 
 const LANGSEARCH_ENDPOINT = 'https://api.langsearch.com/v1/web-search'
-const DEFAULT_TIMEOUT_MS = 10_000
+// LangSearch fires inside the advanced fan-out's Promise.allSettled, which
+// cannot return until its SLOWEST provider does — and LangSearch was measured
+// as that laggard (~4.7s on prod, gating an otherwise-faster round). A 2.5s box
+// means a slow LangSearch contributes nothing to this round rather than holding
+// it up: the fetch aborts, fetchLangSearch throws, and allSettled degrades to
+// the other providers exactly as it does for any provider failure. Tunable via
+// LANGSEARCH_TIMEOUT_MS for a one-off longer wait. (Was 10_000; a full 10s box
+// let a stalled LangSearch stall the whole fan-out.)
+const DEFAULT_TIMEOUT_MS = 2_500
 const BREAKER_COOLDOWN_MS = 30_000
 
 /** The API rejects more than 10 per call. */
