@@ -82,6 +82,20 @@ import { BaseStreamConfig } from './types'
 // Constants
 const DEFAULT_CHAT_TITLE = 'Untitled'
 
+// Timebox for past-conversation recall on the critical path.
+//
+// Recall is a personalization nicety layered on top of the web answer, never a
+// gate on it. Speed already bypasses it entirely; for balanced/quality the
+// 'refetch' branch runs a fresh cross-encoder recall inline (measured ~3-6s on
+// lab). This caps that wait: if recall has not resolved within the budget the
+// turn proceeds with empty recall rather than making the user wait on a
+// nice-to-have. recall_ms still records the true time spent, and a 'gated'
+// (skipSearch) turn resolves instantly and is unaffected.
+const RECALL_BUDGET_MS = (() => {
+  const n = Number(process.env.RECALL_BUDGET_MS)
+  return Number.isFinite(n) && n > 0 ? n : 1500
+})()
+
 // Cap on how many attached documentRetrieval sources are injected per turn.
 // Every prior attachment re-retrieves each turn (spec §7) and each source's
 // assistant-tool-call + tool-result pair is pushed onto modelMessages AFTER
@@ -444,16 +458,31 @@ export async function createChatStreamResponse(
           standaloneQuery: classification.standaloneQuery,
           latestMessageText
         })
+        type RecallInjection = Awaited<ReturnType<typeof getRecallInjection>>
+        const emptyRecall: RecallInjection = { block: '', hits: [] }
+        // The recall work for this turn (already in flight for 'speculative',
+        // started fresh for 'refetch'). getRecallInjection is fail-safe and
+        // never rejects, so racing it against a timer is safe.
+        const recallWork: Promise<RecallInjection> =
+          recallDecision === 'gated'
+            ? Promise.resolve(emptyRecall)
+            : recallDecision === 'speculative'
+              ? speculativeRecall
+              : getRecallInjection(userId, classification.standaloneQuery, chatId)
+        // Timebox it: recall never blocks the turn (see RECALL_BUDGET_MS). A
+        // gated turn short-circuits to empty; the others race the recall work
+        // against the budget and fall back to empty recall on expiry. The
+        // discarded recall promise still resolves in the background (fail-safe),
+        // so no work is left dangling and recall_ms captures the real cost.
         const recall =
           recallDecision === 'gated'
-            ? { block: '', hits: [] }
-            : recallDecision === 'speculative'
-              ? await speculativeRecall
-              : await getRecallInjection(
-                  userId,
-                  classification.standaloneQuery,
-                  chatId
+            ? emptyRecall
+            : await Promise.race([
+                recallWork,
+                new Promise<RecallInjection>(resolve =>
+                  setTimeout(() => resolve(emptyRecall), RECALL_BUDGET_MS)
                 )
+              ])
         latency.mark('recall_ms', performance.now() - recallStart)
         if (recall.hits.length > 0) {
           writer.write({

@@ -20,13 +20,16 @@ export type ClassifierTelemetry = {
   // 'ok'          classification used
   // 'empty'       model answered but gave nothing usable -> always-search fallback
   // 'failed'      threw or timed out at CLASSIFIER_TIMEOUT_MS -> always-search fallback
+  // 'budget'      soft budget (CLASSIFIER_BUDGET_MS) elapsed first -> aborted +
+  //               always-search fallback (the tail cap; tracks how often it fires)
   // 'unconfigured' no classifier host set -> always-search fallback, never called
   //
   // Everything except 'ok' means the turn silently lost the gate and searched
   // regardless of what was asked. Distinguishing them matters: 'failed' is worth
-  // a timeout change, 'empty' is worth a prompt change, 'unconfigured' is worth
-  // an env fix, and before this they were indistinguishable from a normal turn.
-  outcome: 'ok' | 'failed' | 'empty' | 'unconfigured'
+  // a timeout change, 'budget' is worth a budget change, 'empty' is worth a
+  // prompt change, 'unconfigured' is worth an env fix, and before this they were
+  // indistinguishable from a normal turn.
+  outcome: 'ok' | 'failed' | 'empty' | 'budget' | 'unconfigured'
 }
 
 export function buildClassifierTelemetry(t: ClassifierTelemetry): string {
