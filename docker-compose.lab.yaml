@@ -63,13 +63,13 @@ services:
       #
       # NOTE this makes lab latencies incomparable with the earlier A/B runs.
       # Those compared arms on ONE instance; this compares two instances.
-      DEGOOG_ENABLED: 'true'
+      DEGOOG_ENABLED: 'false'
       # Lab keeps its OWN degoog instance (:4447, its own Mullvad exit) rather
       # than sharing staging's (:4446). Deliberate: lab is the heaviest search
       # generator in the fleet, and benchmark volume must never burn the
       # reputation of the instance real users depend on. Same software, same
       # settings — a separate exit, not a different source.
-      DEGOOG_API_URL: 'http://192.168.50.231:4447'
+      DEGOOG_API_URL: 'http://degoog-gluetun-lab:4444'
       # NOT blanked. It was, and that silently un-matched the stack this block
       # claims to match: with an empty key every degoog call returned 401, the
       # client tripped its circuit breaker, and lab ran the whole
