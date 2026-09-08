@@ -131,6 +131,17 @@ services:
       # accumulate a real-traffic read before any prod change. Shell-overridable
       # back to 10000 for a baseline arm.
       SEARCH_ENRICH_MAX_CHARS: ${SEARCH_ENRICH_MAX_CHARS:-20000}
+      # Per-turn search-ROUND cap (lib/tools/search.ts resolveSearchRoundsBudget).
+      # The answering model can loop the `search` tool; each round is a full
+      # fan-out+crawl+rerank PLUS inter-call reasoning, which dominates the
+      # remaining latency once recall/classifier/crawl are trimmed. Enforced
+      # INSIDE the tool (a per-turn round counter), so it bounds ANY model —
+      # capping a loopy model without touching the model. Balanced/speed/default
+      # use SEARCH_ROUNDS_MAX; quality (crawl-heavy, multi-facet by design) gets
+      # the higher SEARCH_ROUNDS_MAX_QUALITY. Shell-overridable for A/B arms
+      # (e.g. SEARCH_ROUNDS_MAX=2 docker compose ... up -d --force-recreate ask).
+      SEARCH_ROUNDS_MAX: ${SEARCH_ROUNDS_MAX:-3}
+      SEARCH_ROUNDS_MAX_QUALITY: ${SEARCH_ROUNDS_MAX_QUALITY:-5}
       # Pin the image EDIT model (registry.ts pickPinnedModel) to one consistent,
       # strong editor instead of round-robining the whole pool — edits kept
       # drifting in style/identity/resolution turn-to-turn. Generation still
