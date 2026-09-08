@@ -244,11 +244,11 @@ case "$HOST" in
       -f docker-compose.yaml -f docker-compose.lab.yaml -f docker-compose.vpn.lab.yaml
     # Per-env degoog scraper stacks, relocated from .231 in the 2026-09-07
     # migration. DISABLED in every ask env (DEGOOG_ENABLED=false), but the
-    # stacks stay relocated + running here; nudge their VPN sidecars like the
-    # ask gluetuns so they survive a cold boot hands-off.
-    ensure_degoog prod 4445
-    ensure_degoog staging 4446
-    ensure_degoog lab 4447
+    # stacks stay relocated but left STOPPED (quality-only, slow, currently unused).
+    # Re-enable: uncomment the ensure_degoog lines + set DEGOOG_ENABLED=true.
+    # ensure_degoog prod 4445
+    # ensure_degoog staging 4446
+    # ensure_degoog lab 4447
     reconcile /home/nightfury/selfhosted/ask/selfhosted/model-manager model-manager
     ;;
   NightFuryS)
