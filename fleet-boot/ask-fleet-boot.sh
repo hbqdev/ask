@@ -134,6 +134,41 @@ ensure_vpn_search() {
   log "$gluetun/$searxng STILL down after retries — needs a human"
 }
 
+# Bring a per-env degoog scraper stack up and retry its gluetun VPN sidecar
+# until healthy — the degoog analogue of ensure_vpn_search. These 3 stacks moved
+# from .231 (MiniNightFury) to this host in the 2026-09-07 migration; each has
+# its own gluetun (own Mullvad exit) + degoog + valkey. They carry
+# restart: unless-stopped, but like the ask gluetuns they can lose the
+# /dev/net/tun race on a cold boot and exit 127, and a stale network ID defeats
+# the restart policy — so nudge them the same way. gluetun rejoins shared-infra
+# from its own compose networks: block, so ask can resolve it by name if degoog
+# is ever re-enabled (it is DISABLED in every ask env today). Idempotent: a
+# healthy stack short-circuits untouched. Usage: ensure_degoog <instance> <port>
+ensure_degoog() {
+  local inst="$1" port="$2"
+  local dir=/home/nightfury/selfhosted/degoog
+  local gluetun="degoog-gluetun-$inst" degoog="degoog-$inst-degoog-1"
+  [ -d "$dir" ] || {
+    log "skip degoog-$inst (missing $dir)"
+    return 0
+  }
+  local i gstate dstate
+  for i in $(seq 1 6); do
+    gstate="$(docker inspect -f '{{if .State.Health}}{{.State.Health.Status}}{{else}}{{.State.Status}}{{end}}' "$gluetun" 2>/dev/null || echo missing)"
+    dstate="$(docker inspect -f '{{.State.Status}}' "$degoog" 2>/dev/null || echo missing)"
+    if { [ "$gstate" = healthy ] || [ "$gstate" = running ]; } && [ "$dstate" = running ]; then
+      log "$gluetun/$degoog ok (gluetun=$gstate degoog=$dstate)"
+      return 0
+    fi
+    log "attempt $i: gluetun=$gstate degoog=$dstate — bringing up degoog-$inst"
+    ( cd "$dir" && DEGOOG_INSTANCE="$inst" DEGOOG_PORT="$port" docker compose \
+        -f docker-compose.yaml -f docker-compose.vpn.yaml -f docker-compose.instance.yaml \
+        -p "degoog-$inst" up -d ) >/dev/null 2>&1
+    sleep 10
+  done
+  log "degoog-$inst STILL down after retries — needs a human"
+}
+
 # Wait for Ollama to answer, then load a model resident (keep_alive=-1) so the
 # GPU isn't cold on the first request.
 warm() {
@@ -207,6 +242,13 @@ case "$HOST" in
       -f docker-compose.vpn.yaml -f docker-compose.vpn.admin-feature.yaml
     ensure_vpn_search /home/nightfury/selfhosted/ask-flow ask-gluetun-lab ask-searxng-lab \
       -f docker-compose.yaml -f docker-compose.lab.yaml -f docker-compose.vpn.lab.yaml
+    # Per-env degoog scraper stacks, relocated from .231 in the 2026-09-07
+    # migration. DISABLED in every ask env (DEGOOG_ENABLED=false), but the
+    # stacks stay relocated + running here; nudge their VPN sidecars like the
+    # ask gluetuns so they survive a cold boot hands-off.
+    ensure_degoog prod 4445
+    ensure_degoog staging 4446
+    ensure_degoog lab 4447
     reconcile /home/nightfury/selfhosted/ask/selfhosted/model-manager model-manager
     ;;
   NightFuryS)
