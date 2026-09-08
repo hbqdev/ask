@@ -58,7 +58,7 @@ services:
       # a DIFFERENT crawler (crawl4ai on the app host, not .17), so that curve
       # does not transfer. Measure prod's own candidate/crawl response before
       # tuning SEARXNG_CRAWL_MULTIPLIER here.
-      DEGOOG_ENABLED: 'true'
+      DEGOOG_ENABLED: 'false'
       # Candidate-pool cap = maxResults x this, so 4 -> 80 candidates.
       #
       # RAISED 2 -> 4 on 2026-07-28 because the POOL COMPOSITION changed under
