@@ -290,6 +290,35 @@ async function searchExpansionVariants(
   return results
 }
 
+// Per-turn search-ROUND cap (model-agnostic latency guard). The answering
+// model can loop the `search` tool many times per turn; each round is a full
+// fan-out + crawl + rerank PLUS the model's inter-call reasoning, and once
+// recall/classifier/crawl are trimmed that looping dominates the remaining
+// latency (measured on prod: up to 7 rounds ≈ 15s of fan-out + ~57s of
+// inter-call reasoning). Capping ROUNDS is a PIPELINE lever: it bounds ANY
+// answering model — loopy or not — without touching the model itself.
+//
+// Mode-aware: quality is crawl-heavy and multi-facet by design, so it gets a
+// higher ceiling; balanced/speed/default share the lower one. Speed normally
+// answers in a single Ollama-web pass, so the cap is only a safety net there.
+// Env-overridable via SEARCH_ROUNDS_MAX / SEARCH_ROUNDS_MAX_QUALITY. Pure +
+// exported so the budget resolution is unit-testable without a tool context.
+const SEARCH_ROUNDS_MAX_DEFAULT = 3
+const SEARCH_ROUNDS_MAX_QUALITY_DEFAULT = 5
+
+export function resolveSearchRoundsBudget(searchMode?: SearchMode): number {
+  if (searchMode === 'quality') {
+    const raw = Number(process.env.SEARCH_ROUNDS_MAX_QUALITY)
+    return Number.isFinite(raw) && raw > 0
+      ? Math.floor(raw)
+      : SEARCH_ROUNDS_MAX_QUALITY_DEFAULT
+  }
+  const raw = Number(process.env.SEARCH_ROUNDS_MAX)
+  return Number.isFinite(raw) && raw > 0
+    ? Math.floor(raw)
+    : SEARCH_ROUNDS_MAX_DEFAULT
+}
+
 /**
  * Creates a search tool with the appropriate schema for the given model.
  */
@@ -303,6 +332,13 @@ export function createSearchTool(
   // Depth tiering applies only to the first search of the turn: later
   // searches tier down to basic (see resolveEffectiveDepth).
   let firstSearchDone = false
+  // Per-turn search-round counter for the model-agnostic round cap. This
+  // factory is invoked once per turn from createResearcher, so this closure —
+  // shared by every wrapper layer, which all delegate to this execute — is
+  // per-turn state exactly like firstSearchDone above. Incremented at the top
+  // of each execute; enforced only for turn-scoped tools (see the guard in
+  // execute — the reused module-level singleton is exempt).
+  let searchRounds = 0
   // Per-turn search-intent dedup state, keyed within a search_mode so a web
   // search and an academic search of the same words aren't treated as dupes.
   const executedQueries: {
@@ -327,6 +363,55 @@ export function createSearchTool(
       },
       context
     ) {
+      // Per-turn search-ROUND cap. Incremented at the top of every executing
+      // search; the dedup / URL-only short-circuits in the researcher's
+      // wrapSearchToolWithDedup return BEFORE reaching here, so those cheap
+      // no-op rounds are correctly not counted. Once the budget is exceeded we
+      // return a valid, NON-error tool result (same shape the tool normally
+      // yields — empty results + a short instruction) telling the model to
+      // answer from what it already gathered. No throw, no new fan-out, no
+      // crawl. This is what makes the cap model-agnostic: it bounds a loopy
+      // model's total rounds however hard it retries.
+      //
+      // Enforced only for turn-scoped researcher tools (toolOptions present).
+      // The module-level `searchTool` singleton (legacy `search()` / url-rag)
+      // is reused across the whole process and passes no toolOptions, so its
+      // counter must never cap — otherwise a few process-wide calls would
+      // permanently trip it. The counter still increments there, harmlessly.
+      searchRounds += 1
+      if (toolOptions) {
+        const roundsBudget = resolveSearchRoundsBudget(toolOptions.searchMode)
+        if (searchRounds > roundsBudget) {
+          try {
+            const capTimer = new StageTimer('latency:search', {
+              ...buildSearchTelemetryTag({ chatId: toolOptions.chatId }),
+              provider: 'none',
+              kind: 'round-cap'
+            })
+            capTimer.set('search_round', searchRounds)
+            capTimer.set('search_round_budget', roundsBudget)
+            capTimer.set('search_round_capped', true)
+            capTimer.emit()
+          } catch {
+            // Telemetry must never break a search.
+          }
+          console.log(
+            `[search] round cap reached (${searchRounds} > ${roundsBudget}, mode=${toolOptions.searchMode ?? 'default'}) — instructing model to answer from gathered sources`
+          )
+          yield {
+            state: 'complete' as const,
+            results: [],
+            images: [],
+            query,
+            number_of_results: 0,
+            searchLimitReached: true,
+            notice:
+              `Search limit reached (${roundsBudget} rounds). Answer the user's question now using the sources already gathered; do not search again.`
+          }
+          return
+        }
+      }
+
       // Records full crawled text for THIS tool call so onFinish can persist
       // it in place of the excerpt the model reads. No-op unless excerpting
       // actually shrank the payload (the route omits fullResults otherwise).
