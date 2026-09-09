@@ -18,6 +18,24 @@ interface ReasoningContent {
   isDone: boolean
 }
 
+// Raw chain-of-thought is HIDDEN from the chat transcript by default. A
+// reasoning model can emit tens of thousands of characters of thinking in a
+// single turn; shown inline it dominates the message and reads as if the
+// answer itself contains the intermediate steps. We still PERSIST reasoning as
+// separate parts (see the DB layer) — this flag only controls whether the raw
+// text is rendered in the transcript.
+//
+// Default (unset / anything but 'true') = hidden: render only a compact,
+// non-expandable "Thinking…/Thought" indicator, with NO disclosure that could
+// reveal the raw text in the normal chat view. Set NEXT_PUBLIC_SHOW_REASONING=
+// 'true' to restore the legacy collapsible raw-reasoning view.
+//
+// NEXT_PUBLIC_* is inlined by `next build` from the build context's .env, so
+// prod/staging get the hidden default with no env change; the lab can flip it
+// on in .env to eyeball raw thoughts. The code default is authoritative. Read
+// inside the component (like the voice flag in render-message) so it inlines
+// per-occurrence and stays togglable in tests.
+
 export interface ReasoningSectionProps {
   content: ReasoningContent
   isOpen: boolean
@@ -40,6 +58,7 @@ export function ReasoningSection({
   isLast = false
 }: ReasoningSectionProps) {
   const { open } = useArtifact()
+  const showReasoning = process.env.NEXT_PUBLIC_SHOW_REASONING === 'true'
   // Show a short preview when collapsed; switch to a generic label when expanded
   const HEADER_PREVIEW_CHARS = 120
   const SANITIZE_MARKDOWN_PREVIEW = true
@@ -104,6 +123,38 @@ export function ReasoningSection({
 
   // Return null if done and reasoning text is empty
   if (content.isDone && !content.reasoning?.trim()) return null
+
+  // Default path: raw reasoning stays out of the transcript. Render a compact,
+  // NON-expandable indicator only — no CollapsibleMessage body, no markdown
+  // render of the thoughts, and no inspector-open of the raw text. This covers
+  // both the live-streaming path and the reloaded-from-DB path (identical
+  // `reasoning` parts flow through here either way), and it applies whether the
+  // part renders standalone or grouped inside the research-process accordion.
+  if (!showReasoning) {
+    return (
+      <div className="relative">
+        {!isFirst && (
+          <div className="absolute left-[19.5px] w-px bg-border h-2 top-0" />
+        )}
+        {!isLast && (
+          <div className="absolute left-[19.5px] w-px bg-border h-2 bottom-0" />
+        )}
+        <div className="flex items-center gap-2 px-1 py-1 min-w-0">
+          <div className="size-4 shrink-0 flex items-center justify-center">
+            <div
+              className={cn(
+                'size-1.5 rounded-full bg-muted-foreground',
+                !content.isDone && 'animate-pulse'
+              )}
+            />
+          </div>
+          <span className="text-sm text-muted-foreground/80 truncate">
+            {content.isDone ? 'Thought' : 'Thinking…'}
+          </span>
+        </div>
+      </div>
+    )
+  }
 
   return (
     <div className="relative">
