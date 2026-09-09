@@ -7,7 +7,7 @@ import { createProviderRegistry, LanguageModel } from 'ai'
 import { createOllama } from 'ai-sdk-ollama'
 
 import { createTimeoutFetch } from './fetch-with-timeout'
-import { thinkEnabledForOllama } from './ollama-think'
+import { resolveAnswerThink } from './ollama-think'
 
 // Strip a trailing /v1 from the configured base URL, then re-append it,
 // so both shapes work for OpenAI-compatible hosts:
@@ -83,7 +83,14 @@ export function getModel(
         })
       : ollamaProvider
 
-    const lm = provider(modelId, { think: thinkEnabledForOllama() })
+    // Model-agnostic reasoning control for the ANSWERING model. resolveAnswerThink()
+    // returns false | 'low' | 'medium' | 'high' | true; ai-sdk-ollama forwards
+    // this verbatim as the Ollama request's `think` field (verified: its
+    // doStream/doGenerate spread `think: this.settings.think`), so an effort
+    // LEVEL — not just on/off — reaches the model. This is the one place the
+    // chat model is instantiated for a turn, so the control dials down WHATEVER
+    // model the user picked rather than switching models.
+    const lm = provider(modelId, { think: resolveAnswerThink() })
 
     // Ollama's Chat API only accepts base64 in the images field, not URLs.
     // Override supportedUrls to force AI SDK to download images and convert
