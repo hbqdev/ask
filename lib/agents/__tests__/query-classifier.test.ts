@@ -1,5 +1,13 @@
 import { generateText } from 'ai'
-import { afterAll, beforeEach, describe, expect, it, vi } from 'vitest'
+import {
+  afterAll,
+  afterEach,
+  beforeEach,
+  describe,
+  expect,
+  it,
+  vi
+} from 'vitest'
 
 import { classifyQuery } from '../query-classifier'
 
@@ -8,6 +16,13 @@ import { classifyQuery } from '../query-classifier'
 // and is silently ignored by cloud ones — glm-5.2:cloud returns prose plus a
 // `thinking` field — so a schema-based classifier would fail closed on every
 // turn the moment CLASSIFIER_MODEL_ID pointed at a :cloud model.
+
+// Captured durable-telemetry lines, so the soft-budget tests can assert the
+// recorded outcome ('budget' vs 'ok'). Hoisted so the vi.mock factory below
+// (which is itself hoisted) may reference it.
+const { capturedClassifierLines } = vi.hoisted(() => ({
+  capturedClassifierLines: [] as string[]
+}))
 
 vi.mock('ai', async () => {
   const actual = await vi.importActual<typeof import('ai')>('ai')
@@ -23,6 +38,12 @@ vi.mock('ai-sdk-ollama', () => ({
 
 vi.mock('../../utils/fetch-with-timeout', () => ({
   createTimeoutFetch: vi.fn(() => vi.fn())
+}))
+
+vi.mock('../../telemetry/latency-store', () => ({
+  durableLatencySink: (line: string) => {
+    capturedClassifierLines.push(line)
+  }
 }))
 
 const mockGenerateText = vi.mocked(generateText)
@@ -259,5 +280,140 @@ describe('classifyQuery', () => {
 
     expect(result.intent).toBe('general')
     expect(result.skipSearch).toBe(false)
+  })
+})
+
+// Soft budget (CLASSIFIER_BUDGET_MS, default 4000): the fused classify+expand
+// call is raced against a timer that, on expiry, aborts the in-flight request
+// and resolves the turn on the graceful always-search fallback. This is the
+// tail cap prod telemetry showed never engaging; these tests pin the behavior
+// in isolation so a regression that silently disables the cap is caught here
+// rather than only in a latency histogram weeks later.
+describe('classifyQuery soft budget', () => {
+  const originalOllamaUrl = process.env.OLLAMA_BASE_URL
+  const originalClassifierOllamaUrl = process.env.CLASSIFIER_OLLAMA_BASE_URL
+
+  beforeEach(() => {
+    vi.clearAllMocks()
+    capturedClassifierLines.length = 0
+    process.env.OLLAMA_BASE_URL = 'http://localhost:11434'
+    delete process.env.CLASSIFIER_OLLAMA_BASE_URL
+    // Fake `performance` too, so modelMs/total_ms advance with the fake clock
+    // and the recorded timings reflect ~budget rather than ~0.
+    vi.useFakeTimers({
+      toFake: ['setTimeout', 'clearTimeout', 'Date', 'performance']
+    })
+  })
+
+  afterEach(() => {
+    vi.useRealTimers()
+  })
+
+  afterAll(() => {
+    process.env.OLLAMA_BASE_URL = originalOllamaUrl
+    process.env.CLASSIFIER_OLLAMA_BASE_URL = originalClassifierOllamaUrl
+  })
+
+  function parseClassifyLine(): Record<string, unknown> | undefined {
+    const line = capturedClassifierLines.find(l =>
+      l.startsWith('[latency:classify]')
+    )
+    if (!line) return undefined
+    return JSON.parse(line.replace('[latency:classify] ', '')) as Record<
+      string,
+      unknown
+    >
+  }
+
+  it('caps the wait at CLASSIFIER_BUDGET_MS (4000) when the model is slow (9000ms), returning the graceful always-search fallback and outcome=budget', async () => {
+    // The model would answer with a perfectly good classification — but not
+    // until 9000ms, well past the 4000ms soft budget. The cap must win first.
+    mockGenerateText.mockImplementation((() =>
+      new Promise(resolve =>
+        setTimeout(
+          () =>
+            resolve({
+              toolCalls: [
+                {
+                  toolName: 'classify',
+                  input: {
+                    skipSearch: true,
+                    standaloneQuery: 'the slow model answer',
+                    needsRecent: false,
+                    needsSources: false,
+                    intent: 'general',
+                    expandedQueries: ['a', 'b']
+                  }
+                }
+              ],
+              usage: { inputTokens: 100, outputTokens: 20 }
+            }),
+          9000
+        )
+      )) as any)
+
+    let settled = false
+    const promise = classifyQuery({
+      messages: [userMsg('hello world')]
+    }).then(r => {
+      settled = true
+      return r
+    })
+
+    // Just before the budget: still waiting on the model.
+    await vi.advanceTimersByTimeAsync(3999)
+    expect(settled).toBe(false)
+
+    // Cross the budget: the cap must resolve the turn NOW, not at 9000ms.
+    await vi.advanceTimersByTimeAsync(2)
+    expect(settled).toBe(true)
+
+    const result = await promise
+
+    // Graceful fallback classification (always-search on the raw message).
+    expect(result.skipSearch).toBe(false)
+    expect(result.standaloneQuery).toBe('hello world')
+    expect(result.expandedQueries).toEqual([])
+
+    const line = parseClassifyLine()
+    expect(line?.outcome).toBe('budget')
+    // Recorded time reflects the cap (~4000), not the model's 9000.
+    expect(line?.total_ms as number).toBeGreaterThanOrEqual(3999)
+    expect(line?.total_ms as number).toBeLessThan(6000)
+    expect(line?.model_ms as number).toBeLessThan(6000)
+  })
+
+  it('uses the model classification (outcome=ok) when it answers within budget', async () => {
+    mockGenerateText.mockImplementation((() =>
+      new Promise(resolve =>
+        setTimeout(
+          () =>
+            resolve({
+              toolCalls: [
+                {
+                  toolName: 'classify',
+                  input: {
+                    skipSearch: false,
+                    standaloneQuery: 'What is the capital of Germany?',
+                    needsRecent: false,
+                    needsSources: false,
+                    intent: 'general',
+                    expandedQueries: ['capital city Germany']
+                  }
+                }
+              ],
+              usage: { inputTokens: 100, outputTokens: 20 }
+            }),
+          1500
+        )
+      )) as any)
+
+    const promise = classifyQuery({ messages: [userMsg('and Germany?')] })
+    await vi.advanceTimersByTimeAsync(1600)
+    const result = await promise
+
+    expect(result.standaloneQuery).toBe('What is the capital of Germany?')
+    expect(result.skipSearch).toBe(false)
+    expect(parseClassifyLine()?.outcome).toBe('ok')
   })
 })
