@@ -142,6 +142,17 @@ services:
       # (e.g. SEARCH_ROUNDS_MAX=2 docker compose ... up -d --force-recreate ask).
       SEARCH_ROUNDS_MAX: ${SEARCH_ROUNDS_MAX:-3}
       SEARCH_ROUNDS_MAX_QUALITY: ${SEARCH_ROUNDS_MAX_QUALITY:-5}
+      # Model-agnostic reasoning control for the ANSWERING model
+      # (lib/utils/ollama-think.ts resolveAnswerThink -> registry.ts). The
+      # answering model's chain-of-thought is the single largest remaining
+      # latency source (measured: a reasoning model emitted ~66k chars of CoT +
+      # 17k answer = ~25k output tokens in one turn). This dials it down/off
+      # UNIFORMLY on whatever chat model the user picked — off | low | medium |
+      # high | on (legacy bool via OLLAMA_THINK still honoured when unset).
+      # Shell-overridable so the on/low/off A/B can toggle arms against ONE
+      # build: ANSWER_THINK=low docker compose ... up -d --force-recreate ask.
+      # Unset falls back to the in-code default (ANSWER_THINK_DEFAULT).
+      ANSWER_THINK: ${ANSWER_THINK:-}
       # Pin the image EDIT model (registry.ts pickPinnedModel) to one consistent,
       # strong editor instead of round-robining the whole pool — edits kept
       # drifting in style/identity/resolution turn-to-turn. Generation still
