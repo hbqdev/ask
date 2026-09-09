@@ -49,6 +49,10 @@ export class LatencyTracker {
   // turn makes MULTIPLE search/fetch calls; each stage is a sequential real
   // cost, so they accumulate. Only keys ending in `_ms` are summed.
   private readonly toolTimings: Record<string, number> = {}
+  // Boolean per-turn flags (e.g. recall_budget_hit). Kept separate from the
+  // numeric marks so a true/false shows as a boolean in the line rather than
+  // 1/0. Only set flags are emitted, so a turn that never sets one stays out.
+  private readonly flags: Record<string, boolean> = {}
 
   constructor(
     private readonly meta: Meta,
@@ -61,6 +65,11 @@ export class LatencyTracker {
   /** Record a completed stage duration (ms). */
   mark(name: string, ms: number): void {
     this.marks[name] = Math.round(ms)
+  }
+
+  /** Record a per-turn boolean flag (e.g. whether a budget cap fired). */
+  markFlag(name: string, value: boolean): void {
+    this.flags[name] = value
   }
 
   /** Stamp the moment the first output chunk reached the client. Idempotent. */
@@ -227,6 +236,7 @@ export class LatencyTracker {
           variant: process.env.FLOW_VARIANT || 'baseline',
           modelId: this.meta.modelId ?? null,
           ...this.marks,
+          ...this.flags,
           ttft_ms: ttft,
           steps: this.partCounts['start-step'] ?? 0,
           tool_calls: this.partCounts['tool-input-available'] ?? 0,
