@@ -469,21 +469,43 @@ export async function createChatStreamResponse(
             : recallDecision === 'speculative'
               ? speculativeRecall
               : getRecallInjection(userId, classification.standaloneQuery, chatId)
+        // recall_ms is the TRUE background op cost. The recall work runs to
+        // completion in the background even when the budget cap returns the
+        // turn early, so stamp its real duration when it actually resolves
+        // rather than at the (capped) moment the race unblocks — otherwise a
+        // capped turn records ~budget and the real cost is invisible, which is
+        // exactly the blind spot this telemetry exists to remove. Emitted at
+        // end of turn, by which point recall (a few seconds) has resolved well
+        // inside the longer answer stream. getRecallInjection is fail-safe and
+        // never rejects, but the no-op rejection handler keeps this airtight.
+        void recallWork.then(
+          () => latency.mark('recall_ms', performance.now() - recallStart),
+          () => {}
+        )
         // Timebox it: recall never blocks the turn (see RECALL_BUDGET_MS). A
         // gated turn short-circuits to empty; the others race the recall work
         // against the budget and fall back to empty recall on expiry. The
         // discarded recall promise still resolves in the background (fail-safe),
-        // so no work is left dangling and recall_ms captures the real cost.
+        // so no work is left dangling.
+        let recallBudgetHit = false
         const recall =
           recallDecision === 'gated'
             ? emptyRecall
             : await Promise.race([
                 recallWork,
                 new Promise<RecallInjection>(resolve =>
-                  setTimeout(() => resolve(emptyRecall), RECALL_BUDGET_MS)
+                  setTimeout(() => {
+                    recallBudgetHit = true
+                    resolve(emptyRecall)
+                  }, RECALL_BUDGET_MS)
                 )
               ])
-        latency.mark('recall_ms', performance.now() - recallStart)
+        // recall_wait_ms is the ACTUAL awaited (critical-path) time — <= budget
+        // when the cap fired. The gap between recall_ms (true cost, above) and
+        // recall_wait_ms is precisely what the RECALL_BUDGET_MS cap shaved off
+        // the critical path, and recall_budget_hit says whether it fired at all.
+        latency.mark('recall_wait_ms', performance.now() - recallStart)
+        latency.markFlag('recall_budget_hit', recallBudgetHit)
         if (recall.hits.length > 0) {
           writer.write({
             type: 'data-recall',
