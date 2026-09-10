@@ -96,6 +96,61 @@ describe('stripNarrationPreamble', () => {
     expect(out.startsWith('## Findings')).toBe(true)
   })
 
+  it('strips a "let me search for more" preamble (round-cap / single-pass leak)', () => {
+    // The single-pass regression: a round-capped turn where the model wanted
+    // another search narrated it before the answer.
+    const text =
+      'Let me search for more recent sources to confirm this.\n' +
+      '## Node.js LTS Versions\n' +
+      'The current LTS is Node 24.'
+    const out = stripNarrationPreamble(text)
+    expect(out.startsWith('## Node.js LTS Versions')).toBe(true)
+    expect(out).not.toMatch(/Let me search/)
+  })
+
+  it('strips an "I\'ll look for additional information" preamble', () => {
+    const text =
+      "I'll look for additional details on pricing before finalizing.\n" +
+      '## Apple September 2026 Event\n' +
+      'Apple announced...'
+    const out = stripNarrationPreamble(text)
+    expect(out.startsWith('## Apple September 2026 Event')).toBe(true)
+    expect(out).not.toMatch(/look for additional/)
+  })
+
+  it('strips the "I have comprehensive data now. Let me..." family (live deepseek-v4-flash leak)', () => {
+    // Verbatim shape captured on a round-capped GPU-comparison turn: the model
+    // narrates that it has finished researching in the text part before the
+    // `## ` heading, then writes the report.
+    const text =
+      'I have comprehensive data now. Let me note the key finding: the Arc B770 is not a released product. Let me construct the comparison.\n' +
+      '## Intel Arc B770 vs. RTX 5060\n' +
+      'Here is the comparison.'
+    const out = stripNarrationPreamble(text)
+    expect(out.startsWith('## Intel Arc B770')).toBe(true)
+    expect(out).not.toMatch(/comprehensive data now/)
+  })
+
+  it('strips "I now have good coverage" and "I\'ll research ..." openers', () => {
+    for (const preamble of [
+      'I now have good coverage from the search results. Let me write it up.',
+      "I'll research these three GPUs for a 1440p comparison. Let me search for current info.",
+      'I have detailed specs for all three cards.'
+    ]) {
+      const text = `${preamble}\n## Report\nBody.`
+      expect(stripNarrationPreamble(text).startsWith('## Report')).toBe(true)
+    }
+  })
+
+  it('does NOT strip a genuine "Let me explain" intro before a heading', () => {
+    // "explain" is not a search/lookup verb, so this genuine intro is kept.
+    const text =
+      'Let me explain how the two approaches differ.\n' +
+      '## Comparison\n' +
+      'They differ in three ways.'
+    expect(stripNarrationPreamble(text)).toBe(text)
+  })
+
   it('does not crash on nullish or non-string input', () => {
     // Defensive: callers may pass unexpected values.
     expect(stripNarrationPreamble(null as any)).toBe(null)
@@ -175,6 +230,46 @@ describe('looksLikeNarrationStart', () => {
     expect(
       looksLikeNarrationStart('Some garbled text\nLet me synthesize this.')
     ).toBe(true)
+  })
+
+  it('matches "let me search" / "I\'ll look for" search-narration shapes', () => {
+    expect(looksLikeNarrationStart('Let me search for more sources.')).toBe(true)
+    expect(looksLikeNarrationStart("I'll look for additional details.")).toBe(
+      true
+    )
+    expect(
+      looksLikeNarrationStart('Let me do one more search to be thorough.')
+    ).toBe(true)
+    expect(looksLikeNarrationStart('I need to verify this first.')).toBe(true)
+  })
+
+  it('does not match genuine "let me explain"/"let me show" intros', () => {
+    expect(looksLikeNarrationStart('Let me explain the difference.')).toBe(false)
+    expect(looksLikeNarrationStart('Let me show you the results.')).toBe(false)
+    expect(looksLikeNarrationStart('Let me walk through the options.')).toBe(
+      false
+    )
+  })
+
+  it('matches the "I have comprehensive/good/detailed ... data" research-done family', () => {
+    expect(looksLikeNarrationStart('I have comprehensive data now.')).toBe(true)
+    expect(looksLikeNarrationStart('I now have good coverage of the topic.')).toBe(
+      true
+    )
+    expect(looksLikeNarrationStart('I have detailed specs for all three.')).toBe(
+      true
+    )
+    expect(looksLikeNarrationStart("I'll research these GPUs.")).toBe(true)
+  })
+
+  it('does not match genuine content that merely mentions having data', () => {
+    expect(
+      looksLikeNarrationStart('The RTX 5060 is a solid mid-range card.')
+    ).toBe(false)
+    // "I have three picks" is an answer opener, not research narration.
+    expect(looksLikeNarrationStart('I have three recommendations for you.')).toBe(
+      false
+    )
   })
 
   it('does not match a narration phrase appearing mid-sentence (not at a boundary)', () => {

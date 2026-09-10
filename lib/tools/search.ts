@@ -405,8 +405,7 @@ export function createSearchTool(
             query,
             number_of_results: 0,
             searchLimitReached: true,
-            notice:
-              `Search limit reached (${roundsBudget} rounds). Answer the user's question now using the sources already gathered; do not search again.`
+            notice: `Search limit reached (${roundsBudget} rounds). Answer the user's question directly now using the sources already gathered. Do not search again, and do NOT narrate that you are stopping or promise another search — write the answer starting with its \`## \` heading.`
           }
           return
         }
