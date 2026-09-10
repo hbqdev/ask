@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useRef } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import Link from 'next/link'
 import { usePathname, useRouter } from 'next/navigation'
 
@@ -30,6 +30,11 @@ import {
   type RecentChat,
   RecentChatsSection
 } from './sidebar/recent-chats-section'
+import {
+  applyOptimisticRecent,
+  pruneReconciledOverrides,
+  type RecentOverrides
+} from './sidebar/recent-optimistic'
 import { WildBreathLogo } from './ui/wild-breath-logo'
 import SidebarAccountMenu from './sidebar-account-menu'
 import { SidebarWeather } from './sidebar-weather'
@@ -46,6 +51,13 @@ const NAV_ITEMS = [
 // re-renders the sidebar with fresh data. Coalescing bursts (e.g. a delete
 // firing both `current-chat-deleted` and `chat-history-updated`) into one
 // refresh keeps this cheap.
+//
+// The refresh alone is NOT enough for a live reorder: its revalidation is
+// issued from the stream's `onFinish` (after the response commits) and reads
+// are stale-while-revalidate, so the server can hand back the OLD order (see
+// lib/actions/chat.ts:124-148). So on top of the refresh we keep a client-side
+// optimistic layer (bump / insert / delete overrides, max-merged with the
+// server prop) that reorders INSTANTLY and can't be undone by a stale refresh.
 const REFRESH_EVENTS = [
   'chat-history-updated',
   'current-chat-deleted',
@@ -69,10 +81,66 @@ export default function AppSidebar({
   // weather card in sync with the (now removed) home-screen widget.
   const showWeatherWidget = useClientSettingEnabled('showWeatherWidget')
 
+  // Client-side optimistic overrides layered on top of the server prop. These
+  // give an INSTANT reorder/remove that survives a stale router.refresh() via
+  // the max-merge in applyOptimisticRecent (see recent-optimistic.ts). Written
+  // only from event callbacks (bump / delete) — never synchronously in an
+  // effect body.
+  const [overrides, setOverrides] = useState<RecentOverrides>({})
+
+  // Reconcile during render — the sanctioned "adjust state when a prop changes"
+  // pattern (https://react.dev/reference/react/useState#storing-information-from-previous-renders),
+  // NOT an effect — so a fresh server prop drops the overrides it has already
+  // caught up on and the map can't grow without bound. pruneReconciledOverrides
+  // returns the same reference when nothing changed, so React bails out with no
+  // extra render and this can't loop.
+  const [seenServer, setSeenServer] = useState(recentChats)
+  if (seenServer !== recentChats) {
+    setSeenServer(recentChats)
+    setOverrides(prev => pruneReconciledOverrides(recentChats, prev))
+  }
+
+  // Optimistic reorder/remove in response to the chat events, BEFORE (and
+  // independent of) the server round-trip. setState inside an event callback is
+  // fine; it's synchronous-in-effect-body that cascades.
+  useEffect(() => {
+    const onBump = (event: Event) => {
+      const id = (event as CustomEvent<{ chatId?: string }>).detail?.chatId
+      if (!id) return
+      setOverrides(prev => ({
+        ...prev,
+        [id]: { ...prev[id], lastViewedAt: Date.now(), deleted: false }
+      }))
+    }
+    const onDeleted = (event: Event) => {
+      const id = (event as CustomEvent<{ chatId?: string }>).detail?.chatId
+      if (!id) return
+      setOverrides(prev => ({ ...prev, [id]: { ...prev[id], deleted: true } }))
+    }
+    window.addEventListener('chat-bump', onBump)
+    window.addEventListener('current-chat-deleted', onDeleted)
+    return () => {
+      window.removeEventListener('chat-bump', onBump)
+      window.removeEventListener('current-chat-deleted', onDeleted)
+    }
+  }, [])
+
+  // The list actually rendered: server prop with the optimistic layer applied.
+  // A brand-new chat surfaces through the SAME `chat-bump` path: chat.tsx now
+  // fires a bump with the new chat id when it starts one (its id isn't in the
+  // server list yet, so applyOptimisticRecent inserts it at the top with a
+  // placeholder that the next refresh reconciles to the generated-title row).
+  const mergedChats = useMemo(
+    () => applyOptimisticRecent(recentChats, overrides),
+    [recentChats, overrides]
+  )
+
   // Live-refresh the server-rendered Recent list + count. The sidebar itself is
   // a client island, but its data comes from the server layout, so a
   // router.refresh() re-runs `getRecentChats`/`countChats` and hands down fresh
-  // props without a manual reload.
+  // props without a manual reload. This RECONCILES the optimistic layer above
+  // (titles, cross-tab deletes, renames); the overrides bridge the gap until it
+  // lands, and outlast it when it returns stale.
   const refreshTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
   useEffect(() => {
     const scheduleRefresh = () => {
@@ -218,7 +286,7 @@ export default function AppSidebar({
 
         {/* Recent list — below the nav — expanded (and mobile) only. */}
         <RecentChatsSection
-          chats={recentChats}
+          chats={mergedChats}
           onNavigate={closeDrawerOnMobile}
           className="mt-2 group-data-[collapsible=icon]:hidden"
         />
