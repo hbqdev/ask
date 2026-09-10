@@ -16,7 +16,13 @@
  * that genuinely start with an intro paragraph are preserved.
  */
 const NARRATION_STARTERS: RegExp[] = [
-  /^(?:i have enough|i've got enough)/i,
+  // "I have enough info", and the broader family a model reaches for once it
+  // decides it has finished researching: "I have comprehensive data now", "I
+  // now have good coverage", "I have detailed specs", "I've gathered enough".
+  // Observed live from deepseek-v4-flash:cloud on round-capped/single-pass
+  // turns, emitted in the text part before the final `## ` heading.
+  /^(?:i (?:now )?have (?:now )?(?:enough|comprehensive|sufficient|solid|good|detailed|adequate|complete|thorough|plenty|everything|all\b|the\b)|i'?ve (?:now )?(?:got|gathered) (?:enough|comprehensive|sufficient|good|solid|plenty|all\b|the\b))/i,
+  /^(?:i'?ll research|let me research|i'?ll (?:dig|look) into|i'?ve (?:finished|completed) (?:my|the) research)/i,
   /^(?:i (?:will|shall) now|now (?:i will|i'll|let me))/i,
   /^(?:let me (?:now )?(?:write|synthesize|construct|craft|provide|put together|consolidate|refine|compile))/i,
   /^(?:i'll now (?:write|construct|compose|draft|provide))/i,
@@ -25,7 +31,13 @@ const NARRATION_STARTERS: RegExp[] = [
   /^(?:wait,?\s+the\s+prompt)/i,
   /^(?:actually,?\s+(?:looking back|let me re-check|on second thought))/i,
   /^(?:let'?s\s+refine)/i,
-  /^(?:refining the content)/i
+  /^(?:refining the content)/i,
+  // "Let me search for more…" / "I'll look for…" — a model that wanted
+  // another search (e.g. a round-capped or single-pass turn) narrating the
+  // search it is about to run, or was told it cannot run, before the answer.
+  // Kept tight: the verb must be a search/lookup/gather verb so genuine
+  // content like "Let me explain the difference" is never a false positive.
+  /^(?:let me|let's|i'?ll|i (?:will|shall|need to|want to|should|am going to)|i'?m going to|now (?:let me|i'?ll))\s+(?:also\s+|quickly\s+|just\s+|first\s+|now\s+|then\s+|go\s+(?:ahead\s+)?and\s+)*(?:do\s+(?:one\s+|a\s+|another\s+|a\s+few\s+more\s+)?(?:more\s+)?(?:quick\s+)?(?:search|searches)|run\s+(?:one\s+|a\s+|another\s+)?(?:more\s+)?(?:quick\s+)?(?:search|searches)|search|searching|look\s+(?:for|up|into)|gather\s+(?:more|additional|further)|dig\s+(?:up|into|deeper)|verify\s+this|double[-\s]?check)\b/i
 ]
 
 /**
