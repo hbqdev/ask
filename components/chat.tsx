@@ -705,6 +705,14 @@ export function Chat({
       // Check if we're on the root path (new chat)
       if (!isGuest && window.location.pathname === '/') {
         window.history.pushState({}, '', `/search/${chatId}`)
+        // Surface the brand-new chat in the sidebar Recent list instantly. New
+        // chats take the providedId-less branch in safeSendMessage, so they fire
+        // no `chat-bump` there; emit one here with the freshly-minted id. The id
+        // isn't in the server list yet, so the sidebar inserts it at the top
+        // with a placeholder title until the next refresh brings the real row.
+        window.dispatchEvent(
+          new CustomEvent('chat-bump', { detail: { chatId } })
+        )
       }
     }
   }
