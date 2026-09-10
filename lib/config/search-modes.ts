@@ -20,7 +20,7 @@ export const SEARCH_MODE_CONFIGS: SearchModeConfig[] = [
     value: 'speed',
     label: 'Speed',
     description:
-      'Fast answers with focused web search. Best for quick lookups and current events.',
+      'Fast answers from a single web pass — usually ~5–10s. Best for quick lookups and current events.',
     icon: IconBolt,
     color: 'text-amber-500'
   },
@@ -28,7 +28,7 @@ export const SEARCH_MODE_CONFIGS: SearchModeConfig[] = [
     value: 'balanced',
     label: 'Balanced',
     description:
-      'Thorough research with intelligent multi-step planning. Best for most queries.',
+      'Multi-source research with citations — usually ~15–30s. Best for most questions.',
     icon: IconAdjustmentsHorizontal,
     color: 'text-violet-500'
   },
@@ -36,7 +36,7 @@ export const SEARCH_MODE_CONFIGS: SearchModeConfig[] = [
     value: 'quality',
     label: 'Quality',
     description:
-      'Deep research with comprehensive coverage. Best for complex or research-heavy questions.',
+      'Deep research across the most sources, with page crawling — usually ~45s or more. Best for complex, research-heavy questions.',
     icon: IconStars,
     color: 'text-blue-500'
   }
