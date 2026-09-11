@@ -50,18 +50,33 @@ async function fileExists(p: string): Promise<boolean> {
 // timeout). Scoped by the caller to the non-vision/document path only — a
 // vision-capable model renders an image's pixels immediately and never waits.
 // Bounds are read from env at call time (so tests can override them):
-//   INGEST_WAIT_TIMEOUT_MS (default 120000) — timeoutMs <= 0 skips polling
-//   INGEST_WAIT_POLL_MS    (default 1500)
+//   INGEST_WAIT_TIMEOUT_MS  (default 30000) — timeoutMs <= 0 skips polling
+//   INGEST_WAIT_POLL_MS     (default 1500)
+//   INGEST_WAIT_UNCLAIMED_MS (default 8000) — early-bail grace, see below
+//
+// Early-bail on an UNCLAIMED job: a worker-path file starts life status
+// 'pending' and only flips to 'processing' once a worker CLAIMS it (see
+// lib/db/file-actions.ts claimNextIngestJob). If it is still 'pending' after
+// INGEST_WAIT_UNCLAIMED_MS, no worker has picked it up — the ingestor is down
+// or badly backed up — so continuing to poll until the full timeout only
+// delays the identical "still processing" note the caller returns anyway.
+// Bail early in that case. A 'processing' row IS being actively worked, so we
+// keep waiting for it up to the full timeout. Set INGEST_WAIT_UNCLAIMED_MS
+// >= INGEST_WAIT_TIMEOUT_MS to disable the early-bail (revert to waiting out
+// the timeout on pending too).
 async function waitForIngestReady(
   objectKey: string,
   currentRow: Awaited<ReturnType<typeof findFileByObjectKey>>
 ): Promise<Awaited<ReturnType<typeof findFileByObjectKey>>> {
-  const timeoutMs = Number(process.env.INGEST_WAIT_TIMEOUT_MS ?? 120000)
+  const timeoutMs = Number(process.env.INGEST_WAIT_TIMEOUT_MS ?? 30000)
   const pollMs = Number(process.env.INGEST_WAIT_POLL_MS ?? 1500)
+  const unclaimedMs = Number(process.env.INGEST_WAIT_UNCLAIMED_MS ?? 8000)
   if (timeoutMs <= 0) return currentRow
 
   let row = currentRow
-  const deadline = Date.now() + timeoutMs
+  const start = Date.now()
+  const deadline = start + timeoutMs
+  const unclaimedDeadline = start + unclaimedMs
   while (Date.now() < deadline) {
     await new Promise(r => setTimeout(r, pollMs))
     try {
@@ -69,6 +84,10 @@ async function waitForIngestReady(
       row = next
       const status = next?.status
       if (status !== 'pending' && status !== 'processing') return row
+      // No worker has claimed the job (still 'pending', never reached
+      // 'processing') past the unclaimed grace — the worker is down/backed up.
+      // Stop now; the caller emits the same "still processing" note either way.
+      if (status === 'pending' && Date.now() >= unclaimedDeadline) return row
     } catch {
       // A transient lookup failure must not abort the wait — keep polling and
       // fall back to the last good row on timeout.
