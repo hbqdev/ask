@@ -4,6 +4,7 @@ import path from 'node:path'
 
 import { findFileByObjectKey } from '@/lib/db/file-actions'
 import { queryFileChunks } from '@/lib/embeddings/upload-rag'
+import { isIngestorAlive } from '@/lib/utils/ingest-heartbeat'
 
 import {
   type DocumentRetrievalInput,
@@ -188,6 +189,21 @@ async function transformPart(
       }
     }
     if (status === 'pending' || status === 'processing') {
+      // A row still 'pending' here means the early-bail fired: no worker ever
+      // claimed the job within the unclaimed grace. If the worker's heartbeat
+      // has ALSO gone stale (isIngestorAlive === false), the ingestor is down,
+      // not just slow — so say so plainly instead of the softer "ask again
+      // shortly" note, which reads like normal in-progress work and leaves the
+      // user hanging on a queue that no worker is draining. A null result
+      // (heartbeat disabled or Redis unreadable) is NOT treated as down.
+      if (status === 'pending' && (await isIngestorAlive()) === false) {
+        return [
+          {
+            type: 'text',
+            text: `[Attached file: ${filename} — attachment processing is temporarily unavailable, so this file could not be read this turn. Tell the user file/image processing is down right now and to try again in a little while.]`
+          }
+        ]
+      }
       const stage = row?.ingestStage || 'queued'
       return [
         {
