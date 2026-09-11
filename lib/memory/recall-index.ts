@@ -9,8 +9,13 @@ import {
   getConfiguredModel
 } from '@/lib/embeddings/transformers-embedding'
 
-// Must match conversation_chunks.embedding vector(1024) — pinned to mxbai
-// (EMBEDDING_MODEL). A mismatch means every insert fails, so fail LOUD.
+// Must match conversation_chunks.embedding vector(1024) — the embedder is
+// EMBEDDING_MODEL = Qwen/Qwen3-Embedding-0.6B (1024-d, served remote-only on
+// the GPU embedder). The stored vectors are DATA-LOCKED to this model: never
+// switch EMBEDDING_MODEL without a full re-embed of conversation_chunks, or
+// recall silently returns garbage. The dim guard below only catches a
+// DIFFERENT dimension — another 1024-d model (e.g. mxbai) would pass it
+// silently while corrupting recall, so this is a landmine, not a safety net.
 const RECALL_EMBEDDING_DIM = 1024
 
 function chunkTokens(): number {
@@ -46,7 +51,8 @@ export async function indexMessage(
     if (embeddings[0] && embeddings[0].length !== RECALL_EMBEDDING_DIM) {
       console.error(
         `[recall] embedding dimension mismatch: got ${embeddings[0].length}, expected ${RECALL_EMBEDDING_DIM}. ` +
-          `Set EMBEDDING_MODEL=mixedbread-ai/mxbai-embed-large-v1. Skipping index.`
+          `EMBEDDING_MODEL must stay Qwen/Qwen3-Embedding-0.6B (1024-d); the stored ` +
+          `vectors are data-locked to it. Skipping index.`
       )
       return 0
     }
