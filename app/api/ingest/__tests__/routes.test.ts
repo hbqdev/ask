@@ -18,6 +18,9 @@ import {
 vi.mock('@/lib/db')
 vi.mock('@/lib/db/file-actions')
 vi.mock('@/lib/embeddings/upload-rag')
+// The claim/progress routes fire a best-effort worker heartbeat; stub it so
+// the routes never touch a real Redis under test.
+vi.mock('@/lib/utils/ingest-heartbeat')
 
 import { db } from '@/lib/db'
 import {

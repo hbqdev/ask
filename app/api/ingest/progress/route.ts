@@ -2,10 +2,15 @@ import { NextRequest, NextResponse } from 'next/server'
 
 import { updateIngestProgress } from '@/lib/db/file-actions'
 import { checkIngestAuth } from '@/lib/utils/ingest-auth'
+import { recordIngestHeartbeat } from '@/lib/utils/ingest-heartbeat'
 
 export async function POST(req: NextRequest) {
   const auth = checkIngestAuth(req.headers.get('authorization'))
   if (!auth.ok) return new NextResponse(null, { status: auth.status })
+  // Progress reports fire several times per job, so this keeps the worker's
+  // heartbeat fresh even while it is saturated and not polling /claim. Same
+  // best-effort liveness signal as the claim route.
+  await recordIngestHeartbeat()
 
   let body: unknown
   try {
