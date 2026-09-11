@@ -15,6 +15,10 @@ import {
 // Auto-mocked; each test configures the resolved values it needs.
 vi.mock('@/lib/db/file-actions')
 vi.mock('@/lib/embeddings/upload-rag')
+// The worker-liveness check; auto-mocked so it never touches Redis. Default
+// (undefined = "unknown") keeps every existing pending/processing test on the
+// neutral "still processing" note; the one down-worker test resolves it false.
+vi.mock('@/lib/utils/ingest-heartbeat')
 
 // The pdftotext fallback (preserved from the current implementation) shells
 // out via a *dynamic* `await import('node:child_process')` inside a
@@ -39,6 +43,7 @@ vi.mock('node:child_process', async importOriginal => {
 
 import { findFileByObjectKey } from '@/lib/db/file-actions'
 import { queryFileChunks } from '@/lib/embeddings/upload-rag'
+import { isIngestorAlive } from '@/lib/utils/ingest-heartbeat'
 
 import {
   type DocumentRetrievalInput,
@@ -268,7 +273,9 @@ describe('transformFileParts', () => {
         }
       ])
       // It re-polled the row rather than short-circuiting on the first status.
-      expect(vi.mocked(findFileByObjectKey).mock.calls.length).toBeGreaterThan(1)
+      expect(vi.mocked(findFileByObjectKey).mock.calls.length).toBeGreaterThan(
+        1
+      )
     } finally {
       process.env.INGEST_WAIT_TIMEOUT_MS = prevTimeout
       process.env.INGEST_WAIT_POLL_MS = prevPoll
@@ -295,7 +302,9 @@ describe('transformFileParts', () => {
     process.env.INGEST_WAIT_POLL_MS = '10'
     process.env.INGEST_WAIT_UNCLAIMED_MS = '30'
     try {
-      const result = await run([filePart(objectKey, { filename: 'stuck.docx' })])
+      const result = await run([
+        filePart(objectKey, { filename: 'stuck.docx' })
+      ])
 
       expect(result).toEqual([
         {
@@ -310,6 +319,26 @@ describe('transformFileParts', () => {
       process.env.INGEST_WAIT_POLL_MS = prevPoll
       process.env.INGEST_WAIT_UNCLAIMED_MS = prevUnclaimed
     }
+  })
+
+  it('a still-pending job whose worker heartbeat is stale yields the "temporarily unavailable" note (not the generic still-processing one)', async () => {
+    // Still 'pending' AND isIngestorAlive() === false → the ingestor is down,
+    // not merely slow, so the user is told plainly rather than left to keep
+    // "asking again" against a queue no worker is draining. (Timeout stays 0
+    // from beforeEach, so the row's mocked 'pending' status is read straight
+    // through — no wait needed to reproduce the down-worker case.)
+    vi.mocked(findFileByObjectKey).mockResolvedValue({
+      status: 'pending',
+      ingestStage: 'queued'
+    } as any)
+    vi.mocked(isIngestorAlive).mockResolvedValue(false)
+    const result = await run([filePart('u1/chats/c1/downworker-notxt.txt')])
+    expect(result).toEqual([
+      {
+        type: 'text',
+        text: '[Attached file: downworker-notxt.txt — attachment processing is temporarily unavailable, so this file could not be read this turn. Tell the user file/image processing is down right now and to try again in a little while.]'
+      }
+    ])
   })
 
   it('a PROCESSING (worker-claimed) job keeps waiting past the unclaimed grace, up to the timeout', async () => {
@@ -340,7 +369,9 @@ describe('transformFileParts', () => {
         }
       ])
       // Kept waiting well past the 2-poll unclaimed grace (~150/10 = ~15 polls).
-      expect(vi.mocked(findFileByObjectKey).mock.calls.length).toBeGreaterThan(4)
+      expect(vi.mocked(findFileByObjectKey).mock.calls.length).toBeGreaterThan(
+        4
+      )
     } finally {
       process.env.INGEST_WAIT_TIMEOUT_MS = prevTimeout
       process.env.INGEST_WAIT_POLL_MS = prevPoll
