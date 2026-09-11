@@ -275,6 +275,79 @@ describe('transformFileParts', () => {
     }
   })
 
+  it('early-bails an UNCLAIMED (still-pending) job after the grace, without burning the full timeout', async () => {
+    // No worker ever claims the job: it stays 'pending' forever. The poller
+    // must stop at the unclaimed grace and return the "still processing" note
+    // rather than polling until the (large) timeout.
+    vi.mocked(findFileByObjectKey).mockResolvedValue({
+      status: 'pending',
+      ingestStage: 'queued'
+    } as any)
+    const objectKey = 'u1/chats/c1/stuck.docx'
+    await writeUploadFile(objectKey, 'on-disk bytes')
+
+    const prevTimeout = process.env.INGEST_WAIT_TIMEOUT_MS
+    const prevPoll = process.env.INGEST_WAIT_POLL_MS
+    const prevUnclaimed = process.env.INGEST_WAIT_UNCLAIMED_MS
+    // Large timeout, tiny grace: if the early-bail is broken this would poll
+    // ~5000/10 = 500 times; with it, only a handful before bailing.
+    process.env.INGEST_WAIT_TIMEOUT_MS = '5000'
+    process.env.INGEST_WAIT_POLL_MS = '10'
+    process.env.INGEST_WAIT_UNCLAIMED_MS = '30'
+    try {
+      const result = await run([filePart(objectKey, { filename: 'stuck.docx' })])
+
+      expect(result).toEqual([
+        {
+          type: 'text',
+          text: '[Attached file: stuck.docx — still being processed (queued). Its content is not available yet; tell the user to ask again shortly.]'
+        }
+      ])
+      // Bailed at the grace: far fewer polls than timeout/poll (=500).
+      expect(vi.mocked(findFileByObjectKey).mock.calls.length).toBeLessThan(20)
+    } finally {
+      process.env.INGEST_WAIT_TIMEOUT_MS = prevTimeout
+      process.env.INGEST_WAIT_POLL_MS = prevPoll
+      process.env.INGEST_WAIT_UNCLAIMED_MS = prevUnclaimed
+    }
+  })
+
+  it('a PROCESSING (worker-claimed) job keeps waiting past the unclaimed grace, up to the timeout', async () => {
+    // The job is actively being worked (status 'processing'), so the unclaimed
+    // early-bail must NOT fire — it keeps polling until the timeout.
+    vi.mocked(findFileByObjectKey).mockResolvedValue({
+      status: 'processing',
+      ingestStage: 'embedding'
+    } as any)
+    const objectKey = 'u1/chats/c1/working.docx'
+    await writeUploadFile(objectKey, 'on-disk bytes')
+
+    const prevTimeout = process.env.INGEST_WAIT_TIMEOUT_MS
+    const prevPoll = process.env.INGEST_WAIT_POLL_MS
+    const prevUnclaimed = process.env.INGEST_WAIT_UNCLAIMED_MS
+    process.env.INGEST_WAIT_TIMEOUT_MS = '150'
+    process.env.INGEST_WAIT_POLL_MS = '10'
+    process.env.INGEST_WAIT_UNCLAIMED_MS = '20' // would bail at ~2 polls IF pending
+    try {
+      const result = await run([
+        filePart(objectKey, { filename: 'working.docx' })
+      ])
+
+      expect(result).toEqual([
+        {
+          type: 'text',
+          text: '[Attached file: working.docx — still being processed (embedding). Its content is not available yet; tell the user to ask again shortly.]'
+        }
+      ])
+      // Kept waiting well past the 2-poll unclaimed grace (~150/10 = ~15 polls).
+      expect(vi.mocked(findFileByObjectKey).mock.calls.length).toBeGreaterThan(4)
+    } finally {
+      process.env.INGEST_WAIT_TIMEOUT_MS = prevTimeout
+      process.env.INGEST_WAIT_POLL_MS = prevPoll
+      process.env.INGEST_WAIT_UNCLAIMED_MS = prevUnclaimed
+    }
+  })
+
   // ── failed ─────────────────────────────────────────────────────────────────
 
   it('failed status yields a failure note, falling back to "unknown error"', async () => {
