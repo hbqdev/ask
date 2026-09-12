@@ -3,6 +3,12 @@ import { NextRequest, NextResponse } from 'next/server'
 import { promises as fs } from 'node:fs'
 import path from 'node:path'
 
+import {
+  isUploadSigningConfigured,
+  uploadSignatureRequired,
+  verifyUploadSignature
+} from '@/lib/storage/upload-url-signing'
+
 // Stream a previously-uploaded file from the local uploads volume.
 //
 // Path layout: /uploads/<userId>/(chats|generated)/<chatId>/<file>
@@ -10,13 +16,19 @@ import path from 'node:path'
 //   - `generated` — image-generation outputs (see lib/imagegen/persist-image.ts)
 // Both share the same capability-URL auth model below.
 //
-// Auth model: capability URL. The path contains a UUID userId, a UUID chatId,
-// and a timestamp+sanitized-filename — the UUIDs are unguessable and the URL
-// is only ever shared with the user who uploaded it and the LLM provider that
-// has to follow it. This is the only way the LLM provider can fetch the file:
-// it pulls the URL from outside the browser, so it can't carry a user cookie.
-// Treat the URL as the capability (like an S3 presigned URL) — no session
-// check on GET, just path-traversal protection.
+// Auth model: signed capability URL. The path contains a UUID userId, a UUID
+// chatId, and a timestamp+sanitized-filename, and the query carries an HMAC
+// signature + expiry minted by lib/storage/upload-url-signing.ts. When
+// UPLOADS_REQUIRE_SIGNATURE is on (and a secret is configured) a request with a
+// missing/tampered signature is rejected (403) and an expired one is rejected
+// (410) — a leaked or old link stops working. The only consumer is the browser
+// (a same-origin <img>/<a>): the LLM provider never fetches these URLs — vision
+// images are inlined as base64 data URIs and documents are read from disk in
+// lib/streaming/helpers/transform-file-parts.ts. Persisted history stores the
+// stable path and is re-signed at render time (loadChat), so old chats mint a
+// fresh short-lived URL on every view rather than serving a baked, expiring one.
+// The flag defaults off so a deploy keeps serving legacy unsigned URLs until an
+// operator flips it on. Path-traversal protection is always enforced.
 
 const UPLOADS_DIR = process.env.UPLOADS_DIR || '/app/uploads'
 
@@ -34,6 +46,25 @@ export async function GET(
   const [pathUserId, ...rest] = segments
   if (rest[0] !== 'chats' && rest[0] !== 'generated') {
     return NextResponse.json({ error: 'Not found' }, { status: 404 })
+  }
+
+  // Signed-capability check. Only enforced when the operator has opted in AND a
+  // signing secret is configured — otherwise serve as before (legacy unsigned
+  // URLs baked in older chats keep working). The signed objectKey is exactly
+  // the decoded path segments the route resolves below.
+  if (uploadSignatureRequired() && isUploadSigningConfigured()) {
+    const objectKey = segments.join('/')
+    const result = verifyUploadSignature(
+      objectKey,
+      req.nextUrl.searchParams.get('exp'),
+      req.nextUrl.searchParams.get('sig')
+    )
+    if (result === 'expired') {
+      return NextResponse.json({ error: 'Link expired' }, { status: 410 })
+    }
+    if (result !== 'ok') {
+      return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
+    }
   }
 
   // Resolve to an absolute path and reject anything that escapes UPLOADS_DIR

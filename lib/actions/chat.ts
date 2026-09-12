@@ -8,6 +8,7 @@ import * as dbActions from '@/lib/db/actions'
 import type { Chat, Message } from '@/lib/db/schema'
 import { generateId } from '@/lib/db/schema'
 import { signFilePartUrlsInMessages } from '@/lib/storage/r2-client'
+import { signUploadUrlsInMessages } from '@/lib/storage/upload-url-signing'
 import type { UIMessage } from '@/lib/types/ai'
 import { getTextFromParts } from '@/lib/utils/message-utils'
 
@@ -117,7 +118,13 @@ export async function loadChat(
 
   return {
     ...chat,
-    messages: await signFilePartUrlsInMessages(chat.messages)
+    // R2 presigning (cloud) then local-uploads HMAC signing (self-hosted) — one
+    // is a no-op wherever the other applies. Local signing re-mints a fresh,
+    // short-lived URL for every `/uploads/…` reference in history so nothing
+    // baked in an old chat ever serves a stale/expired link.
+    messages: signUploadUrlsInMessages(
+      await signFilePartUrlsInMessages(chat.messages)
+    )
   }
 }
 
@@ -155,7 +162,9 @@ export async function loadChatUncached(
 
   return {
     ...chat,
-    messages: await signFilePartUrlsInMessages(chat.messages)
+    messages: signUploadUrlsInMessages(
+      await signFilePartUrlsInMessages(chat.messages)
+    )
   }
 }
 

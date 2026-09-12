@@ -3,6 +3,7 @@ import { promises as fs } from 'node:fs'
 import path from 'node:path'
 
 import { createFileRecord } from '@/lib/db/file-actions'
+import { signUploadUrl } from '@/lib/storage/upload-url-signing'
 
 // Persist a Replicate-generated image into the same local uploads store the
 // upload route writes to (see app/api/upload/route.ts), so the LLM and the
@@ -110,5 +111,8 @@ export async function persistGeneratedImage(args: {
     }
   }
 
-  return { publicUrl, objectKey }
+  // The DB row (createFileRecord above) keeps the STABLE unsigned URL; the
+  // caller — and thus the streamed tool output the browser renders live — gets
+  // a freshly signed one. Reloaded turns are re-signed at render time (loadChat).
+  return { publicUrl: signUploadUrl(publicUrl), objectKey }
 }
