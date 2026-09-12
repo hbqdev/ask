@@ -206,6 +206,32 @@ function estimateTokenCount(
 }
 
 /**
+ * Token estimate for a single piece of text, using the SAME estimator (and
+ * message-formatting overhead) truncateMessages uses. Exposed so a caller that
+ * budgets content appended AFTER truncation — e.g. injected documentRetrieval
+ * excerpts — sizes it on the same scale the truncation budget was computed with.
+ */
+export function estimateTextTokens(text: string, modelId?: string): number {
+  return estimateTokenCount(text, modelId)
+}
+
+/**
+ * Total estimated tokens across a set of model messages, using the SAME
+ * estimator as truncateMessages/shouldTruncateMessages. Lets a caller measure
+ * how much of the window the current prompt already consumes before appending
+ * more, so its budget agrees with the one truncation used.
+ */
+export function estimateMessagesTokens(
+  messages: ModelMessage[],
+  modelId?: string
+): number {
+  return messages.reduce(
+    (sum, msg) => sum + estimateTokenCount(msg.content, modelId),
+    0
+  )
+}
+
+/**
  * Smart message truncation with priority for context preservation
  */
 export function truncateMessages(
