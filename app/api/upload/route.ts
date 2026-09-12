@@ -7,6 +7,7 @@ import { getCurrentUserId } from '@/lib/auth/get-current-user'
 import { isAllowedUpload } from '@/lib/config/upload-allowlist'
 import { createFileRecord, markFileReady } from '@/lib/db/file-actions'
 import { isTextFamily, processFileForRAG } from '@/lib/embeddings/upload-rag'
+import { signUploadUrl } from '@/lib/storage/upload-url-signing'
 
 // Local-only upload store. Self-hosted deploys don't depend on any cloud
 // storage — files live in /app/uploads inside the container (ephemeral;
@@ -116,6 +117,11 @@ export async function POST(req: NextRequest) {
     }
 
     const publicUrl = publicUrlFor(req, `/uploads/${objectKey}`)
+    // The DB row keeps the STABLE unsigned URL (never expires in storage); the
+    // client is handed a freshly signed one so its just-uploaded attachment
+    // renders while the signature is still valid. On reload the persisted user
+    // message is re-signed at render time (loadChat).
+    const signedUrl = signUploadUrl(publicUrl)
     const eligibleForFastPath =
       isTextFamily(mediaType, filename) && written <= FAST_PATH_MAX_BYTES
 
@@ -157,7 +163,7 @@ export async function POST(req: NextRequest) {
         file: {
           id,
           filename,
-          url: publicUrl,
+          url: signedUrl,
           mediaType,
           objectKey,
           status: 'pending',
