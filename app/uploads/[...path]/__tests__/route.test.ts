@@ -48,9 +48,9 @@ afterAll(async () => {
   await rm(uploadsDir, { recursive: true, force: true })
 })
 
-function call(segments: string[]) {
+function call(segments: string[], query = '') {
   const req = new NextRequest(
-    'http://localhost:3000/uploads/' + segments.join('/')
+    'http://localhost:3000/uploads/' + segments.join('/') + query
   )
   return GET(req, { params: Promise.resolve({ path: segments }) })
 }
@@ -98,5 +98,58 @@ describe('GET /uploads/[...path]', () => {
   it('404s a path-traversal attempt that escapes UPLOADS_DIR', async () => {
     const res = await call(['u1', 'chats', '..', '..', '..', 'etc', 'passwd'])
     expect(res.status).toBe(404)
+  })
+
+  it('serves an unsigned request when signature enforcement is off (back-compat)', async () => {
+    // No UPLOADS_REQUIRE_SIGNATURE / UPLOADS_URL_SECRET set — legacy behavior.
+    const res = await call(['u1', 'chats', 'c1', 'pic.png'])
+    expect(res.status).toBe(200)
+  })
+})
+
+describe('GET /uploads/[...path] — signature enforcement', () => {
+  const SECRET = 'route-test-secret'
+
+  beforeAll(() => {
+    process.env.UPLOADS_URL_SECRET = SECRET
+    process.env.UPLOADS_REQUIRE_SIGNATURE = 'true'
+  })
+  afterAll(() => {
+    delete process.env.UPLOADS_URL_SECRET
+    delete process.env.UPLOADS_REQUIRE_SIGNATURE
+  })
+
+  it('rejects an unsigned request with 403 when enforcement is on', async () => {
+    const res = await call(['u1', 'chats', 'c1', 'pic.png'])
+    expect(res.status).toBe(403)
+  })
+
+  it('rejects a tampered signature with 403', async () => {
+    const { signUploadUrl } = await import('@/lib/storage/upload-url-signing')
+    const signed = signUploadUrl('/uploads/u1/chats/c1/pic.png')
+    const query = new URL(signed, 'http://x').search.replace(
+      /sig=([0-9a-f]+)/,
+      (_m, s) => 'sig=' + s.slice(0, -1) + (s.endsWith('a') ? 'b' : 'a')
+    )
+    const res = await call(['u1', 'chats', 'c1', 'pic.png'], query)
+    expect(res.status).toBe(403)
+  })
+
+  it('rejects an expired but validly-signed link with 410', async () => {
+    const { signUploadUrl } = await import('@/lib/storage/upload-url-signing')
+    const signed = signUploadUrl('/uploads/u1/chats/c1/pic.png', -100)
+    const query = new URL(signed, 'http://x').search
+    const res = await call(['u1', 'chats', 'c1', 'pic.png'], query)
+    expect(res.status).toBe(410)
+  })
+
+  it('serves a validly-signed, unexpired request (200)', async () => {
+    const { signUploadUrl } = await import('@/lib/storage/upload-url-signing')
+    const signed = signUploadUrl('/uploads/u1/chats/c1/pic.png')
+    const query = new URL(signed, 'http://x').search
+    const res = await call(['u1', 'chats', 'c1', 'pic.png'], query)
+    expect(res.status).toBe(200)
+    const body = Buffer.from(await res.arrayBuffer())
+    expect(body.equals(PNG_BYTES)).toBe(true)
   })
 })
