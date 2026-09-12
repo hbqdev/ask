@@ -51,6 +51,7 @@ import { perfLog, perfTime } from '../utils/perf-logging'
 import { resolveContextWindow } from '../utils/resolve-context-window'
 import { isUsageLogging, logUsage } from '../utils/usage-logging'
 
+import { budgetDocumentSources } from './helpers/budget-document-sources'
 import { chooseRecall } from './helpers/choose-recall'
 import { convertDataPart } from './helpers/convert-data-part'
 import {
@@ -100,12 +101,27 @@ const RECALL_BUDGET_MS = (() => {
 // Every prior attachment re-retrieves each turn (spec §7) and each source's
 // assistant-tool-call + tool-result pair is pushed onto modelMessages AFTER
 // truncateMessages already ran — so the injected excerpts ESCAPE the context-
-// window budget entirely. With many/large attachments this can push the request
-// past the model's window → a provider 400 that kills a turn that DID retrieve,
-// which is not fail-open. Per-source chunks are already bounded (topK=10), so an
-// 8-source cap bounds the worst case predictably (a token-budget system is the
-// documented Slice-2 fast-follow, deliberately out of scope here).
+// window budget. This count cap bounds how many sources compete; the per-turn
+// TOKEN budget (budgetDocumentSources, below) then trims the chunks so the
+// combined injection can never push the prompt past the model's real window
+// into a provider 400. Ordered oldest→newest, so keeping the LAST N biases
+// toward the most-recently-attached docs plus this turn's URLs.
 const MAX_INJECTED_DOC_SOURCES = 8
+
+// Optional hard cap (in tokens) on the injected doc content, on top of the
+// automatic remaining-window budget budgetDocumentSources computes. Unset/empty
+// (the default) → the budget derives purely from the model's real context
+// window (getMaxAllowedTokens already reserves the answer + a safety buffer). A
+// positive value caps it lower (hold back more room). `0` disables the clip
+// entirely — the pre-fix behavior of injecting every chunk regardless of the
+// window; a deliberate escape hatch, never a default.
+function docInjectMaxTokens(): number | undefined {
+  const raw = process.env.DOC_INJECT_MAX_TOKENS
+  if (raw === undefined || raw === '') return undefined
+  const n = Number(raw)
+  if (!Number.isFinite(n) || n < 0) return undefined
+  return n
+}
 
 export async function createChatStreamResponse(
   config: BaseStreamConfig
@@ -468,7 +484,11 @@ export async function createChatStreamResponse(
             ? Promise.resolve(emptyRecall)
             : recallDecision === 'speculative'
               ? speculativeRecall
-              : getRecallInjection(userId, classification.standaloneQuery, chatId)
+              : getRecallInjection(
+                  userId,
+                  classification.standaloneQuery,
+                  chatId
+                )
         // recall_ms is the TRUE background op cost. The recall work runs to
         // completion in the background even when the budget cap returns the
         // turn early, so stamp its real duration when it actually resolves
@@ -632,8 +652,11 @@ export async function createChatStreamResponse(
         ).filter((s): s is DocumentRetrievalInput => s !== null)
 
         // Merge documents + URLs, deduped by the deterministic sourceId so the
-        // same file/URL never yields two tool calls under one toolCallId.
-        const documentArtifacts: DocumentRetrievalArtifacts[] = []
+        // same file/URL never yields two tool calls under one toolCallId. Skip
+        // an empty or uncitable (relative-URL) source up front — fail-open,
+        // never the whole turn (buildDocumentResults throws on a relative url,
+        // so mirror its `new URL` guard here rather than pay it after budgeting).
+        const dedupedSources: DocumentRetrievalInput[] = []
         const seenSourceIds = new Set<string>()
         for (const src of [
           ...documentSources.map(s => ({ ...s, query: retrievalQuery })),
@@ -641,34 +664,75 @@ export async function createChatStreamResponse(
         ]) {
           if (seenSourceIds.has(src.sourceId)) continue
           seenSourceIds.add(src.sourceId)
+          if (src.chunks.length === 0) continue
+          // buildDocumentResults throws on a relative url (processCitations
+          // silently strips the citation) — mirror its `new URL` guard here so
+          // an uncitable source is skipped before it consumes any budget.
+          if (!URL.canParse(src.url)) {
+            console.warn(
+              `[docs] skipped uncitable source ${src.sourceId}: relative url ${src.url}`
+            )
+            continue
+          }
+          dedupedSources.push(src)
+        }
+
+        // Bound the injected source COUNT before the token budget and the
+        // prompt-clause mapping below, so the model input and the researcher's
+        // citation-permission clause stay in sync over the same capped set.
+        // Ordered history-docs-first then this turn's URLs last, so keeping the
+        // LAST N biases toward the most-recently-attached docs plus this turn's
+        // URLs. Never a silent truncation — say what was dropped.
+        let boundedSources = dedupedSources
+        if (dedupedSources.length > MAX_INJECTED_DOC_SOURCES) {
+          const dropped = dedupedSources.length - MAX_INJECTED_DOC_SOURCES
+          boundedSources = dedupedSources.slice(-MAX_INJECTED_DOC_SOURCES)
+          console.warn(
+            `[docs] injected sources capped at ${MAX_INJECTED_DOC_SOURCES}; dropped ${dropped} oldest attached source(s) to stay within the model context window`
+          )
+        }
+
+        // Token-budget the injected chunks against the REAL remaining window so
+        // the doc content can never push the prompt past the model's
+        // context_length → a provider 400 that kills a turn that DID retrieve.
+        // These excerpts are appended AFTER prune/truncate, so budget them
+        // explicitly: total prompt (system + truncated history + injected docs +
+        // answer reserve) must fit. maxTokens is the SAME budget truncateMessages
+        // used (getMaxAllowedTokens already reserves output + a 10% buffer that
+        // absorbs the system prompt), sized with the SAME estimator, so the two
+        // budgets agree. Chunks are relevance-ranked (cosine + cross-encoder)
+        // best-first, so the lowest-ranked chunks — then whole sources — drop
+        // first, and every surviving chunk keeps its #chunk-N anchor (citations
+        // still resolve).
+        const docBudget = budgetDocumentSources(
+          boundedSources,
+          modelMessages,
+          getMaxAllowedTokens(model, contextWindow),
+          model.id,
+          docInjectMaxTokens()
+        )
+        latency.markFlag('doc_inject_clipped', docBudget.clipped)
+        if (docBudget.clipped) {
+          console.warn(
+            `[docs] injected doc content clipped to fit the context window: dropped ${docBudget.droppedChunks} chunk(s), ${docBudget.droppedSources} source(s) fully dropped (budget ${docBudget.budgetTokens} tok)`
+          )
+        }
+
+        // Build the citable artifacts from the budgeted sources. buildDocument-
+        // RetrievalArtifacts returns null for an empty source (every chunk
+        // dropped) and throws only on a relative URL (already filtered above);
+        // the try/catch stays as a fail-open backstop.
+        const injectedDocSources: DocumentRetrievalArtifacts[] = []
+        for (const src of docBudget.sources) {
           try {
             const artifacts = buildDocumentRetrievalArtifacts(src)
-            if (artifacts) documentArtifacts.push(artifacts)
+            if (artifacts) injectedDocSources.push(artifacts)
           } catch (error) {
-            // buildDocumentResults throws on a relative URL — skip that source
-            // only (fail-open), never the whole turn.
             console.warn(
               `[docs] skipped uncitable source ${src.sourceId}:`,
               error
             )
           }
-        }
-
-        // Bound the injected sources before BOTH the injection loop and the
-        // prompt-clause mapping below, so the model input and the researcher's
-        // citation-permission clause stay in sync over the same capped set.
-        // The array is ordered history-docs-first then this turn's URLs last, so
-        // keeping the LAST N biases toward the most-recently-attached docs plus
-        // this turn's URLs. Never a silent truncation — say what was dropped.
-        let injectedDocSources = documentArtifacts
-        if (documentArtifacts.length > MAX_INJECTED_DOC_SOURCES) {
-          const dropped = documentArtifacts.length - MAX_INJECTED_DOC_SOURCES
-          injectedDocSources = documentArtifacts.slice(
-            -MAX_INJECTED_DOC_SOURCES
-          )
-          console.warn(
-            `[docs] injected sources capped at ${MAX_INJECTED_DOC_SOURCES}; dropped ${dropped} oldest attached source(s) to stay within the model context window`
-          )
         }
 
         if (injectedDocSources.length > 0) {
