@@ -61,6 +61,7 @@ import {
   TooltipTrigger
 } from './ui/tooltip'
 import { WildBreathField } from './ui/wild-breath-field'
+import { ComposerVoiceMenu } from './voice/composer-voice-menu'
 import { MicButton } from './voice/mic-button'
 import { RecordingBar } from './voice/recording-bar'
 import { VoiceSettingsPopover } from './voice/voice-settings-popover'
@@ -885,7 +886,15 @@ export function ChatPanel({
             />
             <SourceSelector />
             {voiceEnabled && (
-              <div className="flex items-center gap-0.5">
+              <div className="md:hidden">
+                <ComposerVoiceMenu
+                  voiceMode={voiceMode}
+                  onVoiceModeChange={onVoiceModeChange}
+                />
+              </div>
+            )}
+            {voiceEnabled && (
+              <div className="hidden items-center gap-0.5 md:flex">
                 <TooltipProvider delayDuration={200}>
                   <Tooltip>
                     <TooltipTrigger asChild>
