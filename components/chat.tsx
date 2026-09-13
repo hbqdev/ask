@@ -744,7 +744,16 @@ export function Chat({
       <div
         className={cn(
           'relative flex h-full min-w-0 flex-1 flex-col',
-          messages.length === 0 ? 'items-center justify-center' : ''
+          // Empty state (hero + Discover feed). On phones the Discover feed is a
+          // tall single column, so the hero+feed is taller than the screen —
+          // `justify-center` then centres that overflow and pushes the composer
+          // clean off the TOP edge (a non-scrolling centred flex container clips
+          // both ends), leaving only the news visible with nowhere to type. So
+          // on mobile: top-align + allow the column to scroll. Desktop keeps the
+          // centred hero (the 4-col feed fits, no overflow).
+          messages.length === 0
+            ? 'items-center justify-start overflow-y-auto md:justify-center'
+            : ''
         )}
         data-testid="full-chat"
         onDragOver={dragHandlers.handleDragOver}
