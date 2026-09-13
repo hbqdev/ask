@@ -109,7 +109,7 @@ export function ModelSelectorClient({ data }: ModelSelectorClientProps) {
           <span className="hidden truncate max-w-40 text-[11.5px] font-medium sm:inline">
             {selectedModel.name}
           </span>
-          <span className="truncate max-w-24 text-[11.5px] font-medium sm:hidden">
+          <span className="truncate max-w-20 text-[11.5px] font-medium sm:hidden">
             {modelShortName(selectedModel.name)}
           </span>
           <ChevronDown
