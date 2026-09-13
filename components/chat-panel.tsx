@@ -876,8 +876,8 @@ export function ChatPanel({
         />
 
         {/* Bottom menu area */}
-        <div className="flex items-center justify-between p-2 md:p-3">
-          <div className="flex items-center gap-2">
+        <div className="flex items-center justify-between gap-1 p-2 md:gap-2 md:p-3">
+          <div className="flex min-w-0 items-center gap-1 md:gap-2">
             {!isGuest && <FileUploadButton onFileSelect={handleFiles} />}
             <SearchModeSelector
               isAdaptiveAuthRequired={isAdaptiveAuthRequired}
@@ -927,7 +927,7 @@ export function ChatPanel({
               />
             )}
           </div>
-          <div className="flex items-center gap-2">
+          <div className="flex shrink-0 items-center gap-1 md:gap-2">
             {!isCloudDeployment && modelSelectorData && (
               <ModelSelectorClient data={modelSelectorData} />
             )}
