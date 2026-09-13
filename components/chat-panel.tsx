@@ -1018,14 +1018,15 @@ export function ChatPanel({
       {messages.length === 0 ? (
         <>
           {/* Full-bleed three-body field behind the hero; the field lifts the
-              dance to ~32% height so the suns sit above the heading. On phones
-              the full 68vh vertically-centred hero stranded the headline +
-              composer in a wall of empty field (read as a broken/empty screen),
-              so there we TOP-ALIGN: a compact hero with the headline + composer
-              flowing just under the header (pt clears the absolute top-0 header
-              overlay), no dead band above or below, Discover following sooner.
-              Desktop keeps the tall, vertically-centred cosmic hero. */}
-          <section className="relative flex min-h-[34vh] justify-start pt-16 md:min-h-[68vh] md:justify-center md:pt-0 w-full flex-col items-center">
+              dance to ~32% height so the suns sit above the heading. The hero is
+              vertically centred on every breakpoint — the "Ask" banner + field
+              sit up top and the composer lands in the middle. (This was safe to
+              restore once the empty-state container in chat.tsx was made
+              top-aligned + scrollable on mobile: previously the parent's
+              justify-center pushed this whole centred hero off the top on phones,
+              which a compact top-aligned hero here was a wrong-level workaround
+              for.) */}
+          <section className="relative flex min-h-[68vh] w-full flex-col items-center justify-center">
             <WildBreathField className="pointer-events-none absolute inset-0 z-0" />
             {/* Radial scrim for text legibility over the field. Dark mode
                 darkens the centre; light mode lifts it with a soft white wash.
