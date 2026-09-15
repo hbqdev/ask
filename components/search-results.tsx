@@ -6,6 +6,7 @@ import Link from 'next/link'
 import { SearchResultItem } from '@/lib/types'
 import { decodeHtmlEntities } from '@/lib/utils/decode-html-entities'
 import { displayUrlName } from '@/lib/utils/domain'
+import { safeUrlParts, sanitizeHttpUrl } from '@/lib/utils/safe-url'
 
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar'
 import { Button } from '@/components/ui/button'
@@ -53,44 +54,54 @@ export function SearchResults({
   if (displayMode === 'list') {
     return (
       <div className="flex flex-col gap-2">
-        {decodedResults.map((result, index) => (
-          <Link
-            href={result.url}
-            key={index}
-            passHref
-            target="_blank"
-            className="block"
-          >
+        {decodedResults.map((result, index) => {
+          // Sanitize the provider-supplied URL so a javascript:/data: link can't
+          // become a clickable href, and parse hostname/pathname safely so a
+          // malformed URL can't throw during render.
+          const href = sanitizeHttpUrl(result.url)
+          const { hostname, pathname } = safeUrlParts(result.url)
+          const card = (
             <Card className="w-full hover:bg-muted/50 transition-colors">
               <CardContent className="p-2 flex items-start space-x-2">
                 <Avatar className="h-4 w-4 mt-1 shrink-0">
                   <AvatarImage
-                    src={`https://www.google.com/s2/favicons?domain=${
-                      new URL(result.url).hostname
-                    }`}
-                    alt={new URL(result.url).hostname}
+                    src={`https://www.google.com/s2/favicons?domain=${hostname}`}
+                    alt={hostname}
                   />
                   <AvatarFallback className="text-xs">
-                    {new URL(result.url).hostname[0]}
+                    {hostname[0]}
                   </AvatarFallback>
                 </Avatar>
                 <div className="grow overflow-hidden space-y-0.5">
                   <p className="text-sm font-medium line-clamp-1">
-                    {result.title || new URL(result.url).pathname}
+                    {result.title || pathname}
                   </p>
                   <p className="text-xs text-muted-foreground line-clamp-2">
                     {result.content}
                   </p>
                   <div className="text-xs text-muted-foreground/80 mt-1 truncate">
-                    <span className="underline">
-                      {new URL(result.url).hostname}
-                    </span>
+                    <span className="underline">{hostname}</span>
                   </div>
                 </div>
               </CardContent>
             </Card>
-          </Link>
-        ))}
+          )
+          return href ? (
+            <Link
+              href={href}
+              key={index}
+              passHref
+              target="_blank"
+              className="block"
+            >
+              {card}
+            </Link>
+          ) : (
+            <div key={index} className="block">
+              {card}
+            </div>
+          )
+        })}
       </div>
     )
   }
@@ -98,35 +109,44 @@ export function SearchResults({
   // --- Grid Mode Rendering (Existing Logic) ---
   return (
     <div className="flex flex-col gap-1 md:-m-1 md:flex-row md:flex-wrap md:gap-0">
-      {displayedGridResults.map((result, index) => (
-        <div className="min-w-0 md:w-1/4 md:p-1" key={index}>
-          <Link href={result.url} passHref target="_blank">
-            <Card className="h-full flex-1 rounded-md hover:bg-muted/50 transition-colors">
-              <CardContent className="flex h-full min-w-0 items-center justify-between gap-2 p-2 md:flex-col md:items-stretch">
-                <p className="min-w-0 flex-1 line-clamp-1 text-xs md:min-h-8 md:line-clamp-2">
-                  {result.title || result.content}
-                </p>
-                <div className="flex max-w-[42%] shrink-0 items-center space-x-1 min-w-0 md:mt-2 md:max-w-full md:shrink">
-                  <Avatar className="h-4 w-4 shrink-0">
-                    <AvatarImage
-                      src={`https://www.google.com/s2/favicons?domain=${
-                        new URL(result.url).hostname
-                      }`}
-                      alt={new URL(result.url).hostname}
-                    />
-                    <AvatarFallback>
-                      {new URL(result.url).hostname[0]}
-                    </AvatarFallback>
-                  </Avatar>
-                  <div className="text-xs opacity-60 truncate min-w-0">
-                    {displayUrlName(result.url)}
-                  </div>
+      {displayedGridResults.map((result, index) => {
+        // Sanitize the provider-supplied URL (block javascript:/data: hrefs) and
+        // parse the hostname safely so a malformed URL can't throw at render.
+        const href = sanitizeHttpUrl(result.url)
+        const { hostname } = safeUrlParts(result.url)
+        const card = (
+          <Card className="h-full flex-1 rounded-md hover:bg-muted/50 transition-colors">
+            <CardContent className="flex h-full min-w-0 items-center justify-between gap-2 p-2 md:flex-col md:items-stretch">
+              <p className="min-w-0 flex-1 line-clamp-1 text-xs md:min-h-8 md:line-clamp-2">
+                {result.title || result.content}
+              </p>
+              <div className="flex max-w-[42%] shrink-0 items-center space-x-1 min-w-0 md:mt-2 md:max-w-full md:shrink">
+                <Avatar className="h-4 w-4 shrink-0">
+                  <AvatarImage
+                    src={`https://www.google.com/s2/favicons?domain=${hostname}`}
+                    alt={hostname}
+                  />
+                  <AvatarFallback>{hostname[0]}</AvatarFallback>
+                </Avatar>
+                <div className="text-xs opacity-60 truncate min-w-0">
+                  {displayUrlName(result.url)}
                 </div>
-              </CardContent>
-            </Card>
-          </Link>
-        </div>
-      ))}
+              </div>
+            </CardContent>
+          </Card>
+        )
+        return (
+          <div className="min-w-0 md:w-1/4 md:p-1" key={index}>
+            {href ? (
+              <Link href={href} passHref target="_blank">
+                {card}
+              </Link>
+            ) : (
+              card
+            )}
+          </div>
+        )
+      })}
       {!showAllResults && additionalResultsCount > 0 && (
         <>
           <div className="flex justify-center py-1 md:hidden">

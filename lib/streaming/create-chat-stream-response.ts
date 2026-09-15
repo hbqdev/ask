@@ -158,8 +158,11 @@ export async function createChatStreamResponse(
     initialChat = await loadChatUncached(chatId, userId)
     perfTime('loadChat completed', loadChatStart)
 
-    // Authorization check: if chat exists, it must belong to the user
-    if (initialChat && initialChat.userId !== userId) {
+    // Authorization check (fail closed): a non-new turn claims this chat
+    // already exists. If it doesn't load for this user, it is either
+    // nonexistent or private to another user — either way deny rather than
+    // proceed to persist a new turn under this user id.
+    if (!initialChat || initialChat.userId !== userId) {
       return new Response('You are not allowed to access this chat', {
         status: 403,
         statusText: 'Forbidden'

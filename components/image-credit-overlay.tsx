@@ -2,24 +2,7 @@
 'use client'
 
 import { displayUrlName } from '@/lib/utils/domain'
-
-/**
- * Normalize a user- or model-supplied URL to a safe http(s) URL, or return
- * null if the scheme is not allowed. Prevents XSS via javascript:/data: URLs
- * embedded in model-generated spec blocks.
- */
-const sanitizeHttpUrl = (raw: string | undefined): string | null => {
-  if (!raw) return null
-  try {
-    const parsed = new URL(raw)
-    if (parsed.protocol === 'http:' || parsed.protocol === 'https:') {
-      return parsed.toString()
-    }
-    return null
-  } catch {
-    return null
-  }
-}
+import { sanitizeHttpUrl } from '@/lib/utils/safe-url'
 
 export const getFaviconUrl = (imageUrl: string): string => {
   try {

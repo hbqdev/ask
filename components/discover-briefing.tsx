@@ -8,6 +8,7 @@ import { IconSparkles } from '@tabler/icons-react'
 import { SUMMARIZE_LABEL } from '@/lib/constants'
 import { cn } from '@/lib/utils'
 import { rotateWindow } from '@/lib/utils/rotate-window'
+import { sanitizeHttpUrl } from '@/lib/utils/safe-url'
 
 interface Article {
   title: string
@@ -202,6 +203,9 @@ export function DiscoverBriefing({ className }: { className?: string }) {
           const color = categoryColor(article.category)
           const showPlaceholder = failed.has(article.url) || !article.thumbnail
           const source = sourceLabel(article.url)
+          // Block javascript:/data: hrefs from the provider-supplied URL; a
+          // non-http(s) URL yields no clickable overlay link.
+          const href = sanitizeHttpUrl(article.url)
           return (
             <div
               key={article.url}
@@ -210,13 +214,15 @@ export function DiscoverBriefing({ className }: { className?: string }) {
               {/* Primary outbound link — covers the whole card. A separate
                   anchor (rather than wrapping everything) so the Ask Summary
                   button below can be its own link without nesting anchors. */}
-              <a
-                href={article.url}
-                target="_blank"
-                rel="noreferrer"
-                aria-label={article.title}
-                className="absolute inset-0 z-0"
-              />
+              {href && (
+                <a
+                  href={href}
+                  target="_blank"
+                  rel="noreferrer"
+                  aria-label={article.title}
+                  className="absolute inset-0 z-0"
+                />
+              )}
 
               <div className="h-24 w-full overflow-hidden">
                 {showPlaceholder ? (
