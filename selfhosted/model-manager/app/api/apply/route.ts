@@ -1,4 +1,7 @@
+import { cookies } from 'next/headers'
+
 import { applyPlan, type ApplyEvent, type ApplyDeps } from '@/lib/apply'
+import { SESSION_COOKIE, verifySessionToken } from '@/lib/auth'
 import { buildPlan, validateEdits } from '@/lib/plan-builder'
 import { getToolConfig } from '@/lib/config'
 import { readAskEnv, writeAskEnvAtomic } from '@/lib/env-io'
@@ -7,6 +10,14 @@ import { writeBackup, pruneBackups } from '@/lib/backups'
 import { withApplyLock } from '@/lib/lock'
 
 export async function POST(req: Request) {
+  // Belt-and-suspenders: this route is root-equivalent (writes prod .env,
+  // recreates containers via docker.sock, runs ssh). The proxy middleware
+  // already gates it, but re-verify the session here so a middleware/matcher
+  // misconfig can't leave it open.
+  const token = (await cookies()).get(SESSION_COOKIE)?.value
+  if (!verifySessionToken(token)) {
+    return new Response('Unauthorized', { status: 401 })
+  }
   const { edits } = (await req.json()) as { edits: Record<string, string> }
   const violations = validateEdits(edits)
   if (violations.length) {
