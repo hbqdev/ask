@@ -30,7 +30,10 @@ export async function GET(
     return new NextResponse(Readable.toWeb(createReadStream(abs)) as any, {
       headers: {
         'content-type': row.mediaType,
-        'content-length': String(info.size)
+        'content-length': String(info.size),
+        // Never let the browser MIME-sniff the served file into something
+        // executable — honor the stored content-type.
+        'x-content-type-options': 'nosniff'
       }
     })
   } catch {

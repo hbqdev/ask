@@ -7,6 +7,7 @@ import { IconSparkles } from '@tabler/icons-react'
 import { SUMMARIZE_LABEL } from '@/lib/constants'
 import { cn } from '@/lib/utils'
 import { rotateWindow } from '@/lib/utils/rotate-window'
+import { sanitizeHttpUrl } from '@/lib/utils/safe-url'
 
 interface Article {
   title: string
@@ -113,17 +114,13 @@ export function NewsArticleWidget({ className }: { className?: string }) {
         className
       )}
     >
-      {articles.map(article => (
-        <div
-          key={article.url}
-          className="group relative flex flex-1 min-h-0 flex-row items-center gap-3 px-3 py-2 sm:py-0 animate-in fade-in-0 hover:bg-muted/40 transition-colors duration-200"
-        >
-          <a
-            href={article.url}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="flex flex-1 min-w-0 flex-row items-center gap-3"
-          >
+      {articles.map(article => {
+        // Block javascript:/data: hrefs from a provider-supplied article URL —
+        // fall back to a non-clickable row when the scheme isn't http(s).
+        const href = sanitizeHttpUrl(article.url)
+        const linkClass = 'flex flex-1 min-w-0 flex-row items-center gap-3'
+        const inner = (
+          <>
             <div className="size-14 min-w-14 shrink-0 overflow-hidden rounded-lg">
               <img
                 src={thumbUrl(article.thumbnail)}
@@ -146,17 +143,36 @@ export function NewsArticleWidget({ className }: { className?: string }) {
                 </span>
               </div>
             </div>
-          </a>
-          <a
-            href={summaryHref(article.url)}
-            title={SUMMARIZE_LABEL}
-            aria-label={SUMMARIZE_LABEL}
-            className="absolute right-3 top-1/2 -translate-y-1/2 flex size-6 shrink-0 items-center justify-center rounded-full bg-violet-500/15 text-violet-700 dark:text-violet-300 hover:bg-violet-500/25 border border-violet-500/30"
+          </>
+        )
+        return (
+          <div
+            key={article.url}
+            className="group relative flex flex-1 min-h-0 flex-row items-center gap-3 px-3 py-2 sm:py-0 animate-in fade-in-0 hover:bg-muted/40 transition-colors duration-200"
           >
-            <IconSparkles className="size-3.5" />
-          </a>
-        </div>
-      ))}
+            {href ? (
+              <a
+                href={href}
+                target="_blank"
+                rel="noopener noreferrer"
+                className={linkClass}
+              >
+                {inner}
+              </a>
+            ) : (
+              <div className={linkClass}>{inner}</div>
+            )}
+            <a
+              href={summaryHref(article.url)}
+              title={SUMMARIZE_LABEL}
+              aria-label={SUMMARIZE_LABEL}
+              className="absolute right-3 top-1/2 -translate-y-1/2 flex size-6 shrink-0 items-center justify-center rounded-full bg-violet-500/15 text-violet-700 dark:text-violet-300 hover:bg-violet-500/25 border border-violet-500/30"
+            >
+              <IconSparkles className="size-3.5" />
+            </a>
+          </div>
+        )
+      })}
     </div>
   )
 }

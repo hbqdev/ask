@@ -60,6 +60,27 @@ describe('calculateTool', () => {
     expect(r.error).toBeTruthy()
   })
 
+  it('rejects an over-long expression instead of evaluating it', async () => {
+    // DoS guard: an untrusted expression can't be allowed to grow unbounded.
+    const r = await calc('1+'.repeat(400) + '1') // > 512 chars
+    expect(r.success).toBe(false)
+    expect(r.error).toMatch(/too long/i)
+  })
+
+  it('rejects stacked exponentiation (power towers)', async () => {
+    // `9^9^9^9` is the classic way to pin the CPU / balloon a bignum.
+    const r = await calc('9^9^9^9')
+    expect(r.success).toBe(false)
+    expect(r.error).toMatch(/power tower|exponentiation/i)
+  })
+
+  it('still allows a single exponent and unrelated powers', async () => {
+    // The guard must not catch legitimate input: one `^`, or two `^` separated
+    // by an operator, are fine.
+    expect((await calc('2^10')).result).toBe('1024')
+    expect((await calc('2^3 + 4^5')).result).toBe('1032')
+  })
+
   it('never advertises syntax it cannot evaluate', async () => {
     // The description is a prompt: every example in it is a phrasing the model
     // will copy verbatim, so each one has to survive a round trip. Read off

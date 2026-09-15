@@ -7,6 +7,7 @@ import { toast } from 'sonner'
 
 import { SUMMARIZE_LABEL } from '@/lib/constants'
 import { cn } from '@/lib/utils'
+import { sanitizeHttpUrl } from '@/lib/utils/safe-url'
 
 export interface Discover {
   title: string
@@ -42,31 +43,42 @@ function thumbUrl(raw: string) {
 }
 
 function SmallNewsCard({ item }: { item: Discover }) {
+  // Block javascript:/data: hrefs from the provider-supplied article URL.
+  const href = sanitizeHttpUrl(item.url)
+  const cardBody = (
+    <>
+      <div className="relative aspect-video overflow-hidden">
+        <img
+          className="object-cover w-full h-full group-hover:scale-105 transition-transform duration-300"
+          src={thumbUrl(item.thumbnail)}
+          alt={item.title}
+          loading="lazy"
+        />
+      </div>
+      <div className="p-4 pb-2">
+        <h3 className="font-semibold text-sm mb-2.5 leading-snug line-clamp-3 group-hover:text-cyan-500 dark:group-hover:text-cyan-300 transition duration-200">
+          {item.title}
+        </h3>
+        <p className="text-black/60 dark:text-white/60 text-xs leading-relaxed line-clamp-2">
+          {item.content}
+        </p>
+      </div>
+    </>
+  )
   return (
     <div className="relative rounded-3xl overflow-hidden bg-card shadow-sm shadow-black/10 dark:shadow-black/25 group flex flex-col">
-      <a
-        href={item.url}
-        target="_blank"
-        rel="noopener noreferrer"
-        className="flex flex-col flex-1"
-      >
-        <div className="relative aspect-video overflow-hidden">
-          <img
-            className="object-cover w-full h-full group-hover:scale-105 transition-transform duration-300"
-            src={thumbUrl(item.thumbnail)}
-            alt={item.title}
-            loading="lazy"
-          />
-        </div>
-        <div className="p-4 pb-2">
-          <h3 className="font-semibold text-sm mb-2.5 leading-snug line-clamp-3 group-hover:text-cyan-500 dark:group-hover:text-cyan-300 transition duration-200">
-            {item.title}
-          </h3>
-          <p className="text-black/60 dark:text-white/60 text-xs leading-relaxed line-clamp-2">
-            {item.content}
-          </p>
-        </div>
-      </a>
+      {href ? (
+        <a
+          href={href}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="flex flex-col flex-1"
+        >
+          {cardBody}
+        </a>
+      ) : (
+        <div className="flex flex-col flex-1">{cardBody}</div>
+      )}
       <div className="px-4 pb-3 flex justify-end">
         <a
           href={`/?q=${encodeURIComponent(`Summary: ${item.url}`)}`}
@@ -121,7 +133,11 @@ function MajorNewsCard({
   return (
     <div
       className="w-full group flex flex-row items-stretch gap-6 min-h-60 py-3 cursor-pointer"
-      onClick={() => window.open(item.url, '_blank', 'noopener,noreferrer')}
+      onClick={() => {
+        // Block javascript:/data: URLs from reaching window.open.
+        const href = sanitizeHttpUrl(item.url)
+        if (href) window.open(href, '_blank', 'noopener,noreferrer')
+      }}
     >
       {isLeft ? (
         <>
