@@ -1,6 +1,7 @@
 import {
   findHeadingMatch,
-  looksLikeNarrationStart
+  looksLikeNarrationStart,
+  shouldStripPreamble
 } from './strip-narration-preamble'
 
 // How many characters to buffer before giving up on waiting for a `## `
@@ -12,12 +13,13 @@ import {
 const NARRATION_SNIFF_LIMIT = 64
 
 // Hard ceiling on how long we'll buffer a plausible-narration prefix while
-// waiting for the `## ` heading to show up. The largest narration block
-// observed in production was ~4.4KB before its heading, so this is well
-// above real-world narration length — it exists purely as a safety valve
-// against a pathological stream that talks forever without ever heading
-// into an answer.
-const NARRATION_HARD_MAX = 8000
+// waiting for the `## ` heading to show up. Raised to cover the round-cap
+// leak: the largest narration block observed in production was a ~15KB
+// chain-of-thought dump before its heading. Only a buffer that already reads
+// as narration (`stillPlausible`) is ever held this long, so a genuine
+// heading-less answer is still flushed early; this is purely the valve
+// against a stream that talks forever without heading into an answer.
+const NARRATION_HARD_MAX = 16000
 
 /**
  * A `StreamTextTransform` factory that strips "thinking out loud"
@@ -84,7 +86,7 @@ export function smoothAndStripNarration() {
               return
             }
             const preamble = buffer.slice(0, headingMatch.index).trim()
-            const flushed = looksLikeNarrationStart(preamble)
+            const flushed = shouldStripPreamble(preamble)
               ? buffer
                   .slice(headingMatch.index + headingMatch.markerLength)
                   .trim()
