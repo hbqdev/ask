@@ -41,6 +41,55 @@ function readStoredLocation(): ManualLocation | null {
   return null
 }
 
+// Auto-detected coordinates are cached so we don't re-invoke the browser
+// Geolocation API — and thus don't re-trigger the permission prompt — on every
+// page load. Many browsers (and most mobile ones) treat a geolocation grant as
+// per-session or "allow once", so calling getCurrentPosition on each mount asks
+// again every time. With the coords cached, later loads reuse them (weather is
+// still re-fetched fresh from those coords); we only touch the Geolocation API
+// when the cache is stale AND the grant is already given (silent), or on a true
+// first visit.
+const AUTO_LOCATION_KEY = 'ask:weather-auto'
+const AUTO_LOCATION_TTL_MS = 6 * 60 * 60 * 1000 // 6h
+
+interface CachedCoords {
+  lat: number
+  lon: number
+  ts: number
+}
+
+function readCachedAuto(): CachedCoords | null {
+  if (typeof window === 'undefined') return null
+  try {
+    const raw = window.localStorage.getItem(AUTO_LOCATION_KEY)
+    if (!raw) return null
+    const p = JSON.parse(raw)
+    if (
+      p &&
+      typeof p.lat === 'number' &&
+      typeof p.lon === 'number' &&
+      typeof p.ts === 'number'
+    ) {
+      return { lat: p.lat, lon: p.lon, ts: p.ts }
+    }
+  } catch {
+    // ignore malformed storage
+  }
+  return null
+}
+
+function writeCachedAuto(lat: number, lon: number) {
+  if (typeof window === 'undefined') return
+  try {
+    window.localStorage.setItem(
+      AUTO_LOCATION_KEY,
+      JSON.stringify({ lat, lon, ts: Date.now() })
+    )
+  } catch {
+    // private mode — just won't cache
+  }
+}
+
 export interface WeatherData {
   city: string
   temp: number
@@ -212,14 +261,50 @@ export function useWeather(): {
         return
       }
 
-      navigator.geolocation.getCurrentPosition(
-        pos => fetchWeather(pos.coords.latitude, pos.coords.longitude),
-        async () => {
-          // Permission denied — try IP fallback
+      // Resolve precise coords, cache them, fetch — with IP fallback on error.
+      // Shared by the "already granted" and "first visit" paths.
+      const requestPrecise = () =>
+        navigator.geolocation.getCurrentPosition(
+          pos => {
+            writeCachedAuto(pos.coords.latitude, pos.coords.longitude)
+            fetchWeather(pos.coords.latitude, pos.coords.longitude)
+          },
+          () => {
+            // Permission denied / unavailable — try IP fallback
+            tryIpFallback()
+          },
+          { enableHighAccuracy: false, timeout: 15000, maximumAge: 600000 }
+        )
+
+      // 1) Fresh cached coords → reuse, no Geolocation call (so no prompt).
+      const cached = readCachedAuto()
+      if (cached && Date.now() - cached.ts < AUTO_LOCATION_TTL_MS) {
+        await fetchWeather(cached.lat, cached.lon)
+        return
+      }
+
+      // 2) Otherwise only call getCurrentPosition (which may PROMPT) when the
+      // grant is already given (silent), or on a genuine first visit with no
+      // cached coords. A stale-but-present cache is reused rather than
+      // re-prompting; that's the whole point — never re-ask on every reload.
+      try {
+        const status = await navigator.permissions?.query({
+          name: 'geolocation' as PermissionName
+        })
+        if (status?.state === 'granted') {
+          requestPrecise()
+        } else if (status?.state === 'denied') {
           await tryIpFallback()
-        },
-        { enableHighAccuracy: false, timeout: 15000, maximumAge: 600000 }
-      )
+        } else if (cached) {
+          await fetchWeather(cached.lat, cached.lon)
+        } else {
+          requestPrecise()
+        }
+      } catch {
+        // Permissions API unavailable: prefer cached coords, else one prompt.
+        if (cached) await fetchWeather(cached.lat, cached.lon)
+        else requestPrecise()
+      }
     }
 
     init()
