@@ -2,7 +2,9 @@ import { describe, expect, it } from 'vitest'
 
 import {
   looksLikeNarrationStart,
-  stripNarrationPreamble
+  shouldStripPreamble,
+  stripNarrationPreamble,
+  stripStrayThinkTags
 } from '../strip-narration-preamble'
 
 describe('stripNarrationPreamble', () => {
@@ -210,6 +212,124 @@ describe('stripNarrationPreamble', () => {
     expect(out.startsWith('## Causes and Triggers of Canker Sores')).toBe(true)
     expect(out).not.toMatch(/Coins are not mentioned/)
     expect(out).not.toMatch(/I have enough search results/)
+  })
+
+  it('strips the round-cap "search limit has been reached" preamble', () => {
+    // Verbatim shape captured in prod: a round-capped turn where the model
+    // narrates the stop and inventories each source before the real answer.
+    const text =
+      'The search limit has been reached (3 rounds). I have to answer with ' +
+      'what I have. The Amazon fetch gave me the full official description ' +
+      'again. The Curmudgeonly Reader fetch failed. I can expand based on ' +
+      'the blurb.\n' +
+      '## Heavier Than a Mountain — Plot Summary\n' +
+      'The book follows Yozef Kolsko.'
+    const out = stripNarrationPreamble(text)
+    expect(out.startsWith('## Heavier Than a Mountain')).toBe(true)
+    expect(out).not.toMatch(/search limit has been reached/)
+    expect(out).not.toMatch(/Amazon fetch gave me/)
+  })
+
+  it('strips a large reasoning dump on an UNLISTED opening phrase (structural)', () => {
+    // The chain-of-thought that starts with a phrase matching no starter must
+    // still be caught: a big preamble with several first-person research
+    // sentences trips the structural signal.
+    const dump =
+      "I've confirmed the core mechanism with two independent bug reports. " +
+      'I have strong evidence now from the search results. ' +
+      'Let me think about whether one more search is needed. ' +
+      "The user's question is about GPU power draw. " +
+      'I reviewed the sources and gathered the key points. '.repeat(20)
+    const text = `${dump}\n## Why the Browser Draws GPU Power\nThe tab repaints continuously.`
+    expect(dump.length).toBeGreaterThan(1000)
+    const out = stripNarrationPreamble(text)
+    expect(out.startsWith('## Why the Browser Draws GPU Power')).toBe(true)
+    expect(out).not.toMatch(/confirmed the core mechanism/)
+  })
+
+  it('strips a large reasoning dump that carries a stray </think> tag', () => {
+    const dump =
+      'Working through the sources for a moment. ' +
+      'I gathered enough from the search results already. ' +
+      'Let me verify the numbers against the fetch. ' +
+      'The user asked for the ranking.</think>'
+    const text = `${dump}\n## Best-Selling Artists\nTaylor Swift leads.`
+    const out = stripNarrationPreamble(text)
+    expect(out.startsWith('## Best-Selling Artists')).toBe(true)
+    expect(out).not.toMatch(/think/)
+    expect(out).not.toMatch(/gathered enough/)
+  })
+
+  it('does NOT strip a genuine long intro with no research sentences', () => {
+    // A rich, multi-sentence intro before the first heading that is pure
+    // topic prose (no first-person research narration) must be preserved,
+    // even though it is well over the structural length threshold.
+    const intro =
+      'Line-interactive UPS units correct incoming voltage with a built-in ' +
+      'transformer or buck-boost circuit. This matters because grid voltage ' +
+      'sags and swells are far more common than full outages. ' +
+      'Understanding the difference helps you pick the right unit. '.repeat(15)
+    const text = `${intro}\n## How AVR Works\nAVR adjusts taps automatically.`
+    expect(intro.length).toBeGreaterThan(1000)
+    expect(stripNarrationPreamble(text)).toBe(text)
+  })
+
+  it('does NOT strip a genuine short intro before the first heading', () => {
+    const text =
+      'Here is a quick overview before the details.\n' +
+      '## Overview\n' +
+      'The three options differ in cost.'
+    expect(stripNarrationPreamble(text)).toBe(text)
+  })
+
+  it('leaves a refusal with no heading untouched', () => {
+    const refusal =
+      'I cannot help with that request. Please ask me something else.'
+    expect(stripNarrationPreamble(refusal)).toBe(refusal)
+  })
+
+  it('leaves a normal heading-first answer untouched', () => {
+    const clean = '## Node.js LTS\n\nThe current LTS is Node 24.'
+    expect(stripNarrationPreamble(clean)).toBe(clean)
+  })
+})
+
+describe('stripStrayThinkTags', () => {
+  it('strips a full leading <think> block, keeping the answer', () => {
+    const text = '<think>Let me reason about this.</think>Here is the answer.'
+    expect(stripStrayThinkTags(text)).toBe('Here is the answer.')
+  })
+
+  it('strips leaked reasoning closed by a stray </mm:think> (no heading)', () => {
+    // The meme-reply shape: reasoning then a close tag butted against the
+    // answer, with no ## heading anywhere.
+    const text =
+      "The user is sharing a meme and wants a casual reply. I should keep " +
+      "it light.</mm:think>Ha, that's a solid comeback."
+    expect(stripStrayThinkTags(text)).toBe("Ha, that's a solid comeback.")
+  })
+
+  it('preserves a genuine answer that merely mentions the literal </think> tag', () => {
+    // This user asks about model internals; an explainer that writes the tag
+    // in prose (before-text is answer, not reasoning) must be left intact.
+    const text =
+      'To end a reasoning block you write the </think> tag on its own line.'
+    expect(stripStrayThinkTags(text)).toBe(text)
+  })
+
+  it('returns text unchanged when there are no think tags', () => {
+    const text = 'Just a normal answer with no tags.'
+    expect(stripStrayThinkTags(text)).toBe(text)
+  })
+})
+
+describe('shouldStripPreamble', () => {
+  it('is true for a known starter phrase', () => {
+    expect(shouldStripPreamble('The search limit has been reached.')).toBe(true)
+  })
+
+  it('is false for a short genuine intro', () => {
+    expect(shouldStripPreamble('Here is a quick overview.')).toBe(false)
   })
 })
 
