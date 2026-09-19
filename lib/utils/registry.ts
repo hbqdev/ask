@@ -7,7 +7,7 @@ import { createProviderRegistry, LanguageModel } from 'ai'
 import { createOllama } from 'ai-sdk-ollama'
 
 import { createTimeoutFetch } from './fetch-with-timeout'
-import { resolveAnswerThink } from './ollama-think'
+import { type AnswerTurnMode, resolveAnswerThink } from './ollama-think'
 
 // Strip a trailing /v1 from the configured base URL, then re-append it,
 // so both shapes work for OpenAI-compatible hosts:
@@ -60,7 +60,12 @@ export const registry = createProviderRegistry(providers)
 
 export function getModel(
   model: string,
-  abortSignal?: AbortSignal
+  abortSignal?: AbortSignal,
+  // This turn's classification (resolveTurnMode), forwarded to
+  // resolveAnswerThink. Only load-bearing when ANSWER_THINK=targeted, where it
+  // decides reasoning on (research turns) vs off (quick lookups); every fixed
+  // ANSWER_THINK value ignores it, so callers that omit it are unaffected.
+  turnMode?: AnswerTurnMode
 ): LanguageModel {
   // For Ollama models, bypass the registry to pass model-level settings
   // that ai-sdk-ollama requires (think, supportedUrls override).
@@ -90,7 +95,7 @@ export function getModel(
     // LEVEL — not just on/off — reaches the model. This is the one place the
     // chat model is instantiated for a turn, so the control dials down WHATEVER
     // model the user picked rather than switching models.
-    const lm = provider(modelId, { think: resolveAnswerThink() })
+    const lm = provider(modelId, { think: resolveAnswerThink(turnMode) })
 
     // Ollama's Chat API only accepts base64 in the images field, not URLs.
     // Override supportedUrls to force AI SDK to download images and convert

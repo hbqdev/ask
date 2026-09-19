@@ -52,6 +52,29 @@ describe('resolveAnswerThink', () => {
     expect(resolveAnswerThink()).toBe(true)
   })
 
+  it('targeted mode: reasoning ON for research turns, OFF otherwise', () => {
+    for (const v of ['targeted', 'auto', 'TARGETED', ' Auto ']) {
+      process.env.ANSWER_THINK = v
+      // Research turn (needsSources or needsRecent) → reasoning on.
+      expect(resolveAnswerThink('research')).toBe(true)
+      // Quick / no-new-research turns → reasoning off.
+      expect(resolveAnswerThink('direct')).toBe(false)
+      expect(resolveAnswerThink('stable-knowledge')).toBe(false)
+      // A caller that passes no turn mode (e.g. title generation) is treated
+      // as a quick turn → off, matching the blanket-off default it had.
+      expect(resolveAnswerThink()).toBe(false)
+    }
+  })
+
+  it('fixed ANSWER_THINK values ignore the turnMode argument', () => {
+    process.env.ANSWER_THINK = 'off'
+    expect(resolveAnswerThink('research')).toBe(false)
+    process.env.ANSWER_THINK = 'on'
+    expect(resolveAnswerThink('direct')).toBe(true)
+    process.env.ANSWER_THINK = 'high'
+    expect(resolveAnswerThink('research')).toBe('high')
+  })
+
   it('ANSWER_THINK takes precedence over the legacy OLLAMA_THINK', () => {
     process.env.OLLAMA_THINK = 'false'
     process.env.ANSWER_THINK = 'high'
