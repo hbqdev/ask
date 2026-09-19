@@ -820,7 +820,11 @@ Treat each exactly like a \`search\` or \`fetch\` result from this turn: you MAY
 
     // Create ToolLoopAgent with all configuration
     const agent = new ToolLoopAgent({
-      model: getModel(model, abortSignal),
+      // turnMode is forwarded so ANSWER_THINK=targeted can turn the answering
+      // model's reasoning ON for research turns (needsSources/needsRecent) and
+      // keep it OFF for direct/stable-knowledge quick lookups. Fixed
+      // ANSWER_THINK values ignore turnMode, so this is a no-op for them.
+      model: getModel(model, abortSignal, turnMode),
       instructions: `${effectiveSystemPrompt}\nCurrent date and time: ${currentDate}`,
       tools,
       activeTools: activeToolsList,

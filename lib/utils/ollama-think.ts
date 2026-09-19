@@ -33,6 +33,16 @@
  */
 export type AnswerThink = boolean | 'low' | 'medium' | 'high'
 
+/**
+ * How this turn was classified by the query classifier / resolveTurnMode.
+ * Mirrored structurally from lib/agents/researcher.ts's TurnMode rather than
+ * imported: researcher.ts → registry.ts → ollama-think.ts, so importing the
+ * type back from researcher would close an import cycle. The two unions are
+ * kept identical; researcher passes its own TurnMode value here (structurally
+ * assignable).
+ */
+export type AnswerTurnMode = 'direct' | 'stable-knowledge' | 'research'
+
 // The shipped default when neither ANSWER_THINK nor the legacy OLLAMA_THINK is
 // set. Chosen from the 2026-09-09 lab A/B: graded effort ('low'/'medium'/'high')
 // is a NO-OP on the fleet's cloud models (deepseek/kimi/minimax etc. — only
@@ -43,6 +53,16 @@ export type AnswerThink = boolean | 'low' | 'medium' | 'high'
 // deployment (ANSWER_THINK=on|low|off) so a container restart can move it
 // without a code change; set ANSWER_THINK=on to restore full reasoning.
 export const ANSWER_THINK_DEFAULT: AnswerThink = false
+
+// Is ANSWER_THINK set to the turn-aware ("targeted") mode? Unlike the fixed
+// values (off/on/low/medium/high) this does not resolve to a single AnswerThink:
+// the reasoning setting depends on the turn's classification (research vs
+// quick lookup), so it is handled specially in resolveAnswerThink and must be
+// intercepted BEFORE parseAnswerThink (whose unknown-value fallback is `true`).
+function isTargetedMode(raw: string | undefined): boolean {
+  const v = (raw ?? '').trim().toLowerCase()
+  return v === 'targeted' || v === 'auto'
+}
 
 // Parse a raw ANSWER_THINK value into an AnswerThink, or undefined when the
 // value is absent/blank (so the caller can fall through to the legacy knob).
@@ -87,16 +107,36 @@ function parseAnswerThink(raw: string | undefined): AnswerThink | undefined {
  * The reasoning control for the ANSWERING model, resolved per request.
  *
  * Precedence:
- *   1. ANSWER_THINK — the model-agnostic reasoning knob (off | low | medium |
- *      high | on, plus common aliases). This is the primary control.
+ *   1. ANSWER_THINK — the model-agnostic reasoning knob. Accepts the fixed
+ *      values off | low | medium | high | on (plus common aliases), AND the
+ *      turn-aware value `targeted` (alias `auto`): reasoning ON only for
+ *      research-mode turns, OFF for quick lookups — see below. Primary control.
  *   2. OLLAMA_THINK — the legacy boolean (only the exact string 'false'
  *      disables), honoured for back-compat when ANSWER_THINK is unset.
  *   3. ANSWER_THINK_DEFAULT — the shipped code default.
  *
+ * `turnMode` is this turn's classification (resolveTurnMode). It ONLY matters
+ * in `targeted` mode; every fixed value ignores it, so existing callers that
+ * pass nothing keep their exact behaviour. In `targeted` mode:
+ *   - 'research'  (needsSources or needsRecent) → true  (reasoning ON)
+ *   - 'direct' / 'stable-knowledge' / undefined → false (reasoning OFF)
+ * "ON" is think:true, not a graded level, because the 2026-09-09 A/B found
+ * graded effort ('low'/'medium'/'high') is a NO-OP on the fleet's cloud models
+ * — only think:false actually cuts reasoning. An undefined turnMode (a
+ * non-researcher caller, e.g. title generation) is treated as a quick turn and
+ * gets reasoning OFF, matching the blanket-off default those callers had.
+ *
  * Read fresh on every call (not hoisted to module scope) so a container-env
  * change takes effect on the next turn without a process restart.
  */
-export function resolveAnswerThink(): AnswerThink {
+export function resolveAnswerThink(turnMode?: AnswerTurnMode): AnswerThink {
+  // Turn-aware mode: reasoning ON for research turns only. Checked first
+  // because 'targeted'/'auto' are not fixed AnswerThink values (parseAnswerThink
+  // would otherwise treat them as an unknown value and default to `true`).
+  if (isTargetedMode(process.env.ANSWER_THINK)) {
+    return turnMode === 'research'
+  }
+
   const parsed = parseAnswerThink(process.env.ANSWER_THINK)
   if (parsed !== undefined) return parsed
 
