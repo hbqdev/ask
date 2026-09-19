@@ -42,6 +42,37 @@ describe('search mode prompt emoji/density guidance', () => {
   })
 })
 
+// Documented follow-up under-searching: in the reasoning-off era, a large
+// share of follow-ups the classifier flagged needsSources were answered with
+// zero searches — the model leaned on prior conversation context instead of
+// verifying a genuinely new fact. The clarify-your-own-answer exception must
+// stay balanced by an explicit re-search nudge so the two pull against each
+// other: clarify turns answer from context, fresh-fact turns still search.
+describe('follow-up re-search nudge balances the clarify exception', () => {
+  it('tells every search-advertising mode a new fact is not clarification', () => {
+    for (const prompt of [
+      getQuickModePrompt(),
+      getAdaptiveModePrompt(),
+      getQualityModePrompt()
+    ]) {
+      expect(prompt).toMatch(/needs a NEW fact is not clarification/i)
+      expect(prompt).toMatch(
+        /does not exempt you from verifying something new/i
+      )
+    }
+  })
+
+  it('keeps the clarify-your-own-answer exception alongside it', () => {
+    for (const prompt of [
+      getQuickModePrompt(),
+      getAdaptiveModePrompt(),
+      getQualityModePrompt()
+    ]) {
+      expect(prompt).toMatch(/clarifying your own prior answer/i)
+    }
+  })
+})
+
 // Regression guard for a real production issue: Quality mode's 15-30+
 // search/fetch rounds each ended with a short narration line ("Let me
 // search for...", "Good, I have some results..."). The UI already hides
