@@ -710,8 +710,13 @@ export function Chat({
         // no `chat-bump` there; emit one here with the freshly-minted id. The id
         // isn't in the server list yet, so the sidebar inserts it at the top
         // with a placeholder title until the next refresh brings the real row.
+        // `isNew` tells the sidebar NOT to router.refresh() for this bump: the
+        // URL was just pushState'd to /search/<id> but the row is not persisted
+        // until the stream's onFinish, so a refresh now would re-resolve that
+        // route → notFound() → a 404 flash. The optimistic insert covers the
+        // display; the post-persist `chat-history-updated` brings the real row.
         window.dispatchEvent(
-          new CustomEvent('chat-bump', { detail: { chatId } })
+          new CustomEvent('chat-bump', { detail: { chatId, isNew: true } })
         )
       }
     }
