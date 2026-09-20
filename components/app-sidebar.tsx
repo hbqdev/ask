@@ -143,7 +143,20 @@ export default function AppSidebar({
   // lands, and outlast it when it returns stale.
   const refreshTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
   useEffect(() => {
-    const scheduleRefresh = () => {
+    const scheduleRefresh = (event: Event) => {
+      // A brand-new chat fires `chat-bump` while its URL has already been
+      // pushState'd to /search/<id> but the row is NOT persisted yet (that
+      // happens at the stream's onFinish). A router.refresh() here re-resolves
+      // that not-yet-existing route → loadChat null → notFound() → a 404 flash
+      // that only clears on the later post-persist refresh. The optimistic
+      // insert already surfaces the new chat and `chat-history-updated` (fired
+      // after persistence) brings the real row, so skip the refresh for it.
+      if (
+        event.type === 'chat-bump' &&
+        (event as CustomEvent<{ isNew?: boolean }>).detail?.isNew
+      ) {
+        return
+      }
       if (refreshTimer.current) clearTimeout(refreshTimer.current)
       refreshTimer.current = setTimeout(() => router.refresh(), 400)
     }
