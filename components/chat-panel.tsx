@@ -163,7 +163,7 @@ export function ChatPanel({
   // Focus glow is CSS-driven (focus-within on the composer shell). The setter
   // is retained for the existing focus/blur/submit bookkeeping; the value is
   // no longer read, so it's left unbound.
-  const [, setIsInputFocused] = useState(false)
+  const [isInputFocused, setIsInputFocused] = useState(false)
   // Large pastes become separate "content cards" (the target), keeping the
   // textarea for the instruction. See PASTE_CARD_MIN_CHARS.
   const [contentCards, setContentCards] = useState<string[]>([])
@@ -1018,15 +1018,23 @@ export function ChatPanel({
       {messages.length === 0 ? (
         <>
           {/* Full-bleed three-body field behind the hero; the field lifts the
-              dance to ~32% height so the suns sit above the heading. The hero is
-              vertically centred on every breakpoint — the "Ask" banner + field
-              sit up top and the composer lands in the middle. (This was safe to
-              restore once the empty-state container in chat.tsx was made
-              top-aligned + scrollable on mobile: previously the parent's
-              justify-center pushed this whole centred hero off the top on phones,
-              which a compact top-aligned hero here was a wrong-level workaround
-              for.) */}
-          <section className="relative flex min-h-[68vh] w-full flex-col items-center justify-center">
+              dance to ~32% height so the suns sit above the heading. Idle (and
+              on desktop) the hero is vertically CENTRED — the "Ask" banner +
+              field sit up top and the composer lands in the middle. But on a
+              PHONE while the composer is FOCUSED, centring is harmful: the
+              on-screen keyboard shrinks the viewport and the auto-growing
+              textarea keeps re-centring, pushing the line you're typing out of
+              view. So when focused on mobile, TOP-ALIGN the hero (composer
+              anchored near the top, above the keyboard; the scrollable parent
+              keeps the caret in view as it grows). Desktop stays centred. */}
+          <section
+            className={cn(
+              'relative flex min-h-[68vh] w-full flex-col items-center',
+              isInputFocused
+                ? 'justify-start pt-6 md:justify-center md:pt-0'
+                : 'justify-center'
+            )}
+          >
             <WildBreathField className="pointer-events-none absolute inset-0 z-0" />
             {/* Radial scrim for text legibility over the field. Dark mode
                 darkens the centre; light mode lifts it with a soft white wash.
