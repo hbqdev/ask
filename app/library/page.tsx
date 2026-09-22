@@ -199,7 +199,7 @@ function ChatRow({
         <button
           onClick={() => setConfirm(true)}
           disabled={isPending}
-          className="opacity-0 group-hover:opacity-100 transition-opacity duration-150 p-1.5 rounded-lg hover:bg-destructive/10 hover:text-destructive text-muted-foreground shrink-0"
+          className="opacity-0 group-hover:opacity-100 focus-visible:opacity-100 pointer-coarse:opacity-100 transition-opacity duration-150 p-1.5 rounded-lg hover:bg-destructive/10 hover:text-destructive text-muted-foreground shrink-0"
           title="Delete chat"
         >
           {isPending ? (
@@ -464,7 +464,7 @@ export default function LibraryPage() {
 
   return (
     <div className="flex flex-col h-full overflow-y-auto">
-      <div className="max-w-2xl mx-auto w-full px-4 py-8 flex flex-col gap-6">
+      <div className="max-w-2xl mx-auto w-full px-4 pt-14 pb-8 md:pt-8 flex flex-col gap-6">
         {/* Header */}
         <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between sm:gap-4">
           <div className="flex flex-col gap-1.5">

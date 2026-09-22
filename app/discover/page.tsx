@@ -276,22 +276,22 @@ const Page = () => {
         className="h-full overflow-y-auto bg-background"
       >
         <div className="w-full max-w-screen-lg mx-auto px-4">
-          <div className="sticky top-0 z-20 flex flex-col items-center pt-10 border-b border-border pb-6 px-2 bg-background">
+          <div className="sticky top-0 z-20 flex flex-col items-center pt-10 border-b border-border pb-3 px-2 bg-background md:pb-6">
             <div className="flex items-center justify-center">
-              <IconWorld size={45} className="mb-2.5" />
+              <IconWorld className="mb-1.5 size-8 md:mb-2.5 md:size-[45px]" />
               <h1
-                className="text-5xl font-normal p-2"
+                className="text-4xl font-normal p-2 md:text-5xl"
                 style={{ fontFamily: 'Georgia, serif' }}
               >
                 Discover
               </h1>
             </div>
-            <div className="flex flex-row flex-wrap items-center justify-center gap-1.5 mt-4">
+            <div className="-mx-2 mt-2 flex w-[calc(100%+1rem)] flex-row flex-nowrap items-center justify-start gap-1.5 overflow-x-auto px-2 pb-1 [scrollbar-width:none] md:mx-0 md:mt-4 md:w-auto md:flex-wrap md:justify-center md:overflow-visible md:px-0 md:pb-0 [&::-webkit-scrollbar]:hidden">
               {topics.map((t, i) => (
                 <div
                   key={i}
                   className={cn(
-                    'border-[0.1px] rounded-full text-sm px-2.5 py-1 text-nowrap transition duration-200 cursor-pointer',
+                    'shrink-0 border-[0.1px] rounded-full text-sm px-3 py-1.5 md:px-2.5 md:py-1 text-nowrap transition duration-200 cursor-pointer',
                     activeTopic === t.key
                       ? 'text-cyan-700 dark:text-cyan-300 bg-cyan-300/20 border-cyan-700/60 dark:bg-cyan-300/30 dark:border-cyan-300/40'
                       : 'border-black/30 dark:border-white/30 text-black/70 dark:text-white/70 hover:text-black dark:hover:text-white hover:border-black/40 dark:hover:border-white/40 hover:bg-black/5 dark:hover:bg-white/5'
