@@ -227,7 +227,7 @@ export function MemoryTab() {
                     type="button"
                     onClick={() => handleDelete(memory.id)}
                     disabled={isPending}
-                    className="shrink-0 rounded-lg p-1.5 text-muted-foreground opacity-0 transition-opacity duration-150 hover:bg-destructive/10 hover:text-destructive group-hover:opacity-100"
+                    className="shrink-0 rounded-lg p-1.5 text-muted-foreground opacity-0 transition-opacity duration-150 hover:bg-destructive/10 hover:text-destructive group-hover:opacity-100 focus-visible:opacity-100 pointer-coarse:opacity-100"
                     title="Delete memory"
                   >
                     <IconTrash className="size-4" />
