@@ -7,6 +7,7 @@ import { SearchResultItem } from '@/lib/types'
 import { decodeHtmlEntities } from '@/lib/utils/decode-html-entities'
 import { displayUrlName } from '@/lib/utils/domain'
 import { safeUrlParts, sanitizeHttpUrl } from '@/lib/utils/safe-url'
+import { snippetText } from '@/lib/utils/snippet-text'
 
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar'
 import { Button } from '@/components/ui/button'
@@ -77,7 +78,7 @@ export function SearchResults({
                     {result.title || pathname}
                   </p>
                   <p className="text-xs text-muted-foreground line-clamp-2">
-                    {result.content}
+                    {snippetText(result.content)}
                   </p>
                   <div className="text-xs text-muted-foreground/80 mt-1 truncate">
                     <span className="underline">{hostname}</span>
@@ -118,7 +119,7 @@ export function SearchResults({
           <Card className="h-full flex-1 rounded-md hover:bg-muted/50 transition-colors">
             <CardContent className="flex h-full min-w-0 items-center justify-between gap-2 p-2 md:flex-col md:items-stretch">
               <p className="min-w-0 flex-1 line-clamp-1 text-xs md:min-h-8 md:line-clamp-2">
-                {result.title || result.content}
+                {snippetText(result.title || result.content)}
               </p>
               <div className="flex max-w-[42%] shrink-0 items-center space-x-1 min-w-0 md:mt-2 md:max-w-full md:shrink">
                 <Avatar className="h-4 w-4 shrink-0">
