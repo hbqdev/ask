@@ -1,4 +1,5 @@
 import type { RecentChat } from './recent-chats-section'
+import { toEpochMs } from './recent-time'
 
 /**
  * A per-chat optimistic override the sidebar layers on top of the
@@ -37,11 +38,10 @@ export type RecentOverrides = Record<string, OptimisticOverride>
 /** Placeholder shown for a brand-new chat until the server returns its title. */
 export const NEW_CHAT_PLACEHOLDER_TITLE = 'New chat'
 
-const ms = (d: Date | string | null | undefined): number => {
-  if (!d) return 0
-  const t = d instanceof Date ? d.getTime() : new Date(d).getTime()
-  return Number.isNaN(t) ? 0 : t
-}
+// Absolute epoch ms for every comparison — naive (offset-less) DB timestamp
+// strings are read as UTC, so a server value and a `Date.now()` bump are
+// compared like-for-like regardless of the viewer's zone.
+const ms = toEpochMs
 
 /**
  * Server-parity comparator: `lastViewedAt DESC NULLS LAST, createdAt DESC` —
