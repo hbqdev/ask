@@ -160,9 +160,9 @@ export function ChatPanel({
   const isFirstRender = useRef(true)
   const [isComposing, setIsComposing] = useState(false) // Composition state
   const [enterDisabled, setEnterDisabled] = useState(false) // Disable Enter after composition ends
-  // Focus glow is CSS-driven (focus-within on the composer shell). The setter
-  // is retained for the existing focus/blur/submit bookkeeping; the value is
-  // no longer read, so it's left unbound.
+  // Focus glow is CSS-driven (focus-within on the composer shell). The value is
+  // read by the empty-state hero: on phones it top-anchors the composer while
+  // focused so the growing textarea + keyboard don't push the typed line away.
   const [isInputFocused, setIsInputFocused] = useState(false)
   // Large pastes become separate "content cards" (the target), keeping the
   // textarea for the instruction. See PASTE_CARD_MIN_CHARS.
@@ -877,8 +877,10 @@ export function ChatPanel({
         />
 
         {/* Bottom menu area */}
+        {/* Left tools never shrink (their fixed-size buttons would overlap);
+            the right group absorbs a narrow phone by truncating the model name. */}
         <div className="flex items-center justify-between gap-1 p-2 md:gap-2 md:p-3">
-          <div className="flex min-w-0 items-center gap-1 md:gap-2">
+          <div className="flex shrink-0 items-center gap-0.5 md:gap-2">
             {!isGuest && <FileUploadButton onFileSelect={handleFiles} />}
             <SearchModeSelector
               isAdaptiveAuthRequired={isAdaptiveAuthRequired}
@@ -936,9 +938,12 @@ export function ChatPanel({
               />
             )}
           </div>
-          <div className="flex shrink-0 items-center gap-1 md:gap-2">
+          <div className="flex min-w-0 items-center justify-end gap-1 md:gap-2">
             {!isCloudDeployment && modelSelectorData && (
-              <ModelSelectorClient data={modelSelectorData} />
+              <ModelSelectorClient
+                data={modelSelectorData}
+                crowded={messages.length > 0}
+              />
             )}
             {messages.length > 0 && (
               <Button
@@ -957,7 +962,7 @@ export function ChatPanel({
               size={'icon'}
               className={cn(
                 isLoading && 'animate-pulse',
-                'size-8 md:size-10 rounded-full'
+                'size-8 shrink-0 md:size-10 rounded-full'
               )}
               disabled={(!hasPendingInput && !isLoading) || !hasAvailableModels}
               onClick={isLoading ? stop : undefined}
