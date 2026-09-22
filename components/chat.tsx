@@ -1,6 +1,6 @@
 'use client'
 
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useId, useMemo, useRef, useState } from 'react'
 import { useRouter } from 'next/navigation'
 
 import { useChat } from '@ai-sdk/react'
@@ -24,6 +24,7 @@ import {
   ADAPTIVE_MODE_AUTH_REQUIRED_MESSAGE,
   isAdaptiveModeAuthBlocked
 } from '@/lib/search-mode-availability'
+import { setStreamActive } from '@/lib/streaming/stream-activity'
 import { UploadedFile } from '@/lib/types'
 import type { UIMessage } from '@/lib/types/ai'
 import {
@@ -43,6 +44,13 @@ import { ChatMessages } from './chat-messages'
 import { ChatPanel } from './chat-panel'
 import { DragOverlay } from './drag-overlay'
 import { ErrorModal } from './error-modal'
+
+// Edit and Retry stay clickable on earlier turns while an answer streams, but
+// regenerating then would run a second request on the same chat: the first
+// stream keeps writing into the truncated conversation (its answer reappears)
+// and its settle flips status to ready while the new answer is still streaming.
+const TURN_IN_FLIGHT_MESSAGE =
+  'Wait for the current answer to finish, or stop it first.'
 
 // Define section structure
 interface ChatSection {
@@ -135,6 +143,9 @@ export function Chat({
   // its `handlers` prop via useState(initialHandlers)) can still see
   // the freshest value through `.current`. See lib/contexts/chat-context.tsx.
   const isStreamingRef = useRef(false)
+  // Latest messages of the chat on screen, for callbacks that outlive a render
+  // (the copy shortcut, onFinish's current-chat check). Synced below.
+  const messagesRef = useRef<UIMessage[]>(savedMessages)
   const showAdaptiveModeAuthModal = useCallback(() => {
     setErrorModal({
       open: true,
@@ -219,9 +230,37 @@ export function Chat({
       }
     }),
     messages: savedMessages,
-    onFinish: ({ message }) => {
-      isStreamingRef.current = false
-      window.dispatchEvent(new CustomEvent('chat-history-updated'))
+    onFinish: ({ message, messages: finishedMessages, isAbort }) => {
+      // useChat routes EVERY Chat's callbacks through the latest render, so a
+      // turn from a chat this instance has since left ("New chat" mid-answer)
+      // finishes here too. Identify it by its conversation so it can't clear
+      // the streaming flag of the chat now on screen or bump it.
+      const isCurrentChat =
+        finishedMessages[0]?.id === messagesRef.current[0]?.id
+      if (isCurrentChat) isStreamingRef.current = false
+
+      if (isCurrentChat && !providedId) {
+        // A chat started from home: the URL is a pushState'd /search/<id> but
+        // the route is still `/`. A router.refresh() would re-resolve that URL
+        // and remount the whole chat on the real route — re-rendering the
+        // conversation from the server (a read that can lag the just-persisted
+        // turn), cutting off read-aloud playback, and throwing away a stopped
+        // answer's partial text. Update the sidebar optimistically instead:
+        // the bump carries the streamed title into the placeholder row.
+        const titlePart = message.parts?.find(p => p.type === 'data-title') as
+          | { data?: { title?: string } }
+          | undefined
+        window.dispatchEvent(
+          new CustomEvent('chat-bump', {
+            detail: { chatId, title: titlePart?.data?.title, isNew: true }
+          })
+        )
+      } else if (!isAbort) {
+        // Post-persist reconcile of the sidebar (titles, order, count). Skipped
+        // on Stop: the aborted turn isn't persisted, so a refresh would only
+        // re-render the route without the partial answer still on screen.
+        window.dispatchEvent(new CustomEvent('chat-history-updated'))
+      }
 
       const summary = summarizeGenui(getTextFromParts(message.parts))
       if (summary) {
@@ -270,7 +309,9 @@ export function Chat({
   // mounts — mirrors the offsetParent guards elsewhere).
   const streamInFlightRef = useRef(false)
   useEffect(() => {
-    if (isGuest || !providedId) return
+    // Chats started from home (no providedId) resume too: their row is created
+    // when the first turn starts, and resume is keyed by chatId alone.
+    if (isGuest) return
     const onVisibilityChange = () => {
       if (document.visibilityState === 'hidden') {
         streamInFlightRef.current =
@@ -290,7 +331,7 @@ export function Chat({
       document.removeEventListener('visibilitychange', onVisibilityChange)
       window.removeEventListener('focus', onVisibilityChange)
     }
-  }, [isGuest, providedId, status, resumeStream])
+  }, [isGuest, status, resumeStream])
 
   // Reset to a fresh home chat when the chat currently on screen is deleted.
   // The deleters (chat header menu, sidebar item) can't reach this component's
@@ -322,12 +363,32 @@ export function Chat({
   // Stop must abort the SERVER too: an authed generation now survives a dropped
   // connection (so a backgrounded tab keeps generating), which means the
   // client-side stop() no longer halts it. Hit the stop endpoint as well.
+  // Not gated on providedId: a chat started from home has no providedId (its
+  // URL is a pushState fake) but its turn runs server-side all the same, and
+  // skipping the stop call there let the "stopped" first answer keep
+  // generating and persist in full.
   const handleStop = useCallback(() => {
     stop()
-    if (!isGuest && providedId) {
+    if (!isGuest) {
       void fetch(`/api/chat/${chatId}/stop`, { method: 'POST' }).catch(() => {})
     }
-  }, [stop, isGuest, providedId, chatId])
+  }, [stop, isGuest, chatId])
+
+  // Report this instance's in-flight turn so the sidebar holds any refresh
+  // until it settles (see lib/streaming/stream-activity.ts).
+  const streamActivityKey = useId()
+  const isTurnInFlight = status === 'submitted' || status === 'streaming'
+  useEffect(() => {
+    setStreamActive(streamActivityKey, isTurnInFlight)
+    // Also re-sync the Related-question throttle to the chat on screen: after
+    // "New chat" mid-answer (or a turn that errored before its first chunk)
+    // no onFinish of THIS chat would ever clear it.
+    isStreamingRef.current = isTurnInFlight
+  }, [streamActivityKey, isTurnInFlight])
+  useEffect(
+    () => () => setStreamActive(streamActivityKey, false),
+    [streamActivityKey]
+  )
 
   // Keep all request entry points reflected in isStreamingRef so downstream
   // action handlers can reliably reject overlapping sends. Also fire-and-forget
@@ -483,7 +544,7 @@ export function Chat({
   // Uses ref to avoid re-registering listener on every messages change.
   // Uses defaultPrevented + visibility check to prevent duplicate handling
   // when multiple Chat instances are mounted (Next.js component caching).
-  const messagesRef = useRef(messages)
+  // (messagesRef itself is declared above useChat — onFinish reads it too.)
   useEffect(() => {
     messagesRef.current = messages
   }, [messages])
@@ -600,6 +661,10 @@ export function Chat({
       console.error('handleUpdateAndReloadMessage: chatId is undefined.')
       return
     }
+    if (isTurnInFlight) {
+      toast.info(TURN_IN_FLIGHT_MESSAGE)
+      return
+    }
 
     try {
       // Update the message locally with the same ID
@@ -638,6 +703,10 @@ export function Chat({
   const handleReloadFrom = async (reloadFromFollowerMessageId: string) => {
     if (!chatId) {
       toast.error('Chat ID is missing for reload.')
+      return
+    }
+    if (isTurnInFlight) {
+      toast.info(TURN_IN_FLIGHT_MESSAGE)
       return
     }
 
@@ -712,12 +781,12 @@ export function Chat({
         // chats take the providedId-less branch in safeSendMessage, so they fire
         // no `chat-bump` there; emit one here with the freshly-minted id. The id
         // isn't in the server list yet, so the sidebar inserts it at the top
-        // with a placeholder title until the post-stream refresh brings the real
-        // row. chat-bump only reorders optimistically — it no longer triggers a
+        // with a placeholder title; onFinish's bump fills in the streamed
+        // title. chat-bump only reorders optimistically — it never triggers a
         // router.refresh() (see app-sidebar REFRESH_EVENTS), so this can't
-        // re-resolve the not-yet-persisted /search/<id> route mid-stream.
+        // re-resolve the pushState'd /search/<id> route.
         window.dispatchEvent(
-          new CustomEvent('chat-bump', { detail: { chatId } })
+          new CustomEvent('chat-bump', { detail: { chatId, isNew: true } })
         )
       }
     }
