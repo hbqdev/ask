@@ -602,12 +602,16 @@ export function SettingsDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
+      {/* On phones 100vh is the LARGE viewport (browser chrome retracted), so
+          a 100vh-tall dialog runs under the toolbar and its bottom is cut
+          off. The dvh max-height clamps it to the visible viewport; browsers
+          without dvh drop that declaration and keep the vh height. */}
       <DialogContent
         className="
         max-w-none p-0 gap-0 overflow-hidden rounded-xl border border-border
-        w-[calc(100vw-2%)] h-[calc(100vh-2%)]
-        md:w-[calc(100vw-7%)] md:h-[calc(100vh-7%)]
-        lg:w-[calc(100vw-30%)] lg:h-[calc(100vh-20%)]
+        w-[calc(100vw-2%)] h-[calc(100vh-2%)] max-h-[calc(100dvh-2%)]
+        md:w-[calc(100vw-7%)] md:h-[calc(100vh-7%)] md:max-h-[calc(100dvh-7%)]
+        lg:w-[calc(100vw-30%)] lg:h-[calc(100vh-20%)] lg:max-h-[calc(100dvh-20%)]
       "
       >
         <DialogTitle className="sr-only">Settings</DialogTitle>
