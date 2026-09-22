@@ -352,10 +352,13 @@ export function Chat({
           window.dispatchEvent(
             new CustomEvent('chat-bump', { detail: { chatId: providedId } })
           )
-          // Background: persist to DB, then confirm sidebar order.
-          void touchChat(providedId).then(() => {
-            window.dispatchEvent(new CustomEvent('chat-history-updated'))
-          })
+          // Background: persist lastViewedAt. Do NOT dispatch a refresh event
+          // here — this runs mid-stream (the answer is still generating), and a
+          // sidebar router.refresh() then re-fetches the chat route without the
+          // in-flight assistant message, blanking the messages/footer until the
+          // stream re-asserts. The optimistic chat-bump above already reorders;
+          // onFinish's chat-history-updated reconciles the order post-stream.
+          void touchChat(providedId)
         }
         return result
       } catch (error) {
@@ -709,14 +712,12 @@ export function Chat({
         // chats take the providedId-less branch in safeSendMessage, so they fire
         // no `chat-bump` there; emit one here with the freshly-minted id. The id
         // isn't in the server list yet, so the sidebar inserts it at the top
-        // with a placeholder title until the next refresh brings the real row.
-        // `isNew` tells the sidebar NOT to router.refresh() for this bump: the
-        // URL was just pushState'd to /search/<id> but the row is not persisted
-        // until the stream's onFinish, so a refresh now would re-resolve that
-        // route → notFound() → a 404 flash. The optimistic insert covers the
-        // display; the post-persist `chat-history-updated` brings the real row.
+        // with a placeholder title until the post-stream refresh brings the real
+        // row. chat-bump only reorders optimistically — it no longer triggers a
+        // router.refresh() (see app-sidebar REFRESH_EVENTS), so this can't
+        // re-resolve the not-yet-persisted /search/<id> route mid-stream.
         window.dispatchEvent(
-          new CustomEvent('chat-bump', { detail: { chatId, isNew: true } })
+          new CustomEvent('chat-bump', { detail: { chatId } })
         )
       }
     }
