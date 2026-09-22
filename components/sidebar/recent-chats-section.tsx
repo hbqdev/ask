@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useState } from 'react'
 import Link from 'next/link'
 
 import { IconArrowRight, IconChevronDown } from '@tabler/icons-react'
@@ -17,6 +17,7 @@ import {
 } from '@/components/ui/sidebar'
 
 import { ChatMenuItem } from './chat-menu-item'
+import { toDate, useHydrated } from './recent-time'
 
 // The slim row the sidebar Recent list works with — mirrors the projection of
 // `getRecentChats` (id/title/lastViewedAt/createdAt) so no full Chat row is
@@ -33,29 +34,52 @@ const RECENT_COLLAPSED_KEY = 'ask:recent-collapsed'
 // reopened, when it was created. Drives both the date group and the row
 // subtitle so the two always agree.
 function effectiveDate(chat: RecentChat): Date {
-  return chat.lastViewedAt ?? chat.createdAt
+  return toDate(chat.lastViewedAt ?? chat.createdAt)
+}
+
+function readStoredCollapsed(): boolean {
+  try {
+    return localStorage.getItem(RECENT_COLLAPSED_KEY) === 'true'
+  } catch {
+    return false
+  }
 }
 
 type RecentGroup = { label: string; chats: RecentChat[] }
 
+// Midnight (as epoch ms) starting today and yesterday. `local` uses the
+// runtime's zone (the viewer's, in the browser); otherwise UTC — the
+// zone-independent boundary used for the server render + hydration pass, so
+// server and client produce identical markup before local grouping kicks in.
+function dayStarts(now: Date, local: boolean): [number, number] {
+  if (local) {
+    const today = new Date(now.getFullYear(), now.getMonth(), now.getDate())
+    const yesterday = new Date(today)
+    yesterday.setDate(yesterday.getDate() - 1)
+    return [today.getTime(), yesterday.getTime()]
+  }
+  const today = Date.UTC(
+    now.getUTCFullYear(),
+    now.getUTCMonth(),
+    now.getUTCDate()
+  )
+  return [today, today - 24 * 60 * 60 * 1000]
+}
+
 // Bucket the already-recency-ordered list into Today / Yesterday / Previous.
 // Empty buckets are dropped so no label renders without rows beneath it.
-function groupRecentChats(chats: RecentChat[]): RecentGroup[] {
-  const now = new Date()
-  const startOfToday = new Date(
-    now.getFullYear(),
-    now.getMonth(),
-    now.getDate()
-  )
-  const startOfYesterday = new Date(startOfToday)
-  startOfYesterday.setDate(startOfYesterday.getDate() - 1)
+export function groupRecentChats(
+  chats: RecentChat[],
+  { now = new Date(), local = true }: { now?: Date; local?: boolean } = {}
+): RecentGroup[] {
+  const [startOfToday, startOfYesterday] = dayStarts(now, local)
 
   const today: RecentChat[] = []
   const yesterday: RecentChat[] = []
   const previous: RecentChat[] = []
 
   for (const chat of chats) {
-    const when = effectiveDate(chat)
+    const when = effectiveDate(chat).getTime()
     if (when >= startOfToday) today.push(chat)
     else if (when >= startOfYesterday) yesterday.push(chat)
     else previous.push(chat)
@@ -89,27 +113,27 @@ export function RecentChatsSection({
   className,
   onNavigate
 }: RecentChatsSectionProps) {
-  const groups = groupRecentChats(chats)
+  // Today/Yesterday are viewer-local days, which the server (UTC) can't know:
+  // group by UTC days for the SSR + hydration pass, then regroup locally.
+  const hydrated = useHydrated()
+  const groups = groupRecentChats(chats, { local: hydrated })
 
-  // Start expanded, then hydrate the persisted state after mount. Reading
-  // localStorage in an effect (not the initializer) keeps SSR/CSR markup in
-  // sync — no hydration mismatch — at the cost of a one-frame flash for anyone
-  // who had it collapsed, which is acceptable for a sidebar fold.
-  const [collapsed, setCollapsed] = useState(false)
-  useEffect(() => {
-    setCollapsed(localStorage.getItem(RECENT_COLLAPSED_KEY) === 'true')
-  }, [])
+  // Start expanded for the SSR + hydration pass (keeps markup in sync), then
+  // read the persisted fold once hydrated. An explicit toggle overrides it.
+  const [collapsedOverride, setCollapsedOverride] = useState<boolean | null>(
+    null
+  )
+  const collapsed = collapsedOverride ?? (hydrated && readStoredCollapsed())
 
-  const toggle = () =>
-    setCollapsed(prev => {
-      const next = !prev
-      try {
-        localStorage.setItem(RECENT_COLLAPSED_KEY, String(next))
-      } catch {
-        /* private mode / storage disabled — fold still works for the session */
-      }
-      return next
-    })
+  const toggle = () => {
+    const next = !collapsed
+    setCollapsedOverride(next)
+    try {
+      localStorage.setItem(RECENT_COLLAPSED_KEY, String(next))
+    } catch {
+      /* private mode / storage disabled — fold still works for the session */
+    }
+  }
 
   return (
     <SidebarGroup className={className}>
