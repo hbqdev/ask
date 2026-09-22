@@ -9,9 +9,12 @@ import {
 
 // GET /api/chat/[chatId]/stream — the resume endpoint the AI SDK's
 // `useChat({ resume })` / DefaultChatTransport.reconnectToStream hits. Returns
-// the live resumable stream when one is active for this chat, otherwise 204
-// (which the SDK treats as "nothing to resume" → no-op, and the client falls
-// back to the persisted message).
+// the live resumable stream when one is active for this chat, otherwise 204.
+// A turn that already FINISHED also yields 204: resumable-stream returns null
+// once a stream is done (it does not replay a completed buffer). The SDK treats
+// 204 as a silent no-op, so the client (ResumableChatTransport in
+// components/chat.tsx) reloads the persisted conversation from
+// /api/chat/<id>/messages instead.
 export async function GET(
   _req: Request,
   { params }: { params: Promise<{ chatId: string }> }
