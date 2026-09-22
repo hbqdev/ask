@@ -244,7 +244,12 @@ export default function AppSidebar({
         {/* Weather card — directly under the brand, expanded only. Gated by the
             Settings toggle; hidden on the icon rail. */}
         {showWeatherWidget && (
-          <SidebarWeather className="group-data-[collapsible=icon]:hidden" />
+          // Mobile drawer: one-line summary (tap to expand) so Recent stays
+          // above the fold; desktop keeps the full card.
+          <SidebarWeather
+            className="group-data-[collapsible=icon]:hidden"
+            compact={isMobile}
+          />
         )}
 
         {/* Expanded: full-width labelled New-chat button. */}
