@@ -61,8 +61,13 @@ import {
   documentSourceId
 } from './helpers/document-retrieval-part'
 import { firstChunkTimer } from './helpers/first-chunk-timer'
+import { getLatestMessageId } from './helpers/latest-message-id'
 import { persistStreamResults } from './helpers/persist-stream-results'
 import { prepareMessages } from './helpers/prepare-messages'
+import {
+  isStoppedSaveStale,
+  sanitizeStoppedMessage
+} from './helpers/sanitize-stopped-message'
 import { smoothAndStripNarration } from './helpers/smooth-and-strip-narration'
 import { streamPartTimer } from './helpers/stream-part-timer'
 import { stripNarrationFromMessage } from './helpers/strip-narration-from-message'
@@ -70,7 +75,12 @@ import { stripReasoningParts } from './helpers/strip-reasoning-parts'
 import { stripSpecFromMessages } from './helpers/strip-spec-from-messages'
 import { transformFileParts } from './helpers/transform-file-parts'
 import type { StreamContext } from './helpers/types'
-import { unregisterGeneration } from './active-generations'
+import {
+  settleStoppedTurn,
+  unregisterGeneration,
+  waitForStoppedTurn,
+  wasStoppedByUser
+} from './active-generations'
 import { createFlowProgressEmitter, type ProgressWriter } from './flow-progress'
 import { LatencyTracker } from './latency-tracker'
 import {
@@ -153,6 +163,10 @@ export async function createChatStreamResponse(
   // Skip loading chat for new chats optimization
   let initialChat = null
   if (!isNewChat) {
+    // A follow-up sent right after Stop must see the stopped turn's partial
+    // answer in its history (else the model reads two consecutive user
+    // messages and re-answers the earlier one). Bounded; no-op when idle.
+    await waitForStoppedTurn(chatId)
     const loadChatStart = performance.now()
     // Fetch chat data for authorization check and cache it
     initialChat = await loadChatUncached(chatId, userId)
@@ -958,7 +972,48 @@ export async function createChatStreamResponse(
             needsRecent: classification?.needsRecent ?? null,
             needsSources: classification?.needsSources ?? null
           })
-          if (isAborted || !responseMessage) return
+          if (!responseMessage) return
+          // An aborted turn is persisted ONLY when the user pressed Stop: the
+          // partial they saw must survive a reload, and a follow-up must not
+          // leave two consecutive user messages in history. A turn superseded
+          // by a newer one or killed by the generation timeout keeps the old
+          // discard behavior. (A client disconnect never aborts an authed turn
+          // — it runs to completion and takes the normal path below.)
+          // Checked independently of isAborted: a Stop landing during the
+          // pre-answer phase (classifier/recall) fails execute instead of
+          // emitting an abort chunk, and must not persist `running` steps.
+          const userStopped = wasStoppedByUser(stopController)
+          if (isAborted && !userStopped) return
+
+          let messageToClean = responseMessage
+          if (userStopped) {
+            const stopped = sanitizeStoppedMessage(responseMessage)
+            if (!stopped) {
+              console.log(
+                `[stop] ${JSON.stringify({ chatId, outcome: 'nothing_to_save' })}`
+              )
+              return
+            }
+            // Ordering guard: never insert this late answer after a NEWER
+            // turn's user message. Safe only while the chat's newest row is
+            // still this turn's user message.
+            if (context.pendingInitialSave) {
+              await context.pendingInitialSave.catch(() => {})
+            }
+            const turnUserMessageId = messagesToModel.findLast(
+              m => m.role === 'user'
+            )?.id
+            const latestId = await getLatestMessageId(chatId, userId).catch(
+              () => null
+            )
+            if (isStoppedSaveStale(latestId, turnUserMessageId, stopped.id)) {
+              console.log(
+                `[stop] ${JSON.stringify({ chatId, outcome: 'stale_skipped' })}`
+              )
+              return
+            }
+            messageToClean = stopped
+          }
 
           // Clean the assembled responseMessage of any narration preamble
           // before persistence. The stream transform already filters
@@ -967,7 +1022,7 @@ export async function createChatStreamResponse(
           // still contain the leading narration. Strip it here so the
           // DB row is clean even on a partial response.
           const cleanedMessage = rehydrateFullContent(
-            stripNarrationFromMessage(responseMessage),
+            stripNarrationFromMessage(messageToClean),
             fullContentSink
           )
 
@@ -983,12 +1038,17 @@ export async function createChatStreamResponse(
             context.pendingInitialSave,
             context.pendingInitialUserMessage
           )
+          if (userStopped) {
+            console.log(
+              `[stop] ${JSON.stringify({ chatId, outcome: 'partial_saved', parts: cleanedMessage.parts.length })}`
+            )
+          }
 
-          // NB: the active-stream pointer is deliberately NOT cleared here. It
-          // (and the Redis buffer) expire via their 300s TTL, so a client that
-          // returns AFTER the turn finished can still `resumeStream()` and have
-          // the full buffered stream replayed — the SDK merges by message id and
-          // catches the client up to the final answer, no refetch needed.
+          // NB: the active-stream pointer is NOT cleared here, but that does
+          // not make a finished stream replayable: resumable-stream returns
+          // null once the stream is done, so the resume endpoint answers 204
+          // and the client reloads the persisted conversation instead (see
+          // components/chat.tsx resumeOrReload).
 
           // Long-term memory: extract durable user facts from this turn
           // (async, non-blocking — mirrors title generation). Fully guarded
@@ -1092,6 +1152,9 @@ export async function createChatStreamResponse(
             })()
           }
         } finally {
+          // Release a follow-up waiting on this stopped turn's save (no-op
+          // unless the user pressed Stop).
+          if (wasStoppedByUser(stopController)) settleStoppedTurn(chatId)
           if (langfuse) {
             await langfuse.flushAsync()
           }

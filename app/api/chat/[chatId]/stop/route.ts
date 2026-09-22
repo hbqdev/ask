@@ -1,6 +1,9 @@
 import { loadChatUncached } from '@/lib/actions/chat'
 import { getCurrentUserId } from '@/lib/auth/get-current-user'
-import { stopGeneration } from '@/lib/streaming/active-generations'
+import {
+  stopGeneration,
+  waitForStoppedTurn
+} from '@/lib/streaming/active-generations'
 
 // POST /api/chat/[chatId]/stop — explicit Stop. Decoupling the authenticated
 // generation from req.signal (so a backgrounded mobile tab keeps generating)
@@ -21,6 +24,9 @@ export async function POST(
     return new Response(null, { status: 204 })
   }
 
-  stopGeneration(chatId)
+  // The stopped turn saves its partial answer in onFinish; answer only once
+  // that settled (bounded) so a caller that awaits Stop can rely on the
+  // partial being persisted.
+  if (stopGeneration(chatId)) await waitForStoppedTurn(chatId)
   return new Response(null, { status: 204 })
 }
