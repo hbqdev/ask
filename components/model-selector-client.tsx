@@ -27,9 +27,17 @@ function modelKey(model: Model): string {
 
 interface ModelSelectorClientProps {
   data: ModelSelectorData
+  /**
+   * The in-chat composer also carries a new-chat button, leaving less room:
+   * drop the model name to icon-only on narrower phones there.
+   */
+  crowded?: boolean
 }
 
-export function ModelSelectorClient({ data }: ModelSelectorClientProps) {
+export function ModelSelectorClient({
+  data,
+  crowded = false
+}: ModelSelectorClientProps) {
   const [open, setOpen] = useState(false)
   const [search, setSearch] = useState('')
   const [selectedModelKey, setSelectedModelKey] = useState<string>(
@@ -103,18 +111,26 @@ export function ModelSelectorClient({ data }: ModelSelectorClientProps) {
           variant="outline"
           role="combobox"
           aria-expanded={open}
-          className="h-auto gap-1.5 rounded-full border border-border bg-foreground/[0.03] px-2.5 py-1.5 font-mono text-[11.5px] font-medium text-muted-foreground shadow-none hover:bg-foreground/[0.06]"
+          aria-label={`Model: ${selectedModel.name}`}
+          title={selectedModel.name}
+          className="h-auto min-w-0 gap-1.5 rounded-full border border-border bg-foreground/[0.03] px-2.5 py-1.5 font-mono text-[11.5px] font-medium text-muted-foreground shadow-none hover:bg-foreground/[0.06]"
         >
           <Cpu className="size-3.5 text-sky-500 shrink-0" />
           <span className="hidden truncate max-w-40 text-[11.5px] font-medium sm:inline">
             {selectedModel.name}
           </span>
-          <span className="truncate max-w-20 text-[11.5px] font-medium sm:hidden">
+          <span
+            className={cn(
+              'min-w-0 truncate max-w-20 text-[11.5px] font-medium sm:hidden',
+              // Below these widths only a sliver of the name would fit.
+              crowded ? 'max-[379px]:hidden' : 'max-[339px]:hidden'
+            )}
+          >
             {modelShortName(selectedModel.name)}
           </span>
           <ChevronDown
             className={cn(
-              'ml-0.5 h-3 w-3 opacity-50 transition-transform duration-[160ms] ease-[var(--motion-ease-out)]',
+              'ml-0.5 h-3 w-3 shrink-0 opacity-50 transition-transform duration-[160ms] ease-[var(--motion-ease-out)]',
               open && 'rotate-180'
             )}
           />
@@ -149,7 +165,7 @@ export function ModelSelectorClient({ data }: ModelSelectorClientProps) {
         </div>
 
         {/* Model list */}
-        <div className="max-h-[280px] overflow-y-auto">
+        <div className="max-h-[min(280px,calc(var(--radix-popover-content-available-height)-56px))] overflow-y-auto">
           {filteredEntries.length === 0 ? (
             <p className="text-center py-6 text-xs text-muted-foreground">
               No model found.
