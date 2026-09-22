@@ -3,6 +3,8 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 
 import {
+  IconChevronDown,
+  IconChevronUp,
   IconCloud,
   IconCloudFog,
   IconCloudRain,
@@ -344,8 +346,18 @@ function LocationSearchPanel({
  * condition with a small icon, a large current temperature, and a slim 5-day
  * forecast (high stacked over a dimmer low). Hidden by the sidebar wiring when
  * the rail collapses to its icon-only state.
+ *
+ * `compact` (the mobile drawer): the full card is ~285px tall, which pushes
+ * the Recent chats below the fold on a phone, so it starts as a one-line
+ * summary (icon · city · temp) that expands to the full card on tap.
  */
-export function SidebarWeather({ className }: { className?: string }) {
+export function SidebarWeather({
+  className,
+  compact = false
+}: {
+  className?: string
+  compact?: boolean
+}) {
   const { weather, loading, isManual, setManualLocation, clearManualLocation } =
     useWeather()
   const measureUnit = useClientSettingValue('measureUnit', 'metric')
@@ -354,6 +366,9 @@ export function SidebarWeather({ className }: { className?: string }) {
     isImperial ? celsiusToFahrenheit(celsius) : Math.round(celsius)
 
   const [searchOpen, setSearchOpen] = useState(false)
+  // Compact mode only: whether the one-line summary is expanded to the full card.
+  const [expanded, setExpanded] = useState(false)
+  const collapsed = compact && !expanded
 
   const handlePick = (result: GeocodeResult) => {
     setManualLocation({
@@ -385,6 +400,22 @@ export function SidebarWeather({ className }: { className?: string }) {
           onClose={() => setSearchOpen(false)}
           onUseMyLocation={handleUseMyLocation}
         />
+      </div>
+    )
+  }
+
+  if (loading && collapsed) {
+    return (
+      <div
+        className={cn(cardClass, 'py-2')}
+        aria-hidden="true"
+        data-weather-card="compact"
+      >
+        <div className="flex items-center gap-2">
+          <div className="size-5 shrink-0 animate-pulse rounded-full bg-muted/50" />
+          <div className="h-3 flex-1 animate-pulse rounded bg-muted/60" />
+          <div className="h-3 w-10 animate-pulse rounded bg-muted/50" />
+        </div>
       </div>
     )
   }
@@ -456,8 +487,43 @@ export function SidebarWeather({ className }: { className?: string }) {
   const sunsetTime = formatClockTime(weather.sunset)
   const moon = getMoonPhase(new Date())
 
+  if (collapsed) {
+    return (
+      <div className={cn(cardClass, 'p-0')} data-weather-card="compact">
+        <button
+          type="button"
+          onClick={() => setExpanded(true)}
+          aria-expanded={false}
+          aria-label={`Weather: ${weather.city}, ${label}, ${primaryTemp}. Show weather details`}
+          className="flex w-full min-w-0 items-center gap-2 rounded-2xl px-3 py-2 text-left"
+        >
+          <CurrentIcon
+            className={cn('size-5 shrink-0', currentColor)}
+            stroke={1.6}
+            aria-hidden="true"
+          />
+          <span className="min-w-0 flex-1 truncate text-[12.5px] text-foreground">
+            <span className="font-semibold">{weather.city}</span>
+            <span className="text-muted-foreground"> · {label}</span>
+          </span>
+          <span className="shrink-0 text-[13px] font-medium text-foreground tabular-nums">
+            {primaryTemp}
+          </span>
+          <IconChevronDown
+            className="size-3.5 shrink-0 text-muted-foreground"
+            stroke={1.8}
+            aria-hidden="true"
+          />
+        </button>
+      </div>
+    )
+  }
+
   return (
-    <div className={cardClass}>
+    <div
+      className={cardClass}
+      data-weather-card={compact ? 'expanded' : 'full'}
+    >
       <div className="flex items-start justify-between gap-2">
         <div className="min-w-0">
           <div className="flex min-w-0 items-center gap-1">
@@ -495,11 +561,28 @@ export function SidebarWeather({ className }: { className?: string }) {
             {label}
           </div>
         </div>
-        <CurrentIcon
-          className={cn('size-7 shrink-0', currentColor)}
-          stroke={1.6}
-          aria-hidden="true"
-        />
+        <div className="flex shrink-0 items-start gap-1">
+          <CurrentIcon
+            className={cn('size-7 shrink-0', currentColor)}
+            stroke={1.6}
+            aria-hidden="true"
+          />
+          {compact && (
+            <button
+              type="button"
+              onClick={() => setExpanded(false)}
+              aria-expanded={true}
+              aria-label="Hide weather details"
+              className="rounded-md p-0.5 text-muted-foreground transition-colors hover:text-foreground"
+            >
+              <IconChevronUp
+                className="size-3.5"
+                stroke={1.8}
+                aria-hidden="true"
+              />
+            </button>
+          )}
+        </div>
       </div>
 
       <div className="mt-1 flex items-baseline gap-1.5">

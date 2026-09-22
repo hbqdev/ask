@@ -37,6 +37,8 @@ import {
 
 import { Spinner } from '../ui/spinner'
 
+import { formatDateWithTime, useHydrated } from './recent-time'
+
 interface ChatMenuItemProps {
   // Only the fields the row actually renders — lets the slim `getRecentChats`
   // projection (id/title/createdAt) drive the sidebar Recent list without
@@ -48,44 +50,6 @@ interface ChatMenuItemProps {
   displayDate?: Date | string
   // Fired on row click (e.g. close the mobile drawer after navigating).
   onNavigate?: () => void
-}
-
-const formatDateWithTime = (date: Date | string) => {
-  const parsedDate = new Date(date)
-  const now = new Date()
-  const yesterday = new Date()
-  yesterday.setDate(yesterday.getDate() - 1)
-
-  const formatTime = (date: Date) => {
-    return date.toLocaleString('en-US', {
-      hour: '2-digit',
-      minute: '2-digit',
-      hour12: true
-    })
-  }
-
-  if (
-    parsedDate.getDate() === now.getDate() &&
-    parsedDate.getMonth() === now.getMonth() &&
-    parsedDate.getFullYear() === now.getFullYear()
-  ) {
-    return `Today, ${formatTime(parsedDate)}`
-  } else if (
-    parsedDate.getDate() === yesterday.getDate() &&
-    parsedDate.getMonth() === yesterday.getMonth() &&
-    parsedDate.getFullYear() === yesterday.getFullYear()
-  ) {
-    return `Yesterday, ${formatTime(parsedDate)}`
-  } else {
-    return parsedDate.toLocaleString('en-US', {
-      year: 'numeric',
-      month: '2-digit',
-      day: '2-digit',
-      hour: '2-digit',
-      minute: '2-digit',
-      hour12: true
-    })
-  }
 }
 
 export function ChatMenuItem({
@@ -100,6 +64,9 @@ export function ChatMenuItem({
   const [isPending, startTransition] = useTransition()
   const [isMenuOpen, setIsMenuOpen] = useState(false)
   const [isAlertOpen, setIsAlertOpen] = useState(false)
+  // Row times are viewer-local, so they render only after hydration: the SSR
+  // pass runs in the container's zone (UTC) and React keeps that server text.
+  const hydrated = useHydrated()
 
   const handleDeleteChat = useCallback(() => {
     // Close overlays first so focus and pointer locks are released
@@ -155,11 +122,11 @@ export function ChatMenuItem({
           <div className="text-xs font-medium truncate select-none w-full">
             {chat.title}
           </div>
-          <div
-            className="text-xs text-muted-foreground w-full"
-            suppressHydrationWarning
-          >
-            {formatDateWithTime(displayDate ?? chat.createdAt)}
+          <div className="text-xs text-muted-foreground w-full">
+            {/* nbsp holds the line height until the local time can render */}
+            {hydrated
+              ? formatDateWithTime(displayDate ?? chat.createdAt)
+              : '\u00A0'}
           </div>
         </Link>
       </SidebarMenuButton>
