@@ -3,6 +3,7 @@ import { describe, expect, test } from 'vitest'
 import type { RecentChat } from '../recent-chats-section'
 import {
   applyOptimisticRecent,
+  countPendingNewChats,
   NEW_CHAT_PLACEHOLDER_TITLE,
   pruneReconciledOverrides,
   type RecentOverrides
@@ -183,5 +184,27 @@ describe('pruneReconciledOverrides', () => {
     }
     // Same reference back = the effect won't churn state on every refresh.
     expect(pruneReconciledOverrides(SERVER, overrides)).toBe(overrides)
+  })
+})
+
+describe('countPendingNewChats', () => {
+  test('counts only new-chat inserts the server list does not have yet', () => {
+    const overrides: RecentOverrides = {
+      fresh: { lastViewedAt: Date.now(), isNew: true },
+      // A new chat the server has since returned — already in its count.
+      a: { lastViewedAt: Date.now(), isNew: true },
+      // A plain bump of an existing chat is not a new chat.
+      old: { lastViewedAt: Date.now() },
+      // Created then deleted in-session.
+      gone: { lastViewedAt: Date.now(), isNew: true, deleted: true }
+    }
+    expect(countPendingNewChats(SERVER, overrides)).toBe(1)
+  })
+
+  test('a titled new-chat insert shows its streamed title', () => {
+    const merged = applyOptimisticRecent(SERVER, {
+      fresh: { lastViewedAt: Date.now(), isNew: true, title: 'Binary search' }
+    })
+    expect(merged[0]).toMatchObject({ id: 'fresh', title: 'Binary search' })
   })
 })
