@@ -13,6 +13,10 @@ import {
 } from '@tabler/icons-react'
 
 import { SHORTCUT_EVENTS } from '@/lib/keyboard-shortcuts'
+import {
+  isAnyStreamActive,
+  subscribeStreamActivity
+} from '@/lib/streaming/stream-activity'
 import { cn } from '@/lib/utils'
 
 import { useClientSettingEnabled } from '@/hooks/use-client-setting'
@@ -32,6 +36,7 @@ import {
 } from './sidebar/recent-chats-section'
 import {
   applyOptimisticRecent,
+  countPendingNewChats,
   pruneReconciledOverrides,
   type RecentOverrides
 } from './sidebar/recent-optimistic'
@@ -65,7 +70,12 @@ const NAV_ITEMS = [
 // WITHOUT the in-flight message → the messages/footer/progress blank (or a 404
 // on a brand-new chat) until the stream re-asserts. The optimistic reorder in
 // `onBump` already updates the sidebar instantly; the reconciling refresh runs
-// on `chat-history-updated`, which fires at the stream's onFinish (post-persist).
+// on `chat-history-updated`, which fires at the stream's onFinish (post-persist)
+// for a chat on its real /search/<id> route. A chat started from home never
+// dispatches it (its URL is a pushState fake — refreshing would re-resolve it
+// and remount the chat); it sends a final `chat-bump` carrying its streamed
+// title instead. Any refresh requested while a turn is still streaming is held
+// until it settles (lib/streaming/stream-activity.ts).
 const REFRESH_EVENTS = ['chat-history-updated', 'current-chat-deleted']
 
 export default function AppSidebar({
@@ -109,11 +119,26 @@ export default function AppSidebar({
   // fine; it's synchronous-in-effect-body that cascades.
   useEffect(() => {
     const onBump = (event: Event) => {
-      const id = (event as CustomEvent<{ chatId?: string }>).detail?.chatId
+      const detail = (
+        event as CustomEvent<{
+          chatId?: string
+          title?: string
+          isNew?: boolean
+        }>
+      ).detail
+      const id = detail?.chatId
       if (!id) return
       setOverrides(prev => ({
         ...prev,
-        [id]: { ...prev[id], lastViewedAt: Date.now(), deleted: false }
+        [id]: {
+          ...prev[id],
+          lastViewedAt: Date.now(),
+          deleted: false,
+          // A new chat's streamed title replaces the placeholder in place; the
+          // server row (once a refresh returns it) is authoritative after that.
+          ...(detail.title ? { title: detail.title } : {}),
+          ...(detail.isNew ? { isNew: true } : {})
+        }
       }))
     }
     const onDeleted = (event: Event) => {
@@ -133,11 +158,14 @@ export default function AppSidebar({
   // A brand-new chat surfaces through the SAME `chat-bump` path: chat.tsx now
   // fires a bump with the new chat id when it starts one (its id isn't in the
   // server list yet, so applyOptimisticRecent inserts it at the top with a
-  // placeholder that the next refresh reconciles to the generated-title row).
+  // placeholder; the bump at the end of its first turn carries the generated
+  // title, and the next refresh reconciles it to the server row).
   const mergedChats = useMemo(
     () => applyOptimisticRecent(recentChats, overrides),
     [recentChats, overrides]
   )
+  const displayedChatCount =
+    chatCount + countPendingNewChats(recentChats, overrides)
 
   // Live-refresh the server-rendered Recent list + count. The sidebar itself is
   // a client island, but its data comes from the server layout, so a
@@ -147,17 +175,35 @@ export default function AppSidebar({
   // lands, and outlast it when it returns stale.
   const refreshTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
   useEffect(() => {
-    const scheduleRefresh = () => {
-      // Only fires for post-stream events (chat-history-updated at onFinish,
-      // current-chat-deleted) — never mid-stream, so it can't blank an in-flight
-      // answer. See REFRESH_EVENTS above.
-      if (refreshTimer.current) clearTimeout(refreshTimer.current)
-      refreshTimer.current = setTimeout(() => router.refresh(), 400)
+    // A refresh requested while a turn is streaming is held until every stream
+    // has settled. The events themselves are post-stream for the chat that
+    // fires them, but not necessarily for the chat on screen: a previous chat's
+    // turn can finish in the background after "New chat", or another chat can
+    // be deleted from this list mid-answer. Refreshing then would refetch the
+    // current route without its in-flight message and blank it.
+    let pending = false
+    const fire = () => {
+      refreshTimer.current = null
+      if (isAnyStreamActive()) {
+        pending = true
+        return
+      }
+      pending = false
+      router.refresh()
     }
+    const scheduleRefresh = () => {
+      if (refreshTimer.current) clearTimeout(refreshTimer.current)
+      refreshTimer.current = setTimeout(fire, 400)
+    }
+    const onActivityChange = () => {
+      if (pending && !isAnyStreamActive()) scheduleRefresh()
+    }
+    const unsubscribe = subscribeStreamActivity(onActivityChange)
     REFRESH_EVENTS.forEach(event =>
       window.addEventListener(event, scheduleRefresh)
     )
     return () => {
+      unsubscribe()
       REFRESH_EVENTS.forEach(event =>
         window.removeEventListener(event, scheduleRefresh)
       )
@@ -302,7 +348,9 @@ export default function AppSidebar({
       <SidebarFooter className="gap-2 border-t border-border/40 px-2 pb-4 pt-2">
         {/* Real chat total — expanded only (hidden on the icon rail). */}
         <div className="px-2 text-xs text-muted-foreground group-data-[collapsible=icon]:hidden">
-          {chatCount === 1 ? '1 chat' : `${chatCount.toLocaleString()} chats`}
+          {displayedChatCount === 1
+            ? '1 chat'
+            : `${displayedChatCount.toLocaleString()} chats`}
         </div>
         <SidebarAccountMenu user={user} />
       </SidebarFooter>
