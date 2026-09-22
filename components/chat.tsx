@@ -4,7 +4,6 @@ import { useCallback, useEffect, useId, useMemo, useRef, useState } from 'react'
 import { useRouter } from 'next/navigation'
 
 import { useChat } from '@ai-sdk/react'
-import { DefaultChatTransport } from 'ai'
 import { toast } from 'sonner'
 
 import { deleteMessages } from '@/lib/actions/chat'
@@ -24,6 +23,10 @@ import {
   ADAPTIVE_MODE_AUTH_REQUIRED_MESSAGE,
   isAdaptiveModeAuthBlocked
 } from '@/lib/search-mode-availability'
+import {
+  ResumableChatTransport,
+  type ResumeHooks
+} from '@/lib/streaming/resumable-chat-transport'
 import { setStreamActive } from '@/lib/streaming/stream-activity'
 import { UploadedFile } from '@/lib/types'
 import type { UIMessage } from '@/lib/types/ai'
@@ -169,6 +172,43 @@ export function Chat({
     [isGuest, isCloudDeployment]
   )
 
+  // Resume bookkeeping for the transport's reconnect hooks (they're created
+  // once per Chat, so they read live values through refs).
+  const setMessagesRef = useRef<
+    (update: (messages: UIMessage[]) => UIMessage[]) => void
+  >(() => {})
+  // True while resuming a turn that was in flight when the tab was hidden:
+  // the partial on screen may be stale (finished while away) and must be
+  // replaced from the server if there's nothing live to resume.
+  const resumingInFlightRef = useRef(false)
+  const reloadPersistedRef = useRef<() => void>(() => {})
+  // Transport reconnect hooks. They run only inside the transport's async
+  // resume path (never during render), reading live values through the refs.
+  const [resumeHooks] = useState<ResumeHooks>(() => ({
+    // The resumable stream replays the WHOLE turn from its first chunk, and
+    // the SDK builds a resumed turn on top of the last assistant message — so
+    // drop our partial copy of that same message first, or every
+    // text/reasoning part shows twice.
+    onReplayStart: replayId => {
+      if (!replayId) return
+      setMessagesRef.current(current => {
+        const last = current[current.length - 1]
+        return last?.role === 'assistant' && last.id === replayId
+          ? current.slice(0, -1)
+          : current
+      })
+    },
+    // 204: nothing live. If the turn finished while we were away (or the page
+    // rendered before its answer was saved), load the saved answer.
+    onNothingToResume: () => {
+      const last = messagesRef.current[messagesRef.current.length - 1]
+      if (resumingInFlightRef.current || last?.role === 'user') {
+        reloadPersistedRef.current()
+      }
+      resumingInFlightRef.current = false
+    }
+  }))
+
   const {
     messages,
     status,
@@ -178,6 +218,7 @@ export function Chat({
     regenerate,
     addToolResult,
     resumeStream,
+    clearError,
     error
   } = useChat({
     id: chatId, // use the client-generated or provided chatId
@@ -185,50 +226,53 @@ export function Chat({
     // chat whose turn is still generating). Existing, persisted chats only —
     // new chats and guests have no server-side stream to resume.
     resume: !isGuest && Boolean(providedId),
-    transport: new DefaultChatTransport({
-      api: '/api/chat',
-      prepareSendMessagesRequest: ({ messages, trigger, messageId }) => {
-        // Simplify by passing AI SDK's default trigger values directly
-        const lastMessage = messages[messages.length - 1]
-        const messageToRegenerate =
-          trigger === 'regenerate-message'
-            ? messages.find(m => m.id === messageId)
-            : undefined
+    transport: new ResumableChatTransport<UIMessage>(
+      {
+        api: '/api/chat',
+        prepareSendMessagesRequest: ({ messages, trigger, messageId }) => {
+          // Simplify by passing AI SDK's default trigger values directly
+          const lastMessage = messages[messages.length - 1]
+          const messageToRegenerate =
+            trigger === 'regenerate-message'
+              ? messages.find(m => m.id === messageId)
+              : undefined
 
-        return {
-          body: {
-            trigger, // Use AI SDK's default trigger value directly
-            chatId: chatId,
-            messageId,
-            analyticsId: getDistinctId(),
-            systemInstructions:
-              typeof localStorage !== 'undefined'
-                ? (localStorage.getItem('systemInstructions') ?? undefined)
-                : undefined,
-            // Voice read-aloud turn: read the persisted toggle at send time
-            // (mirrors systemInstructions) and gate on the client flag so this
-            // is always false when voice is off — the server then behaves
-            // exactly as before (see app/api/chat/route.ts: body.voice === true).
-            voice:
-              process.env.NEXT_PUBLIC_VOICE_ENABLED === 'true' &&
-              typeof localStorage !== 'undefined' &&
-              localStorage.getItem('voiceMode') === 'true',
-            ...(isGuest ? { messages } : {}),
-            message:
-              trigger === 'regenerate-message' &&
-              messageToRegenerate?.role === 'user'
-                ? messageToRegenerate
-                : trigger === 'submit-message'
-                  ? lastMessage
+          return {
+            body: {
+              trigger, // Use AI SDK's default trigger value directly
+              chatId: chatId,
+              messageId,
+              analyticsId: getDistinctId(),
+              systemInstructions:
+                typeof localStorage !== 'undefined'
+                  ? (localStorage.getItem('systemInstructions') ?? undefined)
                   : undefined,
-            isNewChat:
-              trigger === 'submit-message' &&
-              messages.length === 1 &&
-              savedMessages.length === 0
+              // Voice read-aloud turn: read the persisted toggle at send time
+              // (mirrors systemInstructions) and gate on the client flag so this
+              // is always false when voice is off — the server then behaves
+              // exactly as before (see app/api/chat/route.ts: body.voice === true).
+              voice:
+                process.env.NEXT_PUBLIC_VOICE_ENABLED === 'true' &&
+                typeof localStorage !== 'undefined' &&
+                localStorage.getItem('voiceMode') === 'true',
+              ...(isGuest ? { messages } : {}),
+              message:
+                trigger === 'regenerate-message' &&
+                messageToRegenerate?.role === 'user'
+                  ? messageToRegenerate
+                  : trigger === 'submit-message'
+                    ? lastMessage
+                    : undefined,
+              isNewChat:
+                trigger === 'submit-message' &&
+                messages.length === 1 &&
+                savedMessages.length === 0
+            }
           }
         }
-      }
-    }),
+      },
+      resumeHooks
+    ),
     messages: savedMessages,
     onFinish: ({ message, messages: finishedMessages, isAbort }) => {
       // useChat routes EVERY Chat's callbacks through the latest render, so a
@@ -257,8 +301,9 @@ export function Chat({
         )
       } else if (!isAbort) {
         // Post-persist reconcile of the sidebar (titles, order, count). Skipped
-        // on Stop: the aborted turn isn't persisted, so a refresh would only
-        // re-render the route without the partial answer still on screen.
+        // on Stop: the stopped partial is saved asynchronously (after the stop
+        // request lands), so a refresh now could race it; the send-time bump
+        // already reordered the sidebar.
         window.dispatchEvent(new CustomEvent('chat-history-updated'))
       }
 
@@ -298,12 +343,58 @@ export function Chat({
     generateId
   })
 
+  const statusRef = useRef(status)
+
+  // Swap the conversation on screen for the persisted one (used when a resume
+  // finds no live stream). Retries briefly: the stream can report done a
+  // moment before onFinish has saved the answer. Applied only if the user
+  // hasn't started anything new meanwhile and the saved copy ends in an
+  // answer — otherwise what's on screen is kept.
+  const reloadPersisted = useCallback(async () => {
+    const targetChatId = chatId
+    const before = messagesRef.current
+    const beforeLastId = before[before.length - 1]?.id
+    for (let attempt = 0; attempt < 3; attempt++) {
+      if (attempt > 0) await new Promise(r => setTimeout(r, 1000))
+      try {
+        const res = await fetch(`/api/chat/${targetChatId}/messages`, {
+          cache: 'no-store'
+        })
+        if (!res.ok) return
+        const { messages: saved } = (await res.json()) as {
+          messages?: UIMessage[]
+        }
+        if (!Array.isArray(saved) || saved.length === 0) return
+        if (saved[saved.length - 1].role !== 'assistant') continue
+        const now = messagesRef.current
+        if (
+          statusRef.current === 'streaming' ||
+          statusRef.current === 'submitted' ||
+          now[now.length - 1]?.id !== beforeLastId
+        ) {
+          return
+        }
+        setMessages(saved)
+        clearError()
+        return
+      } catch {
+        return
+      }
+    }
+  }, [chatId, setMessages, clearError])
+  useEffect(() => {
+    setMessagesRef.current = setMessages
+    statusRef.current = status
+    reloadPersistedRef.current = () => void reloadPersisted()
+  }, [setMessages, status, reloadPersisted])
+
   // Resume the stream when the tab returns to the foreground. On mobile,
   // backgrounding the tab drops the connection, but the server keeps generating
   // and mirrors the SSE to Redis (resumable streams), so on return we reconnect:
-  // a still-live turn resumes streaming, and one that finished while we were away
-  // replays its buffered stream (the SDK merges by message id → catches us up to
-  // the final answer). `resume:true` above covers navigation; this covers tab
+  // a still-live turn replays from its start (ResumableChatTransport drops the
+  // stale partial first so nothing doubles), while one that finished while we
+  // were away has no stream left to resume (204) and is reloaded from the
+  // server instead. `resume:true` above covers navigation; this covers tab
   // refocus, which doesn't remount. Gated to a turn that was actually in flight
   // when we left, and to the visible Chat instance (Ask tolerates duplicate
   // mounts — mirrors the offsetParent guards elsewhere).
@@ -323,6 +414,7 @@ export function Chat({
       if (!streamInFlightRef.current) return
       if (status === 'streaming' || status === 'submitted') return
       streamInFlightRef.current = false
+      resumingInFlightRef.current = true
       void resumeStream()
     }
     document.addEventListener('visibilitychange', onVisibilityChange)
