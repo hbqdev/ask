@@ -58,11 +58,15 @@ const NAV_ITEMS = [
 // lib/actions/chat.ts:124-148). So on top of the refresh we keep a client-side
 // optimistic layer (bump / insert / delete overrides, max-merged with the
 // server prop) that reorders INSTANTLY and can't be undone by a stale refresh.
-const REFRESH_EVENTS = [
-  'chat-history-updated',
-  'current-chat-deleted',
-  'chat-bump'
-]
+// `chat-bump` is deliberately NOT a refresh trigger: it fires mid-stream (for a
+// new chat AND a follow-up) while the current turn's assistant message is not
+// yet persisted, and for a new chat its URL is a pushState'd /search/<id> that
+// doesn't exist on the server yet. A router.refresh() then re-fetches that route
+// WITHOUT the in-flight message → the messages/footer/progress blank (or a 404
+// on a brand-new chat) until the stream re-asserts. The optimistic reorder in
+// `onBump` already updates the sidebar instantly; the reconciling refresh runs
+// on `chat-history-updated`, which fires at the stream's onFinish (post-persist).
+const REFRESH_EVENTS = ['chat-history-updated', 'current-chat-deleted']
 
 export default function AppSidebar({
   user,
@@ -143,20 +147,10 @@ export default function AppSidebar({
   // lands, and outlast it when it returns stale.
   const refreshTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
   useEffect(() => {
-    const scheduleRefresh = (event: Event) => {
-      // A brand-new chat fires `chat-bump` while its URL has already been
-      // pushState'd to /search/<id> but the row is NOT persisted yet (that
-      // happens at the stream's onFinish). A router.refresh() here re-resolves
-      // that not-yet-existing route → loadChat null → notFound() → a 404 flash
-      // that only clears on the later post-persist refresh. The optimistic
-      // insert already surfaces the new chat and `chat-history-updated` (fired
-      // after persistence) brings the real row, so skip the refresh for it.
-      if (
-        event.type === 'chat-bump' &&
-        (event as CustomEvent<{ isNew?: boolean }>).detail?.isNew
-      ) {
-        return
-      }
+    const scheduleRefresh = () => {
+      // Only fires for post-stream events (chat-history-updated at onFinish,
+      // current-chat-deleted) — never mid-stream, so it can't blank an in-flight
+      // answer. See REFRESH_EVENTS above.
       if (refreshTimer.current) clearTimeout(refreshTimer.current)
       refreshTimer.current = setTimeout(() => router.refresh(), 400)
     }
