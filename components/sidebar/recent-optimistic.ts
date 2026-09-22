@@ -25,6 +25,11 @@ export type OptimisticOverride = {
   createdAt?: number
   /** Drop this chat from the list immediately (client-side delete). */
   deleted?: boolean
+  /**
+   * A chat created in this session that the server list may not include yet.
+   * Lets the footer count include it before the next refresh reconciles.
+   */
+  isNew?: boolean
 }
 
 export type RecentOverrides = Record<string, OptimisticOverride>
@@ -152,4 +157,22 @@ export function pruneReconciledOverrides(
   // Preserve referential identity when nothing changed so the caller's effect
   // doesn't churn state on every server refresh.
   return changed ? next : overrides
+}
+
+/**
+ * How many chats created in this session the server hasn't returned yet —
+ * added to the server's count so the footer total doesn't lag a new chat (a
+ * chat started from home no longer triggers a refresh when its first turn
+ * ends; see chat.tsx onFinish).
+ */
+export function countPendingNewChats(
+  server: RecentChat[],
+  overrides: RecentOverrides
+): number {
+  const serverIds = new Set(server.map(c => c.id))
+  let n = 0
+  for (const [id, ov] of Object.entries(overrides)) {
+    if (ov.isNew && !ov.deleted && !serverIds.has(id)) n++
+  }
+  return n
 }
