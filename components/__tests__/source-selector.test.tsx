@@ -18,8 +18,14 @@ function clickRow(label: string) {
   fireEvent.click(match)
 }
 
+// The trigger carries a fixed aria-label (its visible label collapses to an
+// icon on mobile), so its accessible name is "Select sources", not the label.
+function getTrigger() {
+  return screen.getByRole('button', { name: /select sources/i })
+}
+
 function openPopover() {
-  fireEvent.click(screen.getByRole('button', { name: /web|academic|social/i }))
+  fireEvent.click(getTrigger())
 }
 
 function readSourcesCookie(): string[] {
@@ -34,7 +40,7 @@ describe('SourceSelector', () => {
 
   test('defaults to Web only when no cookie is set', () => {
     render(<SourceSelector />)
-    expect(screen.getByRole('button', { name: /web/i })).toBeInTheDocument()
+    expect(getTrigger()).toHaveTextContent('Web')
   })
 
   test('opens the popover and shows all three source options', () => {

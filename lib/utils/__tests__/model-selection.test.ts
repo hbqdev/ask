@@ -199,13 +199,19 @@ describe('selectModel', () => {
 // the same deliberation as a research synthesis. This is larger than every
 // stage optimised so far combined, and it has never been A/B'd.
 describe('OLLAMA_THINK', () => {
+  beforeEach(() => {
+    delete process.env.ANSWER_THINK
+  })
+
   afterEach(() => {
     delete process.env.OLLAMA_THINK
   })
 
-  it('defaults to thinking ON, preserving current behaviour', () => {
+  // Decision D10: answering-model reasoning is OFF by default when neither
+  // ANSWER_THINK nor the legacy OLLAMA_THINK is set.
+  it('defaults to thinking OFF when neither knob is set (D10)', () => {
     delete process.env.OLLAMA_THINK
-    expect(thinkEnabledForOllama()).toBe(true)
+    expect(thinkEnabledForOllama()).toBe(false)
   })
 
   it('turns thinking off only for the exact string false', () => {
