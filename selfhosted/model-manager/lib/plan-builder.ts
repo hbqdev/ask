@@ -19,6 +19,10 @@ export function validateEdits(edits: Record<string, string>): EditViolation[] {
       violations.push({ key, error: 'Unknown configuration key' })
       continue
     }
+    if (spec.readOnly) {
+      violations.push({ key, error: 'This setting is read-only' })
+      continue
+    }
     if (spec.validate && value.trim()) {
       const err = spec.validate(value)
       if (err) violations.push({ key, error: err })
@@ -45,6 +49,7 @@ export function buildPlan(
   for (const [key, value] of Object.entries(edits)) {
     if (current[key] === value) continue
     if (!specByKey(key)) continue // never write a key we don't manage
+    if (specByKey(key)?.readOnly) continue // nor one locked read-only
     next[key] = value
     const target = specByKey(key)?.target ?? 'ask'
     if (target === 'reranker') {
