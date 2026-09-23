@@ -19,7 +19,11 @@ vi.mock('@/lib/db/file-actions')
 vi.mock('@/lib/embeddings/upload-rag')
 
 import { getCurrentUserId } from '@/lib/auth/get-current-user'
-import { createFileRecord, markFileReady } from '@/lib/db/file-actions'
+import {
+  createFileRecord,
+  markFileReady,
+  releaseFastPathToWorker
+} from '@/lib/db/file-actions'
 import { isTextFamily, processFileForRAG } from '@/lib/embeddings/upload-rag'
 
 // route.ts reads process.env.UPLOADS_DIR into a module-level const, so the
@@ -45,6 +49,7 @@ beforeEach(() => {
   vi.mocked(getCurrentUserId).mockResolvedValue('u1')
   vi.mocked(createFileRecord).mockResolvedValue({ id: 'file-1' })
   vi.mocked(markFileReady).mockResolvedValue(undefined)
+  vi.mocked(releaseFastPathToWorker).mockResolvedValue(undefined)
   vi.mocked(isTextFamily).mockImplementation(
     (mediaType: string, filename: string) =>
       mediaType.startsWith('text/') || filename.endsWith('.txt')
@@ -146,7 +151,8 @@ describe('POST /api/upload', () => {
         url: expect.stringContaining('/uploads/u1/chats/c1/'),
         mediaType: 'text/plain',
         objectKey: expect.stringMatching(/^u1\/chats\/c1\/\d+-notes\.txt$/),
-        status: 'pending',
+        // Fast-path eligible (small text): born claimed, see file-actions.
+        status: 'processing',
         type: 'file'
       }
     })
@@ -161,7 +167,7 @@ describe('POST /api/upload', () => {
         objectKey: json.file.objectKey,
         mediaType: 'text/plain',
         size: Buffer.byteLength(content),
-        status: 'pending'
+        status: 'processing'
       })
     )
     // The chat association is preserved in the object key path even though
@@ -195,6 +201,50 @@ describe('POST /api/upload', () => {
     })
   })
 
+  it('creates fast-path files already claimed so the ingestor cannot take them concurrently', async () => {
+    const req = makeRequest('a'.repeat(500), {
+      'content-type': 'text/plain',
+      'x-filename': encodeURIComponent('notes.txt'),
+      'x-chat-id': 'c1'
+    })
+    await POST(req)
+    expect(createFileRecord).toHaveBeenCalledWith(
+      expect.objectContaining({ status: 'processing' })
+    )
+    await vi.waitFor(() => expect(markFileReady).toHaveBeenCalled())
+    expect(releaseFastPathToWorker).not.toHaveBeenCalled()
+  })
+
+  it('hands a declined fast-path file back to the worker as pending', async () => {
+    vi.mocked(processFileForRAG).mockResolvedValue(false)
+    const req = makeRequest('short', {
+      'content-type': 'text/plain',
+      'x-filename': encodeURIComponent('notes.txt'),
+      'x-chat-id': 'c1'
+    })
+    await POST(req)
+    await vi.waitFor(() =>
+      expect(releaseFastPathToWorker).toHaveBeenCalledWith('file-1')
+    )
+    expect(markFileReady).not.toHaveBeenCalled()
+  })
+
+  it('hands a failed fast-path file back to the worker as pending', async () => {
+    const err = vi.spyOn(console, 'error').mockImplementation(() => {})
+    vi.mocked(processFileForRAG).mockRejectedValue(new Error('embedder down'))
+    const req = makeRequest('a'.repeat(500), {
+      'content-type': 'text/plain',
+      'x-filename': encodeURIComponent('notes.txt'),
+      'x-chat-id': 'c1'
+    })
+    await POST(req)
+    await vi.waitFor(() =>
+      expect(releaseFastPathToWorker).toHaveBeenCalledWith('file-1')
+    )
+    expect(markFileReady).not.toHaveBeenCalled()
+    err.mockRestore()
+  })
+
   it('does not run the fast path for an mp3 (and falls back to a "none" chat id when absent)', async () => {
     const req = makeRequest('id3-ish bytes', {
       'content-type': 'audio/mpeg',
@@ -207,6 +257,11 @@ describe('POST /api/upload', () => {
 
     expect(res.status).toBe(200)
     expect(json.file.objectKey).toMatch(/^u1\/chats\/none\/\d+-song\.mp3$/)
+    // Worker-path files stay 'pending' for the ingestor to claim.
+    expect(json.file.status).toBe('pending')
+    expect(createFileRecord).toHaveBeenCalledWith(
+      expect.objectContaining({ status: 'pending' })
+    )
 
     // give any fire-and-forget microtask a chance to run before asserting
     // the negative — there's no event to wait on for "never called".
