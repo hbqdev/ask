@@ -1,5 +1,9 @@
-import { recallSearch } from './recall-search'
-import type { RecallHit } from './recall-types'
+import {
+  rankRecallCandidates,
+  recallSearch,
+  retrieveRecallCandidates
+} from './recall-search'
+import type { RecallCandidates, RecallHit, RecallOptions } from './recall-types'
 
 function injectTopK(): number {
   const n = Number(process.env.RECALL_INJECT_TOP_K)
@@ -36,32 +40,74 @@ export function buildRecallBlock(hits: RecallHit[]): string {
  * cross-encoder separates the same query/passages by ~10,000x (0.169 vs
  * 0.0000164), so it is worth a network hop to make the gate real.
  *
- * Cost, measured on the live reranker, scales with the candidate
- * pool: 3 passages 489ms, 15 976ms, 30 3.4s, 60 7.6s. Both arms return up to
- * `max(topK*3, 30)` rows, so an uncapped union reranked ~60 and spent ~7.6s
- * against a 10s timeout — 2.4s from failing closed on every turn. recallSearch
- * therefore caps what it actually reranks (RECALL_RERANK_POOL, default 20).
- * (An earlier revision of this comment claimed "~150ms" — that was measured
- * with 3 passages and never described this path.) minScore
+ * Cost is linear in passages x tokens on the live reranker (Qwen3-Reranker-8B,
+ * ~160ms per 512-token passage, measured 2026-09-23). recallSearch therefore
+ * caps what it reranks: RECALL_RERANK_POOL (default 10) passages at
+ * RECALL_RERANK_MAX_LENGTH (default 384) tokens, ~1.3s — inside the turn's
+ * 1.5s RECALL_BUDGET_MS. (20 x 512 cost ~3.4s and missed the budget on
+ * nearly every turn.) minScore
  * (RECALL_INJECT_MIN_SCORE) is now a threshold on the reranker's scale.
  * Fail-closed consequence: if the reranker is unreachable, recallSearch
  * cannot honour a rerank-scale gate and returns [] — no injection for that
  * turn. The turn proceeds normally without a recall block, which is the
  * correct fail-safe (no injection beats wrong injection).
  */
-export async function getRecallInjection(
+function injectOptions(currentChatId: string | undefined): RecallOptions {
+  return {
+    topK: injectTopK(),
+    useRerank: true,
+    excludeChatId: currentChatId,
+    minScore: injectMinScore()
+  }
+}
+
+/**
+ * Speculative, GPU-free first half of the injection: embed + both DB arms for
+ * `query`, started while the classifier is still running. The rerank is NOT
+ * started here — pass the result to getRecallInjection only once the turn
+ * knows it will use this query. Measured 2026-09-23: the old speculation ran
+ * the full rerank too, and on the (common) 'refetch' turns that discarded
+ * rerank was still occupying the reranker GPU when the refetch rerank
+ * arrived, so the refetch queued behind it (solo 3.3s -> 5.0s, matching the
+ * ~5.5s prod recall_ms). Never rejects: null on no userId / disabled / error.
+ */
+export function prefetchRecallCandidates(
   userId: string | undefined,
   query: string,
   currentChatId: string | undefined
+): Promise<RecallCandidates | null> {
+  if (!userId || !query?.trim()) return Promise.resolve(null)
+  return retrieveRecallCandidates(
+    userId,
+    query,
+    injectOptions(currentChatId)
+  ).catch(error => {
+    console.warn('[recall] prefetch failed:', error)
+    return null
+  })
+}
+
+/**
+ * `prefetched` (optional): candidates from prefetchRecallCandidates for this
+ * same query and chat — only the rerank + gate run here. Omitted: the full
+ * retrieve + rerank runs.
+ */
+export async function getRecallInjection(
+  userId: string | undefined,
+  query: string,
+  currentChatId: string | undefined,
+  prefetched?: Promise<RecallCandidates | null>
 ): Promise<{ block: string; hits: RecallHit[] }> {
   if (!userId || !query?.trim()) return { block: '', hits: [] }
   try {
-    const hits = await recallSearch(userId, query, {
-      topK: injectTopK(),
-      useRerank: true,
-      excludeChatId: currentChatId,
-      minScore: injectMinScore()
-    })
+    const opts = injectOptions(currentChatId)
+    let hits: RecallHit[]
+    if (prefetched) {
+      const candidates = await prefetched
+      hits = candidates ? await rankRecallCandidates(candidates, opts) : []
+    } else {
+      hits = await recallSearch(userId, query, opts)
+    }
     return { block: buildRecallBlock(hits), hits }
   } catch (error) {
     console.warn('[recall] injection failed:', error)
