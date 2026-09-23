@@ -1,9 +1,6 @@
 import { after, NextResponse } from 'next/server'
 
 import { Redis } from '@upstash/redis'
-import http from 'http'
-import { Agent } from 'http'
-import https from 'https'
 import { JSDOM, VirtualConsole } from 'jsdom'
 import { createClient } from 'redis'
 
@@ -31,7 +28,6 @@ import { mergeTavilyIntoSearxngResults } from '@/lib/tools/search/providers/merg
 import {
   DegoogResponse,
   SearchResultItem,
-  SearXNGResponse,
   SearXNGResult,
   SearXNGSearchResults
 } from '@/lib/types'
@@ -52,14 +48,11 @@ import {
   isLangSearchConfigured,
   type LangSearchResult
 } from '@/lib/utils/langsearch-client'
+import { fetchHtml } from '@/lib/utils/legacy-fetch-html'
 import {
   fetchOllamaSearch,
   type OllamaSearchResult
 } from '@/lib/utils/ollama-search-client'
-import {
-  isParseableContentType,
-  MAX_PARSEABLE_BYTES
-} from '@/lib/utils/parseable-content'
 import { fetchSearxngJson } from '@/lib/utils/searxng-client'
 import {
   fetchTavilySearch,
@@ -68,6 +61,7 @@ import {
 import { withDeadline } from '@/lib/utils/with-deadline'
 
 import { buildReturnedRanks } from './returned-ranks'
+import { resolveSearxngContribution } from './searxng-contribution'
 
 /**
  * Maximum number of results to fetch from SearXNG.
@@ -181,6 +175,10 @@ const CACHE_TTL = 3600 // Cache time-to-live in seconds (1 hour)
 const CACHE_EXPIRATION_CHECK_INTERVAL = 3600000 // 1 hour in milliseconds
 
 let redisClient: Redis | ReturnType<typeof createClient> | null = null
+
+// Results assembled while a provider that normally contributes (SearXNG) had
+// failed. Returned to the caller, but never cached. See finish() in POST.
+const degradedResults = new WeakSet<object>()
 
 // Initialize Redis client based on environment variables
 async function initializeRedisClient() {
@@ -647,16 +645,19 @@ export async function POST(request: Request) {
 
     const finish = async (results: SearXNGSearchResults) => {
       // Never cache an empty set. advancedSearchXNGSearch swallows its failures
-      // and returns { results: [], images: [], number_of_results: 0 } — both
-      // SearXNG primary and fallback down, an invalid response shape, or any
-      // throw inside crawl/rerank all land here. Caching that persists one
+      // and returns { results: [], images: [], number_of_results: 0 } — every
+      // provider (SearXNG included) coming back empty, or any throw inside
+      // crawl/rerank, lands here. Caching that persists one
       // transient blip for the whole hour-long TTL, and getCachedResults treats
       // `{results: []}` as a hit because it only tests truthiness.
       //
       // The basic-depth cache already refuses this, with the same reasoning
       // spelled out in lib/search/basic-search-cache.ts. The advanced path
       // simply never got the guard.
-      if (results.results?.length) {
+      //
+      // Nor a DEGRADED set: when SearXNG failed the other providers still
+      // answer, but caching that would pin a SearXNG-less result for the TTL.
+      if (results.results?.length && !degradedResults.has(results)) {
         await setCachedResults(cacheKey, results)
       }
       timer.set('returned', results.results?.length ?? 0)
@@ -754,9 +755,9 @@ async function advancedSearchXNGSearch(
   searchMode?: 'speed' | 'balanced' | 'quality'
 ): Promise<SearXNGSearchResults> {
   const searchStartedAt = performance.now()
-  if (!process.env.SEARXNG_API_URL && !process.env.SEARXNG_FALLBACK_API_URL) {
-    throw new Error('SEARXNG_API_URL is not set in the environment variables')
-  }
+  // No SEARXNG_API_URL/FALLBACK is NOT fatal: fetchSearxngJson rejects, and
+  // resolveSearxngContribution below turns that into an empty SearXNG share
+  // while the other providers still answer.
 
   const SEARXNG_ENGINES =
     process.env.SEARXNG_ENGINES || SEARXNG_ENGINES_ADVANCED
@@ -804,7 +805,7 @@ async function advancedSearchXNGSearch(
 
     // degoog is a complement, never a dependency: query it alongside SearXNG
     // via Promise.allSettled so a degoog failure (or it being unconfigured)
-    // never fails the search — only a rejected SearXNG fetch does that.
+    // never fails the search. The same now holds for SearXNG itself.
     const DEGOOG_MAX = Math.min(20, maxResults * 2)
     const degoogUrl = (type: string) => (baseUrl: string) => {
       const u = new URL(`${baseUrl}/api/search`)
@@ -884,21 +885,27 @@ async function advancedSearchXNGSearch(
       ])
     )
 
-    // A rejected SearXNG fetch still throws (it is the hard dependency of the
-    // quality tier). In balanced mode SearXNG was never fired — the branch
-    // resolves null — so the search proceeds on the content-bearing APIs alone
-    // with a synthetic empty SearXNG response.
-    if (searxngSettled.status === 'rejected') throw searxngSettled.reason
-    const searxngValue = searxngSettled.value as {
-      data: unknown
-      baseUrlUsed: string
-    } | null
-    const rawData = searxngValue?.data ?? {
-      results: [],
-      query,
-      number_of_results: 0
+    // SearXNG is one provider among several. A rejected fetch (primary AND
+    // fallback down, or unconfigured) or a malformed body used to throw here,
+    // and the catch-all below then returned an EMPTY search — discarding the
+    // Tavily/Brave/LangSearch/Ollama results already gathered in this same
+    // allSettled. Now it contributes nothing and the search continues. In
+    // balanced mode SearXNG was never fired (the slot resolves null).
+    const searxng = resolveSearxngContribution(
+      searxngSettled as PromiseSettledResult<{
+        data: unknown
+        baseUrlUsed: string
+      } | null>,
+      query
+    )
+    if (includeSearxngDegoog) timer.set('searxng', searxng.status)
+    if (searxng.status === 'failed') {
+      console.warn(
+        '[searxng] advanced search failed, continuing with the other providers:',
+        searxng.error
+      )
     }
-    const apiUrl = searxngValue?.baseUrlUsed ?? ''
+    const apiUrl = searxng.apiUrl
 
     const degoogOf = (
       s: PromiseSettledResult<{ data: unknown } | null>
@@ -990,12 +997,7 @@ async function advancedSearchXNGSearch(
       ...braveResults.slice(BRAVE_CRAWL_MAX).map(r => r.url)
     ])
 
-    const data = rawData as SearXNGResponse
-
-    if (!data || !Array.isArray(data.results)) {
-      console.error('Invalid response structure from SearXNG:', data)
-      throw new Error('Invalid response structure from SearXNG')
-    }
+    const data = searxng.data
 
     // Full crawled text for conversation HISTORY, set only when excerpting
     // shrank what the model reads this turn. See rehydrate-full-content.ts.
@@ -1487,7 +1489,7 @@ async function advancedSearchXNGSearch(
       .filter((result: SearXNGResult) => result && result.img_src)
       .slice(0, maxResults)
 
-    return {
+    const out: SearXNGSearchResults = {
       results: generalResults.map(
         (result: SearXNGResult): SearchResultItem => ({
           title: result.title || '',
@@ -1531,6 +1533,8 @@ async function advancedSearchXNGSearch(
       ).slice(0, maxResults),
       number_of_results: data.number_of_results || generalResults.length
     }
+    if (searxng.status === 'failed') degradedResults.add(out)
+    return out
   } catch (error) {
     console.error('SearchXNG API error:', error)
     return {
@@ -1791,13 +1795,6 @@ function extractPublicationDate(document: Document): Date | null {
   return null
 }
 
-const httpAgent = new http.Agent({ keepAlive: true })
-const httpsAgent = new https.Agent({
-  keepAlive: true,
-  rejectUnauthorized: true // change to false if you want to ignore SSL certificate errors
-  //but use this with caution.
-})
-
 async function fetchHtmlWithTimeout(
   url: string,
   timeoutMs: number
@@ -1812,63 +1809,6 @@ async function fetchHtmlWithTimeout(
     const errorMessage = error instanceof Error ? error.message : String(error)
     return `<html><body>Error fetching content: ${errorMessage}</body></html>`
   }
-}
-
-function fetchHtml(url: string): Promise<string> {
-  return new Promise((resolve, reject) => {
-    const protocol = url.startsWith('https:') ? https : http
-    const agent = url.startsWith('https:') ? httpsAgent : httpAgent
-    const request = protocol.get(url, { agent }, res => {
-      if (
-        res.statusCode &&
-        res.statusCode >= 300 &&
-        res.statusCode < 400 &&
-        res.headers.location
-      ) {
-        // Handle redirects
-        fetchHtml(new URL(res.headers.location, url).toString())
-          .then(resolve)
-          .catch(reject)
-        return
-      }
-      // Refuse non-pages BEFORE downloading them. Without this a PDF gets
-      // pulled in full, concatenated into a JS string, and parsed as HTML by
-      // Readability + JSDOM — burning event-loop CPU to produce junk that
-      // fails isQualityContent anyway. These are precisely Crawl4AI's per-page
-      // failures (PDFs, antibot walls), i.e. the tail that reaches this path.
-      const contentType = res.headers['content-type']
-      if (!isParseableContentType(contentType)) {
-        res.destroy()
-        reject(new Error(`Unsupported content-type: ${contentType}`))
-        return
-      }
-
-      let data = ''
-      let bytes = 0
-      res.on('data', chunk => {
-        // Stop at the size cap too: content-type alone does not bound a
-        // pathologically large page, and the parse cost scales with it.
-        bytes += chunk.length
-        if (bytes > MAX_PARSEABLE_BYTES) {
-          res.destroy()
-          reject(new Error(`Response exceeded ${MAX_PARSEABLE_BYTES} bytes`))
-          return
-        }
-        data += chunk
-      })
-      res.on('end', () => resolve(data))
-    })
-    request.on('error', error => {
-      //console.error(`Error fetching ${url}:`, error)
-      reject(error)
-    })
-    request.on('timeout', () => {
-      request.destroy()
-      //reject(new Error(`Request timed out for ${url}`))
-      resolve('')
-    })
-    request.setTimeout(10000) // 10 second timeout
-  })
 }
 
 function timeout(ms: number, message: string): Promise<never> {
