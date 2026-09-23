@@ -20,7 +20,12 @@ import {
   isCrossEncoderConfigured
 } from '@/lib/utils/cross-encoder'
 
-import { recallSearch, selectRerankCandidates } from '../recall-search'
+import {
+  rankRecallCandidates,
+  recallSearch,
+  retrieveRecallCandidates,
+  selectRerankCandidates
+} from '../recall-search'
 
 const row = (over: Partial<any> = {}) => ({
   chunkId: 'k1',
@@ -139,7 +144,7 @@ describe('recallSearch', () => {
   it('sends the capped candidate set to the reranker, not the full union', async () => {
     // Pins the cost bound: both arms return up to 30 rows each, so an
     // uncapped union would rerank ~60 passages (measured 7.6s against a 10s
-    // timeout). RECALL_RERANK_POOL defaults to 20.
+    // timeout). RECALL_RERANK_POOL defaults to 10 (see rerankPoolSize).
     vi.mocked(db.vectorSearchChunks).mockResolvedValue(
       Array.from({ length: 30 }, (_, i) =>
         row({ chunkId: `v${i}`, score: 1 - i / 100 })
@@ -149,12 +154,35 @@ describe('recallSearch', () => {
       Array.from({ length: 30 }, (_, i) => row({ chunkId: `k${i}`, score: 0 }))
     )
     vi.mocked(isCrossEncoderConfigured).mockReturnValue(true)
-    vi.mocked(crossEncoderScore).mockResolvedValue(new Array(20).fill(0.5))
+    vi.mocked(crossEncoderScore).mockResolvedValue(new Array(10).fill(0.5))
 
     await recallSearch('u1', 'q', { topK: 2, useRerank: true })
 
-    const passages = vi.mocked(crossEncoderScore).mock.calls[0][1]
-    expect(passages).toHaveLength(20)
+    const [, passages, opts] = vi.mocked(crossEncoderScore).mock.calls[0]
+    expect(passages).toHaveLength(10)
+    // Rerank cost is linear in passages x tokens — the per-pair budget is
+    // part of the latency bound (RECALL_RERANK_MAX_LENGTH, default 384).
+    expect(opts).toEqual(expect.objectContaining({ maxLength: 384 }))
+  })
+
+  it('honours RECALL_RERANK_POOL / RECALL_RERANK_MAX_LENGTH overrides', async () => {
+    vi.stubEnv('RECALL_RERANK_POOL', '4')
+    vi.stubEnv('RECALL_RERANK_MAX_LENGTH', '256')
+    try {
+      vi.mocked(db.vectorSearchChunks).mockResolvedValue(
+        Array.from({ length: 30 }, (_, i) =>
+          row({ chunkId: `v${i}`, score: 1 - i / 100 })
+        )
+      )
+      vi.mocked(isCrossEncoderConfigured).mockReturnValue(true)
+      vi.mocked(crossEncoderScore).mockResolvedValue(new Array(4).fill(0.5))
+      await recallSearch('u1', 'q', { topK: 2, useRerank: true })
+      const [, passages, opts] = vi.mocked(crossEncoderScore).mock.calls[0]
+      expect(passages).toHaveLength(4)
+      expect(opts).toEqual(expect.objectContaining({ maxLength: 256 }))
+    } finally {
+      vi.unstubAllEnvs()
+    }
   })
 
   it('does not cap the non-rerank path (the cap only bounds rerank cost)', async () => {
@@ -252,5 +280,48 @@ describe('recallSearch', () => {
     await expect(
       recallSearch('u1', 'q', { topK: 5, useRerank: false })
     ).resolves.toEqual([])
+  })
+})
+
+describe('retrieveRecallCandidates / rankRecallCandidates (split stages)', () => {
+  beforeEach(() => {
+    vi.resetAllMocks()
+    vi.mocked(db.isRecallEnabled).mockResolvedValue(true)
+    vi.mocked(isCrossEncoderConfigured).mockReturnValue(true)
+  })
+
+  it('retrieval never touches the reranker (safe to run speculatively)', async () => {
+    vi.mocked(db.vectorSearchChunks).mockResolvedValue([
+      row({ chunkId: 'a', score: 0.9 }),
+      row({ chunkId: 'b', score: 0.8 })
+    ])
+    const c = await retrieveRecallCandidates('u1', 'q', { topK: 2 })
+    expect(c?.query).toBe('q')
+    expect(c?.vectorHits.map(h => h.chunkId)).toEqual(['a', 'b'])
+    expect(crossEncoderScore).not.toHaveBeenCalled()
+  })
+
+  it('returns null when recall is disabled', async () => {
+    vi.mocked(db.isRecallEnabled).mockResolvedValue(false)
+    expect(await retrieveRecallCandidates('u1', 'q', { topK: 2 })).toBeNull()
+  })
+
+  it('ranks against the query the candidates were retrieved for', async () => {
+    vi.mocked(crossEncoderScore).mockResolvedValue([0.01, 0.9])
+    const hits = await rankRecallCandidates(
+      {
+        query: 'the retrieved query',
+        vectorHits: [
+          row({ chunkId: 'a', score: 0.9 }),
+          row({ chunkId: 'b', score: 0.8 })
+        ] as any,
+        keywordHits: []
+      },
+      { topK: 2, useRerank: true, minScore: 0.05 }
+    )
+    expect(vi.mocked(crossEncoderScore).mock.calls[0][0]).toBe(
+      'the retrieved query'
+    )
+    expect(hits.map(h => h.chunkId)).toEqual(['b'])
   })
 })
