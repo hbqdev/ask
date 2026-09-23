@@ -36,15 +36,21 @@ for ip in "${HOSTS[@]}"; do
        && sudo systemctl enable ask-fleet-boot.service' \
     < ask-fleet-boot.service >/dev/null
   echo "  script + unit deployed, service enabled"
-  # MiniNightFury has no current Ask worktree (its ask-* checkouts are the
-  # retired stacks' leftovers), so its nightly Mullvad rotation for the public
-  # searxng/degoog stacks runs from a synced copy in ~/fleet-boot instead:
-  #   0 5 * * * /home/nightfury/fleet-boot/rotate-daily.sh public-searxng degoog
+  # MiniNightFury has no Ask worktree (the old ask-* checkouts there were
+  # deleted 2026-09-23), so the jobs it runs for the public searxng/degoog
+  # stacks run from a synced copy in ~/fleet-boot instead:
+  #   cron:  0 5 * * * /home/nightfury/fleet-boot/rotate-daily.sh public-searxng degoog
+  #   timer: fleet-update-public-search.timer (weekly image update + crawl4ai check)
   if [ "$ip" = 192.168.50.231 ]; then
-    tar -cf - rotate-daily.sh rotate-mullvad.sh | on "$ip" \
+    MINI_FILES=(rotate-daily.sh rotate-mullvad.sh update-public-search.sh update-images.sh
+                reclaim-space.sh check-crawl4ai-version.sh
+                fleet-update-public-search.service fleet-update-public-search.timer)
+    tar -cf - "${MINI_FILES[@]}" | on "$ip" \
       'mkdir -p /home/nightfury/fleet-boot && tar -xf - -C /home/nightfury/fleet-boot \
-         && chmod +x /home/nightfury/fleet-boot/rotate-daily.sh /home/nightfury/fleet-boot/rotate-mullvad.sh'
-    echo "  rotate-daily.sh + rotate-mullvad.sh synced to ~/fleet-boot"
+         && chmod +x /home/nightfury/fleet-boot/*.sh \
+         && sudo cp /home/nightfury/fleet-boot/fleet-update-public-search.{service,timer} /etc/systemd/system/ \
+         && sudo systemctl daemon-reload && sudo systemctl enable --now fleet-update-public-search.timer >/dev/null 2>&1'
+    echo "  rotation + weekly public-search update scripts synced to ~/fleet-boot, timer enabled"
   fi
   if [ "${1:-}" = "run" ]; then
     on "$ip" \
