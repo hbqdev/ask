@@ -27,11 +27,11 @@ Knowing what self-heals tells you what *should* have happened before you interve
 | Mechanism | Where | When | What it does |
 |---|---|---|---|
 | `restart: unless-stopped` | every container | always | Restarts crashed containers (does **not** fix a container attached to a stale/wrong network, and gives up after its backoff). |
-| `ask-fleet-boot.service` → `~/ask-fleet-boot.sh` | .17, .160, .171 (and a stale copy on .231) | once per boot (systemd oneshot) | Host-aware reconcile. On **.17**: waits for Docker, reconciles `reranker-qwen`, `ingestor`, `ask-whisper`; warms `qwen3-vl:4b`; ensures the Whisper model; after a 15 s settle runs `reconcile_app_stack` for prod/staging/lab (up → force-recreate → down/up, gated on health); `ensure_vpn_search` retries gluetun+searxng 6×10 s per stack; reconciles `model-manager`. On **.160**: reconciles `embedder`. On **.171**: warms `granite4.2:8b`. Source: `fleet-boot/ask-fleet-boot.sh`. |
+| `ask-fleet-boot.service` → `~/ask-fleet-boot.sh` | .17, .160, .171, .231 (all synced by `fleet-boot/deploy.sh`) | once per boot (systemd oneshot) | Host-aware reconcile. On **.17**: waits for Docker, reconciles `reranker-qwen`, the three ingestors (`ingestor`, `ingestor-staging`, `ingestor-lab`), `ask-whisper`; warms `qwen3-vl:4b`; ensures the Whisper model; after a 15 s settle runs `reconcile_app_stack` for prod/staging/lab (up → force-recreate → down/up, gated on health); `ensure_vpn_search` retries gluetun+searxng 6×10 s per stack; reconciles `model-manager`. On **.160**: reconciles `embedder`. On **.171**: warms `granite4.2:8b`. On **.231**: reconciles `crawl4ai` and `flaresolverr` only. Source: `fleet-boot/ask-fleet-boot.sh`. |
 | Docker healthcheck | `ask*` containers | every 30 s | `GET /api/health` (liveness only). Marks unhealthy but does **not** restart. |
 | `expire-uploads-daily.sh` | .17 cron `15 4 * * *` | daily | Upload TTL sweep on :3738/:3739/:3742. Log: `~/.local/state/fleet-boot/expire-uploads-daily.log`. |
 | `docker-maintenance.sh` | .17 cron `30 4 * * *` | daily | Dangling-image prune, 7-day build-cache prune, disk warning ≥ 85 %, btree `amcheck`. Log: `~/logs/docker-maintenance.log`. |
-| `rotate-daily.sh` | .17 cron `0 5 * * *` (and .231) | daily | Rotates each gluetun's Mullvad exit and clears Ask's per-engine health suspensions. |
+| `rotate-daily.sh` | .17 cron `0 5 * * *` (`ask-prod ask-staging ask-lab`); .231 cron `0 5 * * *` runs `~/fleet-boot/rotate-daily.sh public-searxng degoog` (a copy synced by `deploy.sh`) | daily | Rotates the named stacks' Mullvad exits and clears Ask's per-engine health suspensions. Log: `~/.local/state/fleet-boot/rotate-daily.log`. |
 | `update-ollama-fleet.sh` | .17 cron `30 3 * * 0` | weekly | Upgrades native Ollama on all four hosts and re-pins resident models. Log: `~/.local/state/fleet-boot/update-ollama.log`. |
 | `fleet-update-ask.timer` | .17 systemd | Sun 04:30 | Pulls + recreates prod/staging **sidecar** images (never the app). Log: `/home/nightfury/selfhosted/logs/update-ask.log`. |
 | `memory-watchdog.sh` | .231 cron `*/15` | every 15 min | Restarts `crawl4ai` above 80 % of its 8 GiB cgroup limit. Log: `~/logs/crawl4ai-watchdog.log` on .231. |
@@ -156,14 +156,9 @@ which reconnects the tunnel in place; `pin`/`city` verbs recreate and then resta
 dependent service for you.
 :::
 
-::: warning `rotate-mullvad.sh pin|city ask-prod` runs from the staging worktree
-The script's target table uses `ASK=/home/nightfury/selfhosted/ask` (the **staging**
-worktree) for all three Ask stacks (`fleet-boot/rotate-mullvad.sh:51,74-76`). The
-`rotate` verb only talks to gluetun's control server and is unaffected, but `pin` and
-`city` run `docker compose … -p ask-stack up -d gluetun` from that directory, i.e. with
-staging's `.env` and compose copies. Prefer `rotate`; if you must pin prod, run the
-compose command yourself from `ask-prod`.
-:::
+`pin` and `city` run `docker compose` from each stack's own worktree (`ask-prod`, `ask`,
+`ask-flow`), so each reads its own `.env` and compose files. Until 2026-09-23 all three ran
+from the staging worktree.
 
 If searches work but many engines are "suspended": Ask suspends engines by name for
 30 minutes after errors (`lib/search/engine-health.ts`). After rotating an exit IP, clear
@@ -267,6 +262,8 @@ recall.
 | `.160:8788` embedder | Recall and memory lookups empty; upload RAG embedding fails (worker path). |
 | `.17:8787` reranker | Rerank drops to bi-encoder/keyword tiers (worse source ordering). |
 | `.231:11235` crawl4ai | Slower crawling via the in-process fallback. |
+| `.231:8191` FlareSolverr | The `fetch` rescue chain skips its bot-wall tier and moves on. |
+| `.231:8127` public SearXNG | No SearXNG fallback for prod/staging if their gluetun sidecar dies. |
 | `.17:8890` / `.17:8788` TTS / STT | Read-aloud / dictation unavailable; text unaffected. |
 
 **Diagnosis** — work outward from the app:
@@ -412,26 +409,27 @@ instant-rollback image tag: [Deploy › Rollback](/operations/deploy#rollback).
 
 ## Retired stacks on .231
 
-**Symptom** — `docker ps` on MiniNightFury (`.231`) shows `ask`, `ask-admin-feature`,
-`ask-lab` and their postgres/redis/searxng/gluetun containers running, with the same
-names and ports as on .17.
+**Resolved 2026-09-23.** The pre-migration `ask-stack`, `ask-stack-admin-feature` and
+`ask-stack-lab` containers on MiniNightFury (`.231`) were stopped and removed. They had been
+recreated at .231's 2026-09-16 boot by a stale `~/ask-fleet-boot.sh`, because
+`fleet-boot/deploy.sh` never pushed to .231. It does now, and .231's `MiniNightFury` case
+reconciles only `crawl4ai` and `flaresolverr`. The legacy cron lines (`ask-expire-uploads.sh`,
+rotation of the retired gluetuns) are gone.
 
-**Diagnosis** — these are the pre-migration stacks. They were removed on 2026-08-27 but
-recreated at .231's next boot (2026-09-16) by the **stale** `~/ask-fleet-boot.sh` on
-.231, whose `MiniNightFury` case still reconciles the three app stacks. The repo
-version only reconciles `crawl4ai` there, but `fleet-boot/deploy.sh` pushes only to
-`.17`, `.160` and `.171`, so .231 never received it.
+Their **volumes were kept** (`ask-postgres-data*`, `ask-redis-data*`, `ask-uploads*`,
+`ask-model-cache*`, `ask-searxng-data*`). The three Postgres volumes are ~49 MB each and hold a
+stale copy of user data. Removing them is an owner decision:
 
 ```bash
-ssh nightfury@192.168.50.231 'journalctl -u ask-fleet-boot.service -b -o cat'
-ssh nightfury@192.168.50.231 'cat ~/ask-fleet-boot.sh' | diff - /home/nightfury/selfhosted/ask-prod/fleet-boot/ask-fleet-boot.sh
+ssh nightfury@192.168.50.231 'docker volume ls -q | grep "^ask-"'
+# only when you are sure: ... | xargs docker volume rm
 ```
 
-**Fix** (needs a decision from the maintainer — the data volumes were being held as a
-rollback net):
-1. Copy the current script to .231:
-   `ssh nightfury@192.168.50.231 'cat > ~/ask-fleet-boot.sh' < /home/nightfury/selfhosted/ask-prod/fleet-boot/ask-fleet-boot.sh`.
-2. Stop the old stacks on .231 by container name (do not `down -v`).
-3. Consider adding `192.168.50.231` to `HOSTS` in `fleet-boot/deploy.sh`.
+**If they ever reappear**, check that .231's boot script matches the repo, then re-deploy:
 
-Public traffic is unaffected: `ask.hbqnexus.win` routes to .17.
+```bash
+ssh nightfury@192.168.50.231 'cat ~/ask-fleet-boot.sh' | diff - /home/nightfury/selfhosted/ask-prod/fleet-boot/ask-fleet-boot.sh
+bash /home/nightfury/selfhosted/ask-prod/fleet-boot/deploy.sh
+```
+
+Public traffic was never affected: `ask.hbqnexus.win` routes to .17.
