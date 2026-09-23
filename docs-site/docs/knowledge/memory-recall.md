@@ -102,12 +102,16 @@ Authentication is `requireCronSecret` (`lib/auth/cron-auth.ts`): header
 if `MEMORY_CRON_SECRET` is unset the route returns 503. (An older guard failed open and let
 an unauthenticated POST trigger a full re-embed in production.)
 
-::: warning Consolidation is probably a no-op today
-- **No scheduler calls it.** Neither the NightFuryX (.17) crontab / systemd timers nor the old .231 crontab has a consolidate job. It only runs if someone POSTs to it manually.
-- **Likely RLS bug (unverified at runtime):** `consolidateAllActiveUsers` lists users with the restricted `db` client (`memory-consolidator.ts:39`) and no `app.current_user_id`. Under the `app_user` role (prod and staging), the `users_manage_own_memories` policy should return **zero rows**, so the sweep would report `users: 0`. The analogous cross-user read in `recall-backfill.ts` correctly uses `dbAdmin`. The fix is to use `dbAdmin` for the user list only.
+The user list is read with `dbAdmin` (the owner connection), because the cross-user read has
+no `app.current_user_id` and the `users_manage_own_memories` RLS policy would otherwise return
+zero rows under `app_user`. Each user's dedup and eviction still go through `withOptionalRLS`.
+This was a silent no-op (`users: 0`) until the 2026-09-23 fix; see
+[known issues](/history/known-issues#memory-consolidation-never-runs).
 
-In practice the per-turn writer already dedupes by cosine ≥ 0.9 and caps each user, so the
-missing cron costs little.
+::: warning Not scheduled
+No crontab or systemd timer on any host calls this route. It runs only when someone POSTs to it.
+See [how to schedule it](#how-to-schedule-memory-consolidation) below. The per-turn writer already
+dedupes by cosine ≥ 0.9 and caps each user, so a missing schedule costs little.
 :::
 
 ## Conversation recall
@@ -135,13 +139,15 @@ resumable, and skips already-indexed messages. It has two entry points:
 ### Retrieval core: `recallSearch`
 
 `lib/memory/recall-search.ts` is shared by auto-injection, the `recall` tool and Library
-search:
+search. It is split into two stages so the chat turn can run the cheap one speculatively:
+`retrieveRecallCandidates` (steps 1–2, no GPU reranker work) and `rankRecallCandidates`
+(steps 3–4). `recallSearch` runs both.
 
 1. Embed the query (**query** mode, so Qwen3 adds its retrieval instruction).
 2. Two arms in parallel, both scoped to the user and excluding the current chat:
    - **vector**: pgvector cosine (`<=>`) top `max(topK × 3, 30)`;
    - **keyword**: `ILIKE '%term%'` (keyword-only hits carry score 0).
-3. If reranking is requested and the cross-encoder is configured: `selectRerankCandidates` takes up to `RECALL_RERANK_POOL` (20) passages, the best vector hits plus up to 5 reserved keyword-only hits, and scores them with the reranker (`maxLength 512`, 10 s timeout). The pool is capped because rerank cost grows with passage count (measured roughly 0.5 s for 3, 1 s for 15, 3.4 s for 30, 7.6 s for 60 passages).
+3. If reranking is requested and the cross-encoder is configured: `selectRerankCandidates` takes up to `RECALL_RERANK_POOL` (**10**) passages, the best vector hits plus up to 5 reserved keyword-only hits, and scores them with the reranker at `RECALL_RERANK_MAX_LENGTH` (**384** tokens per pair, wrapper included; 10 s timeout). Both are capped because rerank cost is linear in passages × tokens. See [recall latency](#recall-latency) for the measurements behind 10 × 384.
 4. **Threshold, fail-closed.** If a `minScore` was requested on the rerank scale but the rerank did **not** run (unconfigured, fewer than 2 hits, or error), return `[]` and log `[recall] fail-closed`. Cosine scores cannot be gated reliably (relevant about 0.63 vs irrelevant about 0.57), while the reranker separates them by orders of magnitude (about 0.169 vs 0.0000164). No injection is better than wrong injection.
 
 ### Auto-injection on the critical path
@@ -150,24 +156,24 @@ search:
 sequenceDiagram
   participant S as createChatStreamResponse
   participant CL as Classifier
-  participant R as getRecallInjection
-  S->>R: speculative recall on the raw message (not in speed mode)
+  participant R as recall-inject
+  S->>R: prefetchRecallCandidates(raw message): embed + DB only (not in speed mode)
   S->>CL: classify + expand (in parallel)
   CL-->>S: skipSearch, standaloneQuery
   alt skipSearch
-    S->>S: gated: no recall wait
+    S->>S: gated: no recall wait, no rerank
   else standaloneQuery equals raw message
-    S->>S: speculative: reuse the in-flight promise
+    S->>R: speculative: rerank the prefetched candidates
   else query was rewritten
-    S->>R: refetch with standaloneQuery
+    S->>R: refetch: embed + DB + rerank with standaloneQuery
   end
   S->>S: race recall vs RECALL_BUDGET_MS (1500 ms)
   S->>S: timer wins: empty recall, recall_budget_hit=true
   S-->>S: recall block appended to system prompt, data-recall chips streamed
 ```
 
-- **Speculative start** (`create-chat-stream-response.ts` ~L310): recall starts on the raw message concurrently with the classifier, so a turn whose standalone query equals the raw text pays no serial recall wait. **Speed mode skips recall entirely.**
-- **`chooseRecall`** (`lib/streaming/helpers/choose-recall.ts`): `gated` (skipSearch turn; the answer comes from this chat), `speculative` (query unchanged), or `refetch` (the classifier rewrote the query, so recall re-runs on the resolved query).
+- **Speculative prefetch** (`create-chat-stream-response.ts` ~L300–317): `prefetchRecallCandidates` embeds the raw message and runs both DB arms while the classifier runs (~50–100 ms). The **rerank is deferred** until `chooseRecall` decides, so a discarded query never costs reranker GPU time. **Speed mode skips recall entirely.**
+- **`chooseRecall`** (`lib/streaming/helpers/choose-recall.ts`): `gated` (skipSearch turn; the answer comes from this chat; no rerank at all), `speculative` (query unchanged: rerank the prefetched candidates), or `refetch` (the classifier rewrote the query: retrieve and rerank the resolved query). Either way the critical-path wait is roughly one rerank (~1.3 s).
 - **Budget race:** `RECALL_BUDGET_MS` (default 1500) caps the wait. If the timer wins, the turn proceeds with no recall; the recall work still completes in the background. Telemetry on the `[latency]` line: `recall_ms` (true background cost, stamped when it actually resolves), `recall_wait_ms` (critical-path wait), `recall_budget_hit`.
 - **Injection thresholds** (`lib/memory/recall-inject.ts`): `RECALL_INJECT_TOP_K` (2) hits with rerank score ≥ `RECALL_INJECT_MIN_SCORE` (0.05). Hits become a `## Relevant past conversations` block (chat title, date, excerpt) plus a `data-recall` stream part the UI renders as attribution chips.
 
@@ -200,7 +206,7 @@ Symmetric comparisons (memory-vs-memory dedup) use `document` on both sides.
 
 ::: danger Changing the embedding model
 1. Do **not** change `EMBEDDING_MODEL` casually. If unset, `getConfiguredModel()` falls back to `Xenova/all-MiniLM-L6-v2` (384-d); the dimension guards then skip all memory/recall writes (logged) and every vector search breaks.
-2. The **Model Manager** UI (`selfhosted/model-manager/lib/env-schema.ts`) exposes `EMBEDDING_MODEL` as a dropdown including mxbai, nomic and MiniLM. Treat that control as dangerous: any change requires a full re-embed.
+2. The **Model Manager** UI (`selfhosted/model-manager/lib/env-schema.ts`) shows `EMBEDDING_MODEL` **read-only** (`readOnly: true`) with this warning, and its apply API rejects edits to it. Until 2026-09-23 it was a dropdown offering mxbai, nomic and MiniLM. (The flow-design copy has the change; the running Model Manager needs a rebuild once it is ported.)
 3. To migrate for real: flip `EMBEDDING_MODEL` in the environment, recreate the container, then immediately run `docker exec <ask-container> bun scripts/backfill-embeddings.ts` (dry-run) and then `… --apply` (`--model=` to override). The script re-embeds `user_memories` and `conversation_chunks` through the remote service (1024-d only; a different dimension also needs a schema migration). Upload `.chunks.json` sidecars record their own model and keep working as long as that model stays servable.
 
 **Stale comments to ignore** (they predate the Qwen3 migration and describe mxbai as the
@@ -213,6 +219,52 @@ pinned model; following them would corrupt data):
 `lib/memory/recall-index.ts:12-19` has already been corrected and states the lock accurately.
 :::
 
+### Recall latency
+
+**Measured 2026-09-23.** Before this change recall almost never made it into the answer:
+prod `recall_budget_hit=true` on 31 of 46 turns (true `recall_ms` about 5.5 s), and lab 121 of
+172 (p50 4.7 s). Stage timings on real prod history (read-only; 40 real user queries):
+
+| Stage | Cost |
+|---|---|
+| Query embed (Qwen3-Embedding-0.6B on .160) | p50 45 ms (230–270 ms when cold) |
+| Both DB arms (pgvector exact scan + ILIKE, ~1.7k rows) | about 12 ms |
+| Rerank, 20 passages × 512 tokens (old default) | **p50 3.4 s** |
+| Rerank, 10 × 384 (new default) | **p50 1.3 s** |
+
+Two causes:
+
+1. **Rerank cost.** The live reranker is Qwen3-Reranker-8B, whose cost is linear in
+   passages × tokens (about 160 ms per 512-token passage). The older timing numbers in the code
+   came from a lighter model.
+2. **Self-contention.** The old speculative recall ran the full rerank on the raw message. Most
+   turns are `refetch` (the classifier rewrites the query), so that discarded rerank was still
+   on the GPU when the refetch rerank arrived and the refetch queued behind it. Replaying this
+   pattern (second request 1.5 s after the first) took the refetch from 3.3 s alone to 5.0 s,
+   which matches prod's ~5.5 s.
+
+**Fix.** Speculation now prefetches only the embed and DB arms. The rerank runs once, after
+`chooseRecall`, on the query that will actually be used. The default pool and length went to
+10 × 384. On the same 40 queries, 10 × 384 injected on the same 14 turns as 20 × 512 (25 vs 26
+hits). It picked the identical injected set on 35 of 40 and the same top hit on 36 of 40. The
+differences swap between near-equally relevant chunks of the same thread. Truncation hurt more
+than a smaller pool: 20 × 256 matched only 31 of 40. The `RECALL_INJECT_MIN_SCORE` gate and the
+fail-closed rule are unchanged.
+
+**After (lab, browser, 5 non-gated turns):** `recall_ms` 439–1489 ms (p50 about 1.3 s), 0 budget
+hits, and a `data-recall` chip streamed on a turn that asked about an earlier chat.
+
+**No vector index change was needed.** The planner uses an exact sequential scan plus top-N
+sort (about 12 ms on prod), which beats the HNSW index at this size. It also avoids HNSW's
+filtered-search recall loss for small users.
+
+::: warning Thin margin
+A rerank of about 1.3 s plus a refetch embed sits just under the 1.5 s budget (worst lab turn
+1489 ms). A concurrent web-search rerank from another turn shares the same GPU and can push
+single turns over. If `recall_budget_hit` creeps back, set `RECALL_RERANK_POOL=8` (about 1.0 s;
+on the eval it kept the same top hit on 37 of 40, with 23 vs 26 hits) before touching the budget.
+:::
+
 ## Reranker service
 
 The cross-encoder used by recall, upload/URL RAG and web search is a separate FastAPI
@@ -220,7 +272,7 @@ service in `/home/nightfury/selfhosted/reranker-qwen/` (container `reranker-qwen
 **NightFuryX (.17) `:8787`**, RTX 2080 Ti (shared with `ask-whisper`).
 
 - Model: `RERANKER_MODEL`, **`Qwen/Qwen3-Reranker-8B` live** (code default `Qwen3-Reranker-4B`). It is a causal-LM reranker (score = P("yes") vs P("no") for the next token), fp16, batch `RERANK_BATCH_SIZE` 32.
-- Contract: `POST /rerank {query, passages, max_length?}` → `{scores: [0..1]}`; `max_length` defaults to **128** tokens, which is why the RAG and recall callers pass 512. `GET /health` → `{status, model, ready}`.
+- Contract: `POST /rerank {query, passages, max_length?}` → `{scores: [0..1]}`; `max_length` defaults to **128** tokens, which is why upload RAG passes 512 and recall passes `RECALL_RERANK_MAX_LENGTH` (384). `GET /health` → `{status, model, ready}`.
 - Auth: bearer `RERANKER_API_TOKEN` (constant-time compare, fails closed). Ask considers it configured only when both `RERANKER_URL` and `RERANKER_API_TOKEN` are set (`lib/utils/cross-encoder.ts`).
 - Reconciled at boot by `fleet-boot/ask-fleet-boot.sh`. The compose file header still mentions the pre-migration IP `.169`; the live address is `192.168.50.17:8787`.
 
@@ -244,7 +296,8 @@ re-measure these gates after swapping `RERANKER_MODEL`.
 | `RECALL_ENABLED` | on | `off` disables indexing, injection and the tool |
 | `RECALL_CHUNK_TOKENS` / `RECALL_CHUNK_OVERLAP` | 512 / 128 | Recall chunking |
 | `RECALL_BUDGET_MS` | 1500 | Critical-path timebox for auto-injection |
-| `RECALL_RERANK_POOL` | 20 | Passages sent to the reranker per recall |
+| `RECALL_RERANK_POOL` | 10 | Passages sent to the reranker per recall (was 20 until 2026-09-23) |
+| `RECALL_RERANK_MAX_LENGTH` | 384 | Per-pair reranker token budget for recall (was a hardcoded 512) |
 | `RECALL_INJECT_TOP_K` / `RECALL_INJECT_MIN_SCORE` | 2 / 0.05 | Auto-injection count and rerank-scale floor |
 | `RECALL_TOOL_TOP_K` | 5 | Hits returned by the `recall` tool |
 | `RECALL_SEARCH_MIN_SCORE` | 0.01 | Library search semantic gate |
@@ -259,3 +312,28 @@ re-measure these gates after swapping `RERANKER_MODEL`.
 **Check recall health.** On the `[latency]` line, look at `recall_ms` vs `recall_wait_ms` and `recall_budget_hit`. `[recall] fail-closed` warnings mean the reranker is unreachable. `[recall] search failed` means an embedder or DB error. Settings → Memory shows the per-user indexed/unindexed counts.
 
 **Turn memory or recall off for everyone.** Set `MEMORY_ENABLED=off` / `RECALL_ENABLED=off` in the environment and recreate the `ask` container (runtime env, no rebuild needed).
+
+### How to schedule memory consolidation
+
+The route is `POST /api/memory/consolidate`, authenticated by the secret **`MEMORY_CRON_SECRET`**
+(same one as `/api/memory/recall-backfill`). It returns `{ "users": N, "merged": M }`; a `users`
+count of 0 on an env that has memories means something is wrong. Run it from the host that
+serves the env (NightFuryX, .17), reading the secret from the running container so it never
+appears on screen or in the crontab:
+
+```bash
+# prod (:3738). For staging use container ask-admin-feature / port 3739, lab ask-lab / 3742.
+curl -sS -X POST http://localhost:3738/api/memory/consolidate \
+  -H "Authorization: Bearer $(docker exec ask printenv MEMORY_CRON_SECRET)"
+```
+
+A weekly crontab line (Sunday 04:30, after the Ollama auto-update window) would be:
+
+```text
+30 4 * * 0  curl -sS -X POST http://localhost:3738/api/memory/consolidate -H "Authorization: Bearer $(docker exec ask printenv MEMORY_CRON_SECRET)" >> $HOME/ask-memory-consolidate.log 2>&1
+```
+
+Schedule an env only once it runs the `dbAdmin` fix above; before that the sweep returns
+`users: 0` and does nothing. Check the container names with `docker ps` first. A 503 means `MEMORY_CRON_SECRET` is unset in
+that env; a 401 means the value you sent does not match. Not installed yet: adding the cron entry is
+an operator decision.

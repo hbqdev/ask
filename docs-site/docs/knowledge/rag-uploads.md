@@ -61,13 +61,14 @@ flowchart TD
   U[Browser: POST /api/upload] --> A{allowlist + size}
   A -- reject --> X[400]
   A -- ok --> D[stream bytes to UPLOADS_DIR/objectKey]
-  D --> R[(files row status=pending)]
-  R --> F{text-family AND at most 20 MB?}
-  F -- yes --> FP[fast path in-app: pdftotext or read, split 512/128 tokens, embed]
+  D --> F{text-family AND at most 20 MB?}
+  F -- yes --> RP[(files row status=processing, stage fast-path)]
+  RP --> FP[fast path in-app: pdftotext or read, split 512/128 tokens, embed]
   FP -->|more than 200 chars| S[write objectKey.chunks.json]
   S --> RDY[(status=ready)]
-  FP -->|200 chars or less, or no text layer| P2[row stays pending]
-  F -- no --> P2
+  FP -->|200 chars or less, no text layer, or error| P2[(released to status=pending)]
+  F -- no --> P1[(files row status=pending)]
+  P1 --> W
   P2 --> W[ingestor worker claims job]
   W --> RDY2[(status=ready via /api/ingest/complete)]
 ```
@@ -80,18 +81,23 @@ flowchart TD
 - Text of **200 characters or fewer** is treated as "not meaningful" and the function returns `false`.
 - Otherwise: `splitText(text, 512, 128)` (512-token chunks, 128 overlap, js-tiktoken cl100k), embed with `EMBEDDING_MODEL`, write the sidecar, mark `ready`.
 
-If the fast path returns `false` (tiny file, or a scanned PDF with no text layer) the row
-simply **stays `pending`** — and because the worker claims *any* pending row, the worker
-becomes the fallback (for a scanned PDF it will rasterise and OCR with the VLM). This is an
-implicit fallback, not an explicit hand-off.
+A fast-path file's row is **created already claimed**: `status='processing'`,
+`claimed_at=now()`, `ingest_stage='fast-path'` (`FAST_PATH_STAGE` in
+`lib/db/file-actions.ts`). `claimNextIngestJob` takes `pending` rows, and `processing` rows only
+once their claim is 30 minutes stale, so the worker cannot pick up a file the app is still
+indexing. The upload response reports `status: 'processing'` for these files.
 
-::: info Observation (not verified in production)
-Because `claimNextIngestJob` selects every `pending` row, a worker that wakes up while a
-fast-path job is still embedding can claim the same file and re-process it. The result is
-duplicate work and the worker's sidecar (1,800-character chunks) overwriting the fast
-path's (512-token chunks). It is harmless for correctness but worth knowing if chunk shapes
-look inconsistent.
-:::
+- **Success:** `markFileReady` sets `ready` and clears the stage and claim.
+- **Declined** (`false`: tiny file, or a scanned PDF with no text layer) **or failed** (an
+  exception, e.g. the embedder is down): `releaseFastPathToWorker` returns the row to
+  `pending`. The worker then takes it as before (for a scanned PDF it rasterises and OCRs with
+  the VLM). The release only matches rows still at the `fast-path` stage, so it can never undo
+  a worker's claim.
+- **App dies mid-index:** the claim goes stale after 30 minutes and the worker reclaims it.
+
+Before 2026-09-23 fast-path rows were created `pending`, so a worker poll landing during the
+embed could re-process the same file and overwrite the fast path's 512-token sidecar with its
+own 1,800-character chunks.
 
 ### Worker path (external ingestor)
 
@@ -356,7 +362,7 @@ for that window.
 
 ## 10. TTL sweep
 
-`expireIdleUploads()` (`lib/db/file-actions.ts:246`) is **disabled unless `UPLOAD_TTL_DAYS`
+`expireIdleUploads()` (`lib/db/file-actions.ts:286`) is **disabled unless `UPLOAD_TTL_DAYS`
 is a positive number** (all three environments set `14`). It:
 
 - selects files whose chat has been idle past the TTL. Activity is `GREATEST(chat.last_viewed_at, chat.created_at, last message)`, falling back to the file's own `created_at` when the chat is gone or `none`;
@@ -375,10 +381,11 @@ The script reads `INGEST_API_TOKEN` from `ingestor/.env` and POSTs to
 `~/.local/state/fleet-boot/expire-uploads-daily.log`. The maintenance route reuses the ingest
 token gate.
 
-::: info Minor inconsistency
-The expiry note shown to the model reads `UPLOAD_TTL_DAYS ?? 14` for its wording, while the
-sweep itself treats unset as disabled. They only disagree if the variable is unset.
-:::
+`UPLOAD_TTL_DAYS` is parsed in one place, `uploadTtlDays()` in `lib/config/upload-ttl.ts`:
+**unset, 0, negative or non-numeric = disabled**. The sweep and the expiry note shown to the
+model both use it. (Until 2026-09-23 the note read `?? 14` while the sweep read `?? 0`.) With the
+TTL disabled, the note for an already-expired row names no duration. Model Manager's placeholder
+for the key is `0` to match.
 
 ## Knob reference
 
@@ -394,7 +401,7 @@ sweep itself treats unset as disabled. They only disagree if the variable is uns
 | `RAG_MIN_SCORE` | env | 0.01 | `upload-rag.ts` |
 | `MAX_INJECTED_DOC_SOURCES` | constant | 8 | `create-chat-stream-response.ts` |
 | `DOC_INJECT_MAX_TOKENS` | env | unset (derive) | `create-chat-stream-response.ts` |
-| `UPLOAD_TTL_DAYS` | env | 0 (disabled); all envs set 14 | `file-actions.ts` |
+| `UPLOAD_TTL_DAYS` | env | 0 (disabled); all envs set 14 | `lib/config/upload-ttl.ts` (sweep + expiry note) |
 | `UPLOADS_URL_SECRET` / `UPLOADS_REQUIRE_SIGNATURE` / `UPLOADS_URL_TTL_S` | env | unset / false / 3600 | `upload-url-signing.ts` |
 | `EMBEDDING_MODEL` | env | must be `Qwen/Qwen3-Embedding-0.6B` | see [memory & recall](/knowledge/memory-recall#embeddings) |
 

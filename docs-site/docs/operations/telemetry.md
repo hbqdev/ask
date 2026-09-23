@@ -259,6 +259,8 @@ Observations from that sample worth watching:
 - **`recall_budget_hit` was `true` on 31 of 46 turns**, with a real `recall_ms`
   of ~5.5s. The 1500ms cap protects latency as intended, but on most turns
   the past-conversation context was dropped. See [Memory & recall](/knowledge/memory-recall).
+  Fixed on lab 2026-09-23 (recall about 1.3 s, see
+  [recall latency](/knowledge/memory-recall#recall-latency)).
 - **10 of 46 turns had `citations_unresolved > 0`**, i.e. invented anchors. One
   had 16 of 44, and another had 8 of 8. The invented anchors came from several
   models.
