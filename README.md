@@ -1,4 +1,10 @@
+> **Architecture & handover docs:** a full, interactive, code-verified guide to this codebase
+> lives in [`docs-site/`](docs-site/README.md). Run it with `cd docs-site && bun install && bun run docs:dev`
+> (or `docker compose -p ask-docs -f docs-site/docker-compose.yaml up -d --build` → port 3750).
+> Start there — it supersedes the upstream notes below where they disagree.
+
 <div align="center">
+
 
 # Ask
 
