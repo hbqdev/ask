@@ -16,6 +16,12 @@
 #
 # Installed as: 0 5 * * *  (see `crontab -l`). 5am avoids the 4:15 upload sweep
 # and the 4:30 docker-maintenance run already in the crontab.
+#
+# Usage: rotate-daily.sh [stack ...]   (default: all)
+# Each host rotates only the gluetun stacks it actually runs, so `all` would
+# log the other host's stacks as "not running" and exit 1 every night:
+#   NightFuryX (.17):     rotate-daily.sh ask-prod ask-staging ask-lab
+#   MiniNightFury (.231): rotate-daily.sh public-searxng degoog
 
 set -uo pipefail
 
@@ -43,10 +49,16 @@ if ! flock -n 9; then
   exit 0
 fi
 
+STACKS=("$@")
+((${#STACKS[@]})) || STACKS=(all)
+
 {
-  echo "===== $(date -Is) rotate all ====="
-  "$ROTATE" rotate all --clear-health
-  echo "--- exit status: $? ---"
+  rc=0
+  for s in "${STACKS[@]}"; do
+    echo "===== $(date -Is) rotate $s ====="
+    "$ROTATE" rotate "$s" --clear-health || rc=$?
+  done
+  echo "--- exit status: $rc ---"
 } >>"$LOG" 2>&1
 
 # Bound the log so an unattended job can never fill the disk.

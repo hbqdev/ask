@@ -53,11 +53,22 @@ for i in $(seq 1 72); do
   fi
   sleep 5
 done
-printf '   final :%s -> %s\n' "$PORT" \
-  "$(curl -s -o /dev/null -w '%{http_code}' --max-time 8 "http://localhost:$PORT/" 2>/dev/null)"
+final=$(curl -s -o /dev/null -w '%{http_code}' --max-time 8 "http://localhost:$PORT/" 2>/dev/null)
+printf '   final :%s -> %s\n' "$PORT" "$final"
 
-# Always reclaim after a successful rebuild. reclaim-space.sh prunes dangling
-# images + unused build cache only — never -a, never containers/volumes.
+# A rebuild whose app never serves 200 is a FAILED deploy: exit non-zero so a
+# caller (or a human skimming the tail) cannot mistake it for success. Skip the
+# reclaim too: the previous image is now dangling, and pruning it would throw
+# away the fastest rollback (`docker images --filter dangling=true`, retag,
+# `up -d`).
+if [ "$final" != "200" ]; then
+  echo "!! :$PORT never returned 200 (final=$final) — NOT reclaiming; check: docker logs --tail 80 \$(docker ps -qf label=com.docker.compose.project=$PROJ -f label=com.docker.compose.service=ask)"
+  echo "== FAILED =="
+  exit 1
+fi
+
+# Reclaim after a healthy rebuild. reclaim-space.sh prunes dangling images +
+# unused build cache only — never -a, never containers/volumes.
 echo "-- reclaiming space --"
 bash "$HERE/reclaim-space.sh" 2>&1 | tail -8
 echo "== done =="

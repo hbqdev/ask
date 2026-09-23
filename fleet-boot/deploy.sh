@@ -9,8 +9,10 @@
 set -euo pipefail
 cd "$(dirname "$0")"
 
-# NightFuryX, NightFuryS, Serenity
-HOSTS=(192.168.50.17 192.168.50.160 192.168.50.171)
+# NightFuryX, NightFuryS, Serenity, MiniNightFury. .231 must stay in this
+# list: it was missing, so its copy went stale and resurrected the retired
+# Ask stacks at the 2026-09-16 boot.
+HOSTS=(192.168.50.17 192.168.50.160 192.168.50.171 192.168.50.231)
 
 for ip in "${HOSTS[@]}"; do
   echo "=== $ip ==="
