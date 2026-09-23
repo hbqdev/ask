@@ -1,0 +1,1676 @@
+{
+  "source": "lib/db/schema.ts",
+  "migrationsDir": "drizzle/",
+  "migrations": [
+    "0000_black_lifeguard.sql",
+    "0001_thin_supreme_intelligence.sql",
+    "0002_material_crystal.sql",
+    "0003_heavy_whirlwind.sql",
+    "0004_natural_wallow.sql",
+    "0005_awesome_riptide.sql",
+    "0006_brainy_wrecking_crew.sql",
+    "0007_illegal_mephistopheles.sql",
+    "0008_glamorous_riptide.sql",
+    "0009_thankful_may_parker.sql",
+    "0010_lonely_kang.sql",
+    "0011_feedback_anonymization.sql",
+    "0012_knowledge_library_notes.sql",
+    "0013_library_files.sql",
+    "0014_private_file_object_keys.sql",
+    "0015_chat_last_viewed.sql",
+    "0016_pgvector_user_memories.sql",
+    "0017_conversation_chunks.sql",
+    "0018_files_ingest_status.sql",
+    "0019_wrap_legacy_rls_current_setting.sql",
+    "0020_preferred_chat_model.sql",
+    "0021_pg_trgm_search_indexes.sql"
+  ],
+  "count": 9,
+  "tables": [
+    {
+      "name": "chats",
+      "exportName": "chats",
+      "schema": "public",
+      "rlsEnabled": true,
+      "columns": [
+        {
+          "name": "id",
+          "type": "varchar(191)",
+          "notNull": true,
+          "primaryKey": true,
+          "unique": false,
+          "default": "(generated in app)",
+          "enumValues": null
+        },
+        {
+          "name": "created_at",
+          "type": "timestamp",
+          "notNull": true,
+          "primaryKey": false,
+          "unique": false,
+          "default": "now()",
+          "enumValues": null
+        },
+        {
+          "name": "title",
+          "type": "text",
+          "notNull": true,
+          "primaryKey": false,
+          "unique": false,
+          "default": null,
+          "enumValues": null
+        },
+        {
+          "name": "user_id",
+          "type": "varchar(255)",
+          "notNull": true,
+          "primaryKey": false,
+          "unique": false,
+          "default": null,
+          "enumValues": null
+        },
+        {
+          "name": "visibility",
+          "type": "varchar(256)",
+          "notNull": true,
+          "primaryKey": false,
+          "unique": false,
+          "default": "private",
+          "enumValues": [
+            "public",
+            "private"
+          ]
+        },
+        {
+          "name": "last_viewed_at",
+          "type": "timestamp",
+          "notNull": false,
+          "primaryKey": false,
+          "unique": false,
+          "default": null,
+          "enumValues": null
+        }
+      ],
+      "indexes": [
+        {
+          "name": "chats_user_id_idx",
+          "columns": [
+            "user_id"
+          ],
+          "unique": false,
+          "method": "btree",
+          "where": null
+        },
+        {
+          "name": "chats_user_id_created_at_idx",
+          "columns": [
+            "user_id",
+            "created_at"
+          ],
+          "unique": false,
+          "method": "btree",
+          "where": null
+        },
+        {
+          "name": "chats_user_id_last_viewed_at_idx",
+          "columns": [
+            "user_id",
+            "last_viewed_at"
+          ],
+          "unique": false,
+          "method": "btree",
+          "where": null
+        },
+        {
+          "name": "chats_created_at_idx",
+          "columns": [
+            "created_at"
+          ],
+          "unique": false,
+          "method": "btree",
+          "where": null
+        },
+        {
+          "name": "chats_id_user_id_idx",
+          "columns": [
+            "id",
+            "user_id"
+          ],
+          "unique": false,
+          "method": "btree",
+          "where": null
+        },
+        {
+          "name": "chats_title_trgm_idx",
+          "columns": [
+            "title"
+          ],
+          "unique": false,
+          "method": "gin",
+          "where": null
+        }
+      ],
+      "foreignKeys": [],
+      "checks": [],
+      "primaryKeys": [],
+      "policies": [
+        {
+          "name": "users_manage_own_chats",
+          "as": "permissive",
+          "for": "all",
+          "to": [
+            "public"
+          ],
+          "using": "user_id = (select current_setting('app.current_user_id', true))",
+          "withCheck": "user_id = (select current_setting('app.current_user_id', true))"
+        },
+        {
+          "name": "public_chats_readable",
+          "as": "permissive",
+          "for": "select",
+          "to": [
+            "public"
+          ],
+          "using": "visibility = 'public'",
+          "withCheck": null
+        }
+      ]
+    },
+    {
+      "name": "conversation_chunks",
+      "exportName": "conversationChunks",
+      "schema": "public",
+      "rlsEnabled": true,
+      "columns": [
+        {
+          "name": "id",
+          "type": "varchar(191)",
+          "notNull": true,
+          "primaryKey": true,
+          "unique": false,
+          "default": "(generated in app)",
+          "enumValues": null
+        },
+        {
+          "name": "user_id",
+          "type": "varchar(255)",
+          "notNull": true,
+          "primaryKey": false,
+          "unique": false,
+          "default": null,
+          "enumValues": null
+        },
+        {
+          "name": "chat_id",
+          "type": "varchar(191)",
+          "notNull": true,
+          "primaryKey": false,
+          "unique": false,
+          "default": null,
+          "enumValues": null
+        },
+        {
+          "name": "message_id",
+          "type": "varchar(191)",
+          "notNull": true,
+          "primaryKey": false,
+          "unique": false,
+          "default": null,
+          "enumValues": null
+        },
+        {
+          "name": "role",
+          "type": "varchar(256)",
+          "notNull": true,
+          "primaryKey": false,
+          "unique": false,
+          "default": null,
+          "enumValues": [
+            "user",
+            "assistant"
+          ]
+        },
+        {
+          "name": "content",
+          "type": "text",
+          "notNull": true,
+          "primaryKey": false,
+          "unique": false,
+          "default": null,
+          "enumValues": null
+        },
+        {
+          "name": "chunk_index",
+          "type": "integer",
+          "notNull": true,
+          "primaryKey": false,
+          "unique": false,
+          "default": null,
+          "enumValues": null
+        },
+        {
+          "name": "embedding",
+          "type": "vector(1024)",
+          "notNull": true,
+          "primaryKey": false,
+          "unique": false,
+          "default": null,
+          "enumValues": null
+        },
+        {
+          "name": "created_at",
+          "type": "timestamp",
+          "notNull": true,
+          "primaryKey": false,
+          "unique": false,
+          "default": "now()",
+          "enumValues": null
+        }
+      ],
+      "indexes": [
+        {
+          "name": "conversation_chunks_user_id_idx",
+          "columns": [
+            "user_id"
+          ],
+          "unique": false,
+          "method": "btree",
+          "where": null
+        },
+        {
+          "name": "conversation_chunks_chat_id_idx",
+          "columns": [
+            "chat_id"
+          ],
+          "unique": false,
+          "method": "btree",
+          "where": null
+        },
+        {
+          "name": "conversation_chunks_message_id_idx",
+          "columns": [
+            "message_id"
+          ],
+          "unique": false,
+          "method": "btree",
+          "where": null
+        },
+        {
+          "name": "conversation_chunks_embedding_idx",
+          "columns": [
+            "embedding"
+          ],
+          "unique": false,
+          "method": "hnsw",
+          "where": null
+        }
+      ],
+      "foreignKeys": [
+        {
+          "name": "conversation_chunks_chat_id_chats_id_fk",
+          "columns": [
+            "chat_id"
+          ],
+          "foreignTable": "chats",
+          "foreignColumns": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        },
+        {
+          "name": "conversation_chunks_message_id_messages_id_fk",
+          "columns": [
+            "message_id"
+          ],
+          "foreignTable": "messages",
+          "foreignColumns": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        }
+      ],
+      "checks": [],
+      "primaryKeys": [],
+      "policies": [
+        {
+          "name": "users_manage_own_conversation_chunks",
+          "as": "permissive",
+          "for": "all",
+          "to": [
+            "public"
+          ],
+          "using": "user_id = (select current_setting('app.current_user_id', true))",
+          "withCheck": "user_id = (select current_setting('app.current_user_id', true))"
+        }
+      ]
+    },
+    {
+      "name": "feedback",
+      "exportName": "feedback",
+      "schema": "public",
+      "rlsEnabled": true,
+      "columns": [
+        {
+          "name": "id",
+          "type": "varchar(191)",
+          "notNull": true,
+          "primaryKey": true,
+          "unique": false,
+          "default": "(generated in app)",
+          "enumValues": null
+        },
+        {
+          "name": "user_id",
+          "type": "varchar(255)",
+          "notNull": false,
+          "primaryKey": false,
+          "unique": false,
+          "default": null,
+          "enumValues": null
+        },
+        {
+          "name": "sentiment",
+          "type": "varchar(256)",
+          "notNull": true,
+          "primaryKey": false,
+          "unique": false,
+          "default": null,
+          "enumValues": [
+            "positive",
+            "neutral",
+            "negative"
+          ]
+        },
+        {
+          "name": "message",
+          "type": "text",
+          "notNull": true,
+          "primaryKey": false,
+          "unique": false,
+          "default": null,
+          "enumValues": null
+        },
+        {
+          "name": "page_url",
+          "type": "text",
+          "notNull": true,
+          "primaryKey": false,
+          "unique": false,
+          "default": null,
+          "enumValues": null
+        },
+        {
+          "name": "user_agent",
+          "type": "text",
+          "notNull": false,
+          "primaryKey": false,
+          "unique": false,
+          "default": null,
+          "enumValues": null
+        },
+        {
+          "name": "created_at",
+          "type": "timestamp",
+          "notNull": true,
+          "primaryKey": false,
+          "unique": false,
+          "default": "now()",
+          "enumValues": null
+        }
+      ],
+      "indexes": [
+        {
+          "name": "feedback_user_id_idx",
+          "columns": [
+            "user_id"
+          ],
+          "unique": false,
+          "method": "btree",
+          "where": null
+        },
+        {
+          "name": "feedback_created_at_idx",
+          "columns": [
+            "created_at"
+          ],
+          "unique": false,
+          "method": "btree",
+          "where": null
+        }
+      ],
+      "foreignKeys": [],
+      "checks": [],
+      "primaryKeys": [],
+      "policies": [
+        {
+          "name": "feedback_select_policy",
+          "as": "permissive",
+          "for": "select",
+          "to": [
+            "public"
+          ],
+          "using": "true",
+          "withCheck": null
+        },
+        {
+          "name": "anyone_can_insert_feedback",
+          "as": "permissive",
+          "for": "insert",
+          "to": [
+            "public"
+          ],
+          "using": null,
+          "withCheck": "true"
+        },
+        {
+          "name": "users_anonymize_own_feedback",
+          "as": "permissive",
+          "for": "update",
+          "to": [
+            "public"
+          ],
+          "using": "user_id = (select current_setting('app.current_user_id', true))",
+          "withCheck": "user_id IS NULL"
+        }
+      ]
+    },
+    {
+      "name": "files",
+      "exportName": "libraryFiles",
+      "schema": "public",
+      "rlsEnabled": true,
+      "columns": [
+        {
+          "name": "id",
+          "type": "varchar(191)",
+          "notNull": true,
+          "primaryKey": true,
+          "unique": false,
+          "default": "(generated in app)",
+          "enumValues": null
+        },
+        {
+          "name": "user_id",
+          "type": "varchar(255)",
+          "notNull": true,
+          "primaryKey": false,
+          "unique": false,
+          "default": null,
+          "enumValues": null
+        },
+        {
+          "name": "chat_id",
+          "type": "varchar(191)",
+          "notNull": false,
+          "primaryKey": false,
+          "unique": false,
+          "default": null,
+          "enumValues": null
+        },
+        {
+          "name": "filename",
+          "type": "text",
+          "notNull": true,
+          "primaryKey": false,
+          "unique": false,
+          "default": null,
+          "enumValues": null
+        },
+        {
+          "name": "url",
+          "type": "text",
+          "notNull": true,
+          "primaryKey": false,
+          "unique": false,
+          "default": null,
+          "enumValues": null
+        },
+        {
+          "name": "object_key",
+          "type": "text",
+          "notNull": false,
+          "primaryKey": false,
+          "unique": false,
+          "default": null,
+          "enumValues": null
+        },
+        {
+          "name": "media_type",
+          "type": "varchar(256)",
+          "notNull": true,
+          "primaryKey": false,
+          "unique": false,
+          "default": null,
+          "enumValues": null
+        },
+        {
+          "name": "size",
+          "type": "integer",
+          "notNull": false,
+          "primaryKey": false,
+          "unique": false,
+          "default": null,
+          "enumValues": null
+        },
+        {
+          "name": "status",
+          "type": "varchar(256)",
+          "notNull": true,
+          "primaryKey": false,
+          "unique": false,
+          "default": "pending",
+          "enumValues": [
+            "pending",
+            "processing",
+            "ready",
+            "failed",
+            "expired"
+          ]
+        },
+        {
+          "name": "ingest_stage",
+          "type": "varchar(256)",
+          "notNull": false,
+          "primaryKey": false,
+          "unique": false,
+          "default": null,
+          "enumValues": null
+        },
+        {
+          "name": "attempts",
+          "type": "integer",
+          "notNull": true,
+          "primaryKey": false,
+          "unique": false,
+          "default": "0",
+          "enumValues": null
+        },
+        {
+          "name": "claimed_at",
+          "type": "timestamp",
+          "notNull": false,
+          "primaryKey": false,
+          "unique": false,
+          "default": null,
+          "enumValues": null
+        },
+        {
+          "name": "ingest_error",
+          "type": "text",
+          "notNull": false,
+          "primaryKey": false,
+          "unique": false,
+          "default": null,
+          "enumValues": null
+        },
+        {
+          "name": "ingested_at",
+          "type": "timestamp",
+          "notNull": false,
+          "primaryKey": false,
+          "unique": false,
+          "default": null,
+          "enumValues": null
+        },
+        {
+          "name": "created_at",
+          "type": "timestamp",
+          "notNull": true,
+          "primaryKey": false,
+          "unique": false,
+          "default": "now()",
+          "enumValues": null
+        },
+        {
+          "name": "updated_at",
+          "type": "timestamp",
+          "notNull": true,
+          "primaryKey": false,
+          "unique": false,
+          "default": "now()",
+          "enumValues": null
+        }
+      ],
+      "indexes": [
+        {
+          "name": "files_user_id_idx",
+          "columns": [
+            "user_id"
+          ],
+          "unique": false,
+          "method": "btree",
+          "where": null
+        },
+        {
+          "name": "files_user_id_updated_at_idx",
+          "columns": [
+            "user_id",
+            "updated_at"
+          ],
+          "unique": false,
+          "method": "btree",
+          "where": null
+        },
+        {
+          "name": "files_chat_id_idx",
+          "columns": [
+            "chat_id"
+          ],
+          "unique": false,
+          "method": "btree",
+          "where": null
+        },
+        {
+          "name": "files_media_type_idx",
+          "columns": [
+            "media_type"
+          ],
+          "unique": false,
+          "method": "btree",
+          "where": null
+        },
+        {
+          "name": "files_object_key_idx",
+          "columns": [
+            "object_key"
+          ],
+          "unique": false,
+          "method": "btree",
+          "where": null
+        }
+      ],
+      "foreignKeys": [
+        {
+          "name": "files_chat_id_chats_id_fk",
+          "columns": [
+            "chat_id"
+          ],
+          "foreignTable": "chats",
+          "foreignColumns": [
+            "id"
+          ],
+          "onDelete": "set null",
+          "onUpdate": "no action"
+        }
+      ],
+      "checks": [],
+      "primaryKeys": [],
+      "policies": [
+        {
+          "name": "users_manage_own_files",
+          "as": "permissive",
+          "for": "all",
+          "to": [
+            "public"
+          ],
+          "using": "user_id = (select current_setting('app.current_user_id', true))",
+          "withCheck": "user_id = (select current_setting('app.current_user_id', true))"
+        }
+      ]
+    },
+    {
+      "name": "messages",
+      "exportName": "messages",
+      "schema": "public",
+      "rlsEnabled": true,
+      "columns": [
+        {
+          "name": "id",
+          "type": "varchar(191)",
+          "notNull": true,
+          "primaryKey": true,
+          "unique": false,
+          "default": "(generated in app)",
+          "enumValues": null
+        },
+        {
+          "name": "chat_id",
+          "type": "varchar(191)",
+          "notNull": true,
+          "primaryKey": false,
+          "unique": false,
+          "default": null,
+          "enumValues": null
+        },
+        {
+          "name": "role",
+          "type": "varchar(256)",
+          "notNull": true,
+          "primaryKey": false,
+          "unique": false,
+          "default": null,
+          "enumValues": null
+        },
+        {
+          "name": "created_at",
+          "type": "timestamp",
+          "notNull": true,
+          "primaryKey": false,
+          "unique": false,
+          "default": "now()",
+          "enumValues": null
+        },
+        {
+          "name": "updated_at",
+          "type": "timestamp",
+          "notNull": false,
+          "primaryKey": false,
+          "unique": false,
+          "default": null,
+          "enumValues": null
+        },
+        {
+          "name": "metadata",
+          "type": "jsonb",
+          "notNull": false,
+          "primaryKey": false,
+          "unique": false,
+          "default": null,
+          "enumValues": null
+        }
+      ],
+      "indexes": [
+        {
+          "name": "messages_chat_id_idx",
+          "columns": [
+            "chat_id"
+          ],
+          "unique": false,
+          "method": "btree",
+          "where": null
+        },
+        {
+          "name": "messages_chat_id_created_at_idx",
+          "columns": [
+            "chat_id",
+            "created_at"
+          ],
+          "unique": false,
+          "method": "btree",
+          "where": null
+        }
+      ],
+      "foreignKeys": [
+        {
+          "name": "messages_chat_id_chats_id_fk",
+          "columns": [
+            "chat_id"
+          ],
+          "foreignTable": "chats",
+          "foreignColumns": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        }
+      ],
+      "checks": [],
+      "primaryKeys": [],
+      "policies": [
+        {
+          "name": "users_manage_chat_messages",
+          "as": "permissive",
+          "for": "all",
+          "to": [
+            "public"
+          ],
+          "using": "EXISTS (\n        SELECT 1 FROM \"chats\"\n        WHERE \"chats\".id = chat_id\n        AND \"chats\".user_id = (select current_setting('app.current_user_id', true))\n      )",
+          "withCheck": "EXISTS (\n        SELECT 1 FROM \"chats\"\n        WHERE \"chats\".id = chat_id\n        AND \"chats\".user_id = (select current_setting('app.current_user_id', true))\n      )"
+        },
+        {
+          "name": "public_chat_messages_readable",
+          "as": "permissive",
+          "for": "select",
+          "to": [
+            "public"
+          ],
+          "using": "EXISTS (\n        SELECT 1 FROM \"chats\"\n        WHERE \"chats\".id = chat_id\n        AND \"chats\".visibility = 'public'\n      )",
+          "withCheck": null
+        }
+      ]
+    },
+    {
+      "name": "notes",
+      "exportName": "notes",
+      "schema": "public",
+      "rlsEnabled": true,
+      "columns": [
+        {
+          "name": "id",
+          "type": "varchar(191)",
+          "notNull": true,
+          "primaryKey": true,
+          "unique": false,
+          "default": "(generated in app)",
+          "enumValues": null
+        },
+        {
+          "name": "user_id",
+          "type": "varchar(255)",
+          "notNull": true,
+          "primaryKey": false,
+          "unique": false,
+          "default": null,
+          "enumValues": null
+        },
+        {
+          "name": "chat_id",
+          "type": "varchar(191)",
+          "notNull": false,
+          "primaryKey": false,
+          "unique": false,
+          "default": null,
+          "enumValues": null
+        },
+        {
+          "name": "source_message_id",
+          "type": "varchar(191)",
+          "notNull": false,
+          "primaryKey": false,
+          "unique": false,
+          "default": null,
+          "enumValues": null
+        },
+        {
+          "name": "title",
+          "type": "text",
+          "notNull": true,
+          "primaryKey": false,
+          "unique": false,
+          "default": null,
+          "enumValues": null
+        },
+        {
+          "name": "content",
+          "type": "text",
+          "notNull": true,
+          "primaryKey": false,
+          "unique": false,
+          "default": null,
+          "enumValues": null
+        },
+        {
+          "name": "created_at",
+          "type": "timestamp",
+          "notNull": true,
+          "primaryKey": false,
+          "unique": false,
+          "default": "now()",
+          "enumValues": null
+        },
+        {
+          "name": "updated_at",
+          "type": "timestamp",
+          "notNull": true,
+          "primaryKey": false,
+          "unique": false,
+          "default": "now()",
+          "enumValues": null
+        }
+      ],
+      "indexes": [
+        {
+          "name": "notes_user_id_idx",
+          "columns": [
+            "user_id"
+          ],
+          "unique": false,
+          "method": "btree",
+          "where": null
+        },
+        {
+          "name": "notes_user_id_updated_at_idx",
+          "columns": [
+            "user_id",
+            "updated_at"
+          ],
+          "unique": false,
+          "method": "btree",
+          "where": null
+        },
+        {
+          "name": "notes_chat_id_idx",
+          "columns": [
+            "chat_id"
+          ],
+          "unique": false,
+          "method": "btree",
+          "where": null
+        },
+        {
+          "name": "notes_source_message_id_idx",
+          "columns": [
+            "source_message_id"
+          ],
+          "unique": false,
+          "method": "btree",
+          "where": null
+        }
+      ],
+      "foreignKeys": [
+        {
+          "name": "notes_chat_id_chats_id_fk",
+          "columns": [
+            "chat_id"
+          ],
+          "foreignTable": "chats",
+          "foreignColumns": [
+            "id"
+          ],
+          "onDelete": "set null",
+          "onUpdate": "no action"
+        }
+      ],
+      "checks": [],
+      "primaryKeys": [],
+      "policies": [
+        {
+          "name": "users_manage_own_notes",
+          "as": "permissive",
+          "for": "all",
+          "to": [
+            "public"
+          ],
+          "using": "user_id = (select current_setting('app.current_user_id', true))",
+          "withCheck": "user_id = (select current_setting('app.current_user_id', true))"
+        }
+      ]
+    },
+    {
+      "name": "parts",
+      "exportName": "parts",
+      "schema": "public",
+      "rlsEnabled": true,
+      "columns": [
+        {
+          "name": "id",
+          "type": "varchar(191)",
+          "notNull": true,
+          "primaryKey": true,
+          "unique": false,
+          "default": "(generated in app)",
+          "enumValues": null
+        },
+        {
+          "name": "message_id",
+          "type": "varchar(191)",
+          "notNull": true,
+          "primaryKey": false,
+          "unique": false,
+          "default": null,
+          "enumValues": null
+        },
+        {
+          "name": "order",
+          "type": "integer",
+          "notNull": true,
+          "primaryKey": false,
+          "unique": false,
+          "default": null,
+          "enumValues": null
+        },
+        {
+          "name": "type",
+          "type": "varchar(256)",
+          "notNull": true,
+          "primaryKey": false,
+          "unique": false,
+          "default": null,
+          "enumValues": null
+        },
+        {
+          "name": "text_text",
+          "type": "text",
+          "notNull": false,
+          "primaryKey": false,
+          "unique": false,
+          "default": null,
+          "enumValues": null
+        },
+        {
+          "name": "reasoning_text",
+          "type": "text",
+          "notNull": false,
+          "primaryKey": false,
+          "unique": false,
+          "default": null,
+          "enumValues": null
+        },
+        {
+          "name": "file_media_type",
+          "type": "varchar(256)",
+          "notNull": false,
+          "primaryKey": false,
+          "unique": false,
+          "default": null,
+          "enumValues": null
+        },
+        {
+          "name": "file_filename",
+          "type": "varchar(1024)",
+          "notNull": false,
+          "primaryKey": false,
+          "unique": false,
+          "default": null,
+          "enumValues": null
+        },
+        {
+          "name": "file_url",
+          "type": "text",
+          "notNull": false,
+          "primaryKey": false,
+          "unique": false,
+          "default": null,
+          "enumValues": null
+        },
+        {
+          "name": "file_key",
+          "type": "text",
+          "notNull": false,
+          "primaryKey": false,
+          "unique": false,
+          "default": null,
+          "enumValues": null
+        },
+        {
+          "name": "source_url_source_id",
+          "type": "varchar(256)",
+          "notNull": false,
+          "primaryKey": false,
+          "unique": false,
+          "default": null,
+          "enumValues": null
+        },
+        {
+          "name": "source_url_url",
+          "type": "text",
+          "notNull": false,
+          "primaryKey": false,
+          "unique": false,
+          "default": null,
+          "enumValues": null
+        },
+        {
+          "name": "source_url_title",
+          "type": "text",
+          "notNull": false,
+          "primaryKey": false,
+          "unique": false,
+          "default": null,
+          "enumValues": null
+        },
+        {
+          "name": "source_document_source_id",
+          "type": "varchar(256)",
+          "notNull": false,
+          "primaryKey": false,
+          "unique": false,
+          "default": null,
+          "enumValues": null
+        },
+        {
+          "name": "source_document_media_type",
+          "type": "varchar(256)",
+          "notNull": false,
+          "primaryKey": false,
+          "unique": false,
+          "default": null,
+          "enumValues": null
+        },
+        {
+          "name": "source_document_title",
+          "type": "text",
+          "notNull": false,
+          "primaryKey": false,
+          "unique": false,
+          "default": null,
+          "enumValues": null
+        },
+        {
+          "name": "source_document_filename",
+          "type": "varchar(1024)",
+          "notNull": false,
+          "primaryKey": false,
+          "unique": false,
+          "default": null,
+          "enumValues": null
+        },
+        {
+          "name": "source_document_url",
+          "type": "text",
+          "notNull": false,
+          "primaryKey": false,
+          "unique": false,
+          "default": null,
+          "enumValues": null
+        },
+        {
+          "name": "source_document_snippet",
+          "type": "text",
+          "notNull": false,
+          "primaryKey": false,
+          "unique": false,
+          "default": null,
+          "enumValues": null
+        },
+        {
+          "name": "tool_tool_call_id",
+          "type": "varchar(256)",
+          "notNull": false,
+          "primaryKey": false,
+          "unique": false,
+          "default": null,
+          "enumValues": null
+        },
+        {
+          "name": "tool_state",
+          "type": "varchar(256)",
+          "notNull": false,
+          "primaryKey": false,
+          "unique": false,
+          "default": null,
+          "enumValues": null
+        },
+        {
+          "name": "tool_error_text",
+          "type": "text",
+          "notNull": false,
+          "primaryKey": false,
+          "unique": false,
+          "default": null,
+          "enumValues": null
+        },
+        {
+          "name": "tool_search_input",
+          "type": "json",
+          "notNull": false,
+          "primaryKey": false,
+          "unique": false,
+          "default": null,
+          "enumValues": null
+        },
+        {
+          "name": "tool_search_output",
+          "type": "json",
+          "notNull": false,
+          "primaryKey": false,
+          "unique": false,
+          "default": null,
+          "enumValues": null
+        },
+        {
+          "name": "tool_fetch_input",
+          "type": "json",
+          "notNull": false,
+          "primaryKey": false,
+          "unique": false,
+          "default": null,
+          "enumValues": null
+        },
+        {
+          "name": "tool_fetch_output",
+          "type": "json",
+          "notNull": false,
+          "primaryKey": false,
+          "unique": false,
+          "default": null,
+          "enumValues": null
+        },
+        {
+          "name": "tool_question_input",
+          "type": "json",
+          "notNull": false,
+          "primaryKey": false,
+          "unique": false,
+          "default": null,
+          "enumValues": null
+        },
+        {
+          "name": "tool_question_output",
+          "type": "json",
+          "notNull": false,
+          "primaryKey": false,
+          "unique": false,
+          "default": null,
+          "enumValues": null
+        },
+        {
+          "name": "tool_todoWrite_input",
+          "type": "json",
+          "notNull": false,
+          "primaryKey": false,
+          "unique": false,
+          "default": null,
+          "enumValues": null
+        },
+        {
+          "name": "tool_todoWrite_output",
+          "type": "json",
+          "notNull": false,
+          "primaryKey": false,
+          "unique": false,
+          "default": null,
+          "enumValues": null
+        },
+        {
+          "name": "tool_todoRead_input",
+          "type": "json",
+          "notNull": false,
+          "primaryKey": false,
+          "unique": false,
+          "default": null,
+          "enumValues": null
+        },
+        {
+          "name": "tool_todoRead_output",
+          "type": "json",
+          "notNull": false,
+          "primaryKey": false,
+          "unique": false,
+          "default": null,
+          "enumValues": null
+        },
+        {
+          "name": "tool_dynamic_input",
+          "type": "json",
+          "notNull": false,
+          "primaryKey": false,
+          "unique": false,
+          "default": null,
+          "enumValues": null
+        },
+        {
+          "name": "tool_dynamic_output",
+          "type": "json",
+          "notNull": false,
+          "primaryKey": false,
+          "unique": false,
+          "default": null,
+          "enumValues": null
+        },
+        {
+          "name": "tool_dynamic_name",
+          "type": "varchar(256)",
+          "notNull": false,
+          "primaryKey": false,
+          "unique": false,
+          "default": null,
+          "enumValues": null
+        },
+        {
+          "name": "tool_dynamic_type",
+          "type": "varchar(256)",
+          "notNull": false,
+          "primaryKey": false,
+          "unique": false,
+          "default": null,
+          "enumValues": null
+        },
+        {
+          "name": "data_prefix",
+          "type": "varchar(256)",
+          "notNull": false,
+          "primaryKey": false,
+          "unique": false,
+          "default": null,
+          "enumValues": null
+        },
+        {
+          "name": "data_content",
+          "type": "json",
+          "notNull": false,
+          "primaryKey": false,
+          "unique": false,
+          "default": null,
+          "enumValues": null
+        },
+        {
+          "name": "data_id",
+          "type": "varchar(256)",
+          "notNull": false,
+          "primaryKey": false,
+          "unique": false,
+          "default": null,
+          "enumValues": null
+        },
+        {
+          "name": "provider_metadata",
+          "type": "json",
+          "notNull": false,
+          "primaryKey": false,
+          "unique": false,
+          "default": null,
+          "enumValues": null
+        },
+        {
+          "name": "created_at",
+          "type": "timestamp",
+          "notNull": true,
+          "primaryKey": false,
+          "unique": false,
+          "default": "now()",
+          "enumValues": null
+        }
+      ],
+      "indexes": [
+        {
+          "name": "parts_message_id_idx",
+          "columns": [
+            "message_id"
+          ],
+          "unique": false,
+          "method": "btree",
+          "where": null
+        },
+        {
+          "name": "parts_message_id_order_idx",
+          "columns": [
+            "message_id",
+            "order"
+          ],
+          "unique": false,
+          "method": "btree",
+          "where": null
+        },
+        {
+          "name": "parts_text_text_trgm_idx",
+          "columns": [
+            "text_text"
+          ],
+          "unique": false,
+          "method": "gin",
+          "where": null
+        }
+      ],
+      "foreignKeys": [
+        {
+          "name": "parts_message_id_messages_id_fk",
+          "columns": [
+            "message_id"
+          ],
+          "foreignTable": "messages",
+          "foreignColumns": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        }
+      ],
+      "checks": [
+        {
+          "name": "text_text_required",
+          "value": "(type != 'text' OR text_text IS NOT NULL)"
+        },
+        {
+          "name": "reasoning_text_required",
+          "value": "(type != 'reasoning' OR reasoning_text IS NOT NULL)"
+        },
+        {
+          "name": "file_fields_required",
+          "value": "(type != 'file' OR (file_media_type IS NOT NULL AND file_filename IS NOT NULL AND (file_key IS NOT NULL OR file_url IS NOT NULL)))"
+        },
+        {
+          "name": "tool_state_valid",
+          "value": "(tool_state IS NULL OR tool_state IN ('input-streaming', 'input-available', 'output-available', 'output-error'))"
+        },
+        {
+          "name": "tool_fields_required",
+          "value": "(type NOT LIKE 'tool-%' OR (tool_tool_call_id IS NOT NULL AND tool_state IS NOT NULL))"
+        }
+      ],
+      "primaryKeys": [],
+      "policies": [
+        {
+          "name": "users_manage_message_parts",
+          "as": "permissive",
+          "for": "all",
+          "to": [
+            "public"
+          ],
+          "using": "EXISTS (\n        SELECT 1 FROM \"messages\"\n        INNER JOIN \"chats\" ON \"chats\".id = \"messages\".chat_id\n        WHERE \"messages\".id = message_id\n        AND \"chats\".user_id = (select current_setting('app.current_user_id', true))\n      )",
+          "withCheck": "EXISTS (\n        SELECT 1 FROM \"messages\"\n        INNER JOIN \"chats\" ON \"chats\".id = \"messages\".chat_id\n        WHERE \"messages\".id = message_id\n        AND \"chats\".user_id = (select current_setting('app.current_user_id', true))\n      )"
+        },
+        {
+          "name": "public_chat_parts_readable",
+          "as": "permissive",
+          "for": "select",
+          "to": [
+            "public"
+          ],
+          "using": "EXISTS (\n        SELECT 1 FROM \"messages\"\n        INNER JOIN \"chats\" ON \"chats\".id = \"messages\".chat_id\n        WHERE \"messages\".id = message_id\n        AND \"chats\".visibility = 'public'\n      )",
+          "withCheck": null
+        }
+      ]
+    },
+    {
+      "name": "user_memories",
+      "exportName": "userMemories",
+      "schema": "public",
+      "rlsEnabled": true,
+      "columns": [
+        {
+          "name": "id",
+          "type": "varchar(191)",
+          "notNull": true,
+          "primaryKey": true,
+          "unique": false,
+          "default": "(generated in app)",
+          "enumValues": null
+        },
+        {
+          "name": "user_id",
+          "type": "varchar(255)",
+          "notNull": true,
+          "primaryKey": false,
+          "unique": false,
+          "default": null,
+          "enumValues": null
+        },
+        {
+          "name": "content",
+          "type": "text",
+          "notNull": true,
+          "primaryKey": false,
+          "unique": false,
+          "default": null,
+          "enumValues": null
+        },
+        {
+          "name": "category",
+          "type": "varchar(256)",
+          "notNull": true,
+          "primaryKey": false,
+          "unique": false,
+          "default": null,
+          "enumValues": [
+            "preference",
+            "fact",
+            "interest"
+          ]
+        },
+        {
+          "name": "status",
+          "type": "varchar(256)",
+          "notNull": true,
+          "primaryKey": false,
+          "unique": false,
+          "default": "candidate",
+          "enumValues": [
+            "candidate",
+            "confirmed"
+          ]
+        },
+        {
+          "name": "sightings",
+          "type": "integer",
+          "notNull": true,
+          "primaryKey": false,
+          "unique": false,
+          "default": "1",
+          "enumValues": null
+        },
+        {
+          "name": "embedding",
+          "type": "vector(1024)",
+          "notNull": true,
+          "primaryKey": false,
+          "unique": false,
+          "default": null,
+          "enumValues": null
+        },
+        {
+          "name": "source_chat_id",
+          "type": "varchar(191)",
+          "notNull": false,
+          "primaryKey": false,
+          "unique": false,
+          "default": null,
+          "enumValues": null
+        },
+        {
+          "name": "created_at",
+          "type": "timestamp",
+          "notNull": true,
+          "primaryKey": false,
+          "unique": false,
+          "default": "now()",
+          "enumValues": null
+        },
+        {
+          "name": "updated_at",
+          "type": "timestamp",
+          "notNull": true,
+          "primaryKey": false,
+          "unique": false,
+          "default": "now()",
+          "enumValues": null
+        },
+        {
+          "name": "last_used_at",
+          "type": "timestamp",
+          "notNull": false,
+          "primaryKey": false,
+          "unique": false,
+          "default": null,
+          "enumValues": null
+        }
+      ],
+      "indexes": [
+        {
+          "name": "user_memories_user_id_idx",
+          "columns": [
+            "user_id"
+          ],
+          "unique": false,
+          "method": "btree",
+          "where": null
+        },
+        {
+          "name": "user_memories_user_id_status_idx",
+          "columns": [
+            "user_id",
+            "status"
+          ],
+          "unique": false,
+          "method": "btree",
+          "where": null
+        },
+        {
+          "name": "user_memories_embedding_idx",
+          "columns": [
+            "embedding"
+          ],
+          "unique": false,
+          "method": "hnsw",
+          "where": null
+        }
+      ],
+      "foreignKeys": [],
+      "checks": [],
+      "primaryKeys": [],
+      "policies": [
+        {
+          "name": "users_manage_own_memories",
+          "as": "permissive",
+          "for": "all",
+          "to": [
+            "public"
+          ],
+          "using": "user_id = (select current_setting('app.current_user_id', true))",
+          "withCheck": "user_id = (select current_setting('app.current_user_id', true))"
+        }
+      ]
+    },
+    {
+      "name": "user_settings",
+      "exportName": "userSettings",
+      "schema": "public",
+      "rlsEnabled": true,
+      "columns": [
+        {
+          "name": "user_id",
+          "type": "varchar(255)",
+          "notNull": true,
+          "primaryKey": true,
+          "unique": false,
+          "default": null,
+          "enumValues": null
+        },
+        {
+          "name": "memory_enabled",
+          "type": "boolean",
+          "notNull": true,
+          "primaryKey": false,
+          "unique": false,
+          "default": "true",
+          "enumValues": null
+        },
+        {
+          "name": "recall_enabled",
+          "type": "boolean",
+          "notNull": true,
+          "primaryKey": false,
+          "unique": false,
+          "default": "true",
+          "enumValues": null
+        },
+        {
+          "name": "preferred_chat_model",
+          "type": "varchar(512)",
+          "notNull": false,
+          "primaryKey": false,
+          "unique": false,
+          "default": null,
+          "enumValues": null
+        },
+        {
+          "name": "updated_at",
+          "type": "timestamp",
+          "notNull": true,
+          "primaryKey": false,
+          "unique": false,
+          "default": "now()",
+          "enumValues": null
+        }
+      ],
+      "indexes": [],
+      "foreignKeys": [],
+      "checks": [],
+      "primaryKeys": [],
+      "policies": [
+        {
+          "name": "users_manage_own_settings",
+          "as": "permissive",
+          "for": "all",
+          "to": [
+            "public"
+          ],
+          "using": "user_id = (select current_setting('app.current_user_id', true))",
+          "withCheck": "user_id = (select current_setting('app.current_user_id', true))"
+        }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,424 @@
+{
+  "authMechanisms": {
+    "user-session": "Supabase session (or ANONYMOUS_USER_ID when ENABLE_AUTH=false) via lib/auth/get-current-user.ts",
+    "ingest-token": "Bearer INGEST_API_TOKEN (service-to-service)",
+    "cron-secret": "Bearer MEMORY_CRON_SECRET (scheduled jobs)",
+    "signed-url": "HMAC-signed capability URL (UPLOADS_URL_SECRET)",
+    "supabase-otp": "Supabase auth callback (OTP / OAuth code exchange)",
+    "public": "No auth check detected in the handler file (may still be gated by a feature flag or proxy.ts)."
+  },
+  "count": 29,
+  "routes": [
+    {
+      "path": "/api/advanced-search",
+      "methods": [
+        "POST"
+      ],
+      "auth": [
+        "ingest-token"
+      ],
+      "authVia": [],
+      "guestAllowed": false,
+      "summary": null,
+      "file": "app/api/advanced-search/route.ts",
+      "dynamic": null
+    },
+    {
+      "path": "/api/chat",
+      "methods": [
+        "POST"
+      ],
+      "auth": [
+        "user-session"
+      ],
+      "authVia": [],
+      "guestAllowed": true,
+      "summary": null,
+      "file": "app/api/chat/route.ts",
+      "dynamic": null
+    },
+    {
+      "path": "/api/chat/:chatId/messages",
+      "methods": [
+        "GET"
+      ],
+      "auth": [
+        "user-session"
+      ],
+      "authVia": [],
+      "guestAllowed": false,
+      "summary": "GET /api/chat/[chatId]/messages — the persisted conversation, read straight from the DB (never the stale-while-revalidate `loadChat` cache).",
+      "file": "app/api/chat/[chatId]/messages/route.ts",
+      "dynamic": null
+    },
+    {
+      "path": "/api/chat/:chatId/stop",
+      "methods": [
+        "POST"
+      ],
+      "auth": [
+        "user-session"
+      ],
+      "authVia": [],
+      "guestAllowed": false,
+      "summary": "POST /api/chat/[chatId]/stop — explicit Stop.",
+      "file": "app/api/chat/[chatId]/stop/route.ts",
+      "dynamic": null
+    },
+    {
+      "path": "/api/chat/:chatId/stream",
+      "methods": [
+        "GET"
+      ],
+      "auth": [
+        "user-session"
+      ],
+      "authVia": [],
+      "guestAllowed": false,
+      "summary": "GET /api/chat/[chatId]/stream — the resume endpoint the AI SDK's `useChat({ resume })` / DefaultChatTransport.reconnectToStream hits.",
+      "file": "app/api/chat/[chatId]/stream/route.ts",
+      "dynamic": null
+    },
+    {
+      "path": "/api/chats",
+      "methods": [
+        "GET"
+      ],
+      "auth": [
+        "user-session"
+      ],
+      "authVia": [
+        "lib/actions/chat.ts",
+        "lib/db/actions.ts"
+      ],
+      "guestAllowed": false,
+      "summary": null,
+      "file": "app/api/chats/route.ts",
+      "dynamic": null
+    },
+    {
+      "path": "/api/chats/search",
+      "methods": [
+        "GET"
+      ],
+      "auth": [
+        "user-session"
+      ],
+      "authVia": [
+        "lib/actions/chat.ts"
+      ],
+      "guestAllowed": false,
+      "summary": null,
+      "file": "app/api/chats/search/route.ts",
+      "dynamic": null
+    },
+    {
+      "path": "/api/discover",
+      "methods": [
+        "GET"
+      ],
+      "auth": [
+        "public"
+      ],
+      "authVia": [],
+      "guestAllowed": false,
+      "summary": null,
+      "file": "app/api/discover/route.ts",
+      "dynamic": null
+    },
+    {
+      "path": "/api/feedback",
+      "methods": [
+        "POST"
+      ],
+      "auth": [
+        "user-session"
+      ],
+      "authVia": [],
+      "guestAllowed": false,
+      "summary": null,
+      "file": "app/api/feedback/route.ts",
+      "dynamic": null
+    },
+    {
+      "path": "/api/files/status",
+      "methods": [
+        "GET"
+      ],
+      "auth": [
+        "user-session"
+      ],
+      "authVia": [],
+      "guestAllowed": false,
+      "summary": null,
+      "file": "app/api/files/status/route.ts",
+      "dynamic": null
+    },
+    {
+      "path": "/api/geocode",
+      "methods": [
+        "GET"
+      ],
+      "auth": [
+        "public"
+      ],
+      "authVia": [],
+      "guestAllowed": false,
+      "summary": "Server-side forward-geocoding proxy.",
+      "file": "app/api/geocode/route.ts",
+      "dynamic": null
+    },
+    {
+      "path": "/api/geolocate",
+      "methods": [
+        "GET"
+      ],
+      "auth": [
+        "public"
+      ],
+      "authVia": [],
+      "guestAllowed": false,
+      "summary": null,
+      "file": "app/api/geolocate/route.ts",
+      "dynamic": null
+    },
+    {
+      "path": "/api/health",
+      "methods": [
+        "GET"
+      ],
+      "auth": [
+        "public"
+      ],
+      "authVia": [],
+      "guestAllowed": false,
+      "summary": "Lightweight liveness probe for the Docker HEALTHCHECK (and external monitors such as uptime-kuma).",
+      "file": "app/api/health/route.ts",
+      "dynamic": "force-dynamic"
+    },
+    {
+      "path": "/api/ingest/claim",
+      "methods": [
+        "POST"
+      ],
+      "auth": [
+        "ingest-token"
+      ],
+      "authVia": [],
+      "guestAllowed": false,
+      "summary": null,
+      "file": "app/api/ingest/claim/route.ts",
+      "dynamic": null
+    },
+    {
+      "path": "/api/ingest/complete",
+      "methods": [
+        "POST"
+      ],
+      "auth": [
+        "ingest-token"
+      ],
+      "authVia": [],
+      "guestAllowed": false,
+      "summary": null,
+      "file": "app/api/ingest/complete/route.ts",
+      "dynamic": null
+    },
+    {
+      "path": "/api/ingest/file/:id",
+      "methods": [
+        "GET"
+      ],
+      "auth": [
+        "ingest-token"
+      ],
+      "authVia": [],
+      "guestAllowed": false,
+      "summary": null,
+      "file": "app/api/ingest/file/[id]/route.ts",
+      "dynamic": null
+    },
+    {
+      "path": "/api/ingest/progress",
+      "methods": [
+        "POST"
+      ],
+      "auth": [
+        "ingest-token"
+      ],
+      "authVia": [],
+      "guestAllowed": false,
+      "summary": null,
+      "file": "app/api/ingest/progress/route.ts",
+      "dynamic": null
+    },
+    {
+      "path": "/api/maintenance/expire-uploads",
+      "methods": [
+        "POST"
+      ],
+      "auth": [
+        "ingest-token"
+      ],
+      "authVia": [],
+      "guestAllowed": false,
+      "summary": null,
+      "file": "app/api/maintenance/expire-uploads/route.ts",
+      "dynamic": null
+    },
+    {
+      "path": "/api/memory/consolidate",
+      "methods": [
+        "POST"
+      ],
+      "auth": [
+        "cron-secret"
+      ],
+      "authVia": [],
+      "guestAllowed": false,
+      "summary": null,
+      "file": "app/api/memory/consolidate/route.ts",
+      "dynamic": null
+    },
+    {
+      "path": "/api/memory/recall-backfill",
+      "methods": [
+        "POST"
+      ],
+      "auth": [
+        "cron-secret"
+      ],
+      "authVia": [],
+      "guestAllowed": false,
+      "summary": null,
+      "file": "app/api/memory/recall-backfill/route.ts",
+      "dynamic": null
+    },
+    {
+      "path": "/api/quotes",
+      "methods": [
+        "GET"
+      ],
+      "auth": [
+        "public"
+      ],
+      "authVia": [],
+      "guestAllowed": false,
+      "summary": "The middle server for quotes: Couchbase credentials live here and never reach the browser.",
+      "file": "app/api/quotes/route.ts",
+      "dynamic": null
+    },
+    {
+      "path": "/api/upload",
+      "methods": [
+        "POST"
+      ],
+      "auth": [
+        "user-session"
+      ],
+      "authVia": [],
+      "guestAllowed": false,
+      "summary": "Local-only upload store.",
+      "file": "app/api/upload/route.ts",
+      "dynamic": null
+    },
+    {
+      "path": "/api/voice/speak",
+      "methods": [
+        "POST"
+      ],
+      "auth": [
+        "user-session"
+      ],
+      "authVia": [],
+      "guestAllowed": false,
+      "summary": null,
+      "file": "app/api/voice/speak/route.ts",
+      "dynamic": null
+    },
+    {
+      "path": "/api/voice/transcribe",
+      "methods": [
+        "POST"
+      ],
+      "auth": [
+        "user-session"
+      ],
+      "authVia": [],
+      "guestAllowed": false,
+      "summary": null,
+      "file": "app/api/voice/transcribe/route.ts",
+      "dynamic": null
+    },
+    {
+      "path": "/api/warm",
+      "methods": [
+        "POST"
+      ],
+      "auth": [
+        "user-session"
+      ],
+      "authVia": [],
+      "guestAllowed": false,
+      "summary": "Demand-triggered GPU warm-up.",
+      "file": "app/api/warm/route.ts",
+      "dynamic": null
+    },
+    {
+      "path": "/api/weather",
+      "methods": [
+        "GET"
+      ],
+      "auth": [
+        "public"
+      ],
+      "authVia": [],
+      "guestAllowed": false,
+      "summary": null,
+      "file": "app/api/weather/route.ts",
+      "dynamic": null
+    },
+    {
+      "path": "/auth/confirm",
+      "methods": [
+        "GET"
+      ],
+      "auth": [
+        "supabase-otp"
+      ],
+      "authVia": [],
+      "guestAllowed": false,
+      "summary": null,
+      "file": "app/auth/confirm/route.ts",
+      "dynamic": null
+    },
+    {
+      "path": "/auth/oauth",
+      "methods": [
+        "GET"
+      ],
+      "auth": [
+        "supabase-otp"
+      ],
+      "authVia": [],
+      "guestAllowed": false,
+      "summary": "The client you created from the Server-Side Auth instructions",
+      "file": "app/auth/oauth/route.ts",
+      "dynamic": null
+    },
+    {
+      "path": "/uploads/:path*",
+      "methods": [
+        "GET"
+      ],
+      "auth": [
+        "signed-url"
+      ],
+      "authVia": [],
+      "guestAllowed": false,
+      "summary": "Stream a previously-uploaded file from the local uploads volume.",
+      "file": "app/uploads/[...path]/route.ts",
+      "dynamic": null
+    }
+  ]
+}

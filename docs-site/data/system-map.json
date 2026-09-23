@@ -1,0 +1,566 @@
+{
+  "nodes": [
+    {
+      "id": "browser",
+      "label": "Browser (user)",
+      "kind": "client",
+      "description": "The Ask web UI. Public users reach prod through Cloudflare; LAN users can also open staging (:3739) and lab (:3742) directly.",
+      "link": "/request-lifecycle/frontend"
+    },
+    {
+      "id": "operator",
+      "label": "Operator (LAN / SSH)",
+      "kind": "client",
+      "description": "The engineer on the LAN: SSH to fleet hosts, Model Manager via an SSH tunnel to 127.0.0.1:3939, direct lab/staging access.",
+      "link": "/infrastructure/fleet#ssh-access"
+    },
+    {
+      "id": "cloudflare",
+      "label": "Cloudflare edge",
+      "kind": "external",
+      "description": "Public ingress for ask.hbqnexus.win. The tunnel connection is outbound from .17; there is no router port-forward. Ingress rules live in the Cloudflare dashboard.",
+      "link": "/infrastructure/services#cloudflare-tunnel"
+    },
+    {
+      "id": "h17",
+      "label": "NightFuryX · .17",
+      "kind": "host",
+      "description": "Threadripper 3970X, 117 GB, Windows + WSL2 with Docker Desktop. GPUs: RTX 2080 Ti 22 GB (reranker + Whisper), Quadro P2200 (Kokoro TTS), GTX 1070 (qwen3-vl VLM). Runs every Ask app stack.",
+      "link": "/infrastructure/fleet#hosts"
+    },
+    {
+      "id": "h160",
+      "label": "NightFuryS · .160",
+      "kind": "host",
+      "description": "i7-12700, 58 GB, WSL2 + Docker Desktop, Quadro P4000 8 GB. Hosts the GPU embedder.",
+      "link": "/infrastructure/fleet#hosts"
+    },
+    {
+      "id": "h171",
+      "label": "Serenity · .171",
+      "kind": "host",
+      "description": "Xeon E5-2670 v3, 94 GB, WSL2, Quadro P5000 16 GB. Hosts the local small LLM (granite4.2:8b) on native Ollama.",
+      "link": "/infrastructure/fleet#hosts"
+    },
+    {
+      "id": "h231",
+      "label": "MiniNightFury · .231",
+      "kind": "host",
+      "description": "i7-12650H, 31 GB, native Linux, no GPU. Hosts crawl4ai (fast single-thread crawling), the public SearXNG/degoog, the staging/lab classifier Ollama and the idle legacy Ask stacks.",
+      "link": "/infrastructure/fleet#hosts"
+    },
+    {
+      "id": "cloudflared",
+      "label": "cloudflared (Windows svc)",
+      "kind": "service",
+      "host": "h17",
+      "description": "Windows service (auto-start) on the .17 Windows host; token tunnel mapping ask.hbqnexus.win → localhost:3738 (prod only).",
+      "link": "/infrastructure/services#cloudflare-tunnel"
+    },
+    {
+      "id": "ask-prod",
+      "label": "Ask prod",
+      "kind": "service",
+      "host": "h17",
+      "port": "3738",
+      "description": "Next.js app, container ask, compose project ask-stack, branch dev (ask-prod worktree). Supabase auth. The only internet-exposed service.",
+      "link": "/infrastructure/services#app-stacks"
+    },
+    {
+      "id": "ask-staging",
+      "label": "Ask staging",
+      "kind": "service",
+      "host": "h17",
+      "port": "3739",
+      "description": "Next.js app, container ask-admin-feature, project ask-stack-admin-feature, branch admin-feature (ask worktree). Supabase auth, LAN-only.",
+      "link": "/infrastructure/services#app-stacks"
+    },
+    {
+      "id": "ask-lab",
+      "label": "Ask lab",
+      "kind": "service",
+      "host": "h17",
+      "port": "3742",
+      "description": "Next.js app, container ask-lab, project ask-stack-lab, branch flow-design (ask-flow worktree). ENABLE_AUTH=false: everyone is user lab-harness. Experiments run here first.",
+      "link": "/infrastructure/services#app-stacks"
+    },
+    {
+      "id": "postgres",
+      "label": "Postgres ×3 (pgvector)",
+      "kind": "datastore",
+      "host": "h17",
+      "description": "Per-env pgvector/pgvector:pg17, no host port. Chats/messages/parts, files, memories, recall chunks. RLS enforced through the app_user role; migrations run fail-hard at app boot.",
+      "link": "/infrastructure/services#postgres"
+    },
+    {
+      "id": "redis",
+      "label": "Redis ×3",
+      "kind": "datastore",
+      "host": "h17",
+      "description": "Per-env redis:alpine, noeviction, no host port. Search caches, resumable-stream pointers + pub/sub, latency:log, metered-API budgets, ingest heartbeat, imagegen counters.",
+      "link": "/infrastructure/services#redis"
+    },
+    {
+      "id": "searxng",
+      "label": "SearXNG + gluetun ×3",
+      "kind": "service",
+      "host": "h17",
+      "port": "3741/3740/3743",
+      "description": "Per-env SearXNG inside a gluetun Mullvad WireGuard namespace (kill-switch). Quality mode only. UI on 3741/3740/3743 (unauthenticated). The configured fallback does not resolve on .17.",
+      "link": "/infrastructure/services#searxng-and-gluetun"
+    },
+    {
+      "id": "ollama17",
+      "label": "Ollama (.17)",
+      "kind": "service",
+      "host": "h17",
+      "port": "11434",
+      "description": "Native systemd, unauthenticated on 0.0.0.0. Proxies *:cloud models (answering model, prod classifier) to Ollama Cloud; serves qwen3-vl:4b on the GTX 1070 to the ingestors.",
+      "link": "/infrastructure/services#ollama"
+    },
+    {
+      "id": "reranker",
+      "label": "Reranker (Qwen3-8B)",
+      "kind": "service",
+      "host": "h17",
+      "port": "8787",
+      "description": "reranker-qwen: Qwen3-Reranker-8B on the 2080 Ti, POST /rerank, bearer token (timing-safe, fails closed). Search degrades to bi-encoder then keyword when it is down.",
+      "link": "/infrastructure/services#reranker"
+    },
+    {
+      "id": "whisper",
+      "label": "Whisper STT",
+      "kind": "service",
+      "host": "h17",
+      "port": "8788",
+      "description": "ask-whisper (speaches, faster-distil-whisper-large-v3) on the 2080 Ti for dictation. Unauthenticated. Down → /api/voice/transcribe returns 503.",
+      "link": "/infrastructure/services#whisper-stt"
+    },
+    {
+      "id": "tts",
+      "label": "Kokoro TTS",
+      "kind": "service",
+      "host": "h17",
+      "port": "8890",
+      "description": "ask-tts (:8890, prod+staging) and ask-tts-lab (:3744) on the Quadro P2200 for read-aloud. Unauthenticated. Down → /api/voice/speak returns 503.",
+      "link": "/infrastructure/services#kokoro-tts"
+    },
+    {
+      "id": "ingestor",
+      "label": "Ingestor workers ×3",
+      "kind": "service",
+      "host": "h17",
+      "description": "ingestor / ingestor-staging / ingestor-lab (separate repo dir). Pull upload jobs from /api/ingest/* with INGEST_API_TOKEN; images via qwen3-vl on the .17 Ollama, audio via in-process CPU whisper.",
+      "link": "/infrastructure/services#ingestor-workers"
+    },
+    {
+      "id": "model-manager",
+      "label": "Model Manager",
+      "kind": "service",
+      "host": "h17",
+      "port": "3939",
+      "description": "Root-equivalent config UI on 127.0.0.1:3939 (docker.sock + prod worktree RW + SSH key). Edits prod .env with backups and recreates prod; edits/restarts the reranker over SSH.",
+      "link": "/infrastructure/services#model-manager"
+    },
+    {
+      "id": "degoog-env",
+      "label": "degoog ×3 (stopped)",
+      "kind": "service",
+      "host": "h17",
+      "description": "Per-env degoog stacks (:4445/:4446/:4447) moved to .17 on 2026-09-07; stopped, and DEGOOG_ENABLED=false in every env.",
+      "link": "/infrastructure/services#degoog"
+    },
+    {
+      "id": "embedder",
+      "label": "GPU embedder",
+      "kind": "service",
+      "host": "h160",
+      "port": "8788",
+      "description": "Qwen3-Embedding-0.6B (1024-d) + MiniLM, POST /embed, bearer token. Used by memory, recall and upload RAG. Data-locked to the vector(1024) columns.",
+      "link": "/infrastructure/services#embedder"
+    },
+    {
+      "id": "ollama171",
+      "label": "Ollama granite4.2:8b",
+      "kind": "service",
+      "host": "h171",
+      "port": "11434",
+      "description": "Native Ollama on the P5000 (LOCAL_LLM_BASE_URL): titles, memory extraction, query-expansion fallback, voice gist. Unauthenticated.",
+      "link": "/infrastructure/services#ollama"
+    },
+    {
+      "id": "crawl4ai",
+      "label": "crawl4ai",
+      "kind": "service",
+      "host": "h231",
+      "port": "11235",
+      "description": "unclecode/crawl4ai:0.9.2 headless-browser crawler, bearer token, 8 GiB cap with a */15 memory watchdog. Down → capped in-process JSDOM crawl.",
+      "link": "/infrastructure/services#crawl4ai"
+    },
+    {
+      "id": "ollama231",
+      "label": "Ollama (.231)",
+      "kind": "service",
+      "host": "h231",
+      "port": "11434",
+      "description": "Native Ollama used as the cloud proxy for the staging and lab classifier (CLASSIFIER_OLLAMA_BASE_URL hardcoded in their overlays).",
+      "link": "/infrastructure/services#ollama"
+    },
+    {
+      "id": "flaresolverr",
+      "label": "FlareSolverr",
+      "kind": "service",
+      "host": "h231",
+      "port": "8191",
+      "description": "Loopback-bound (127.0.0.1:8191) on .231; the app's FLARESOLVERR_URL does not resolve on .17, so this fetch rescue tier is currently always skipped.",
+      "link": "/infrastructure/services#flaresolverr"
+    },
+    {
+      "id": "public-search",
+      "label": "Public SearXNG",
+      "kind": "service",
+      "host": "h231",
+      "port": "8127",
+      "description": "search.hbqnexus.win (:8127 via searxng-gluetun): the owner's personal instance. Ask must never point at it.",
+      "link": "/infrastructure/services#searxng-and-gluetun"
+    },
+    {
+      "id": "public-degoog",
+      "label": "Public degoog",
+      "kind": "service",
+      "host": "h231",
+      "port": "4444",
+      "description": "degoog behind degoog-gluetun on :4444. Public/personal with human consumers — never decommission.",
+      "link": "/infrastructure/services#degoog"
+    },
+    {
+      "id": "legacy-stacks",
+      "label": "Legacy Ask stacks (idle)",
+      "kind": "service",
+      "host": "h231",
+      "description": "Pre-migration prod/staging/lab stacks kept as a rollback net. Running but receiving no traffic; hold stale data and shared secrets.",
+      "link": "/infrastructure/fleet#legacy-stacks-on-231-rollback-net"
+    },
+    {
+      "id": "ollama-cloud",
+      "label": "Ollama Cloud",
+      "kind": "external",
+      "description": "Hosted *:cloud models (default answering model kimi-k2.6:cloud, classifier deepseek-v4-pro:cloud) reached via signed-in local daemons, plus ollama.com web search (OLLAMA_SEARCH_API_KEY). 402 = extra-usage balance empty.",
+      "link": "/infrastructure/services#ollama-cloud"
+    },
+    {
+      "id": "search-apis",
+      "label": "Search APIs",
+      "kind": "external",
+      "description": "Metered, Redis-budgeted (fail closed): Tavily, Brave, LangSearch. Fired in balanced and quality modes.",
+      "link": "/infrastructure/services#search-apis"
+    },
+    {
+      "id": "fetch-apis",
+      "label": "Fetch rescue APIs",
+      "kind": "external",
+      "description": "Jina Reader, Tavily Extract, Firecrawl: later tiers of the fetch tool's rescue chain.",
+      "link": "/infrastructure/services#search-apis"
+    },
+    {
+      "id": "mullvad",
+      "label": "Mullvad → engines",
+      "kind": "external",
+      "description": "WireGuard exit used only by SearXNG to reach Google CSE, Bing, DuckDuckGo etc. from a non-residential IP; rotated daily.",
+      "link": "/infrastructure/services#searxng-and-gluetun"
+    },
+    {
+      "id": "supabase",
+      "label": "Supabase Auth",
+      "kind": "external",
+      "description": "Hosted auth for prod and staging; sessions verified server-side with auth.getUser(). Lab doesn't use it.",
+      "link": "/infrastructure/services#supabase-auth"
+    },
+    {
+      "id": "replicate",
+      "label": "Replicate",
+      "kind": "external",
+      "description": "Image generation and editing (generateImage tool, authenticated users only).",
+      "link": "/infrastructure/services#replicate"
+    },
+    {
+      "id": "public-apis",
+      "label": "Open-Meteo / OSM / ipapi",
+      "kind": "external",
+      "description": "Weather forecast + geocoding, Nominatim location search, IP geolocation fallback for the weather widget.",
+      "link": "/infrastructure/services#other-public-apis"
+    }
+  ],
+  "edges": [
+    {
+      "from": "browser",
+      "to": "cloudflare",
+      "label": "HTTPS ask.hbqnexus.win"
+    },
+    {
+      "from": "cloudflare",
+      "to": "cloudflared",
+      "label": "tunnel"
+    },
+    {
+      "from": "cloudflared",
+      "to": "ask-prod",
+      "label": "localhost:3738"
+    },
+    {
+      "from": "browser",
+      "to": "ask-staging",
+      "label": "LAN :3739"
+    },
+    {
+      "from": "browser",
+      "to": "ask-lab",
+      "label": "LAN :3742"
+    },
+    {
+      "from": "operator",
+      "to": "model-manager",
+      "label": "ssh -L 3939"
+    },
+    {
+      "from": "operator",
+      "to": "h160",
+      "label": "SSH"
+    },
+    {
+      "from": "operator",
+      "to": "h171",
+      "label": "SSH"
+    },
+    {
+      "from": "operator",
+      "to": "h231",
+      "label": "SSH"
+    },
+    {
+      "from": "ask-prod",
+      "to": "postgres",
+      "label": "SQL as app_user (RLS)"
+    },
+    {
+      "from": "ask-prod",
+      "to": "redis",
+      "label": "cache / pub-sub / budgets"
+    },
+    {
+      "from": "ask-prod",
+      "to": "searxng",
+      "label": "search (quality)"
+    },
+    {
+      "from": "ask-prod",
+      "to": "ollama17",
+      "label": "answer model"
+    },
+    {
+      "from": "ask-prod",
+      "to": "reranker",
+      "label": "rerank"
+    },
+    {
+      "from": "ask-prod",
+      "to": "embedder",
+      "label": "embed"
+    },
+    {
+      "from": "ask-prod",
+      "to": "ollama171",
+      "label": "titles / memory / gist"
+    },
+    {
+      "from": "ask-prod",
+      "to": "supabase",
+      "label": "auth (getUser)"
+    },
+    {
+      "from": "ask-staging",
+      "to": "postgres",
+      "label": "SQL as app_user (RLS)"
+    },
+    {
+      "from": "ask-staging",
+      "to": "redis",
+      "label": "cache / pub-sub / budgets"
+    },
+    {
+      "from": "ask-staging",
+      "to": "searxng",
+      "label": "search (quality)"
+    },
+    {
+      "from": "ask-staging",
+      "to": "ollama17",
+      "label": "answer model"
+    },
+    {
+      "from": "ask-staging",
+      "to": "reranker",
+      "label": "rerank"
+    },
+    {
+      "from": "ask-staging",
+      "to": "embedder",
+      "label": "embed"
+    },
+    {
+      "from": "ask-staging",
+      "to": "ollama171",
+      "label": "titles / memory / gist"
+    },
+    {
+      "from": "ask-staging",
+      "to": "supabase",
+      "label": "auth (getUser)"
+    },
+    {
+      "from": "ask-lab",
+      "to": "postgres",
+      "label": "SQL as app_user (RLS)"
+    },
+    {
+      "from": "ask-lab",
+      "to": "redis",
+      "label": "cache / pub-sub / budgets"
+    },
+    {
+      "from": "ask-lab",
+      "to": "searxng",
+      "label": "search (quality)"
+    },
+    {
+      "from": "ask-lab",
+      "to": "ollama17",
+      "label": "answer model"
+    },
+    {
+      "from": "ask-lab",
+      "to": "reranker",
+      "label": "rerank"
+    },
+    {
+      "from": "ask-lab",
+      "to": "embedder",
+      "label": "embed"
+    },
+    {
+      "from": "ask-lab",
+      "to": "ollama171",
+      "label": "titles / memory / gist"
+    },
+    {
+      "from": "ask-lab",
+      "to": "ollama231",
+      "label": "classifier"
+    },
+    {
+      "from": "ask-staging",
+      "to": "ollama231",
+      "label": "classifier"
+    },
+    {
+      "from": "ask-prod",
+      "to": "ollama17",
+      "label": "classifier (prod)"
+    },
+    {
+      "from": "ask-prod",
+      "to": "crawl4ai",
+      "label": "crawl + fetch"
+    },
+    {
+      "from": "ask-lab",
+      "to": "crawl4ai",
+      "label": "crawl + fetch"
+    },
+    {
+      "from": "ask-staging",
+      "to": "crawl4ai",
+      "label": "crawl (misconfigured URL)"
+    },
+    {
+      "from": "ask-prod",
+      "to": "flaresolverr",
+      "label": "fetch tier (unresolvable)"
+    },
+    {
+      "from": "ask-prod",
+      "to": "whisper",
+      "label": "STT"
+    },
+    {
+      "from": "ask-prod",
+      "to": "tts",
+      "label": "TTS"
+    },
+    {
+      "from": "ask-prod",
+      "to": "search-apis",
+      "label": "search (balanced/quality)"
+    },
+    {
+      "from": "ask-prod",
+      "to": "ollama-cloud",
+      "label": "Ollama web search"
+    },
+    {
+      "from": "ask-prod",
+      "to": "fetch-apis",
+      "label": "fetch rescue"
+    },
+    {
+      "from": "ask-prod",
+      "to": "replicate",
+      "label": "image gen"
+    },
+    {
+      "from": "ask-prod",
+      "to": "public-apis",
+      "label": "weather / geo"
+    },
+    {
+      "from": "ask-prod",
+      "to": "degoog-env",
+      "label": "disabled"
+    },
+    {
+      "from": "ollama17",
+      "to": "ollama-cloud",
+      "label": "*:cloud"
+    },
+    {
+      "from": "ollama231",
+      "to": "ollama-cloud",
+      "label": "*:cloud"
+    },
+    {
+      "from": "searxng",
+      "to": "mullvad",
+      "label": "WireGuard egress"
+    },
+    {
+      "from": "ingestor",
+      "to": "ask-prod",
+      "label": "/api/ingest/* pull (bearer)"
+    },
+    {
+      "from": "ingestor",
+      "to": "ollama17",
+      "label": "qwen3-vl:4b captions/OCR"
+    },
+    {
+      "from": "model-manager",
+      "to": "ask-prod",
+      "label": "edit .env + recreate"
+    },
+    {
+      "from": "model-manager",
+      "to": "reranker",
+      "label": "SSH restart"
+    }
+  ]
+}
