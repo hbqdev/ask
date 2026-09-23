@@ -27,3 +27,18 @@ export interface RecallOptions {
    */
   minScore?: number
 }
+
+/**
+ * Output of recall's cheap retrieval stage (embed + both DB arms), input to
+ * its rerank stage. Split so the chat turn can retrieve speculatively while
+ * the classifier runs, without spending reranker GPU time on a query it may
+ * discard (see getRecallInjection / prefetchRecallCandidates).
+ */
+export interface RecallCandidates {
+  /** The query the candidates were retrieved for — and must be reranked against. */
+  query: string
+  /** Vector arm, cosine descending. */
+  vectorHits: RecallHit[]
+  /** Keyword (ILIKE) arm, recency order, score 0. */
+  keywordHits: RecallHit[]
+}
