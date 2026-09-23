@@ -61,4 +61,15 @@ describe('buildPlan', () => {
     expect(plan.touchedTargets).toHaveLength(0)
     expect(changes.find(c => c.key === 'TOTALLY_UNKNOWN_KEY')).toBeUndefined()
   })
+  it('rejects edits to a read-only key and never writes it', () => {
+    expect(
+      validateEdits({ EMBEDDING_MODEL: 'mixedbread-ai/mxbai-embed-large-v1' })
+    ).toEqual([{ key: 'EMBEDDING_MODEL', error: 'This setting is read-only' }])
+    const { plan, changes } = buildPlan(CURRENT, {
+      EMBEDDING_MODEL: 'mixedbread-ai/mxbai-embed-large-v1'
+    })
+    expect(plan.touchedTargets).toHaveLength(0)
+    expect(plan.askEnvText).not.toContain('EMBEDDING_MODEL')
+    expect(changes).toHaveLength(0)
+  })
 })

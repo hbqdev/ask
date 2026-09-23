@@ -34,7 +34,8 @@ describe('UPLOAD_TTL_DAYS', () => {
     expect(spec!.category).toBe('storage')
     expect(spec!.type).toBe('int')
     expect(spec!.required).toBeFalsy()
-    expect(spec!.default).toBe('14')
+    // Placeholder shows the code default: unset = expiry disabled.
+    expect(spec!.default).toBe('0')
   })
   it('validates as a non-negative integer (0 disables, negatives rejected)', () => {
     expect(spec!.validate!('14')).toBeNull()
@@ -42,6 +43,18 @@ describe('UPLOAD_TTL_DAYS', () => {
     expect(typeof spec!.validate!('-1')).toBe('string')
     expect(typeof spec!.validate!('3.5')).toBe('string')
     expect(typeof spec!.validate!('abc')).toBe('string')
+  })
+})
+
+describe('EMBEDDING_MODEL', () => {
+  const spec = specByKey('EMBEDDING_MODEL')
+  it('is read-only (stored vectors are locked to Qwen3), not a dropdown', () => {
+    expect(spec).toBeDefined()
+    expect(spec!.readOnly).toBe(true)
+    expect(spec!.type).not.toBe('enum')
+    expect(spec!.enumValues).toBeUndefined()
+    expect(spec!.default).toBe('Qwen/Qwen3-Embedding-0.6B')
+    expect(spec!.help).toMatch(/corrupt/i)
   })
 })
 
