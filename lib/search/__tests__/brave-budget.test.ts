@@ -1,5 +1,14 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
+// Keep the suite hermetic: when no client is injected, brave-budget falls back
+// to a real node-redis connection (localhost:6379), which hangs until the test
+// times out on a machine without Redis. Simulate "Redis unreachable" instead.
+vi.mock('redis', () => ({
+  createClient: vi.fn(() => ({
+    connect: vi.fn().mockRejectedValue(new Error('ECONNREFUSED'))
+  }))
+}))
+
 import {
   braveBudgetKey,
   braveMonthlyBudget,
@@ -129,9 +138,12 @@ describe('checkBraveBudget', () => {
   it('fails CLOSED when Redis is missing', async () => {
     // Skipping Brave costs one degraded search; unmetered spend against a paid
     // quota is unrecoverable.
+    vi.stubEnv('UPSTASH_REDIS_REST_URL', '')
+    vi.stubEnv('UPSTASH_REDIS_REST_TOKEN', '')
     await expect(checkBraveBudget(1, null, NOW)).resolves.toMatchObject({
       allowed: false
     })
+    vi.unstubAllEnvs()
   })
 
   it('fails CLOSED when the read throws', async () => {
