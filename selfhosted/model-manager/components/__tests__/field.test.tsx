@@ -33,13 +33,29 @@ describe('Field', () => {
   it('renders an enum as a listbox with the allowed options', () => {
     render(
       <Field
-        spec={specByKey('EMBEDDING_MODEL')!}
+        spec={specByKey('SEARCH_API')!}
         value=""
         onChange={() => {}}
         isSecretSet={false}
       />
     )
-    expect(screen.getByText(/embedding model/i)).toBeInTheDocument()
+    expect(screen.getByRole('combobox')).toBeInTheDocument()
+  })
+  it('renders EMBEDDING_MODEL read-only with its explanation, not a dropdown', () => {
+    const onChange = vi.fn()
+    render(
+      <Field
+        spec={specByKey('EMBEDDING_MODEL')!}
+        value="Qwen/Qwen3-Embedding-0.6B"
+        onChange={onChange}
+        isSecretSet={false}
+      />
+    )
+    expect(screen.queryByRole('combobox')).toBeNull()
+    const input = screen.getByRole('textbox') as HTMLInputElement
+    expect(input.readOnly).toBe(true)
+    expect(input.value).toBe('Qwen/Qwen3-Embedding-0.6B')
+    expect(screen.getByText(/silently corrupts memory/i)).toBeInTheDocument()
   })
   it('masks a secret that is set', () => {
     render(
