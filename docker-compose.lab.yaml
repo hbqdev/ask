@@ -162,7 +162,9 @@ services:
       # Shell-overridable; unset falls back to rotation.
       REPLICATE_IMAGE_EDIT_MODEL: ${REPLICATE_IMAGE_EDIT_MODEL:-google/nano-banana-2}
       CLASSIFIER_MODEL_ID: 'deepseek-v4-pro:cloud'
-      CLASSIFIER_OLLAMA_BASE_URL: 'http://192.168.50.231:11434'
+      # .17's Ollama, like prod: it holds the authenticated ollama.com proxy
+      # for :cloud models. (.231 no longer serves Ask; 2026-09-23.)
+      CLASSIFIER_OLLAMA_BASE_URL: 'http://192.168.50.17:11434'
       # Per-tool-call payload logging: the arms differ in WHICH tools they
       # call and in what order, which the [latency] line only counts.
       ENABLE_USAGE_LOGGING: 'true'
