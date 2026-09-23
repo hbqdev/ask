@@ -13,6 +13,7 @@ import path from 'node:path'
 // self-scope by an explicit userId param taken from the session. It therefore
 // uses the admin (RLS-bypassing) client — the restricted `db` would deny its
 // unscoped system queries once RLS is enforced.
+import { uploadTtlDays } from '@/lib/config/upload-ttl'
 import { dbAdmin as db } from '@/lib/db'
 // The `files` table is exported as `libraryFiles` in schema.ts (its SQL
 // table name is still "files"); alias on import so this module reads the
@@ -47,8 +48,15 @@ export async function createFileRecord(input: {
   objectKey: string
   mediaType: string
   size: number
-  status?: 'pending' | 'ready'
+  /**
+   * 'processing' = the upload route is indexing it in-process (fast path).
+   * The row is born claimed, so the ingestor's claim query (which takes
+   * 'pending' rows, or 'processing' ones only once their claim is stale) never
+   * picks it up concurrently. See FAST_PATH_STAGE.
+   */
+  status?: 'pending' | 'processing' | 'ready'
 }): Promise<{ id: string }> {
+  const status = input.status ?? 'pending'
   const [row] = await db
     .insert(files)
     .values({
@@ -59,10 +67,43 @@ export async function createFileRecord(input: {
       objectKey: input.objectKey,
       mediaType: input.mediaType,
       size: input.size,
-      status: input.status ?? 'pending'
+      status,
+      ...(status === 'processing'
+        ? { claimedAt: new Date(), ingestStage: FAST_PATH_STAGE }
+        : {})
     })
     .returning({ id: files.id })
   return row
+}
+
+/**
+ * ingest_stage of a row the upload route's in-process fast path is indexing.
+ *
+ * Before this, fast-path files were created 'pending' — exactly what the
+ * ingestor claims — so a worker poll landing while the fast path was still
+ * embedding could re-process the same file and overwrite its chunks. The
+ * claim query skips a 'processing' row until its claim is STALE_CLAIM_MINUTES
+ * old, which doubles as the safety net: if the app dies mid-index, the worker
+ * picks the file up once the claim goes stale.
+ */
+export const FAST_PATH_STAGE = 'fast-path'
+
+/**
+ * Hand a fast-path file to the worker: the fast path declined it (e.g. too
+ * little text) or failed. Back to 'pending' so the ingestor claims it, as it
+ * would have before. Guarded on the fast-path stage so it can never undo a
+ * worker's claim.
+ */
+export async function releaseFastPathToWorker(id: string): Promise<void> {
+  await db.execute(sql`
+    UPDATE files SET
+      status = 'pending',
+      claimed_at = NULL,
+      ingest_stage = NULL
+    WHERE id = ${id}
+      AND status = 'processing'
+      AND ingest_stage = ${FAST_PATH_STAGE}
+  `)
 }
 
 export async function findFileByObjectKey(
@@ -79,7 +120,13 @@ export async function findFileByObjectKey(
 export async function markFileReady(id: string): Promise<void> {
   await db
     .update(files)
-    .set({ status: 'ready', ingestedAt: new Date(), ingestError: null })
+    .set({
+      status: 'ready',
+      ingestedAt: new Date(),
+      ingestError: null,
+      ingestStage: null,
+      claimedAt: null
+    })
     .where(eq(files.id, id))
 }
 
@@ -217,14 +264,6 @@ export interface ExpireSummary {
 // can't turn one cron tick into an unbounded delete storm — the remainder is
 // reclaimed on the next run. Hitting the cap is logged, never silently dropped.
 const GC_DELETE_CAP = 500
-
-function uploadTtlDays(): number {
-  // Default 0 = disabled: the sweep is destructive, so operators must opt in
-  // with a positive UPLOAD_TTL_DAYS (prod sets 14 explicitly). An unset,
-  // zero, non-numeric, or non-positive value is a no-op.
-  const n = Number(process.env.UPLOAD_TTL_DAYS ?? 0)
-  return Number.isFinite(n) && n > 0 ? Math.floor(n) : 0
-}
 
 async function unlinkQuietly(p: string): Promise<number> {
   try {

@@ -5,15 +5,16 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 // outer `execute`/`select` must be created via vi.hoisted (same pattern as
 // lib/storage/__tests__/r2-client.test.ts) or the mock throws
 // "Cannot access 'execute' before initialization".
-const { execute, select } = vi.hoisted(() => ({
+const { execute, select, insert } = vi.hoisted(() => ({
   execute: vi.fn(),
-  select: vi.fn()
+  select: vi.fn(),
+  insert: vi.fn()
 }))
 // file-actions imports `dbAdmin` (the admin client). Point it at the same
 // mocked builders — the module aliases it to db internally.
 vi.mock('@/lib/db', () => ({
-  db: { execute, select },
-  dbAdmin: { execute, select }
+  db: { execute, select, insert },
+  dbAdmin: { execute, select, insert }
 }))
 
 const { stat, unlink, readdir } = vi.hoisted(() => ({
@@ -34,9 +35,12 @@ vi.mock('@/lib/embeddings/upload-rag', () => ({
 import {
   claimNextIngestJob,
   completeIngestFailure,
+  createFileRecord,
   expireIdleUploads,
+  FAST_PATH_STAGE,
   gcOrphanUploads,
-  getFileStatusesForUser
+  getFileStatusesForUser,
+  releaseFastPathToWorker
 } from '../file-actions'
 
 // Minimal fs.Dirent stand-in for the withFileTypes:true walk gcOrphanUploads
@@ -454,5 +458,72 @@ describe('gcOrphanUploads', () => {
     expect(removed).toBe(500)
     expect(warn).toHaveBeenCalled()
     warn.mockRestore()
+  })
+})
+
+// Duplicate-ingestion guard: the upload fast path indexes a file in-process;
+// the ingestor must not claim that same file meanwhile.
+describe('fast-path claim state', () => {
+  const dialect = new PgDialect()
+  beforeEach(() => vi.clearAllMocks())
+
+  function captureInsert() {
+    const values = vi.fn(() => ({
+      returning: async () => [{ id: 'f1' }]
+    }))
+    insert.mockReturnValue({ values })
+    return values
+  }
+  const base = {
+    userId: 'u1',
+    chatId: null,
+    filename: 'a.txt',
+    url: 'http://x/uploads/a.txt',
+    objectKey: 'u1/chats/c1/1-a.txt',
+    mediaType: 'text/plain',
+    size: 10
+  }
+
+  it('creates a fast-path row already claimed (processing + claimed_at + stage)', async () => {
+    const values = captureInsert()
+    await createFileRecord({ ...base, status: 'processing' })
+    const row = (values.mock.calls[0] as unknown[])[0] as Record<
+      string,
+      unknown
+    >
+    expect(row.status).toBe('processing')
+    expect(row.ingestStage).toBe(FAST_PATH_STAGE)
+    expect(row.claimedAt).toBeInstanceOf(Date)
+  })
+
+  it('creates a worker-path row as plain pending, unclaimed', async () => {
+    const values = captureInsert()
+    await createFileRecord(base)
+    const row = (values.mock.calls[0] as unknown[])[0] as Record<
+      string,
+      unknown
+    >
+    expect(row.status).toBe('pending')
+    expect(row).not.toHaveProperty('claimedAt')
+  })
+
+  it('the claim query only takes pending rows or STALE processing ones', async () => {
+    execute.mockResolvedValueOnce([]) // finalize-stuck sweep
+    execute.mockResolvedValueOnce([]) // claim UPDATE
+    await claimNextIngestJob()
+    const { sql } = dialect.sqlToQuery(execute.mock.calls[1][0])
+    expect(sql).toMatch(
+      /status = 'pending' OR \(\s*status = 'processing' AND\s*claimed_at < now\(\)/
+    )
+  })
+
+  it('releaseFastPathToWorker returns only a fast-path claim to pending', async () => {
+    execute.mockResolvedValueOnce([])
+    await releaseFastPathToWorker('f1')
+    const q = dialect.sqlToQuery(execute.mock.calls[0][0])
+    expect(q.sql).toMatch(/SET\s+status = 'pending'/)
+    expect(q.sql).toMatch(/status = 'processing'/)
+    expect(q.sql).toMatch(/ingest_stage = \$\d/)
+    expect(q.params).toEqual(expect.arrayContaining(['f1', FAST_PATH_STAGE]))
   })
 })
