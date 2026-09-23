@@ -50,6 +50,7 @@ describe('POST /api/voice/speak', () => {
     process.env.VOICE_ENABLED = 'true'
     vi.mocked(getCurrentUserId).mockResolvedValue('user-1')
     expect((await POST(req({}))).status).toBe(400)
-    expect((await POST(req({ text: 'x'.repeat(5001) }))).status).toBe(400)
+    // Cap is 20000 chars so read-aloud can speak a full answer.
+    expect((await POST(req({ text: 'x'.repeat(20001) }))).status).toBe(400)
   })
 })

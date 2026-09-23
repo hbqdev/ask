@@ -44,6 +44,19 @@ vi.mock('../news-article-widget', () => ({
   NewsArticleWidget: () => null
 }))
 
+// The empty-state Discover briefing fetches /api/discover on mount, which
+// would be counted by the ingest-polling tests' fetch mocks (and break on a
+// mock that resolves to undefined). It is not under test here.
+vi.mock('../discover-briefing', () => ({
+  DiscoverBriefing: () => null
+}))
+
+// The homepage three-body canvas animation needs a 2D canvas context, which
+// jsdom does not implement. Purely decorative, so stub it out.
+vi.mock('../ui/wild-breath-field', () => ({
+  WildBreathField: () => null
+}))
+
 vi.mock('../ui/wild-breath-logo', () => ({
   WildBreathLogo: () => <div data-testid="logo" />,
   WildBreathGlyph: ({ className }: { className?: string }) => (
