@@ -341,11 +341,15 @@ How Ask handles this:
   keeps it in the map** as an escape hatch. A wrong "no sources needed" decision
   should lead to an extra search, not an ungrounded answer.
 - `applyAnswerDeadline` (`lib/agents/answer-deadline.ts`) returns
-  `activeTools: []` after 200s together with a "TIME TO ANSWER — tools removed"
-  note. Because of the behavior above, what actually stops a late tool call is
-  the **instruction**, not the tool list. A model that ignores it can still run
-  `fetch` (a late `search` is still bounded by the round cap). *(Noted during
-  documentation, not tested.)*
+  `activeTools: []` after 200s together with a "TIME TO ANSWER" note. Because of
+  the behavior above, that alone only stops *advertising* tools, so the deadline
+  is also **enforced in `execute`**: `enforceAnswerDeadline` wraps every tool in
+  the researcher's `tools` map, and once the turn is past the deadline a call
+  returns a non-error "answer now" result (shaped like that tool's normal output)
+  without running, and logs `[deadline] refused <tool> call`. A test drives the
+  real SDK with a mock model that emits a `fetch` call under `activeTools: []` and
+  checks the tool never runs. (Fixed 2026-09-23; before that a late `fetch` still
+  ran.)
 
 ## Optimize the pipeline, not the model
 

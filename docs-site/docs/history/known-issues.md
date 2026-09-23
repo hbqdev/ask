@@ -19,7 +19,7 @@ thing.
 
 | Issue | Area | Severity | Owner action |
 |---|---|---|---|
-| [Pre-existing test failures](#pre-existing-test-failures) | tests | Low | code |
+| [Pre-existing test failures](#pre-existing-test-failures) | tests | ~~Low~~ fixed on lab 2026-09-23 | port |
 | [Shared secrets across environments](#shared-secrets-across-environments) | security | Med | ops |
 | [Secrets to rotate](#secrets-to-rotate) | security | Med | ops |
 | [Unauthenticated LAN services](#unauthenticated-lan-services) | security | Med | ops |
@@ -31,7 +31,7 @@ thing.
 | [Chain-of-thought flash in the live stream](#chain-of-thought-flash-in-the-live-stream) | UI | Low | accepted |
 | [Old answers with leaked reasoning stay leaked](#old-answers-with-leaked-reasoning-stay-leaked) | data | Low | manual |
 | [Serenity (.171) Ollama intermittently unreachable](#serenity-171-ollama-intermittently-unreachable) | fleet | Low–Med | ops |
-| [Stale mxbai embedding hints in code](#stale-mxbai-embedding-hints-in-code) | code | ~~Med~~ fixed 2026-09-22 (Model Manager dropdown still open) | code |
+| [Stale mxbai embedding hints in code](#stale-mxbai-embedding-hints-in-code) | code | ~~Med~~ fixed 2026-09-22 (Model Manager dropdown fixed on lab 2026-09-23, needs a rebuild) | code |
 | [Other stale comments and docs](#other-stale-comments-and-docs) | code | Low | code |
 | [Crop experiment data unread](#crop-experiment-data-unread) | search | Low | analysis |
 | [Delisted model picks keep being used](#delisted-model-picks-keep-being-used) | models | Low | by design |
@@ -44,14 +44,14 @@ thing.
 | [Serenity Ollama bound to loopback](#serenity-ollama-bound-to-loopback) | fleet | **High (live)** | ops |
 | [Retired .231 Ask stacks running again](#retired-231-ask-stacks-running-again) | fleet | ~~Med~~ fixed 2026-09-23 | done (volumes kept) |
 | [Unresolvable service hostnames](#unresolvable-service-hostnames) | config | ~~Med~~ fixed 2026-09-23 (all envs) | done |
-| [SearXNG failure empties a quality search](#searxng-failure-empties-a-quality-search) | search | Med | code |
-| [Legacy crawler has no SSRF guard](#legacy-crawler-has-no-ssrf-guard) | security | Low | code |
-| [Answer deadline does not block tools](#answer-deadline-does-not-block-tools) | chat | Low | code |
-| [Recall is dropped on most turns](#recall-is-dropped-on-most-turns) | memory | Med | code/tuning |
+| [SearXNG failure empties a quality search](#searxng-failure-empties-a-quality-search) | search | ~~Med~~ fixed on lab 2026-09-23 | port |
+| [Legacy crawler has no SSRF guard](#legacy-crawler-has-no-ssrf-guard) | security | ~~Low~~ fixed on lab 2026-09-23 | port |
+| [Answer deadline does not block tools](#answer-deadline-does-not-block-tools) | chat | ~~Low~~ fixed on lab 2026-09-23 | port |
+| [Recall is dropped on most turns](#recall-is-dropped-on-most-turns) | memory | ~~Med~~ fixed on lab 2026-09-23 | port |
 | [Unresolved citations](#unresolved-citations) | chat | Low–Med | analysis |
-| [Memory consolidation never runs](#memory-consolidation-never-runs) | memory | Med | code + ops |
-| [Home-started chats keep a stale last-viewed time](#home-started-chats-keep-a-stale-last-viewed-time) | sidebar | Low | code |
-| [Possible duplicate ingestion](#possible-duplicate-ingestion) | uploads | Low | code |
+| [Memory consolidation never runs](#memory-consolidation-never-runs) | memory | Med (code fixed on lab 2026-09-23; schedule pending) | port + ops |
+| [Home-started chats keep a stale last-viewed time](#home-started-chats-keep-a-stale-last-viewed-time) | sidebar | ~~Low~~ fixed on lab 2026-09-23 | port |
+| [Possible duplicate ingestion](#possible-duplicate-ingestion) | uploads | ~~Low~~ fixed on lab 2026-09-23 | port |
 | [Fleet automation drift](#fleet-automation-drift) | fleet | Low (mostly fixed 2026-09-23; host Node version open) | ops |
 
 ---
@@ -116,6 +116,12 @@ On NightFuryX (.17) these container names do not resolve, so each silently degra
 - When SearXNG and its fallback both reject, `advancedSearchXNGSearch` catches the error and returns
   **empty results — discarding the Tavily/Brave/LangSearch/Ollama results already gathered**.
 - **Fix sketch.** Treat SearXNG as one provider among several: on failure, continue with the others.
+- **Status: fixed on lab 2026-09-23 (uncommitted, not yet ported).** A SearXNG rejection or malformed
+  body now becomes an empty SearXNG share (`resolveSearxngContribution`,
+  `app/api/advanced-search/searxng-contribution.ts`), logged as `[searxng] advanced search failed,
+  continuing with the other providers`; `[latency:search]` carries `searxng=failed`. The degraded
+  result is returned but not cached. Tests: `app/api/advanced-search/__tests__/searxng-failure.test.ts`.
+
 
 ### Legacy crawler has no SSRF guard
 
@@ -124,6 +130,11 @@ On NightFuryX (.17) these container names do not resolve, so each silently degra
   route is token-gated and its URLs come from search engines, not users) but inconsistent with
   the `fetch` tool's guard.
 - **Fix sketch.** Route it through the same SSRF guard (and re-check each redirect hop).
+- **Status: fixed on lab 2026-09-23 (uncommitted, not yet ported).** `fetchHtml` moved to
+  `lib/utils/legacy-fetch-html.ts`; it runs `assertUrlAllowed` on the start URL and on every
+  redirect target before following it, and caps chains at 5. Residual: DNS-rebinding TOCTOU (as for
+  the `fetch` tool). Tests: `lib/utils/__tests__/legacy-fetch-html.test.ts`.
+
 
 ### Answer deadline does not block tools
 
@@ -132,13 +143,27 @@ On NightFuryX (.17) these container names do not resolve, so each silently degra
   [decisions](/history/decisions)). A late `fetch` can still run; its note to the model
   ("another tool call is impossible") is inaccurate.
 - **Fix sketch.** Enforce in the tool `execute` (as the search round cap does) or withhold tools.
+- **Status: fixed on lab 2026-09-23 (uncommitted, not yet ported).** `enforceAnswerDeadline`
+  (`lib/agents/answer-deadline.ts`) wraps every researcher tool's `execute`; past the deadline a call
+  returns a non-error "answer now" result shaped like the tool's normal output and logs
+  `[deadline] refused <tool> call`. The note now says further calls are refused. Tests drive the real
+  SDK with a mock model calling `fetch` under `activeTools: []`
+  (`lib/agents/__tests__/answer-deadline.test.ts`).
+
 
 ### Recall is dropped on most turns
 
 - Prod telemetry (46 recent turns): `recall_budget_hit=true` on 31; true `recall_ms` ≈ 5.5 s vs the
   1.5 s `RECALL_BUDGET_MS` cap. Past-conversation context rarely reaches the answer.
-- **Fix sketch.** Make recall itself faster (smaller rerank pool, cache) or accept and document it;
-  measure answer quality before raising the budget (it sits on time-to-first-token).
+- **Status: fixed on lab 2026-09-23 (uncommitted, not yet ported).** Two causes: the 8B reranker's
+  cost for 20 × 512-token passages (about 3.4 s alone), and the discarded speculative rerank
+  holding the GPU ahead of the refetch rerank (3.3 s → 5.0 s). Speculation now prefetches only the
+  embed and DB arms, and rerank runs once after `chooseRecall`. The default is 10 passages × 384
+  tokens (about 1.3 s, near-identical injected hits on 40 real queries). Lab after: recall p50
+  about 1.3 s, 0 of 5 budget hits. See
+  [memory & recall → recall latency](/knowledge/memory-recall#recall-latency).
+- **Port:** code only (no migration, no env change needed). Afterwards, confirm
+  `recall_budget_hit` on prod `[latency]` lines.
 
 ### Unresolved citations
 
@@ -152,6 +177,11 @@ On NightFuryX (.17) these container names do not resolve, so each silently degra
   (`lib/agents/memory-consolidator.ts:39`) lists users with the RLS-restricted `db`, which returns 0
   rows under `app_user` (`recall-backfill` correctly uses `dbAdmin`). Unverified at runtime.
 - **Fix sketch.** Use `dbAdmin` for the user listing; schedule the route (cron with the secret).
+- **Status: code fixed on lab 2026-09-23 (uncommitted, not yet ported); scheduling still open.**
+  The user listing now uses `dbAdmin`; per-user work stays RLS-scoped. The exact cron command is in
+  [memory & recall → how to schedule](/knowledge/memory-recall#how-to-schedule-memory-consolidation).
+  Tests: `lib/agents/__tests__/memory-consolidator.test.ts`.
+
 
 ### Home-started chats keep a stale last-viewed time
 
@@ -159,12 +189,21 @@ On NightFuryX (.17) these container names do not resolve, so each silently degra
   call `touchChat`. The sidebar reorders live, but after a reload the chat can sort lower than it
   should. See [client state](/request-lifecycle/client-state).
 - **Fix sketch.** Call `touchChat` for home-started chats too (after the row exists).
+- **Status: fixed on lab 2026-09-23 (uncommitted, not yet ported).** `safeSendMessage` bumps and
+  `touchChat`s a home-started chat's follow-ups (it has messages before the send), still with no
+  refresh event. See [client state](/request-lifecycle/client-state#known-gaps).
+
 
 ### Possible duplicate ingestion
 
 - The ingestor claims any `pending` file, so it can re-process a file the in-app fast path is still
   indexing and overwrite its chunks. Not observed in production. Fix: mark fast-path files
   `processing` before indexing.
+- **Status: fixed on lab 2026-09-23 (uncommitted, not yet ported).** Fast-path rows are created
+  `processing` with `ingest_stage='fast-path'` and a fresh `claimed_at`, which the claim query skips
+  until stale (30 min). Success → `ready`; declined or failed → `releaseFastPathToWorker` puts it
+  back to `pending` for the worker. See [RAG uploads](/knowledge/rag-uploads#fast-path-in-app).
+
 
 ### Fleet automation drift
 
@@ -172,8 +211,11 @@ On NightFuryX (.17) these container names do not resolve, so each silently degra
   worktree; `rebuild-ask.sh` exits 0 even when the app never returns 200 (read its `final` line);
   reranker and Whisper rely on "device 0 is the 2080 Ti" (no `CUDA_VISIBLE_DEVICES`); the ingestor
   directory is not in git and boot recovery reconciles only the prod ingestor; host Node is 20
-  while `engines` requires 22; `UPLOAD_TTL_DAYS` has two different code defaults (0 and 14); the
-  Model Manager offers an `EMBEDDING_MODEL` dropdown that would corrupt recall if changed.
+  while `engines` requires 22; ~~`UPLOAD_TTL_DAYS` has two different code defaults (0 and 14)~~
+  (fixed on lab 2026-09-23: one parser, `lib/config/upload-ttl.ts`, default 0 = disabled); ~~the
+  Model Manager offers an `EMBEDDING_MODEL` dropdown that would corrupt recall if changed~~ (fixed
+  in the flow-design copy 2026-09-23: read-only, apply rejects edits; the running Model Manager
+  needs a rebuild after porting).
 - **Status (2026-09-23).** Fixed: `ask-fleet-boot` is enabled on .171; `rotate-mullvad.sh`
   `pin`/`city` run from each env's own worktree; `rebuild-ask.sh` exits 1 and skips the reclaim
   when the app never returns 200; the reranker and Whisper are pinned to the 2080 Ti by UUID with
@@ -184,6 +226,14 @@ On NightFuryX (.17) these container names do not resolve, so each silently degra
 ## Tests
 
 ### Pre-existing test failures
+
+- **Status: fixed on lab 2026-09-23 (uncommitted, not yet ported).** `bun run test` on `flow-design`
+  is green: 224 files / 1,844 tests pass, 1 skipped. The stale expectations were updated to the
+  intended behaviour (granite4.2, think OFF by default, 20,000-character voice cap, the source
+  selector's `Select sources` trigger); `chat-panel` mocks the Discover briefing and the canvas field;
+  the SearXNG and Brave-budget tests mock Redis (the engine-health store, `redis`) so they no
+  longer hang on `localhost:6379`. No runtime code changed for this. The table below is the
+  pre-fix record.
 
 - **Symptom.** `bun run test` exits non-zero. On 2026-09-22 (lab `flow-design`): **7 files / 26
   tests fail**, 1,785 pass, 1 skipped. The same files and counts fail on a clean `dev` HEAD, so
@@ -474,7 +524,8 @@ These are decisions still pending, not bugs:
   ([D24](/history/decisions#d24-the-embedding-model-is-data-locked)).
 - **Status: fixed 2026-09-22** — comments and the error message in `lib/memory/write.ts`, the hint in
   `components/settings/memory-tab.tsx`, and `lib/embeddings/rerank.ts` now name Qwen3 and warn against
-  switching. Still open: the Model Manager's `EMBEDDING_MODEL` dropdown.
+  switching. The Model Manager's `EMBEDDING_MODEL` dropdown is now read-only in the flow-design
+  copy (2026-09-23); the running Model Manager needs a rebuild once ported.
 - **Original fix sketch.** Rewrite the comments and the error message to name Qwen3 and to warn against
   switching. The equivalent comment in `lib/memory/recall-index.ts` was already fixed in
   `8795e1b9`.
