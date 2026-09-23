@@ -325,7 +325,7 @@ export function MemoryTab() {
                       // hard failure rather than looping.
                       if ((res.messages ?? 0) > 0 && res.chunks === 0) {
                         toast.error(
-                          "Indexing isn't making progress — check that EMBEDDING_MODEL is set to mixedbread-ai/mxbai-embed-large-v1 and see server logs"
+                          "Indexing isn't making progress — check that the embedding service is reachable and see server logs"
                         )
                         break
                       }
