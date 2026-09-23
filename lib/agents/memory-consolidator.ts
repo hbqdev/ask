@@ -1,4 +1,4 @@
-import { db } from '@/lib/db'
+import { dbAdmin } from '@/lib/db'
 import {
   deleteMemory,
   evictOverCap,
@@ -36,7 +36,13 @@ export async function consolidateAllActiveUsers(): Promise<{
   merged: number
 }> {
   let merged = 0
-  const rows = await db
+  // Cross-user system read (every user id that has memories) — must use the
+  // admin client, as recall-backfill does. `db` connects as the restricted
+  // app_user role, and user_memories' RLS policy matches
+  // app.current_user_id, which is unset here, so `db` saw ZERO rows and the
+  // sweep silently did nothing. Only the id listing is admin; each user's
+  // dedup/evict below still runs RLS-scoped via withOptionalRLS.
+  const rows = await dbAdmin
     .selectDistinct({ userId: userMemories.userId })
     .from(userMemories)
   for (const { userId } of rows) {
