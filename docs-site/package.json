@@ -1,0 +1,20 @@
+{
+  "name": "ask-docs",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "docs:dev": "vitepress dev --host 0.0.0.0",
+    "docs:build": "vitepress build",
+    "docs:preview": "vitepress preview --host 0.0.0.0 --port 3750",
+    "gen": "bun scripts/gen/index.ts",
+    "check": "vitepress build && bun scripts/check-links.ts"
+  },
+  "devDependencies": {
+    "@paralleldrive/cuid2": "2.2.2",
+    "drizzle-orm": "0.45.2",
+    "mermaid": "11",
+    "vitepress": "1.6.4",
+    "vitepress-plugin-mermaid": "2.0.17",
+    "yaml": "^2.9.1"
+  }
+}

@@ -1,0 +1,15 @@
+# Ask docs site (LAN-only). From the repo root:
+#   docker compose -p ask-docs -f docs-site/docker-compose.yaml up -d --build
+# then open http://<host>:3750
+name: ask-docs
+
+services:
+  ask-docs:
+    build:
+      context: ..
+      dockerfile: docs-site/Dockerfile
+    image: ask-docs:latest
+    container_name: ask-docs
+    ports:
+      - '3750:80'
+    restart: unless-stopped

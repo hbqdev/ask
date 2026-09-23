@@ -1,5 +1,10 @@
 # CLAUDE.md
 
+> **Note:** much of this file is the upstream morphic guide and is stale for Ask (e.g. AI SDK version,
+> required keys, `/share/`, `models.json`). The authoritative, code-verified architecture and
+> operations documentation is in `docs-site/` (served on port 3750). Prefer it.
+
+
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
 ## Key Commands

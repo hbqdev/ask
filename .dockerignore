@@ -8,3 +8,7 @@ selfhosted/
 .superpowers/
 .claude/
 .git/
+
+# Standalone VitePress docs site: built by docs-site/Dockerfile, not part of
+# the Ask image.
+docs-site/

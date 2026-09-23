@@ -1,0 +1,28 @@
+# Build-context filter for docs-site/Dockerfile (context = repo root).
+# BuildKit uses <Dockerfile>.dockerignore next to the Dockerfile in preference
+# to the repo-root .dockerignore (which excludes docs-site/ from the APP image).
+# Whitelist: only what the generators and the VitePress build need.
+*
+!app/
+!lib/
+!components/
+!hooks/
+!config/
+!drizzle/
+!instrumentation*.ts
+!next.config.*
+!proxy.ts
+!docker-compose*.yaml
+!docs-site/
+
+# Never ship secrets or local state into the context — not even example files.
+**/.env
+**/.env.*
+**/.env*
+**/node_modules
+**/__tests__
+**/__bench__
+docs-site/.vitepress/dist
+docs-site/.vitepress/cache
+**/.git
+**/.claude

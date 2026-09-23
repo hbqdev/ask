@@ -1,0 +1,8 @@
+# Only used if you build with docs-site/ itself as the context (not the
+# supported path — the generators need the repo). The real filter for
+# `docker compose -f docs-site/docker-compose.yaml build` is
+# Dockerfile.dockerignore. Never let env files or local state in.
+**/.env*
+node_modules
+.vitepress/dist
+.vitepress/cache

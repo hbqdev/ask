@@ -45,3 +45,6 @@ lib/db/migrations/
 
 # Local agent scratch (gitignored)
 .superpowers/
+
+# Standalone VitePress docs site (own formatting; generated data/*.json)
+docs-site/
