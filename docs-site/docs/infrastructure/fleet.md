@@ -25,7 +25,7 @@ Hardware and OS were checked live on 2026-09-22 (`hostname`, `nvidia-smi`, `dock
 | **192.168.50.17** | NightFuryX | Windows + **WSL2** (Debian 13), **Docker Desktop** | Threadripper 3970X (32c/64t), 117 GB | RTX 2080 Ti **22 GB** (modded), Quadro P2200 5 GB, GTX 1070 8 GB | **App host**: prod/staging/lab stacks, Postgres, Redis, SearXNG+gluetun, reranker, Whisper STT, Kokoro TTS, ingestor workers, model-manager, Ollama (cloud proxy + VLM), cloudflared tunnel |
 | **192.168.50.160** | NightFuryS | Windows + WSL2, Docker Desktop | i7-12700 (20t), 58 GB | Quadro P4000 8 GB | GPU **embedder** (`:8788`) |
 | **192.168.50.171** | Serenity | Windows + WSL2, Docker Desktop | Xeon E5-2670 v3 (48t), 94 GB | Quadro P5000 16 GB | **Local LLM**: Ollama `granite4.2:8b` (`LOCAL_LLM_BASE_URL`) |
-| **192.168.50.231** | MiniNightFury | **Native Linux** (Linux Mint 22.3) | i7-12650H (16t), 31 GB | none | **crawl4ai** (`:11235`), public SearXNG (`:8127`) + public degoog (`:4444`), Ollama used by the staging/lab classifier, legacy (idle) Ask stacks |
+| **192.168.50.231** | MiniNightFury | **Native Linux** (Linux Mint 22.3) | i7-12650H (16t), 31 GB | none | **crawl4ai** (`:11235`), public SearXNG (`:8127`) + public degoog (`:4444`), FlareSolverr (`:8191`) |
 
 The three GPU boxes are WSL2. On them `nvidia-smi` is **not on `PATH`**; use
 `/usr/lib/wsl/lib/nvidia-smi`. Only .231 is native Linux.
@@ -51,7 +51,7 @@ The three GPU boxes are WSL2. On them `nvidia-smi` is **not on `PATH`**; use
 
 | GPU | Card | Runs | Pinned how |
 |---|---|---|---|
-| 0 | RTX 2080 Ti 22 GB | `reranker-qwen` (Qwen3-Reranker-8B, fp16) + `ask-whisper` (faster-distil-whisper-large-v3, int8_float16) | Compose `device_ids` only. That is **ignored under WSL2 GPU-PV**, so both land on CUDA device 0, which is the 2080 Ti |
+| 0 | RTX 2080 Ti 22 GB | `reranker-qwen` (Qwen3-Reranker-8B, fp16) + `ask-whisper` (faster-distil-whisper-large-v3, int8_float16) | `CUDA_VISIBLE_DEVICES=<GPU UUID>` in the container env (since 2026-09-23; compose `device_ids` alone is ignored under WSL2 GPU-PV) |
 | 1 | Quadro P2200 5 GB | `ask-tts` + `ask-tts-lab` (Kokoro) | `CUDA_VISIBLE_DEVICES=<GPU UUID>` in the container env |
 | 2 | GTX 1070 8 GB | Ollama `qwen3-vl:4b` (resident, `keep_alive=-1`) | `CUDA_VISIBLE_DEVICES=<GPU UUID>` in the `ollama` systemd unit |
 
@@ -70,9 +70,9 @@ non-vision model. See [RAG & uploads](/knowledge/rag-uploads).
 Under WSL2 GPU paravirtualisation, compose `deploy.resources.reservations.devices.device_ids` is
 **ignored**. Every container sees all three GPUs, and frameworks pick CUDA device 0. The only
 pinning that works is `CUDA_VISIBLE_DEVICES=<GPU-UUID>` (use UUIDs, because indexes reshuffle when
-cards change). The reranker and Whisper still depend on "device 0 is the 2080 Ti". If that stops
-being true, add explicit `CUDA_VISIBLE_DEVICES` to `reranker-qwen/docker-compose.yaml` and
-`whisper/docker-compose.yml`.
+cards change). All GPU consumers on .17 pin this way; the reranker and Whisper were added on
+2026-09-23 (`reranker-qwen/docker-compose.yaml`, `whisper/docker-compose.yml`). Before that they
+relied on "device 0 is the 2080 Ti".
 :::
 
 ## Ollama: native systemd on every host, not Docker
@@ -84,9 +84,9 @@ four hosts ran **0.34.2** on 2026-09-22.
 
 | Host | Bind | What Ask uses it for |
 |---|---|---|
-| .17 | `0.0.0.0:11434` | `OLLAMA_BASE_URL` (all envs) and prod's `CLASSIFIER_OLLAMA_BASE_URL`. It proxies `*:cloud` models to Ollama Cloud, and serves `qwen3-vl:4b` locally on the 1070 to the ingestors (`OLLAMA_URL=http://host.docker.internal:11434`). Unit env: `OLLAMA_KEEP_ALIVE=-1`, `OLLAMA_CONTEXT_LENGTH=8192` |
+| .17 | `0.0.0.0:11434` | `OLLAMA_BASE_URL` and `CLASSIFIER_OLLAMA_BASE_URL` (all envs). It proxies `*:cloud` models to Ollama Cloud, and serves `qwen3-vl:4b` locally on the 1070 to the ingestors (`OLLAMA_URL=http://host.docker.internal:11434`). Unit env: `OLLAMA_KEEP_ALIVE=-1`, `OLLAMA_CONTEXT_LENGTH=8192` |
 | .171 | `:11434` | `LOCAL_LLM_BASE_URL`: `granite4.2:8b` for titles, memory extraction, query-expansion fallback and voice gist |
-| .231 | `:11434` | `CLASSIFIER_OLLAMA_BASE_URL` for **staging and lab**. Their compose overlays hardcode it to `.231`. Prod's comes from `.env` and points at `.17` |
+| .231 | `:11434` | Not used by Ask since 2026-09-23 (it was the staging/lab classifier; their overlays now point at `.17`) |
 | .160 | `:11434` | Not used by Ask (nothing resident) |
 
 - **Cloud models are Ollama Cloud only.** "Cloud model" in Ask always means an `*:cloud` model
@@ -121,7 +121,7 @@ flowchart TD
   W --> O[ollama.service]
   W --> F["ask-fleet-boot.service (oneshot)<br/>~/ask-fleet-boot.sh"]
   F --> G["wait_docker: poll until engine is ready"]
-  G --> H["reconcile reranker, ingestor (prod), whisper<br/>warm qwen3-vl:4b + whisper model"]
+  G --> H["reconcile reranker, ingestors (prod/staging/lab), whisper<br/>warm qwen3-vl:4b + whisper model"]
   H --> I["sleep 15, then reconcile_app_stack × 3<br/>(prod / staging / lab, health-gated)"]
   I --> J["ensure_vpn_search × 3<br/>retry gluetun + searxng until healthy"]
   J --> K[reconcile model-manager]
@@ -157,16 +157,13 @@ on each host (unit file `fleet-boot/ask-fleet-boot.service`). It branches on `ho
 | NightFuryX | everything in the diagram above |
 | NightFuryS | reconcile `embedder` (it preloads its own model; 300 s start period) |
 | Serenity | warm `granite4.2:8b` |
-| MiniNightFury | reconcile `crawl4ai` |
+| MiniNightFury | reconcile `crawl4ai` and `flaresolverr` |
 
 ::: warning Gaps observed on 2026-09-22
-- `ask-fleet-boot` was **disabled** on Serenity (.171) (`systemctl is-enabled` → `disabled`). It
-  was enabled on .17, .160 and .231. Because granite loads on first request, the only effect is a
-  slower first local-LLM call after a reboot. To restore the warm-up:
-  `sudo systemctl enable ask-fleet-boot` on .171.
-- Only the **prod** ingestor is reconciled. `ingestor-staging` and `ingestor-lab` rely on
-  `restart: unless-stopped` alone. They have come back fine so far because they have no
-  tun/network race.
+- `ask-fleet-boot` was **disabled** on Serenity (.171). Re-enabled on 2026-09-23; it is now
+  enabled on all four hosts.
+- Only the **prod** ingestor was reconciled. Since 2026-09-23 `ingestor-staging` and
+  `ingestor-lab` are reconciled too.
 - The per-env degoog stacks are commented out (`ensure_degoog`) because degoog is disabled in
   every env.
 :::
@@ -182,23 +179,15 @@ on each host (unit file `fleet-boot/ask-fleet-boot.service`). It branches on `ho
   `ask/selfhosted/model-manager/keys/`) that it uses to restart the reranker. Its target is
   `nightfury@192.168.50.17` (loopback SSH, since the reranker is on the same host).
 
-## Legacy stacks on .231 (rollback net)
+## Legacy stacks on .231 (removed)
 
 Before the 2026-08-23 migration, .231 ran all three app stacks. They were kept as a rollback net,
-and on 2026-09-22 they were **running**, not stopped: `ask`, `ask-admin-feature` and `ask-lab`
-with their own Postgres/Redis/SearXNG/gluetun, started 2026-09-18. They received **no traffic**
-(no log lines in the previous 24 h), and nothing routes to them: the public tunnel points at .17.
-The .231 crontab still runs its own `ask-expire-uploads.sh` and the daily Mullvad rotation for
-those legacy gluetuns.
-
-::: warning Decommission deliberately
-These stacks hold a stale copy of user data and the same secrets as the live stacks, so they add
-attack surface without serving anyone. Decommissioning is an operator decision. When doing it:
-stop only the `ask*` containers, their Postgres/Redis/SearXNG/gluetun and `ask-tts-lab`, and remove
-the two legacy cron lines. **Leave `crawl4ai`, the public `searxng`/`searxng-gluetun` (`:8127`),
-`degoog-*` (`:4444`) and the .231 `cloudflared` alone.** Those serve other consumers (see
+came back at .231's 2026-09-16 boot through a stale boot script, and were **removed on
+2026-09-23** (containers and networks; their volumes were kept for an owner decision). The two
+legacy cron lines are gone too. See [runbooks → retired stacks](/operations/runbooks#retired-stacks-on-231).
+`crawl4ai`, FlareSolverr, the public `searxng`/`searxng-gluetun` (`:8127`), `degoog-*` (`:4444`)
+and the .231 `cloudflared` stay: they serve Ask or other consumers (see
 [Services → degoog](/infrastructure/services#degoog)).
-:::
 
 ## Unrelated workloads on the same hosts
 
