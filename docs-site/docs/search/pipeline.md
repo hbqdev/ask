@@ -266,11 +266,16 @@ Details that explain the design:
   `fetchSearxngJson` fails over to `SEARXNG_FALLBACK_API_URL`. Always request
   **page 1** (`SEARXNG_PAGENO`): the inherited `ceil(maxResults/10)` asked for
   page 2+, threw away the best results, and looked like a paginating bot.
-- **SearXNG is the quality tier's hard dependency.** If SearXNG (and its
-  fallback) rejects, the route throws inside `advancedSearchXNGSearch`, which
-  catches it and returns **an empty result set**. That also discards whatever
-  the API sources returned. Balanced never calls SearXNG in this route, so it
-  is unaffected.
+- **SearXNG is one provider among several.** If SearXNG (and its fallback)
+  rejects, is unconfigured, or returns a malformed body,
+  `resolveSearxngContribution` (`app/api/advanced-search/searxng-contribution.ts`)
+  turns it into an empty SearXNG share, logs `[searxng] advanced search failed,
+  continuing with the other providers`, and the search continues on
+  Tavily/Brave/LangSearch/Ollama/degoog. The `[latency:search]` line carries
+  `searxng=ok|failed`. Such a degraded result is returned but **not cached**, so
+  the SearXNG-less set is not pinned for the hour-long TTL. (Before 2026-09-23 a
+  SearXNG failure threw and the whole search came back empty, discarding the API
+  sources.) Balanced never calls SearXNG in this route.
 - **Images** come from the same SearXNG request (`categories=general,images`).
   A separate degoog image fetch exists but is off (`DEGOOG_IMAGES_ENABLED`).
   Basic searches no longer request the `images` category, because image
@@ -432,14 +437,15 @@ that resolve to private addresses. **Documented gaps:** redirect-based SSRF
 (a public URL that 302s to a private one), and DNS rebinding in the window
 between the check and the connection. See [Security](/infrastructure/security).
 
-::: warning The advanced route's legacy crawler is not behind the SSRF guard
-`crawlPage` → `fetchHtml` in `app/api/advanced-search/route.ts` does a raw
-`http(s).get` on search-result URLs, **follows redirects recursively**, and does
-not call `assertUrlAllowed`. The URLs come from search engines, not from the
-user, which narrows the risk, but a result that points at (or redirects to) a
-LAN address would be fetched from the app container. The crawl4ai sidecar
-receives the same URLs. *(Noted during documentation. Not verified as
-exploitable.)*
+::: info The advanced route's legacy crawler is behind the SSRF guard
+`crawlPage` → `fetchHtml` (`lib/utils/legacy-fetch-html.ts`) runs `assertUrlAllowed`
+on the start URL **and on every redirect target before following it**, and caps
+chains at 5 redirects (`LEGACY_FETCH_MAX_REDIRECTS`). A search result that points
+at, or redirects to, a LAN or metadata address is refused; the crawler records
+the error and the page is dropped like any other failed fetch. Residual: DNS
+rebinding between the check and the connect. The crawl4ai sidecar still receives
+the same URLs unchecked. (Fixed 2026-09-23; before that it used a raw
+`http(s).get` with unbounded recursive redirects and no guard.)
 :::
 
 ## Caching summary

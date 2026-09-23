@@ -140,6 +140,10 @@ The `fetch` tool retrieves URLs that users or the model name. `lib/utils/ssrf-gu
 - It resolves DNS (3 s timeout) and blocks hostnames that resolve to private addresses. A
   **resolver failure is allowed through**, because the real fetch would fail anyway.
 
+The advanced-search route's **legacy crawler** (`fetchHtml`, `lib/utils/legacy-fetch-html.ts`)
+uses the same guard and, unlike the `fetch` tool, **re-checks every redirect hop** before
+following it (max 5 redirects). It fetches search-result URLs, not user-named ones.
+
 **Known residuals (accepted, documented in the file header):**
 
 1. **Redirects aren't re-checked.** The guard runs once on the initial URL, and the fetch then
