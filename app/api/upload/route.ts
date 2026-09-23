@@ -5,7 +5,11 @@ import path from 'node:path'
 
 import { getCurrentUserId } from '@/lib/auth/get-current-user'
 import { isAllowedUpload } from '@/lib/config/upload-allowlist'
-import { createFileRecord, markFileReady } from '@/lib/db/file-actions'
+import {
+  createFileRecord,
+  markFileReady,
+  releaseFastPathToWorker
+} from '@/lib/db/file-actions'
 import { isTextFamily, processFileForRAG } from '@/lib/embeddings/upload-rag'
 import { signUploadUrl } from '@/lib/storage/upload-url-signing'
 
@@ -125,6 +129,7 @@ export async function POST(req: NextRequest) {
     const eligibleForFastPath =
       isTextFamily(mediaType, filename) && written <= FAST_PATH_MAX_BYTES
 
+    const initialStatus = eligibleForFastPath ? 'processing' : 'pending'
     let id: string
     try {
       ;({ id } = await createFileRecord({
@@ -141,7 +146,9 @@ export async function POST(req: NextRequest) {
         objectKey,
         mediaType,
         size: written,
-        status: 'pending'
+        // Fast-path files are born claimed ('processing') so the ingestor
+        // cannot pick up the same file while it is being indexed here.
+        status: initialStatus
       }))
     } catch (e) {
       // Don't leave an orphaned (up to 2GB) file on disk when the row never
@@ -152,9 +159,16 @@ export async function POST(req: NextRequest) {
 
     if (eligibleForFastPath) {
       // Fire-and-forget like today's chunking; typically done in seconds.
+      // Declined (false) or failed: hand the file back to the worker as
+      // 'pending', which is where it used to sit all along.
       processFileForRAG(absPath, mediaType, filename)
-        .then(ok => (ok ? markFileReady(id) : undefined))
-        .catch(err => console.error('[upload] fast path failed:', err))
+        .then(ok => (ok ? markFileReady(id) : releaseFastPathToWorker(id)))
+        .catch(async err => {
+          console.error('[upload] fast path failed:', err)
+          await releaseFastPathToWorker(id).catch(e =>
+            console.error('[upload] fast path release failed:', e)
+          )
+        })
     }
 
     return NextResponse.json(
@@ -166,7 +180,7 @@ export async function POST(req: NextRequest) {
           url: signedUrl,
           mediaType,
           objectKey,
-          status: 'pending',
+          status: initialStatus,
           type: 'file'
         }
       },
