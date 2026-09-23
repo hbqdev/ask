@@ -1,0 +1,225 @@
+[
+  {
+    "id": "submit",
+    "title": "Browser submits the prompt",
+    "actor": "browser",
+    "description": "The composer's form calls `onSubmit`, which builds the user message (text + uploaded file parts) and sends it through `safeSendMessage` → `useChat().sendMessage`. The transport POSTs `{ trigger, chatId, messageId, message, isNewChat, systemInstructions, voice }` to `/api/chat` (guests also send the full `messages` array). For a chat started on the homepage the URL is then `pushState`d to a fake `/search/<id>` while the Next.js route stays `/`, and a `chat-bump {isNew:true}` event inserts a placeholder row in the sidebar.",
+    "code": [
+      "components/chat.tsx:842",
+      "components/chat.tsx:491",
+      "components/chat.tsx:229",
+      "components/chat.tsx:870"
+    ],
+    "link": "/request-lifecycle/client-state#new-chat-flow"
+  },
+  {
+    "id": "route-auth",
+    "title": "Route: auth, guest gate, mode, model",
+    "actor": "next-route",
+    "description": "`POST /api/chat` validates the trigger, resolves the user (`getCurrentUserId`; anonymous mode maps everyone to one fixed id), rejects share pages, rejects guests unless `ENABLE_GUEST_CHAT=true`, reads the `searchMode` cookie (default `balanced`) and `sources` cookie (default `['web']`), and picks the model with `selectModel` (an authenticated user's saved pick beats the default). Rate limiters only act when `MORPHIC_CLOUD_DEPLOYMENT=true`, so on self-hosted Ask they are no-ops.",
+    "code": [
+      "app/api/chat/route.ts:38",
+      "app/api/chat/route.ts:103",
+      "app/api/chat/route.ts:113",
+      "app/api/chat/route.ts:186",
+      "lib/rate-limit/guest-limit.ts:34"
+    ],
+    "link": "/request-lifecycle/chat-turn#_2-route-entry-auth-gates-model"
+  },
+  {
+    "id": "abort-wiring",
+    "title": "Abort wiring: survive disconnects, obey Stop",
+    "actor": "next-route",
+    "description": "An authenticated turn registers an in-memory kill controller (`registerGeneration`, which also aborts any older turn of the same chat as 'superseded') and runs under `AbortSignal.any([kill, timeout(300s)])` — deliberately NOT `req.signal`, so a backgrounded mobile tab keeps generating. Guests use `req.signal` + timeout and go to the non-persisting ephemeral path.",
+    "code": [
+      "app/api/chat/route.ts:49",
+      "app/api/chat/route.ts:223",
+      "lib/streaming/active-generations.ts:40"
+    ],
+    "link": "/request-lifecycle/streaming#disconnect-survival"
+  },
+  {
+    "id": "load-chat",
+    "title": "Load chat + ownership check",
+    "actor": "postgres",
+    "description": "For a follow-up (`isNewChat` false) the stream first waits (≤5s) for a just-Stopped turn to finish saving its partial, then reads the chat with `loadChatUncached` — never the cached `loadChat`, whose stale-while-revalidate snapshot can omit the previous answer. A chat that doesn't load, or belongs to someone else, gets 403 (fail closed). New chats skip the read.",
+    "code": [
+      "lib/streaming/create-chat-stream-response.ts:165",
+      "lib/streaming/create-chat-stream-response.ts:172",
+      "lib/actions/chat.ts:156"
+    ],
+    "link": "/request-lifecycle/chat-turn#_3-load-chat-and-ownership"
+  },
+  {
+    "id": "prepare",
+    "title": "Persist the user message",
+    "actor": "postgres",
+    "description": "`prepareMessages` builds the transcript. New chat: `createChatWithFirstMessage` is fired in the background (the chat row + first user message; the turn does not wait for it). Follow-up: the user message is upserted synchronously and appended to the loaded history. Regenerate/edit: messages after the target are deleted and the in-memory history is truncated.",
+    "code": [
+      "lib/streaming/helpers/prepare-messages.ts:21",
+      "lib/streaming/helpers/prepare-messages.ts:99",
+      "lib/streaming/helpers/prepare-messages.ts:133"
+    ],
+    "link": "/request-lifecycle/chat-turn#_4-prepare-messages"
+  },
+  {
+    "id": "classifier-kickoff",
+    "title": "Classifier + speculative recall start in parallel",
+    "actor": "classifier",
+    "description": "`classifyQuery` (fixed classifier model, soft budget `CLASSIFIER_BUDGET_MS`=4s, hard 10s) returns `skipSearch / needsSources / needsRecent / intent / standaloneQuery` plus fused `expandedQueries`. It is bypassed (always search) when the message contains a URL, on Retry/regenerate, and in speed mode. Past-conversation recall is started speculatively on the raw message at the same moment (skipped in speed mode).",
+    "code": [
+      "lib/streaming/create-chat-stream-response.ts:271",
+      "lib/streaming/create-chat-stream-response.ts:274",
+      "lib/streaming/create-chat-stream-response.ts:310",
+      "lib/agents/query-classifier.ts:245"
+    ],
+    "link": "/request-lifecycle/chat-turn#_5-classifier"
+  },
+  {
+    "id": "stream-open",
+    "title": "SSE opens; attachments + history pruning",
+    "actor": "next-route",
+    "description": "Everything after this runs inside `createUIMessageStream.execute`, so the browser gets a `start` chunk immediately and waits appear as visible steps (`data-attachments`, `data-classifier`). File parts are transformed (PDF/doc RAG excerpts, images to data URIs, ingest wait), then `convertToModelMessages` → `pruneMessages` (drops tool calls older than the last 2 messages, reasoning before the last message) → token-based truncation against the model's probed context window.",
+    "code": [
+      "lib/streaming/create-chat-stream-response.ts:334",
+      "lib/streaming/create-chat-stream-response.ts:388",
+      "lib/streaming/create-chat-stream-response.ts:426",
+      "lib/streaming/create-chat-stream-response.ts:435"
+    ],
+    "link": "/request-lifecycle/chat-turn#_6-inside-the-stream-attachments-pruning-truncation"
+  },
+  {
+    "id": "title",
+    "title": "Title generation (new chats, off the critical path)",
+    "actor": "model",
+    "description": "For a new chat, `generateChatTitle` runs in parallel on a small local model (8s timeout, falls back to 'Untitled'). The moment it resolves it is streamed as a `data-title` part so the header and sidebar can show it; it is persisted only in `onFinish`.",
+    "code": [
+      "lib/streaming/create-chat-stream-response.ts:449",
+      "lib/agents/title-generator.ts:36"
+    ]
+  },
+  {
+    "id": "recall-race",
+    "title": "Await classifier, race recall against its budget",
+    "actor": "classifier",
+    "description": "The classification is awaited (`classify_ms`). `chooseRecall` decides: `gated` (skipSearch → no recall), `speculative` (standalone query equals the raw text → reuse the in-flight promise) or `refetch` (rewritten query → fresh recall). The recall work is raced against `RECALL_BUDGET_MS` (1.5s); on expiry the turn proceeds with no recall and `recall_budget_hit=true` is logged.",
+    "code": [
+      "lib/streaming/create-chat-stream-response.ts:482",
+      "lib/streaming/helpers/choose-recall.ts:12",
+      "lib/streaming/create-chat-stream-response.ts:528"
+    ],
+    "link": "/request-lifecycle/chat-turn#_7-recall-race"
+  },
+  {
+    "id": "doc-injection",
+    "title": "Attached docs & pasted URLs become citable sources",
+    "actor": "rerank",
+    "description": "Ranked document chunks (from `transformFileParts`) and this turn's pasted URLs (`retrieveUrlChunks`) are deduped, capped at 8 sources, token-budgeted against the remaining context window (`budgetDocumentSources`), and injected as synthetic `documentRetrieval` tool calls: a UI part streamed to the browser plus a model-message pair appended AFTER truncation, so the answer can cite `[1](#<toolCallId>)`.",
+    "code": [
+      "lib/streaming/create-chat-stream-response.ts:625",
+      "lib/streaming/create-chat-stream-response.ts:724",
+      "lib/streaming/create-chat-stream-response.ts:755"
+    ],
+    "link": "/knowledge/rag-uploads"
+  },
+  {
+    "id": "turn-mode",
+    "title": "Researcher agent: pick the turn mode",
+    "actor": "researcher",
+    "description": "`resolveTurnMode` picks `direct` (skipSearch: answer from the conversation, 10 steps), `stable-knowledge` (needsSources and needsRecent both false: answer from knowledge, `search` not advertised, 10 steps) or `research` (speed 20 / balanced 50 / quality 100 steps). `activeTools` only ADVERTISES tools — the full tools map still executes whatever the model calls, which is why `search` stays in the map as an escape hatch.",
+    "code": [
+      "lib/agents/researcher.ts:142",
+      "lib/agents/researcher.ts:570",
+      "lib/agents/researcher.ts:770",
+      "lib/agents/researcher.ts:822"
+    ],
+    "link": "/request-lifecycle/chat-turn#_9-turn-mode-and-tools"
+  },
+  {
+    "id": "tool-loop",
+    "title": "Tool loop: search / fetch / calculate / …",
+    "actor": "search",
+    "description": "The `ToolLoopAgent` streams: each step either calls tools or emits the final text (no forced `toolChoice`; the loop ends on plain text). `search` fans out to providers, crawls and reranks (see Search pipeline); after `SEARCH_ROUNDS_MAX` rounds (3; quality 5) it returns an empty result telling the model to answer. `prepareStep` applies the answer deadline: after 200s all tools are removed and the model is told to answer now, so the 300s ceiling never produces a blank turn.",
+    "code": [
+      "lib/tools/search.ts:306",
+      "lib/tools/search.ts:381",
+      "lib/agents/researcher.ts:846",
+      "lib/agents/answer-deadline.ts:40"
+    ],
+    "link": "/search/pipeline"
+  },
+  {
+    "id": "crawl-rerank",
+    "title": "Crawl + rerank inside a search call",
+    "actor": "crawl",
+    "description": "Depending on mode, a search call crawls link-only results via crawl4ai and reranks passages (remote cross-encoder, or local bi-encoder in speed mode) before excerpting. Stage timings (`search_ms`, `crawl_ms`, `rerank_ms`) are folded into the turn's `[latency]` line via `onToolTiming`. Full crawled text is kept aside in `fullContentSink` for persistence.",
+    "code": [
+      "lib/streaming/create-chat-stream-response.ts:802",
+      "lib/streaming/create-chat-stream-response.ts:332"
+    ],
+    "link": "/search/pipeline"
+  },
+  {
+    "id": "answer-stream",
+    "title": "Answer streams to the browser",
+    "actor": "model",
+    "description": "`researchAgent.stream({ experimental_transform: smoothAndStripNarration() })` buffers the start of each text part until a `## ` heading appears and drops 'thinking out loud' preambles. The agent's UI stream is merged into the response (`sendStart:false`). The response is SSE with `Cache-Control: no-cache, no-transform`; a tee'd copy is mirrored to Redis for resume. The browser throttles re-renders to 100ms.",
+    "code": [
+      "lib/streaming/create-chat-stream-response.ts:858",
+      "lib/streaming/create-chat-stream-response.ts:898",
+      "lib/streaming/create-chat-stream-response.ts:1169",
+      "lib/streaming/helpers/smooth-and-strip-narration.ts:57"
+    ],
+    "link": "/request-lifecycle/streaming"
+  },
+  {
+    "id": "resumable",
+    "title": "Mirror the SSE to Redis (resumable stream)",
+    "actor": "redis",
+    "description": "`consumeSseStream` sets the pointer `ask:chat:{chatId}:activeStream` (TTL 300s) and hands the stream to `resumable-stream`, which publishes it over Redis pub/sub. A reconnecting client (`GET /api/chat/{id}/stream`) replays a still-live turn from its first chunk; a finished turn yields 204 and the client reloads the saved conversation.",
+    "code": [
+      "lib/streaming/create-chat-stream-response.ts:1186",
+      "lib/streaming/resumable-stream-context.ts:17",
+      "app/api/chat/[chatId]/stream/route.ts:18"
+    ],
+    "link": "/request-lifecycle/streaming#resumable-streams"
+  },
+  {
+    "id": "on-finish",
+    "title": "onFinish: persist the answer",
+    "actor": "persist",
+    "description": "`onFinish` unregisters the kill controller, emits the `[latency]` line, then: aborted-but-not-user-Stop → discard; user Stop → sanitize the partial and skip if a newer turn already exists; otherwise strip narration, rehydrate full crawled content, and `persistStreamResults` (strips live-only `data-recall` chips, waits for the initial chat row, upserts with retry, writes the title).",
+    "code": [
+      "lib/streaming/create-chat-stream-response.ts:931",
+      "lib/streaming/create-chat-stream-response.ts:985",
+      "lib/streaming/create-chat-stream-response.ts:1024",
+      "lib/streaming/helpers/persist-stream-results.ts:14"
+    ],
+    "link": "/request-lifecycle/streaming#persistence"
+  },
+  {
+    "id": "memory-recall",
+    "title": "Memory extraction + recall indexing (async)",
+    "actor": "postgres",
+    "description": "Fire-and-forget after persistence: `extractMemories` + `saveCandidates` write durable user facts (unless `MEMORY_ENABLED=off` or the user disabled memory; one `[memory]` log line per turn), and `indexMessage` embeds the user question and the final answer text into `conversation_chunks` for future recall (unless `RECALL_ENABLED=off`). Neither can fail the turn.",
+    "code": [
+      "lib/streaming/create-chat-stream-response.ts:1056",
+      "lib/streaming/create-chat-stream-response.ts:1114",
+      "lib/memory/recall-index.ts:36"
+    ],
+    "link": "/knowledge/memory-recall"
+  },
+  {
+    "id": "client-finish",
+    "title": "Browser settles the turn",
+    "actor": "browser",
+    "description": "`useChat.onFinish` fires. A home-started chat sends a final `chat-bump {title,isNew}` (optimistic sidebar update, never a refresh — refreshing a pushState'd URL would remount the chat). A chat on its real `/search/<id>` route dispatches `chat-history-updated`, which the sidebar turns into a debounced `router.refresh()` — held back while any stream is still active.",
+    "code": [
+      "components/chat.tsx:277",
+      "components/app-sidebar.tsx:79",
+      "components/app-sidebar.tsx:185",
+      "lib/streaming/stream-activity.ts:19"
+    ],
+    "link": "/request-lifecycle/client-state#refresh-invariants"
+  }
+]

@@ -42,6 +42,8 @@ export default defineConfig([
     'build/**',
     'next-env.d.ts',
     // Separate standalone app; it lints under its own config.
-    'selfhosted/model-manager/**'
+    'selfhosted/model-manager/**',
+    // Standalone VitePress docs site; not part of the app.
+    'docs-site/**'
   ])
 ])

@@ -38,7 +38,9 @@ export default defineConfig({
     exclude: [
       ...defaultExclude,
       '**/.claude/**',
-      '**/selfhosted/model-manager/**'
+      '**/selfhosted/model-manager/**',
+      // Standalone VitePress docs site (own deps, no app tests).
+      '**/docs-site/**'
     ]
   }
 })
