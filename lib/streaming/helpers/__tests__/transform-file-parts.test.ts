@@ -440,6 +440,26 @@ describe('transformFileParts', () => {
     }
   })
 
+  it('expired note names no duration when UPLOAD_TTL_DAYS is unset (same default as the sweep: disabled)', async () => {
+    const prev = process.env.UPLOAD_TTL_DAYS
+    delete process.env.UPLOAD_TTL_DAYS
+    try {
+      vi.mocked(findFileByObjectKey).mockResolvedValue({
+        status: 'expired'
+      } as any)
+      const result = await run([filePart('u1/chats/c1/expired-notxt.txt')])
+      expect(result).toEqual([
+        {
+          type: 'text',
+          text: '[Attached file: expired-notxt.txt — this upload expired and is no longer available. Tell the user to re-upload it to ask about it again.]'
+        }
+      ])
+    } finally {
+      if (prev === undefined) delete process.env.UPLOAD_TTL_DAYS
+      else process.env.UPLOAD_TTL_DAYS = prev
+    }
+  })
+
   it('vision model: expired image still yields the re-upload note, never the base64 (bytes are gone)', async () => {
     const prev = process.env.UPLOAD_TTL_DAYS
     process.env.UPLOAD_TTL_DAYS = '14'
