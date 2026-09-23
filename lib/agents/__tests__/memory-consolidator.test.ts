@@ -1,6 +1,23 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
-import { consolidateUser } from '../memory-consolidator'
+import {
+  consolidateAllActiveUsers,
+  consolidateUser
+} from '../memory-consolidator'
+
+// Two clients, told apart: `db` stands for the RLS-restricted app_user
+// connection (sees NO user_memories rows without app.current_user_id), and
+// `dbAdmin` for the owner connection that can list every user.
+const { adminSelectDistinct, restrictedSelectDistinct } = vi.hoisted(() => ({
+  adminSelectDistinct: vi.fn(() => ({
+    from: async () => [{ userId: 'user-a' }, { userId: 'user-b' }]
+  })),
+  restrictedSelectDistinct: vi.fn(() => ({ from: async () => [] }))
+}))
+vi.mock('@/lib/db', () => ({
+  db: { selectDistinct: restrictedSelectDistinct },
+  dbAdmin: { selectDistinct: adminSelectDistinct }
+}))
 
 vi.mock('@/lib/db/memory-actions', () => ({
   listMemories: vi.fn(),
@@ -164,5 +181,29 @@ describe('consolidateUser', () => {
     await consolidateUser(userId)
 
     expect(mockEvictOverCap).toHaveBeenCalledWith(userId, 30)
+  })
+})
+
+describe('consolidateAllActiveUsers', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    mockListMemories.mockResolvedValue([])
+    mockEvictOverCap.mockResolvedValue(undefined)
+  })
+
+  it('lists users with the admin client, not the RLS-restricted one', async () => {
+    const result = await consolidateAllActiveUsers()
+    expect(adminSelectDistinct).toHaveBeenCalledOnce()
+    expect(restrictedSelectDistinct).not.toHaveBeenCalled()
+    expect(result.users).toBe(2)
+  })
+
+  it('still does each user’s work through the per-user (RLS-scoped) actions', async () => {
+    await consolidateAllActiveUsers()
+    expect(mockListMemories.mock.calls.map(c => c[0])).toEqual([
+      'user-a',
+      'user-b'
+    ])
+    expect(mockEvictOverCap).toHaveBeenCalledTimes(2)
   })
 })
