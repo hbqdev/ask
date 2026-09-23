@@ -2,6 +2,7 @@ import type { UIMessage } from 'ai'
 import { promises as fs } from 'node:fs'
 import path from 'node:path'
 
+import { uploadTtlDays } from '@/lib/config/upload-ttl'
 import { findFileByObjectKey } from '@/lib/db/file-actions'
 import { queryFileChunks } from '@/lib/embeddings/upload-rag'
 import { isIngestorAlive } from '@/lib/utils/ingest-heartbeat'
@@ -158,11 +159,15 @@ async function transformPart(
   // included). Return the re-upload note here, before the vision/base64 and
   // pending/failed gates, so we never read the (missing) file or query chunks.
   if (status === 'expired') {
-    const days = Number(process.env.UPLOAD_TTL_DAYS ?? 14)
+    // Same parse as the sweep (0 = disabled). A row can be 'expired' while
+    // the TTL now reads 0 (expiry turned off after the sweep ran), so only
+    // name a duration when one is actually configured.
+    const days = uploadTtlDays()
+    const after = days > 0 ? ` after ${days} days of chat inactivity` : ''
     return [
       {
         type: 'text',
-        text: `[Attached file: ${filename} — this upload expired after ${days} days of chat inactivity and is no longer available. Tell the user to re-upload it to ask about it again.]`
+        text: `[Attached file: ${filename} — this upload expired${after} and is no longer available. Tell the user to re-upload it to ask about it again.]`
       }
     ]
   }
