@@ -42,8 +42,8 @@ thing.
 | [Mobile keyboard / composer on real devices](#mobile-keyboard-composer-on-real-devices) | UI | Low | verify |
 | [Lab archive tag missing](#lab-archive-tag-missing) | git | Low | info |
 | [Serenity Ollama bound to loopback](#serenity-ollama-bound-to-loopback) | fleet | **High (live)** | ops |
-| [Retired .231 Ask stacks running again](#retired-231-ask-stacks-running-again) | fleet | Med | ops |
-| [Unresolvable service hostnames](#unresolvable-service-hostnames) | config | Med | config |
+| [Retired .231 Ask stacks running again](#retired-231-ask-stacks-running-again) | fleet | ~~Med~~ fixed 2026-09-23 | done (volumes kept) |
+| [Unresolvable service hostnames](#unresolvable-service-hostnames) | config | ~~Med~~ fixed 2026-09-23 (all envs) | done |
 | [SearXNG failure empties a quality search](#searxng-failure-empties-a-quality-search) | search | Med | code |
 | [Legacy crawler has no SSRF guard](#legacy-crawler-has-no-ssrf-guard) | security | Low | code |
 | [Answer deadline does not block tools](#answer-deadline-does-not-block-tools) | chat | Low | code |
@@ -52,7 +52,7 @@ thing.
 | [Memory consolidation never runs](#memory-consolidation-never-runs) | memory | Med | code + ops |
 | [Home-started chats keep a stale last-viewed time](#home-started-chats-keep-a-stale-last-viewed-time) | sidebar | Low | code |
 | [Possible duplicate ingestion](#possible-duplicate-ingestion) | uploads | Low | code |
-| [Fleet automation drift](#fleet-automation-drift) | fleet | Med | ops |
+| [Fleet automation drift](#fleet-automation-drift) | fleet | Low (mostly fixed 2026-09-23; host Node version open) | ops |
 
 ---
 
@@ -83,6 +83,14 @@ not yet fixed unless stated.
 - **Fix sketch.** Stop and remove them (keep: crawl4ai, public SearXNG `:8127`, degoog `:4444`,
   cloudflared), update .231's boot script, prune its crontab, add .231 to `deploy.sh`.
   See [runbooks](/operations/runbooks).
+- **Status: fixed 2026-09-23.** All 16 containers of `ask-stack`, `ask-stack-admin-feature` and
+  `ask-stack-lab` on .231 (app, Postgres, Redis, SearXNG, gluetun, `ask-tts-lab`) were stopped and
+  removed, along with their three `_default` networks. **Their volumes were kept** for an owner
+  decision (`ask-postgres-data`, `-admin-feature`, `-lab` at ~49 MB each; the redis, uploads,
+  model-cache and searxng volumes are empty or a few bytes). .231's `~/ask-fleet-boot.sh` now
+  matches the repo (it reconciles only `crawl4ai` and `flaresolverr`), `fleet-boot/deploy.sh`
+  includes .231, and the .231 crontab no longer runs `ask-expire-uploads.sh`. Its rotation cron
+  now runs `~/fleet-boot/rotate-daily.sh public-searxng degoog`.
 
 ### Unresolvable service hostnames
 
@@ -96,6 +104,12 @@ On NightFuryX (.17) these container names do not resolve, so each silently degra
 
 - **Fix sketch.** Point them at LAN IPs (or remove the dead tiers); remove the staging overlay pin.
   Related: staging/lab overlays point the classifier at `.231:11434` while prod uses `.17`.
+- **Status: fixed 2026-09-23 (prod, staging, lab).** The staging overlay pin is gone, so staging
+  inherits `.env`'s `CRAWL4AI_URL=http://192.168.50.231:11235`. FlareSolverr on .231 now also
+  publishes on `192.168.50.231:8191`, and every env sets `FLARESOLVERR_URL=http://192.168.50.231:8191`.
+  Prod and staging set `SEARXNG_FALLBACK_API_URL=http://192.168.50.231:8127` (the public SearXNG);
+  lab keeps its fallback disabled. The staging and lab classifiers use `.17:11434`, like prod.
+  Checked from inside each app container: all four targets return 200.
 
 ### SearXNG failure empties a quality search
 
@@ -160,6 +174,12 @@ On NightFuryX (.17) these container names do not resolve, so each silently degra
   directory is not in git and boot recovery reconciles only the prod ingestor; host Node is 20
   while `engines` requires 22; `UPLOAD_TTL_DAYS` has two different code defaults (0 and 14); the
   Model Manager offers an `EMBEDDING_MODEL` dropdown that would corrupt recall if changed.
+- **Status (2026-09-23).** Fixed: `ask-fleet-boot` is enabled on .171; `rotate-mullvad.sh`
+  `pin`/`city` run from each env's own worktree; `rebuild-ask.sh` exits 1 and skips the reclaim
+  when the app never returns 200; the reranker and Whisper are pinned to the 2080 Ti by UUID with
+  `CUDA_VISIBLE_DEVICES`; `/home/nightfury/selfhosted/ingestor` is a git repo (env files not
+  tracked); and boot recovery reconciles all three ingestors. Still open: host Node 20 while
+  `engines` requires 22.
 
 ## Tests
 

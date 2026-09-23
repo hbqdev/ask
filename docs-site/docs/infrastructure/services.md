@@ -35,7 +35,7 @@ quality mode, SearXNG** (the only fan-out source whose rejection throws).
 | [Kokoro TTS](#kokoro-tts) | .17 : 8890 (lab 3744) | **none** | `TTS_SERVICE_URL` | Read-aloud → 503 |
 | [Ingestor workers](#ingestor-workers) | .17, no port (pulls) | Bearer `INGEST_API_TOKEN` → app | `ASK_URL`, `INGEST_API_TOKEN`, `OLLAMA_URL` | Non-text uploads stay pending; user told "processing is down" |
 | [crawl4ai](#crawl4ai) | .231 : 11235 | Bearer | `CRAWL4AI_URL`, `CRAWL4AI_API_TOKEN` | Legacy in-process JSDOM crawl (capped) |
-| [FlareSolverr](#flaresolverr) | .231 (loopback only) | none | `FLARESOLVERR_URL` | Rescue-chain tier skipped (currently always) |
+| [FlareSolverr](#flaresolverr) | .231 : 8191 | none | `FLARESOLVERR_URL` | Rescue-chain tier skipped |
 | [SearXNG + gluetun](#searxng-and-gluetun) | .17, via gluetun : 3741 / 3740 / 3743 | none | `SEARXNG_API_URL`, `SEARXNG_FALLBACK_API_URL` | Quality-mode search fails; other modes unaffected |
 | [degoog](#degoog) | per-env stacks on .17 (stopped); public .231 : 4444 | Bearer (per-env) | `DEGOOG_ENABLED`, `DEGOOG_API_URL`, `DEGOOG_API_KEY` | Disabled everywhere |
 | [Model Manager](#model-manager) | .17 : 127.0.0.1:3939 | password session | its own `.env`/`secrets.env` | Config UI unavailable only |
@@ -108,9 +108,9 @@ A native systemd service on every host (not Docker). See
 
 | Instance | URL key | Serves |
 |---|---|---|
-| **.17 :11434** | `OLLAMA_BASE_URL` (all envs), `NEXT_PUBLIC_OLLAMA_BASE_URL`, prod `CLASSIFIER_OLLAMA_BASE_URL` | Cloud proxy for the **answering model** (`DEFAULT_CHAT_MODEL`, default `kimi-k2.6:cloud`) and prod's **classifier** (`CLASSIFIER_MODEL_ID=deepseek-v4-pro:cloud`). Model list, context-window lookup and vision detection. Local `qwen3-vl:4b` on the GTX 1070 for the ingestors |
+| **.17 :11434** | `OLLAMA_BASE_URL` and `CLASSIFIER_OLLAMA_BASE_URL` (all envs), `NEXT_PUBLIC_OLLAMA_BASE_URL` | Cloud proxy for the **answering model** (`DEFAULT_CHAT_MODEL`, default `kimi-k2.6:cloud`) and the **classifier** in every env (`CLASSIFIER_MODEL_ID`, e.g. `deepseek-v4-pro:cloud`). Model list, context-window lookup and vision detection. Local `qwen3-vl:4b` on the GTX 1070 for the ingestors |
 | **.171 :11434** | `LOCAL_LLM_BASE_URL` | `granite4.2:8b`: title generation, memory extraction, query-expansion fallback, voice gist |
-| **.231 :11434** | staging and lab `CLASSIFIER_OLLAMA_BASE_URL` (hardcoded in their overlays) | Cloud proxy for the classifier in staging and lab |
+| **.231 :11434** | none since 2026-09-23 | Was the staging/lab classifier proxy; their overlays now point at `.17` |
 
 - **Auth:** none. Anything on the LAN can call it, including spending the Ollama Cloud balance.
   Cloud access works because the **daemon itself is signed in** to ollama.com, not because of a
@@ -131,7 +131,8 @@ A native systemd service on every host (not Docker). See
 
 ## Reranker
 
-- **Where:** .17, container `reranker-qwen`, `0.0.0.0:8787`, on the 2080 Ti. Source and compose
+- **Where:** .17, container `reranker-qwen`, `0.0.0.0:8787`, on the 2080 Ti (pinned by UUID with
+  `CUDA_VISIBLE_DEVICES`). Source and compose
   are in `/home/nightfury/selfhosted/reranker-qwen/` (FastAPI `app.py`).
 - **Model:** `RERANKER_MODEL` in that directory's `.env`. It was **`Qwen/Qwen3-Reranker-8B`**
   live on 2026-09-22 (the code default and compose comments say 4B, which is stale).
@@ -178,7 +179,8 @@ requires a full re-embed migration.
 ## Whisper STT
 
 - **Where:** .17, container `ask-whisper` (`speaches-ai/speaches:latest-cuda`, digest-pinned),
-  `0.0.0.0:8788` → 8000, 2080 Ti. Compose: `/home/nightfury/selfhosted/whisper/docker-compose.yml`.
+  `0.0.0.0:8788` → 8000, 2080 Ti (pinned by UUID with `CUDA_VISIBLE_DEVICES`). Compose:
+  `/home/nightfury/selfhosted/whisper/docker-compose.yml`.
 - **Model:** `Systran/faster-distil-whisper-large-v3`, `int8_float16`, `WHISPER__TTL=-1`
   (always resident). The image ignores `PRELOAD_MODELS`. Fleet-boot installs the model with
   `POST /v1/models/<id>`, and the hf-cache volume keeps it across restarts.
@@ -210,7 +212,8 @@ requires a full re-embed migration.
 
 - **What:** a Python worker that extracts text from office documents, media and images for
   uploads that the in-app fast path (text/PDF up to 20 MB) can't handle. It lives **outside the
-  Ask repo** at `/home/nightfury/selfhosted/ingestor/` and has its own compose files.
+  Ask repo** at `/home/nightfury/selfhosted/ingestor/` and has its own compose files. That
+  directory is its own git repo (since 2026-09-23); env files are not tracked.
 - **Where:** .17. One per env: `ingestor` (prod), `ingestor-staging` and `ingestor-lab`. No
   published port. It **pulls** jobs from the app.
 - **Auth:** it sends `Authorization: Bearer <INGEST_API_TOKEN>` to the app's `/api/ingest/*`
@@ -252,25 +255,22 @@ requires a full re-embed migration.
   (`*/15`, `crawl4ai/memory-watchdog.sh`) restarts it above 80 % of its cgroup limit. When
   retrieval is slow, check `docker stats --no-stream crawl4ai` on .231 first.
 
-::: warning Staging points at an unresolvable crawl4ai
-`docker-compose.admin-feature.yaml` hardcodes `CRAWL4AI_URL: 'http://crawl4ai:11235'`. That name
-resolved on .231 through `shared-infra` but **does not resolve on .17**. Compose `environment:`
-beats `.env`, so staging ignores the correct `.env` value (`http://192.168.50.231:11235`), and
-every staging crawl falls back to the capped legacy crawler. Fix: drop the override in the
-`ask` worktree's overlay (or set it to the .231 URL), then rebuild staging. Prod and lab are
-correct.
-:::
+All three envs use `CRAWL4AI_URL=http://192.168.50.231:11235` from `.env`. Until 2026-09-23 the
+staging overlay hardcoded `http://crawl4ai:11235`, which does not resolve on .17, so staging
+crawled with the capped legacy crawler. Don't reintroduce a container-name URL in an overlay:
+compose `environment:` beats `.env`.
 
 ## FlareSolverr
 
 - **Intended role:** the rescue-chain tier for Cloudflare-style bot walls, between crawl4ai and
   Tavily/Firecrawl in `lib/tools/fetch.ts`.
-- **Where:** .231, container `flaresolverr`, bound to **`127.0.0.1:8191`** only.
-- **Config key:** `FLARESOLVERR_URL=http://flaresolverr:8191` in all envs.
-- **Current state:** on .17 the hostname `flaresolverr` **does not resolve** (it isn't on .17's
-  `shared-infra`), and the .231 container is loopback-bound. **This tier fails immediately in
-  every env**, and the chain moves on to Jina/Tavily/Firecrawl. It is harmless but dead weight.
-  To revive it, run FlareSolverr on .17 attached to `shared-infra`.
+- **Where:** .231, container `flaresolverr` (compose `/home/nightfury/selfhosted/flaresolverr/`
+  on .231), published on `127.0.0.1:8191` and **`192.168.50.231:8191`**. Containers on .231 also
+  reach it by name through `shared-infra`.
+- **Auth:** none (unauthenticated on the LAN, an accepted owner decision).
+- **Config key:** `FLARESOLVERR_URL=http://192.168.50.231:8191` in all envs.
+- **History:** until 2026-09-23 every env used `http://flaresolverr:8191`, which does not resolve
+  on .17, and the container was loopback-only, so the tier failed immediately everywhere.
 
 ## SearXNG and gluetun
 
@@ -295,9 +295,10 @@ correct.
   `SEARXNG_FALLBACK_API_URL`, `SEARXNG_CRAWL_MULTIPLIER`, `SEARXNG_DEFAULT_DEPTH`,
   `MULLVAD_*` (in `.env`).
 - **Failure:** SearXNG is the one hard dependency of **quality** mode: its rejection throws. A
-  circuit breaker would fail over to `SEARXNG_FALLBACK_API_URL`, but that value
-  (`http://searxng:8080` in prod and staging, empty in lab) **doesn't resolve on .17**, so there
-  is effectively **no fallback**. Cold boot can wedge gluetun, which fleet-boot's
+  circuit breaker fails over to `SEARXNG_FALLBACK_API_URL`: in prod and staging that is the
+  public SearXNG on .231 (`http://192.168.50.231:8127`, behind its own gluetun) since 2026-09-23;
+  lab leaves it empty (no fallback). Before that the value was `http://searxng:8080`, which does
+  not resolve on .17. Cold boot can wedge gluetun, which fleet-boot's
   `ensure_vpn_search` repairs.
 
 ::: tip Three different SearXNGs

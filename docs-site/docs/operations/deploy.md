@@ -113,7 +113,9 @@ worktree regardless of where it is invoked from.) What it does
    build cache is kept for a faster retry).
 3. Poll `http://localhost:<port>/` every 5 s for up to 6 minutes until it returns 200,
    then print `final :<port> -> <code>`.
-4. Run `fleet-boot/reclaim-space.sh`.
+4. If the final code is not 200: print `== FAILED ==` and exit 1 **without** reclaiming, so the
+   previous image (now dangling) is still there for a rollback. Otherwise run
+   `fleet-boot/reclaim-space.sh` and print `== done ==`.
 
 ::: danger Run rebuilds in the foreground, one at a time
 A Next.js production build is memory-heavy. Rebuilds started in the background (or
@@ -122,10 +124,10 @@ several stacks at once) have been killed mid-build, and one concurrent rebuild l
 `rebuild-ask.sh` at a time in a foreground terminal and wait for `== done ==`.
 :::
 
-::: warning The script does not fail on an unhealthy result
-If the app never returns 200, the script still prints `final :<port> -> 000` (or 5xx),
-reclaims, and exits 0. **Read the `final` line.** A non-200 there means the container is
-crash-looping — go to [reading logs](/operations/runbooks#reading-logs).
+::: warning A non-200 result fails the script
+Since 2026-09-23 the script exits 1 when the app never returns 200 (before that it exited 0 and
+reclaimed anyway). A `final :<port> -> 000` (or 5xx) means the container is crash-looping — go to
+[reading logs](/operations/runbooks#reading-logs).
 :::
 
 Rebuild even when a commit touches only compose files or docs. The resulting image is
