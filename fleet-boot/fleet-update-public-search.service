@@ -7,5 +7,5 @@ Wants=network-online.target
 Type=oneshot
 User=nightfury
 Environment=PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
-ExecStart=/home/nightfury/selfhosted/ask-flow/fleet-boot/update-public-search.sh
-ExecStart=-/home/nightfury/selfhosted/ask-flow/fleet-boot/check-crawl4ai-version.sh
+ExecStart=/home/nightfury/fleet-boot/update-public-search.sh
+ExecStart=-/home/nightfury/fleet-boot/check-crawl4ai-version.sh
