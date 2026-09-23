@@ -294,7 +294,8 @@ compose `environment:` beats `.env`.
 - **Config keys:** `SEARXNG_API_URL` (`http://ask-gluetun[-env]:8080`),
   `SEARXNG_FALLBACK_API_URL`, `SEARXNG_CRAWL_MULTIPLIER`, `SEARXNG_DEFAULT_DEPTH`,
   `MULLVAD_*` (in `.env`).
-- **Failure:** SearXNG is the one hard dependency of **quality** mode: its rejection throws. A
+- **Failure:** since 2026-09-23 a SearXNG rejection no longer empties a **quality** search: the
+  route logs it and continues on the API providers (the degraded result is not cached). A
   circuit breaker fails over to `SEARXNG_FALLBACK_API_URL`: in prod and staging that is the
   public SearXNG on .231 (`http://192.168.50.231:8127`, behind its own gluetun) since 2026-09-23;
   lab leaves it empty (no fallback). Before that the value was `http://searxng:8080`, which does

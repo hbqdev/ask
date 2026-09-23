@@ -51,8 +51,8 @@ sequenceDiagram
     end
     par classifier (bypassed on URL / Retry / speed)
         S->>C: classifyQuery (soft 4s, hard 10s)
-    and speculative recall (not in speed mode)
-        S->>RC: getRecallInjection(raw text)
+    and speculative recall prefetch (not in speed mode)
+        S->>RC: prefetchRecallCandidates(raw text): embed + DB, no rerank
     end
     S-->>B: SSE opens: start, data-attachments, data-classifier(running)
     S->>S: transformFileParts → convertToModelMessages → pruneMessages → truncate
@@ -213,9 +213,12 @@ steps instead of dead air.
 
 `create-chat-stream-response.ts:482-561`. After `await classificationPromise`:
 
-- `chooseRecall` (`helpers/choose-recall.ts:12`): `gated` if `skipSearch`;
-  `speculative` if the effective query equals the raw text (reuse the promise started
-  in step 5 — zero extra wait); otherwise `refetch` with the standalone query.
+- `chooseRecall` (`helpers/choose-recall.ts`): `gated` if `skipSearch` (no rerank);
+  `speculative` if the effective query equals the raw text (rerank the candidates
+  prefetched in step 5); otherwise `refetch` (embed, DB and rerank on the standalone
+  query). The rerank is deliberately not speculative: a discarded one held the reranker
+  GPU and delayed the refetch (see
+  [recall latency](/knowledge/memory-recall#recall-latency)).
 - The recall work is raced against **`RECALL_BUDGET_MS`** (default 1500). If it loses,
   the turn continues with no recall block; the work still finishes in the background.
 - Telemetry: `recall_ms` = true cost (stamped when the work resolves),
@@ -225,7 +228,9 @@ steps instead of dead air.
   [Streaming → persistence](/request-lifecycle/streaming#persistence)).
 
 Measured (2026-09-07, lab): recall 3–6s uncapped; capping at 1.5s roughly halved
-time-to-first-token (7.7s → 3.6s). Speed mode skips recall entirely.
+time-to-first-token (7.7s → 3.6s). But the cap then dropped recall on most turns. Since
+2026-09-23 recall itself takes about 1.3s (rerank pool 10 × 384 tokens, no speculative
+rerank), so it fits the cap. Speed mode skips recall entirely.
 
 Then expansion is resolved: fused `expandedQueries` if present, else the fallback
 expander — never awaited here; the first search awaits it (bounded). `data-classifier`
@@ -303,7 +308,7 @@ text. Three independent limits keep it bounded:
 |---|---|---|---|
 | Step cap | `stopWhen: stepCountIs(maxSteps)` | 10 / 20 / 50 / 100 | hard stop (can end on a tool step — rarely reached in practice) |
 | Search-round cap | `lib/tools/search.ts:306` | `SEARCH_ROUNDS_MAX`=3, `SEARCH_ROUNDS_MAX_QUALITY`=5 | further `search` calls return an empty result with a notice "answer now, begin with the `## ` heading"; dedup short-circuits don't count |
-| Answer deadline | `prepareStep` → `applyAnswerDeadline` (`lib/agents/answer-deadline.ts:40`) | 200s | all tools removed + a "TIME TO ANSWER" note appended to the system prompt, so the model writes before the 300s abort (which would persist nothing) |
+| Answer deadline | `prepareStep` → `applyAnswerDeadline` (`lib/agents/answer-deadline.ts:40`) | 200s | tools no longer advertised + a "TIME TO ANSWER" note appended to the system prompt, and every tool's `execute` refuses with an "answer now" result (`enforceAnswerDeadline`), so the model writes before the 300s abort (which would persist nothing) |
 | Generation timeout | `route.ts:36` | 300s | aborts the turn; nothing persisted |
 
 What a search call does (providers, crawl, rerank, excerpting, prefetch vs crawl per
