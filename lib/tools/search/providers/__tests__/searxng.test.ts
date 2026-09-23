@@ -1,5 +1,14 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
+// Keep the suite hermetic: the engine-health gate reads/writes Redis, and with
+// no Redis reachable the node-redis connect to localhost:6379 hangs until the
+// test times out. The gate fails open by design, so model exactly that: no
+// engine suspended, outcomes recorded nowhere.
+vi.mock('@/lib/search/engine-health-store', () => ({
+  loadSuspendedEngines: vi.fn(async () => new Set<string>()),
+  recordEngineOutcomes: vi.fn(async () => {})
+}))
+
 import { SearXNGSearchProvider } from '../searxng'
 
 function mockSearxngResponse(results: any[]) {
@@ -424,13 +433,18 @@ describe('SearXNGSearchProvider', () => {
       return new Fresh()
     }
 
+    // Deployments may run with degoog switched off (DEGOOG_ENABLED=false), so
+    // pin the flag explicitly: these tests cover the merge behaviour that
+    // applies whenever degoog IS enabled, independent of the ambient env.
     beforeEach(() => {
       process.env.DEGOOG_API_URL = 'https://degoog.example.com'
+      process.env.DEGOOG_ENABLED = 'true'
     })
 
     afterEach(() => {
       delete process.env.DEGOOG_API_URL
       delete process.env.DEGOOG_API_KEY
+      delete process.env.DEGOOG_ENABLED
     })
 
     it('merges degoog results into the response when both succeed', async () => {
@@ -465,9 +479,10 @@ describe('SearXNGSearchProvider', () => {
         {}
       )
 
-      // 1 SearXNG call + degoog web + degoog images (always queried,
-      // mirroring SearXNG's own always-on images category) — no video/news
-      // calls since content_types didn't request them.
+      // 1 SearXNG call + degoog web + degoog images (degoog images are
+      // queried at every depth, unlike SearXNG's images category which is
+      // advanced-only) — no video/news calls since content_types didn't
+      // request them.
       expect(fetchMock).toHaveBeenCalledTimes(3)
       const urls = result.results.map(r => r.url)
       expect(urls).toContain('https://searxng-only.example.com')
@@ -752,6 +767,17 @@ describe('SearXNGSearchProvider', () => {
       await expect(
         freshInstance.search('query', 10, 'basic', [], [], {})
       ).rejects.toThrow('searxng down')
+    })
+
+    it('does not call degoog at all when DEGOOG_ENABLED is false, even with a URL configured', async () => {
+      process.env.DEGOOG_ENABLED = 'false'
+      const fetchMock = vi.fn().mockResolvedValue(mockSearxngResponse([]))
+      vi.stubGlobal('fetch', fetchMock)
+      const freshInstance = await freshProvider()
+
+      await freshInstance.search('query', 10, 'basic', [], [], {})
+
+      expect(fetchMock).toHaveBeenCalledTimes(1)
     })
 
     it('does not call degoog at all when DEGOOG_API_URL is not configured', async () => {
