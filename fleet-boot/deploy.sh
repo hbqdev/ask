@@ -25,6 +25,16 @@ for ip in "${HOSTS[@]}"; do
        && sudo systemctl enable ask-fleet-boot.service' \
     < ask-fleet-boot.service >/dev/null
   echo "  script + unit deployed, service enabled"
+  # MiniNightFury has no current Ask worktree (its ask-* checkouts are the
+  # retired stacks' leftovers), so its nightly Mullvad rotation for the public
+  # searxng/degoog stacks runs from a synced copy in ~/fleet-boot instead:
+  #   0 5 * * * /home/nightfury/fleet-boot/rotate-daily.sh public-searxng degoog
+  if [ "$ip" = 192.168.50.231 ]; then
+    tar -cf - rotate-daily.sh rotate-mullvad.sh | ssh -o ConnectTimeout=6 "nightfury@$ip" \
+      'mkdir -p /home/nightfury/fleet-boot && tar -xf - -C /home/nightfury/fleet-boot \
+         && chmod +x /home/nightfury/fleet-boot/rotate-daily.sh /home/nightfury/fleet-boot/rotate-mullvad.sh'
+    echo "  rotate-daily.sh + rotate-mullvad.sh synced to ~/fleet-boot"
+  fi
   if [ "${1:-}" = "run" ]; then
     ssh -o ConnectTimeout=10 "nightfury@$ip" \
       'sudo systemctl start ask-fleet-boot.service; journalctl -u ask-fleet-boot.service --no-pager -n 10 -o cat' \
