@@ -15,7 +15,7 @@ import {
 // Reranking runs on the critical path of EVERY advanced search turn, over
 // hundreds of passages. That makes it latency-bound, not quality-bound, so
 // it deliberately ignores EMBEDDING_MODEL (which upload-RAG uses, and which
-// is set to mxbai-embed-large here for indexing quality).
+// is data-locked to Qwen/Qwen3-Embedding-0.6B — see lib/memory/write.ts).
 //
 // Benchmarked in-container on 100 passages, CPU:
 //   all-MiniLM-L6-v2      199ms
