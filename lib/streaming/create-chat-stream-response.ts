@@ -33,7 +33,10 @@ import { isMemoryEnabled } from '../db/memory-actions'
 import { retrieveUrlChunks } from '../embeddings/url-rag'
 import { extractIndexableText } from '../memory/extract-indexable-text'
 import { indexMessage } from '../memory/recall-index'
-import { getRecallInjection } from '../memory/recall-inject'
+import {
+  getRecallInjection,
+  prefetchRecallCandidates
+} from '../memory/recall-inject'
 import { saveCandidates } from '../memory/write'
 import {
   type FullContentByToolCall,
@@ -97,8 +100,9 @@ const DEFAULT_CHAT_TITLE = 'Untitled'
 //
 // Recall is a personalization nicety layered on top of the web answer, never a
 // gate on it. Speed already bypasses it entirely; for balanced/quality the
-// 'refetch' branch runs a fresh cross-encoder recall inline (measured ~3-6s on
-// lab). This caps that wait: if recall has not resolved within the budget the
+// rerank runs after the classifier (~1.3s at the default 10 x 384-token pool,
+// measured 2026-09-23; it was 3-6s at 20 x 512 plus self-contention). This
+// caps that wait: if recall has not resolved within the budget the
 // turn proceeds with empty recall rather than making the user wait on a
 // nice-to-have. recall_ms still records the true time spent, and a 'gated'
 // (skipSearch) turn resolves instantly and is unaffected.
@@ -294,23 +298,23 @@ export async function createChatStreamResponse(
         })
       : classifyQuery({ messages: messagesToModel, abortSignal })
 
-    // Start recall speculatively on the raw message, concurrent with the
-    // classifier, so a research turn whose standalone query matches the raw
-    // message pays no serial recall wait (see chooseRecall). getRecallInjection
-    // is fail-safe (never rejects); on a gated/refetch turn this result is
-    // simply not awaited. userId-less turns have no recall.
-    // On a gated (skipSearch) turn this speculative recall still runs to
-    // completion in the background and is discarded — gating removes the
-    // user-facing wait, not the reranker load.
+    // Start recall's cheap half speculatively on the raw message, concurrent
+    // with the classifier: embed + DB arms only (~50-100ms, no reranker GPU).
+    // The expensive rerank starts only once chooseRecall knows the query is
+    // used ('speculative'), so a 'refetch'/'gated' turn no longer leaves a
+    // discarded ~1-3s rerank occupying the reranker GPU ahead of the refetch
+    // (measured 2026-09-23: it pushed the refetch from 3.3s solo to ~5s, the
+    // prod recall_ms). prefetchRecallCandidates never rejects (null on
+    // no userId / disabled / error).
     // Speed mode skips past-conversation recall (personalization) to stay
     // fast: with the classifier bypassed above, chooseRecall returns
-    // 'speculative' (standaloneQuery===latestMessageText), which awaits this
-    // promise — so resolving it instantly empty makes recall_ms ~0 and imposes
-    // no reranker load.
+    // 'speculative' (standaloneQuery===latestMessageText), which ranks this
+    // prefetch — so resolving it instantly to null makes recall_ms ~0 and
+    // imposes no reranker load.
     const speculativeRecall =
       userId && searchMode !== 'speed'
-        ? getRecallInjection(userId, latestMessageText, chatId)
-        : Promise.resolve({ block: '', hits: [] })
+        ? prefetchRecallCandidates(userId, latestMessageText, chatId)
+        : Promise.resolve(null)
 
     // Declared in outer scope (same pattern as titlePromise above) so the
     // memory-extraction block in onFinish — a sibling property of execute on
@@ -493,14 +497,20 @@ export async function createChatStreamResponse(
         })
         type RecallInjection = Awaited<ReturnType<typeof getRecallInjection>>
         const emptyRecall: RecallInjection = { block: '', hits: [] }
-        // The recall work for this turn (already in flight for 'speculative',
-        // started fresh for 'refetch'). getRecallInjection is fail-safe and
-        // never rejects, so racing it against a timer is safe.
+        // The recall work for this turn ('speculative' reranks the
+        // prefetched candidates; 'refetch' retrieves + reranks the resolved
+        // query). getRecallInjection is fail-safe and never rejects, so
+        // racing it against a timer is safe.
         const recallWork: Promise<RecallInjection> =
           recallDecision === 'gated'
             ? Promise.resolve(emptyRecall)
             : recallDecision === 'speculative'
-              ? speculativeRecall
+              ? getRecallInjection(
+                  userId,
+                  latestMessageText,
+                  chatId,
+                  speculativeRecall
+                )
               : getRecallInjection(
                   userId,
                   classification.standaloneQuery,
