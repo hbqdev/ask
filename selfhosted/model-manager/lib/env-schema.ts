@@ -82,6 +82,12 @@ export interface EnvVarSpec {
   required?: boolean
   enumValues?: string[]
   validate?: (v: string) => string | null
+  /**
+   * Shown but not editable: the UI renders the current value read-only and
+   * the apply API rejects edits (validateEdits / buildPlan). For keys whose
+   * value is locked to stored data, where a change silently corrupts it.
+   */
+  readOnly?: boolean
   target?: 'ask' | 'reranker' // default 'ask'
   testable?: 'ollama' | 'reranker' | 'http'
 }
@@ -245,14 +251,17 @@ export const REGISTRY: EnvVarSpec[] = [
     category: 'models',
     group: 'Embeddings',
     label: 'Embedding model',
-    type: 'enum',
-    enumValues: [
-      'Xenova/all-MiniLM-L6-v2',
-      'mixedbread-ai/mxbai-embed-large-v1',
-      'Xenova/nomic-embed-text-v1',
-      'Qwen/Qwen3-Embedding-0.6B'
-    ],
-    help: 'Qwen3 (best) requires the GPU embedding service and a re-embed of stored vectors. Changing dimension affects the memory/recall schema.'
+    // READ-ONLY. It used to be a dropdown offering MiniLM, mxbai and nomic.
+    // Every stored vector (long-term memories, conversation-recall chunks,
+    // upload .chunks.json sidecars) was embedded with Qwen3-Embedding-0.6B, so
+    // switching would compare new query vectors against old ones from a
+    // different model. mxbai is also 1024-d, so it even passes the dimension
+    // guard: memory and recall would silently return garbage, with no error.
+    // Changing it is a migration (re-embed everything), not a setting.
+    type: 'string',
+    readOnly: true,
+    default: 'Qwen/Qwen3-Embedding-0.6B',
+    help: 'Locked: all stored memories, recall chunks and upload indexes were embedded with Qwen/Qwen3-Embedding-0.6B. Switching models (even another 1024-d one such as mxbai) silently corrupts memory and recall. Changing it requires a full re-embed migration, not an edit here.'
   },
   {
     key: 'EMBEDDING_SERVICE_URL',
@@ -787,6 +796,13 @@ export const REGISTRY: EnvVarSpec[] = [
     type: 'int',
     validate: int
   },
+  {
+    key: 'RECALL_RERANK_MAX_LENGTH',
+    category: 'memory',
+    label: 'Recall rerank max tokens per passage',
+    type: 'int',
+    validate: int
+  },
 
   // ---------- Infra ----------
   {
@@ -856,8 +872,10 @@ export const REGISTRY: EnvVarSpec[] = [
     label: 'Upload TTL (days)',
     type: 'int',
     validate: nonNegInt,
-    default: '14',
-    help: 'Delete uploaded files this many days after their chat goes idle. 0 (or unset) disables expiry.'
+    // Placeholder = what the app does when unset: nothing (the sweep is
+    // destructive, so it is opt-in). Every env sets 14 explicitly.
+    default: '0',
+    help: 'Delete uploaded files this many days after their chat goes idle. 0 or unset (the default) disables expiry; prod, staging and lab set 14.'
   },
   {
     key: 'R2_ACCOUNT_ID',

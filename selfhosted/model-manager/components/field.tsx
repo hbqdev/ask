@@ -66,7 +66,22 @@ export function Field({
 
       {/* Control */}
       <div className="space-y-1.5">
-        {spec.type === 'bool' ? (
+        {spec.readOnly ? (
+          <>
+            <Input
+              id={spec.key}
+              type="text"
+              value={value}
+              readOnly
+              aria-readonly="true"
+              className="font-mono text-muted-foreground"
+              placeholder={spec.default ?? 'not set'}
+            />
+            {spec.help && (
+              <p className="text-xs text-muted-foreground">{spec.help}</p>
+            )}
+          </>
+        ) : spec.type === 'bool' ? (
           <div className="flex h-9 items-center gap-2.5">
             <Switch
               id={spec.key}
