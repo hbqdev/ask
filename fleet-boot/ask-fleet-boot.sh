@@ -34,14 +34,18 @@ wait_docker() {
 # Bring a compose project up; if its container still isn't running afterward
 # (stale network, etc.), recreate it on a fresh network. Recreates ONLY when
 # broken, so a healthy container is never needlessly reloaded.
+# Optional 3rd arg: a non-default compose file (e.g. the ingestor's per-env
+# docker-compose.staging.yaml, which carries its own project name).
 reconcile() {
-  local dir="$1" name="$2"
+  local dir="$1" name="$2" file="${3:-}"
+  local f=()
+  [ -n "$file" ] && f=(-f "$file")
   [ -d "$dir" ] || { log "skip $name (missing $dir)"; return 0; }
-  ( cd "$dir" && docker compose up -d ) >/dev/null 2>&1
+  ( cd "$dir" && docker compose "${f[@]}" up -d ) >/dev/null 2>&1
   sleep 3
   if [ "$(docker inspect -f '{{.State.Running}}' "$name" 2>/dev/null)" != "true" ]; then
     log "$name not running after 'up' — recreating on a fresh network"
-    ( cd "$dir" && docker compose down && docker compose up -d ) >/dev/null 2>&1
+    ( cd "$dir" && docker compose "${f[@]}" down && docker compose "${f[@]}" up -d ) >/dev/null 2>&1
     sleep 3
   fi
   log "$name -> $(docker inspect -f '{{.State.Status}}' "$name" 2>/dev/null || echo missing)"
@@ -217,6 +221,10 @@ case "$HOST" in
   NightFuryX)
     reconcile /home/nightfury/selfhosted/reranker-qwen reranker-qwen
     reconcile /home/nightfury/selfhosted/ingestor      ingestor
+    # One ingestor per env (each worker has a single ASK_URL): staging -> :3739,
+    # lab -> :3742. Separate compose files with their own project names.
+    reconcile /home/nightfury/selfhosted/ingestor      ingestor-staging docker-compose.staging.yaml
+    reconcile /home/nightfury/selfhosted/ingestor      ingestor-lab     docker-compose.lab.yaml
     reconcile /home/nightfury/selfhosted/whisper       ask-whisper
     warm qwen3-vl:4b
     warm_whisper
@@ -260,10 +268,15 @@ case "$HOST" in
     ;;
   MiniNightFury)
     # The Ask app stacks MOVED to NightFuryX (2026-08-23 migration) and are
-    # reconciled there now. What remains here — crawl4ai, public searxng/degoog
-    # — carries its own restart: unless-stopped; cloudflared is a Windows
-    # service. crawl4ai is the one Ask dependency worth nudging on boot.
+    # reconciled there now. NEVER bring ask-stack* up here: an outdated copy
+    # of this script did exactly that at the 2026-09-16 boot and resurrected
+    # the retired stacks. What remains — crawl4ai, flaresolverr, public
+    # searxng (:8127) / degoog (:4444) — carries its own restart:
+    # unless-stopped; cloudflared is a Windows service. crawl4ai and
+    # flaresolverr are the Ask dependencies (reached over the LAN from .17),
+    # so they are the ones worth nudging on boot.
     reconcile /home/nightfury/selfhosted/crawl4ai crawl4ai
+    reconcile /home/nightfury/selfhosted/flaresolverr flaresolverr
     ;;
   *)
     log "unknown host '$HOST' — nothing to do"

@@ -48,7 +48,12 @@
 set -uo pipefail
 
 RESIDENTIAL_IP=73.162.193.80
-ASK=/home/nightfury/selfhosted/ask
+# One worktree per env. `pin`/`city` run `docker compose` from the stack's own
+# dir so the right compose files AND the right .env are read; a single
+# ASK=/selfhosted/ask used to run prod and lab from the staging worktree.
+ASK_PROD_DIR=/home/nightfury/selfhosted/ask-prod
+ASK_STAGING_DIR=/home/nightfury/selfhosted/ask
+ASK_LAB_DIR=/home/nightfury/selfhosted/ask-flow
 DEGOOG=/home/nightfury/selfhosted/degoog
 PUBLIC_SEARXNG=/home/nightfury/selfhosted/searxng
 
@@ -71,9 +76,9 @@ DEGOOG_INSTANCE_FILES="-f docker-compose.yaml -f docker-compose.vpn.yaml -f dock
 # name MULLVAD_SERVER is safe because each runs `docker compose` from its own
 # directory with its own .env; the name is scoped by cwd, not global.
 TARGETS=(
-  "ask-prod|ask-gluetun|ask-redis|$ASK|$ASK_BASE|ask-stack|searxng|MULLVAD_SERVER"
-  "ask-staging|ask-gluetun-admin-feature|ask-redis-admin-feature|$ASK|$ASK_STAGING|ask-stack-admin-feature|searxng|MULLVAD_SERVER_STAGING"
-  "ask-lab|ask-gluetun-lab|ask-redis-lab|$ASK|$ASK_LAB|ask-stack-lab|searxng|MULLVAD_SERVER_LAB"
+  "ask-prod|ask-gluetun|ask-redis|$ASK_PROD_DIR|$ASK_BASE|ask-stack|searxng|MULLVAD_SERVER"
+  "ask-staging|ask-gluetun-admin-feature|ask-redis-admin-feature|$ASK_STAGING_DIR|$ASK_STAGING|ask-stack-admin-feature|searxng|MULLVAD_SERVER_STAGING"
+  "ask-lab|ask-gluetun-lab|ask-redis-lab|$ASK_LAB_DIR|$ASK_LAB|ask-stack-lab|searxng|MULLVAD_SERVER_LAB"
   "degoog|degoog-gluetun|-|$DEGOOG|-f docker-compose.yaml -f docker-compose.vpn.yaml|degoog|degoog|MULLVAD_SERVER"
   # Per-stack degoog instances (2026-07-28). Each has its own exit so one
   # stack's volume cannot get another's address rate-limited. They share
@@ -247,6 +252,7 @@ servers)
   city="${ARG1:-}"
   gluetun="ask-gluetun-admin-feature"
   running "$gluetun" || gluetun="ask-gluetun"
+  running "$gluetun" || gluetun="searxng-gluetun"   # MiniNightFury (.231)
   running "$gluetun" || { echo "no gluetun container running to read the server list from" >&2; exit 1; }
   # Provider is shown because it is the axis worth choosing on: one city can
   # host four of them, and they do not behave alike against search engines.
