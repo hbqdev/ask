@@ -60,8 +60,8 @@ STACKS=(
 # Endpoint to prove each stack still serves after the update. A pull that
 # leaves a stack down is worse than not pulling at all.
 declare -A HEALTH=(
-  [ask-prod]="http://192.168.50.231:3738/ http://192.168.50.231:3741/"
-  [ask-staging]="http://192.168.50.231:3739/ http://192.168.50.231:3740/"
+  [ask-prod]="http://localhost:3738/ http://localhost:3741/"
+  [ask-staging]="http://localhost:3739/ http://localhost:3740/"
   [degoog]="http://192.168.50.231:4444/ https://nogoog.hbqnexus.win/"
   [public-searxng]="http://192.168.50.231:8127/ https://search.hbqnexus.win/"
 )
