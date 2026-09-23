@@ -1,0 +1,11 @@
+[Unit]
+Description=Weekly: update public search stacks (SearXNG + degoog) + check crawl4ai for a newer release
+After=docker.service network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=nightfury
+Environment=PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+ExecStart=/home/nightfury/fleet-boot/update-public-search.sh
+ExecStart=-/home/nightfury/fleet-boot/check-crawl4ai-version.sh
