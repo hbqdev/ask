@@ -235,11 +235,11 @@
     },
     {
       "id": "legacy-stacks",
-      "label": "Legacy Ask stacks (idle)",
+      "label": "Legacy Ask volumes (containers removed)",
       "kind": "service",
       "host": "h231",
-      "description": "Pre-migration prod/staging/lab stacks kept as a rollback net. Running but receiving no traffic; hold stale data and shared secrets.",
-      "link": "/infrastructure/fleet#legacy-stacks-on-231-rollback-net"
+      "description": "Pre-migration prod/staging/lab Ask stacks. Containers and networks removed 2026-09-23; only their data volumes remain, pending a decision to delete.",
+      "link": "/infrastructure/fleet#legacy-stacks-on-231-removed"
     },
     {
       "id": "ollama-cloud",

@@ -77,11 +77,7 @@
             },
             {
               "key": "CLASSIFIER_OLLAMA_BASE_URL",
-              "value": "http://192.168.50.231:11434"
-            },
-            {
-              "key": "CRAWL4AI_URL",
-              "value": "http://crawl4ai:11235"
+              "value": "http://192.168.50.17:11434"
             },
             {
               "key": "DEGOOG_API_URL",
@@ -256,7 +252,7 @@
             },
             {
               "key": "CLASSIFIER_OLLAMA_BASE_URL",
-              "value": "http://192.168.50.231:11434"
+              "value": "http://192.168.50.17:11434"
             },
             {
               "key": "DEFAULT_CHAT_MODEL",

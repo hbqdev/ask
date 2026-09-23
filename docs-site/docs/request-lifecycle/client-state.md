@@ -83,7 +83,7 @@ sequenceDiagram
     SB->>SB: placeholder title replaced in place (still no refresh)
 ```
 
-Key facts (`chat.tsx:842-885`, `chat.tsx:277-308`):
+Key facts (`chat.tsx:851-894`, `chat.tsx:277-308`):
 
 - The URL change is `window.history.pushState({}, '', '/search/<id>')` — **not** a
   navigation. The page component, route params and RSC payload are still the
@@ -111,9 +111,9 @@ So the sidebar layers client-side overrides on top (`components/sidebar/recent-o
 
 | Event | Dispatched by | Sidebar reaction |
 |---|---|---|
-| `chat-bump {chatId}` | `safeSendMessage` for a chat on its real route (`chat.tsx:506`) | optimistic `lastViewedAt = Date.now()` → jumps to top. **No refresh.** |
-| `chat-bump {chatId, isNew}` | homepage submit (`chat.tsx:880`) | insert placeholder "New chat" row; footer count +1 via `countPendingNewChats` |
-| `chat-bump {chatId, title, isNew}` | `onFinish` of a homepage-started chat (`chat.tsx:297`) | placeholder title replaced |
+| `chat-bump {chatId}` | `safeSendMessage` for an existing chat: one on its real route, or a homepage-started chat's follow-ups (`chat.tsx:514`) | optimistic `lastViewedAt = Date.now()` → jumps to top. **No refresh.** |
+| `chat-bump {chatId, isNew}` | homepage submit (`chat.tsx:890`) | insert placeholder "New chat" row; footer count +1 via `countPendingNewChats` |
+| `chat-bump {chatId, title, isNew}` | `onFinish` of a homepage-started chat (`chat.tsx:298`) | placeholder title replaced |
 | `chat-history-updated` | `onFinish` of a chat on its real route (not on Stop); deletes; clear-history; library actions | debounced (400ms) `router.refresh()` |
 | `current-chat-deleted {chatId}` | chat header / sidebar item / library delete | tombstone (row disappears instantly) + refresh; the owning `Chat` resets |
 
@@ -151,7 +151,8 @@ until the stream re-asserted itself — often surfacing when the user clicked so
 - `chat-bump` is **not** in `REFRESH_EVENTS` (`app-sidebar.tsx:79`) — it only drives the
   optimistic reorder. The only refresh triggers are `chat-history-updated` and
   `current-chat-deleted`.
-- The send path persists `touchChat` but dispatches nothing (`chat.tsx:508-514`).
+- The send path persists `touchChat` but dispatches nothing (`chat.tsx:512-522`). This
+  holds for homepage-started follow-ups too, which call `touchChat` since 2026-09-23.
 - `chat-history-updated` from a turn fires only at `onFinish`, after persistence.
 - **Stream-activity registry** (`lib/streaming/stream-activity.ts`): every mounted `Chat`
   reports `submitted|streaming` under a per-instance `useId()` key. The sidebar's
@@ -203,7 +204,7 @@ settle flipped the status to `ready` while the new answer was still streaming.
 
 **Fix / rule:** `handleUpdateAndReloadMessage` and `handleReloadFrom` refuse with a
 toast ("Wait for the current answer to finish, or stop it first.") when
-`status` is `submitted` or `streaming` (`chat.tsx:55, 756, 800`). Related-question
+`status` is `submitted` or `streaming` (`chat.tsx:55, 765, 809`). Related-question
 buttons use `isStreamingRef` from `ChatContext` for the same purpose.
 
 ### 5. Resume must replace, not append
@@ -265,12 +266,11 @@ anywhere — the live sidebar is `AppSidebar` + `RecentChatsSection`. Don't fix 
 
 ## Known gaps {#known-gaps}
 
-- **Follow-ups in a homepage-started chat don't touch `lastViewedAt`.** `safeSendMessage`
-  only bumps/`touchChat`s when `providedId` is set, and a homepage-started `Chat` never
-  gets one. The sidebar still reorders (the `onFinish` `chat-bump`), but the DB
-  `last_viewed_at` stays at creation time until the chat is reopened on its real route and
-  sent to again, so after a reload the chat can sort lower than the user expects
-  *(observed from code; not reported as a bug)*.
+- ~~**Follow-ups in a homepage-started chat don't touch `lastViewedAt`.**~~ **Fixed
+  2026-09-23.** `safeSendMessage` now treats a homepage-started chat as existing once it
+  has messages (checked before the send), so its follow-ups fire the `chat-bump` and a
+  background `touchChat(chatId)`, still with no refresh event. The very first send is
+  skipped, because `createChat` stamps `last_viewed_at` and the row may not exist yet.
 - **The server Recent list is not reconciled after a homepage-started chat** until some
   other refresh trigger fires (a chat on its real route finishing, a delete). The
   optimistic override covers the gap in the current tab only.
