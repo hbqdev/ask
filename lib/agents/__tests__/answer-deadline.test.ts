@@ -1,9 +1,15 @@
-import { describe, expect, it } from 'vitest'
+import { generateText, stepCountIs, tool } from 'ai'
+import { MockLanguageModelV3 } from 'ai/test'
+import { describe, expect, it, vi } from 'vitest'
+import { z } from 'zod'
 
 import {
   ANSWER_DEADLINE_MS,
   ANSWER_NOW_NOTE,
-  applyAnswerDeadline
+  ANSWER_NOW_TOOL_NOTICE,
+  answerNowResult,
+  applyAnswerDeadline,
+  enforceAnswerDeadline
 } from '../answer-deadline'
 
 const SYS = 'BASE PROMPT WITH CITATION RULES'
@@ -91,5 +97,116 @@ describe('applyAnswerDeadline', () => {
     const a = applyAnswerDeadline({}, { elapsedMs: 250_000, systemPrompt: SYS })
     const b = applyAnswerDeadline({}, { elapsedMs: 250_000, systemPrompt: SYS })
     expect(a).toEqual(b)
+  })
+})
+
+describe('enforceAnswerDeadline', () => {
+  it('runs tools normally before the deadline, including async generators', async () => {
+    const exec = vi.fn(async function* (
+      input: { url: string },
+      _opts: unknown
+    ) {
+      yield { state: 'fetching', url: input.url }
+      yield { state: 'complete', results: [{ url: input.url }] }
+    })
+    const tools = enforceAnswerDeadline(
+      { fetch: { execute: exec } },
+      () => false
+    )
+    const iter = tools.fetch.execute({ url: 'https://a' }, {} as never)
+    const seen: unknown[] = []
+    for await (const v of iter as AsyncIterable<unknown>) seen.push(v)
+    expect(exec).toHaveBeenCalledTimes(1)
+    expect(seen).toHaveLength(2)
+  })
+
+  it('refuses every tool call after the deadline with a non-error answer-now result', async () => {
+    const searchExec = vi.fn()
+    const fetchExec = vi.fn()
+    const refused: string[] = []
+    const tools = enforceAnswerDeadline(
+      {
+        search: { execute: searchExec },
+        fetch: { execute: fetchExec },
+        askQuestion: { description: 'client-side, no execute' }
+      },
+      () => true,
+      name => refused.push(name)
+    )
+    const s = (await tools.search.execute(
+      { query: 'q' } as never,
+      {} as never
+    )) as Record<string, unknown>
+    const f = (await tools.fetch.execute(
+      { url: 'https://a' } as never,
+      {} as never
+    )) as Record<string, unknown>
+    expect(searchExec).not.toHaveBeenCalled()
+    expect(fetchExec).not.toHaveBeenCalled()
+    expect(s).toMatchObject({ state: 'complete', results: [], query: 'q' })
+    expect(s.notice).toBe(ANSWER_NOW_TOOL_NOTICE)
+    expect(f).toMatchObject({ state: 'complete', results: [] })
+    expect(refused).toEqual(['search', 'fetch'])
+    expect(tools.askQuestion).toEqual({
+      description: 'client-side, no execute'
+    })
+  })
+
+  it('shapes a refused image call as the card’s error form', () => {
+    expect(answerNowResult('generateImage', {})).toHaveProperty('error')
+  })
+
+  it('actually stops the AI SDK executing a call when activeTools is []', async () => {
+    // This is the bug: activeTools only stops ADVERTISING tools. A model that
+    // emits a call anyway still gets it executed against the tools map.
+    const realFetch = vi.fn(async () => ({ state: 'complete', results: [] }))
+    let call = 0
+    const model = new MockLanguageModelV3({
+      doGenerate: async () => {
+        call++
+        const usage = {
+          inputTokens: { total: 1, noCache: 1, cacheRead: 0, cacheWrite: 0 },
+          outputTokens: { total: 1, text: 1, reasoning: 0 }
+        }
+        if (call === 1) {
+          return {
+            content: [
+              {
+                type: 'tool-call' as const,
+                toolCallId: 't1',
+                toolName: 'fetch',
+                input: JSON.stringify({ url: 'https://late.example' })
+              }
+            ],
+            finishReason: { unified: 'tool-calls' as const, raw: 'tool_calls' },
+            usage,
+            warnings: []
+          }
+        }
+        return {
+          content: [{ type: 'text' as const, text: '## Answer' }],
+          finishReason: { unified: 'stop' as const, raw: 'stop' },
+          usage,
+          warnings: []
+        }
+      }
+    })
+    const raw = {
+      fetch: tool({
+        inputSchema: z.object({ url: z.string() }),
+        execute: realFetch
+      })
+    }
+    const result = await generateText({
+      model,
+      prompt: 'hi',
+      tools: enforceAnswerDeadline(raw, () => true),
+      activeTools: [],
+      stopWhen: stepCountIs(3)
+    })
+    expect(realFetch).not.toHaveBeenCalled()
+    const toolResult = result.steps[0].toolResults[0] as { output: unknown }
+    expect(toolResult.output).toMatchObject({ answerNow: true })
+    expect(result.text).toBe('## Answer')
   })
 })

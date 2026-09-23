@@ -54,7 +54,7 @@ export const ANSWER_NOW_NOTE = [
   'TIME TO ANSWER — NO MORE RESEARCH THIS TURN',
   '━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━',
   '',
-  'This turn has used its research budget. Your tools have been removed — another tool call is impossible and will not run.',
+  'This turn has used its research budget. No tools are available any more — any further tool call is refused and returns nothing new.',
   '',
   '- Write the best complete answer you can NOW, from the search results already in this conversation.',
   '- Do NOT announce that you are running out of time, do NOT propose further searches, and do NOT mention tools or their absence.',
@@ -101,4 +101,99 @@ export function applyAnswerDeadline<T extends AnswerDeadlineOverrides>(
     // note is appended to whichever prompt is actually in force.
     system: `${overrides.system ?? systemPrompt}${ANSWER_NOW_NOTE}`
   }
+}
+
+/**
+ * The message a refused tool call returns. Same spirit as the search round cap
+ * in lib/tools/search.ts: a valid, NON-error result that tells the model to
+ * write, rather than a throw it might try to retry.
+ */
+export const ANSWER_NOW_TOOL_NOTICE =
+  "Research time for this turn is over, so this tool call was not run. Answer the user's question directly now from the sources already gathered. Do not call any more tools, and do NOT mention this limit — begin your reply immediately with its `## ` heading."
+
+/**
+ * A refusal shaped like the tool's normal output, so the UI renderers that
+ * read it (search/fetch sections, the image card, recall, todo) keep working.
+ */
+export function answerNowResult(toolName: string, input: unknown): unknown {
+  const notice = ANSWER_NOW_TOOL_NOTICE
+  switch (toolName) {
+    case 'search': {
+      const query =
+        input && typeof input === 'object' && 'query' in input
+          ? String((input as { query?: unknown }).query ?? '')
+          : ''
+      return {
+        state: 'complete',
+        results: [],
+        images: [],
+        query,
+        number_of_results: 0,
+        answerNow: true,
+        notice
+      }
+    }
+    case 'fetch':
+      return {
+        state: 'complete',
+        results: [],
+        images: [],
+        query: '',
+        answerNow: true,
+        notice
+      }
+    case 'generateImage':
+      // The image card renders `error` as "Image generation failed: …".
+      return {
+        error: 'skipped, out of time for this turn',
+        answerNow: true,
+        notice
+      }
+    default:
+      return { state: 'complete', results: [], answerNow: true, notice }
+  }
+}
+
+type ExecutableTool = {
+  execute?: (input: never, options: never) => unknown
+}
+
+/**
+ * ENFORCE the deadline, not just advertise it.
+ *
+ * `applyAnswerDeadline` sets `activeTools: []`, but in AI SDK v6 that only stops
+ * ADVERTISING tools: a call the model emits anyway is still executed against the
+ * full `tools` map. So each tool's `execute` is wrapped here and, once
+ * `isPastDeadline()` is true, returns `answerNowResult` without running the
+ * tool. Tools with no `execute` (client-side, e.g. askQuestion) pass through.
+ *
+ * Before the deadline the original `execute` is returned as-is — including an
+ * async generator's iterable — so streaming tools behave exactly as before.
+ */
+export function enforceAnswerDeadline<T extends Record<string, unknown>>(
+  tools: T,
+  isPastDeadline: () => boolean,
+  onRefused?: (toolName: string) => void
+): T {
+  const out: Record<string, unknown> = {}
+  for (const [name, t] of Object.entries(tools)) {
+    const exec = (t as ExecutableTool | undefined)?.execute
+    if (!t || typeof exec !== 'function') {
+      out[name] = t
+      continue
+    }
+    out[name] = {
+      ...(t as object),
+      execute: (input: never, options: never) => {
+        if (!isPastDeadline()) return exec(input, options)
+        try {
+          onRefused?.(name)
+        } catch {
+          // Logging must never break the refusal.
+        }
+        return Promise.resolve(answerNowResult(name, input))
+      }
+    }
+  }
+  return out as T
 }

@@ -36,7 +36,11 @@ import {
   SPEED_MODE_PROMPT,
   UNTRUSTED_CONTENT_RULE
 } from './prompts/search-mode-prompts'
-import { applyAnswerDeadline } from './answer-deadline'
+import {
+  ANSWER_DEADLINE_MS,
+  applyAnswerDeadline,
+  enforceAnswerDeadline
+} from './answer-deadline'
 
 // The pasted-URL branch fills a source's title from the fetched page's <title>,
 // which is attacker-controlled when the user pastes a hostile link. That title
@@ -508,7 +512,10 @@ export async function createResearcher({
   documentRetrievalSources?: { toolCallId: string; title: string }[]
   // Reports a completed search/fetch call's stage durations (ms) so the
   // per-turn [latency] line can accumulate them. Additive telemetry only.
-  onToolTiming?: (kind: 'search' | 'fetch', stages: Record<string, number>) => void
+  onToolTiming?: (
+    kind: 'search' | 'fetch',
+    stages: Record<string, number>
+  ) => void
 }) {
   try {
     const currentDate = new Date().toLocaleString()
@@ -766,8 +773,17 @@ Treat each exactly like a \`search\` or \`fetch\` result from this turn: you MAY
       systemPrompt = systemPrompt + IMAGE_TOOL_GUIDANCE
     }
 
+    // Wall clock for the answer deadline. Started here rather than passed in
+    // from the route: this is the point after which everything remaining is
+    // model round trips, which is what the deadline is protecting. Read both by
+    // prepareStep (stops advertising tools) and by the execute wrapper below
+    // (refuses a call the model emits anyway).
+    const turnStartedAt = Date.now()
+    const pastAnswerDeadline = () =>
+      Date.now() - turnStartedAt >= ANSWER_DEADLINE_MS
+
     // Build tools object with proper typing
-    const tools: ResearcherTools = {
+    const rawTools: ResearcherTools = {
       search: searchTool,
       fetch: fetchTool,
       askQuestion: askQuestionTool,
@@ -795,6 +811,15 @@ Treat each exactly like a \`search\` or \`fetch\` result from this turn: you MAY
       ...todoTools
     } as ResearcherTools
 
+    // `activeTools: []` from applyAnswerDeadline only stops ADVERTISING tools;
+    // the SDK still executes a call against this map. Wrapping every execute
+    // is what actually stops a late search/fetch from running past the deadline.
+    const tools = enforceAnswerDeadline(rawTools, pastAnswerDeadline, name =>
+      console.log(
+        `[deadline] refused ${name} call at ${Math.round((Date.now() - turnStartedAt) / 1000)}s — answering from gathered sources`
+      )
+    )
+
     // Control-flow variant (lib/agents/flows). `baseline` is a no-op and is
     // the control arm; every other variant reshapes the loop itself rather
     // than tuning it. See flows/types.ts for what a variant may and may not do.
@@ -812,11 +837,6 @@ Treat each exactly like a \`search\` or \`fetch\` result from this turn: you MAY
         `[flow] variant=${flow.id} maxSteps=${effectiveMaxSteps} (${flow.summary})`
       )
     }
-
-    // Wall clock for the answer deadline. Started here rather than passed in
-    // from the route: this is the point after which everything remaining is
-    // model round trips, which is what the deadline is protecting.
-    const turnStartedAt = Date.now()
 
     // Create ToolLoopAgent with all configuration
     const agent = new ToolLoopAgent({
@@ -856,7 +876,7 @@ Treat each exactly like a \`search\` or \`fetch\` result from this turn: you MAY
         })
         if (o !== variant) {
           console.log(
-            `[deadline] ${Math.round((Date.now() - turnStartedAt) / 1000)}s elapsed at step ${stepNumber} — tools removed, answering now`
+            `[deadline] ${Math.round((Date.now() - turnStartedAt) / 1000)}s elapsed at step ${stepNumber} — tools withdrawn, answering now`
           )
         }
         // A `system` override REPLACES the instructions for that step, so the
