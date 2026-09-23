@@ -17,8 +17,11 @@ import type {
   WriteDecision
 } from './types'
 
-// Must match user_memories.embedding vector(1024) — pinned to mxbai
-// (EMBEDDING_MODEL=mixedbread-ai/mxbai-embed-large-v1).
+// Must match user_memories.embedding vector(1024). The live embedder is
+// Qwen/Qwen3-Embedding-0.6B (1024-d). The stored vectors are DATA-LOCKED to it:
+// switching EMBEDDING_MODEL to any other model — even another 1024-d one, which
+// passes this dimension check — silently corrupts memory + recall similarity.
+// Changing models requires re-embedding every stored vector.
 const MEMORY_EMBEDDING_DIM = 1024
 
 /**
@@ -78,7 +81,7 @@ export async function saveCandidates(
     if (embeddings[0] && embeddings[0].length !== MEMORY_EMBEDDING_DIM) {
       console.error(
         `[memory] embedding dimension mismatch: got ${embeddings[0].length}, expected ${MEMORY_EMBEDDING_DIM}. ` +
-          `Set EMBEDDING_MODEL=mixedbread-ai/mxbai-embed-large-v1. Skipping memory writes.`
+          `EMBEDDING_MODEL must be the 1024-d model the stored vectors were built with (Qwen/Qwen3-Embedding-0.6B); do NOT switch models without re-embedding. Skipping memory writes.`
       )
       return saved
     }
