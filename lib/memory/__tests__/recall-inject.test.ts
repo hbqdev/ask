@@ -1,9 +1,21 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
-vi.mock('../recall-search', () => ({ recallSearch: vi.fn() }))
+vi.mock('../recall-search', () => ({
+  recallSearch: vi.fn(),
+  retrieveRecallCandidates: vi.fn(),
+  rankRecallCandidates: vi.fn()
+}))
 
-import { buildRecallBlock, getRecallInjection } from '../recall-inject'
-import { recallSearch } from '../recall-search'
+import {
+  buildRecallBlock,
+  getRecallInjection,
+  prefetchRecallCandidates
+} from '../recall-inject'
+import {
+  rankRecallCandidates,
+  recallSearch,
+  retrieveRecallCandidates
+} from '../recall-search'
 
 const hit = (over: Partial<any> = {}) => ({
   chunkId: 'k1',
@@ -62,5 +74,51 @@ describe('getRecallInjection', () => {
       block: '',
       hits: []
     })
+  })
+})
+
+describe('prefetchRecallCandidates + getRecallInjection(prefetched)', () => {
+  beforeEach(() => vi.resetAllMocks())
+
+  const candidates = { query: 'q', vectorHits: [hit()], keywordHits: [] }
+
+  it('prefetch retrieves only (no rerank), with the injection options', async () => {
+    vi.mocked(retrieveRecallCandidates).mockResolvedValue(candidates as any)
+    expect(await prefetchRecallCandidates('u1', 'q', 'c9')).toBe(candidates)
+    expect(retrieveRecallCandidates).toHaveBeenCalledWith(
+      'u1',
+      'q',
+      expect.objectContaining({ excludeChatId: 'c9' })
+    )
+    expect(rankRecallCandidates).not.toHaveBeenCalled()
+  })
+
+  it('prefetch never rejects and is inert without a userId', async () => {
+    expect(await prefetchRecallCandidates(undefined, 'q', 'c1')).toBeNull()
+    vi.mocked(retrieveRecallCandidates).mockRejectedValue(new Error('down'))
+    expect(await prefetchRecallCandidates('u1', 'q', 'c1')).toBeNull()
+  })
+
+  it('ranks the prefetched candidates with the rerank-scale gate, no re-retrieval', async () => {
+    vi.mocked(rankRecallCandidates).mockResolvedValue([hit()])
+    const res = await getRecallInjection(
+      'u1',
+      'q',
+      'c9',
+      Promise.resolve(candidates as any)
+    )
+    expect(res.hits).toHaveLength(1)
+    expect(recallSearch).not.toHaveBeenCalled()
+    expect(rankRecallCandidates).toHaveBeenCalledWith(
+      candidates,
+      expect.objectContaining({ useRerank: true, minScore: 0.05 })
+    )
+  })
+
+  it('a null prefetch (disabled / failed / speed mode) yields an empty block', async () => {
+    expect(
+      await getRecallInjection('u1', 'q', 'c9', Promise.resolve(null))
+    ).toEqual({ block: '', hits: [] })
+    expect(rankRecallCandidates).not.toHaveBeenCalled()
   })
 })
