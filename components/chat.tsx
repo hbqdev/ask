@@ -496,14 +496,22 @@ export function Chat({
       }
 
       isStreamingRef.current = true
+      // Read BEFORE sending: whether this chat already had a turn, i.e. its row
+      // exists. A chat started from home has no providedId, but from its second
+      // send on it is an existing chat like any other.
+      const isFollowUp = messagesRef.current.length > 0
       try {
         const result = sendMessage(...args)
-        // Bump lastViewedAt for existing chats. Skip when providedId is
-        // missing (new chat — createChat already stamps it).
-        if (providedId) {
+        // Bump lastViewedAt for existing chats: opened from /search/<id>
+        // (providedId), or started from home and now sending a follow-up. Skip
+        // the very first send of a new chat — createChat stamps it, and the row
+        // may not exist yet. Without the home-started case, those chats kept
+        // their first-turn lastViewedAt and sorted too low after a reload.
+        const existingChatId = providedId ?? (isFollowUp ? chatId : undefined)
+        if (existingChatId) {
           // Optimistic: instantly reorder the sidebar before the DB write.
           window.dispatchEvent(
-            new CustomEvent('chat-bump', { detail: { chatId: providedId } })
+            new CustomEvent('chat-bump', { detail: { chatId: existingChatId } })
           )
           // Background: persist lastViewedAt. Do NOT dispatch a refresh event
           // here — this runs mid-stream (the answer is still generating), and a
@@ -511,7 +519,7 @@ export function Chat({
           // in-flight assistant message, blanking the messages/footer until the
           // stream re-asserts. The optimistic chat-bump above already reorders;
           // onFinish's chat-history-updated reconciles the order post-stream.
-          void touchChat(providedId)
+          void touchChat(existingChatId)
         }
         return result
       } catch (error) {
@@ -523,7 +531,8 @@ export function Chat({
       sendMessage,
       isCurrentAdaptiveModeAuthBlocked,
       showAdaptiveModeAuthModal,
-      providedId
+      providedId,
+      chatId
     ]
   )
 
