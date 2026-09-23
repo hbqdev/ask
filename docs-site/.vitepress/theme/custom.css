@@ -1,0 +1,224 @@
+/* Shared styles for the interactive reference components. Everything keys off
+   VitePress CSS variables so light/dark mode follows the site toggle. */
+:root {
+  --ask-kind-client: #3b82f6;
+  --ask-kind-host: #64748b;
+  --ask-kind-service: #10b981;
+  --ask-kind-external: #f59e0b;
+  --ask-kind-datastore: #8b5cf6;
+  --ask-get: #16a34a;
+  --ask-post: #2563eb;
+  --ask-put: #d97706;
+  --ask-patch: #d97706;
+  --ask-delete: #dc2626;
+}
+.dark {
+  --ask-kind-client: #60a5fa;
+  --ask-kind-host: #94a3b8;
+  --ask-kind-service: #34d399;
+  --ask-kind-external: #fbbf24;
+  --ask-kind-datastore: #a78bfa;
+}
+
+.ask-widget {
+  margin: 16px 0;
+  font-size: 14px;
+}
+.ask-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+  margin-bottom: 12px;
+}
+.ask-input {
+  flex: 1 1 220px;
+  min-width: 0;
+  padding: 6px 10px;
+  border: 1px solid var(--vp-c-divider);
+  border-radius: 8px;
+  background: var(--vp-c-bg);
+  color: var(--vp-c-text-1);
+  font-size: 14px;
+}
+.ask-input:focus {
+  outline: none;
+  border-color: var(--vp-c-brand-1);
+}
+.ask-select {
+  max-width: 100%;
+  min-width: 0;
+  padding: 6px 8px;
+  border: 1px solid var(--vp-c-divider);
+  border-radius: 8px;
+  background: var(--vp-c-bg);
+  color: var(--vp-c-text-1);
+  font-size: 14px;
+}
+.ask-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-bottom: 12px;
+}
+.ask-chip {
+  padding: 2px 10px;
+  border: 1px solid var(--vp-c-divider);
+  border-radius: 999px;
+  background: var(--vp-c-bg-soft);
+  color: var(--vp-c-text-2);
+  font-size: 12px;
+  line-height: 22px;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+.ask-chip:hover {
+  border-color: var(--vp-c-brand-1);
+  color: var(--vp-c-text-1);
+}
+.ask-chip.active {
+  background: var(--vp-c-brand-soft);
+  border-color: var(--vp-c-brand-1);
+  color: var(--vp-c-brand-1);
+}
+.ask-chip .n {
+  opacity: 0.6;
+  margin-left: 4px;
+}
+.ask-toggle {
+  display: inline-flex;
+  gap: 6px;
+  align-items: center;
+  font-size: 13px;
+  color: var(--vp-c-text-2);
+  cursor: pointer;
+  user-select: none;
+}
+.ask-count {
+  font-size: 12px;
+  color: var(--vp-c-text-3);
+}
+.ask-badge {
+  display: inline-block;
+  padding: 0 6px;
+  border-radius: 4px;
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 18px;
+  background: var(--vp-c-default-soft);
+  color: var(--vp-c-text-2);
+  margin: 1px 3px 1px 0;
+  white-space: nowrap;
+}
+.ask-badge.brand {
+  background: var(--vp-c-brand-soft);
+  color: var(--vp-c-brand-1);
+}
+.ask-badge.warn {
+  background: var(--vp-c-warning-soft);
+  color: var(--vp-c-warning-1);
+}
+.ask-badge.danger {
+  background: var(--vp-c-danger-soft);
+  color: var(--vp-c-danger-1);
+}
+.ask-badge.tip {
+  background: var(--vp-c-tip-soft);
+  color: var(--vp-c-tip-1);
+}
+.ask-list {
+  border: 1px solid var(--vp-c-divider);
+  border-radius: 10px;
+  overflow: hidden;
+}
+.ask-row {
+  border-top: 1px solid var(--vp-c-divider);
+}
+.ask-row:first-child {
+  border-top: none;
+}
+.ask-row-head {
+  display: grid;
+  gap: 8px 12px;
+  padding: 8px 12px;
+  align-items: baseline;
+  cursor: pointer;
+}
+.ask-row-head:hover {
+  background: var(--vp-c-bg-soft);
+}
+.ask-row.open > .ask-row-head {
+  background: var(--vp-c-bg-soft);
+}
+.ask-row-body {
+  padding: 8px 12px 12px 28px;
+  background: var(--vp-c-bg-alt);
+  font-size: 13px;
+  overflow-x: auto;
+}
+.ask-row-body h4 {
+  margin: 8px 0 4px;
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--vp-c-text-3);
+}
+.ask-mono,
+.ask-row code,
+.ask-widget code {
+  font-family: var(--vp-font-family-mono);
+  font-size: 12.5px;
+}
+.ask-muted {
+  color: var(--vp-c-text-3);
+}
+.ask-caret {
+  display: inline-block;
+  width: 10px;
+  transition: transform 0.15s;
+  color: var(--vp-c-text-3);
+}
+.ask-row.open .ask-caret {
+  transform: rotate(90deg);
+}
+.ask-empty {
+  padding: 24px;
+  text-align: center;
+  color: var(--vp-c-text-3);
+}
+.ask-btn {
+  padding: 4px 12px;
+  border: 1px solid var(--vp-c-divider);
+  border-radius: 8px;
+  background: var(--vp-c-bg-soft);
+  color: var(--vp-c-text-1);
+  font-size: 13px;
+  cursor: pointer;
+}
+.ask-btn:hover:not(:disabled) {
+  border-color: var(--vp-c-brand-1);
+  color: var(--vp-c-brand-1);
+}
+.ask-btn:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+.ask-btn.primary {
+  background: var(--vp-c-brand-1);
+  border-color: var(--vp-c-brand-1);
+  color: var(--vp-c-white);
+}
+.ask-btn.primary:hover:not(:disabled) {
+  background: var(--vp-c-brand-2);
+  color: var(--vp-c-white);
+}
+.vp-doc .ask-widget table {
+  display: table;
+  width: 100%;
+  margin: 4px 0;
+}
+.vp-doc .ask-widget th,
+.vp-doc .ask-widget td {
+  padding: 4px 8px;
+  font-size: 13px;
+}

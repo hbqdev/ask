@@ -1,0 +1,972 @@
+{
+  "note": "Overlays MERGE onto the base file (environment is additive). Env values of secret-named keys, or values carrying credentials, are redacted. Real .env files are never read.",
+  "environments": [
+    {
+      "id": "prod",
+      "label": "Prod",
+      "project": "ask-stack",
+      "files": [
+        "docker-compose.yaml",
+        "docker-compose.vpn.yaml"
+      ]
+    },
+    {
+      "id": "staging",
+      "label": "Staging",
+      "project": "ask-stack-admin-feature",
+      "files": [
+        "docker-compose.yaml",
+        "docker-compose.admin-feature.yaml",
+        "docker-compose.vpn.yaml",
+        "docker-compose.vpn.admin-feature.yaml"
+      ]
+    },
+    {
+      "id": "lab",
+      "label": "Lab",
+      "project": "ask-stack-lab",
+      "files": [
+        "docker-compose.yaml",
+        "docker-compose.lab.yaml",
+        "docker-compose.vpn.lab.yaml"
+      ]
+    }
+  ],
+  "files": [
+    {
+      "file": "docker-compose.admin-feature.yaml",
+      "label": "staging overlay",
+      "projectName": "ask-stack-admin-feature",
+      "networks": [],
+      "volumes": [
+        "postgres-data-admin-feature",
+        "redis-data-admin-feature",
+        "uploads-admin-feature",
+        "model-cache-admin-feature",
+        "searxng-data-admin-feature"
+      ],
+      "services": [
+        {
+          "name": "ask",
+          "containerName": "ask-admin-feature",
+          "image": null,
+          "build": null,
+          "ports": [
+            "${ADMIN_FEATURE_HOST_PORT:-3739}:3000"
+          ],
+          "expose": [],
+          "networks": [],
+          "networkMode": null,
+          "restart": null,
+          "dependsOn": [],
+          "envFile": [],
+          "volumes": [
+            "uploads-admin-feature:/app/uploads",
+            "model-cache-admin-feature:/app/model-cache"
+          ],
+          "profiles": [],
+          "healthcheck": false,
+          "overrides": [
+            "ports",
+            "volumes"
+          ],
+          "env": [
+            {
+              "key": "CLASSIFIER_MODEL_ID",
+              "value": "glm-5.3-flash:cloud"
+            },
+            {
+              "key": "CLASSIFIER_OLLAMA_BASE_URL",
+              "value": "http://192.168.50.231:11434"
+            },
+            {
+              "key": "CRAWL4AI_URL",
+              "value": "http://crawl4ai:11235"
+            },
+            {
+              "key": "DEGOOG_API_URL",
+              "value": "http://192.168.50.231:4446"
+            },
+            {
+              "key": "DEGOOG_ENABLED",
+              "value": "true"
+            },
+            {
+              "key": "ENABLE_AUTH",
+              "value": "${ENABLE_AUTH:-true}"
+            },
+            {
+              "key": "ENABLE_USAGE_LOGGING",
+              "value": "true"
+            },
+            {
+              "key": "MAX_ENRICH_URLS",
+              "value": "${MAX_ENRICH_URLS:-100}"
+            },
+            {
+              "key": "SEARCH_EXCERPTS_ENABLED",
+              "value": "${SEARCH_EXCERPTS_ENABLED:-false}"
+            },
+            {
+              "key": "SEARCH_QUALITY_FILTER",
+              "value": "relaxed"
+            },
+            {
+              "key": "SEARCH_SNIPPET_GATE",
+              "value": "off"
+            },
+            {
+              "key": "SEARCH_SNIPPET_GATE_TOP_N",
+              "value": "40"
+            },
+            {
+              "key": "SEARXNG_API_URL",
+              "value": "http://ask-searxng-admin-feature:8080"
+            },
+            {
+              "key": "SEARXNG_CRAWL_MULTIPLIER",
+              "value": "${SEARXNG_CRAWL_MULTIPLIER:-4}"
+            },
+            {
+              "key": "UPLOAD_TTL_DAYS",
+              "value": "14"
+            }
+          ]
+        },
+        {
+          "name": "postgres",
+          "containerName": "ask-postgres-admin-feature",
+          "image": null,
+          "build": null,
+          "ports": [],
+          "expose": [],
+          "networks": [],
+          "networkMode": null,
+          "restart": null,
+          "dependsOn": [],
+          "envFile": [],
+          "volumes": [
+            "postgres-data-admin-feature:/var/lib/postgresql/data"
+          ],
+          "profiles": [],
+          "healthcheck": false,
+          "overrides": [
+            "volumes"
+          ],
+          "env": []
+        },
+        {
+          "name": "redis",
+          "containerName": "ask-redis-admin-feature",
+          "image": null,
+          "build": null,
+          "ports": [],
+          "expose": [],
+          "networks": [],
+          "networkMode": null,
+          "restart": null,
+          "dependsOn": [],
+          "envFile": [],
+          "volumes": [
+            "redis-data-admin-feature:/data"
+          ],
+          "profiles": [],
+          "healthcheck": false,
+          "overrides": [
+            "volumes"
+          ],
+          "env": []
+        },
+        {
+          "name": "searxng",
+          "containerName": "ask-searxng-admin-feature",
+          "image": null,
+          "build": null,
+          "ports": [],
+          "expose": [],
+          "networks": [],
+          "networkMode": null,
+          "restart": null,
+          "dependsOn": [],
+          "envFile": [],
+          "volumes": [
+            "./searxng-limiter.toml:/etc/searxng/limiter.toml",
+            "./searxng-settings.admin-feature.yml:/etc/searxng/settings.yml",
+            "searxng-data-admin-feature:/data"
+          ],
+          "profiles": [],
+          "healthcheck": false,
+          "overrides": [
+            "ports",
+            "volumes"
+          ],
+          "env": []
+        }
+      ]
+    },
+    {
+      "file": "docker-compose.lab.yaml",
+      "label": "lab overlay",
+      "projectName": "ask-stack-lab",
+      "networks": [],
+      "volumes": [
+        "postgres-data-lab",
+        "redis-data-lab",
+        "uploads-lab",
+        "model-cache-lab",
+        "searxng-data-lab"
+      ],
+      "services": [
+        {
+          "name": "ask",
+          "containerName": "ask-lab",
+          "image": null,
+          "build": null,
+          "ports": [
+            "${LAB_HOST_PORT:-3742}:3000"
+          ],
+          "expose": [],
+          "networks": [],
+          "networkMode": null,
+          "restart": null,
+          "dependsOn": [],
+          "envFile": [],
+          "volumes": [
+            "uploads-lab:/app/uploads",
+            "model-cache-lab:/app/model-cache"
+          ],
+          "profiles": [],
+          "healthcheck": false,
+          "overrides": [
+            "ports",
+            "volumes"
+          ],
+          "env": [
+            {
+              "key": "ANONYMOUS_USER_ID",
+              "value": "lab-harness"
+            },
+            {
+              "key": "ANSWER_THINK",
+              "value": "${ANSWER_THINK:-}"
+            },
+            {
+              "key": "CLASSIFIER_MODEL_ID",
+              "value": "deepseek-v4-pro:cloud"
+            },
+            {
+              "key": "CLASSIFIER_OLLAMA_BASE_URL",
+              "value": "http://192.168.50.231:11434"
+            },
+            {
+              "key": "DEFAULT_CHAT_MODEL",
+              "value": "kimi-k2.6:cloud"
+            },
+            {
+              "key": "DEGOOG_API_KEY",
+              "value": "(secret — not shown)"
+            },
+            {
+              "key": "DEGOOG_API_URL",
+              "value": "http://degoog-gluetun-lab:4444"
+            },
+            {
+              "key": "DEGOOG_ENABLED",
+              "value": "false"
+            },
+            {
+              "key": "ENABLE_AUTH",
+              "value": "false"
+            },
+            {
+              "key": "ENABLE_USAGE_LOGGING",
+              "value": "true"
+            },
+            {
+              "key": "FLOW_ARCH",
+              "value": "${FLOW_ARCH:-}"
+            },
+            {
+              "key": "FLOW_VARIANT",
+              "value": "${FLOW_VARIANT:-baseline}"
+            },
+            {
+              "key": "OLLAMA_SEARCH_API_KEY",
+              "value": "(secret — not shown)"
+            },
+            {
+              "key": "OLLAMA_SEARCH_ENABLED",
+              "value": "${OLLAMA_SEARCH_ENABLED:-}"
+            },
+            {
+              "key": "PIPELINE_SOURCE_CHARS",
+              "value": "${PIPELINE_SOURCE_CHARS:-}"
+            },
+            {
+              "key": "REPLICATE_IMAGE_EDIT_MODEL",
+              "value": "${REPLICATE_IMAGE_EDIT_MODEL:-google/nano-banana-2}"
+            },
+            {
+              "key": "SEARCH_CROP_POSITION_SHADOW",
+              "value": "${SEARCH_CROP_POSITION_SHADOW:-true}"
+            },
+            {
+              "key": "SEARCH_ENRICH_MAX_CHARS",
+              "value": "${SEARCH_ENRICH_MAX_CHARS:-20000}"
+            },
+            {
+              "key": "SEARCH_EXCERPTS_ENABLED",
+              "value": "false"
+            },
+            {
+              "key": "SEARCH_QUALITY_FILTER",
+              "value": "${SEARCH_QUALITY_FILTER:-relaxed}"
+            },
+            {
+              "key": "SEARCH_ROUNDS_MAX",
+              "value": "${SEARCH_ROUNDS_MAX:-3}"
+            },
+            {
+              "key": "SEARCH_ROUNDS_MAX_QUALITY",
+              "value": "${SEARCH_ROUNDS_MAX_QUALITY:-5}"
+            },
+            {
+              "key": "SEARCH_SNIPPET_GATE",
+              "value": "${SEARCH_SNIPPET_GATE:-off}"
+            },
+            {
+              "key": "SEARCH_SNIPPET_GATE_TOP_N",
+              "value": "${SEARCH_SNIPPET_GATE_TOP_N:-40}"
+            },
+            {
+              "key": "SEARXNG_API_URL",
+              "value": "http://ask-searxng-lab:8080"
+            },
+            {
+              "key": "SEARXNG_CRAWL_MULTIPLIER",
+              "value": "4"
+            },
+            {
+              "key": "SEARXNG_FALLBACK_API_URL",
+              "value": ""
+            },
+            {
+              "key": "TAVILY_MERGE_ENABLED",
+              "value": "on"
+            },
+            {
+              "key": "TTS_SERVICE_URL",
+              "value": "http://ask-tts-lab:8880"
+            },
+            {
+              "key": "UPLOAD_TTL_DAYS",
+              "value": "14"
+            },
+            {
+              "key": "VOICE_ENABLED",
+              "value": "true"
+            },
+            {
+              "key": "VOICE_STT_MODEL",
+              "value": "Systran/faster-distil-whisper-large-v3"
+            },
+            {
+              "key": "WHISPER_SERVICE_URL",
+              "value": "http://192.168.50.17:8788"
+            }
+          ]
+        },
+        {
+          "name": "ask-tts-lab",
+          "containerName": "ask-tts-lab",
+          "image": "ghcr.io/remsky/kokoro-fastapi-gpu:latest",
+          "build": null,
+          "ports": [
+            "${LAB_TTS_PORT:-3744}:8880"
+          ],
+          "expose": [],
+          "networks": [],
+          "networkMode": null,
+          "restart": "unless-stopped",
+          "dependsOn": [],
+          "envFile": [],
+          "volumes": [],
+          "profiles": [],
+          "healthcheck": true,
+          "overrides": [],
+          "env": [
+            {
+              "key": "CUDA_VISIBLE_DEVICES",
+              "value": "(secret — not shown)"
+            }
+          ]
+        },
+        {
+          "name": "postgres",
+          "containerName": "ask-postgres-lab",
+          "image": null,
+          "build": null,
+          "ports": [],
+          "expose": [],
+          "networks": [],
+          "networkMode": null,
+          "restart": null,
+          "dependsOn": [],
+          "envFile": [],
+          "volumes": [
+            "postgres-data-lab:/var/lib/postgresql/data"
+          ],
+          "profiles": [],
+          "healthcheck": false,
+          "overrides": [
+            "volumes"
+          ],
+          "env": []
+        },
+        {
+          "name": "redis",
+          "containerName": "ask-redis-lab",
+          "image": null,
+          "build": null,
+          "ports": [],
+          "expose": [],
+          "networks": [],
+          "networkMode": null,
+          "restart": null,
+          "dependsOn": [],
+          "envFile": [],
+          "volumes": [
+            "redis-data-lab:/data"
+          ],
+          "profiles": [],
+          "healthcheck": false,
+          "overrides": [
+            "volumes"
+          ],
+          "env": []
+        },
+        {
+          "name": "searxng",
+          "containerName": "ask-searxng-lab",
+          "image": null,
+          "build": null,
+          "ports": [
+            "${LAB_SEARXNG_PORT:-3743}:8080"
+          ],
+          "expose": [],
+          "networks": [],
+          "networkMode": null,
+          "restart": null,
+          "dependsOn": [],
+          "envFile": [],
+          "volumes": [
+            "./searxng-limiter.toml:/etc/searxng/limiter.toml",
+            "./searxng-settings.yml:/etc/searxng/settings.yml",
+            "searxng-data-lab:/data"
+          ],
+          "profiles": [],
+          "healthcheck": false,
+          "overrides": [
+            "ports",
+            "volumes"
+          ],
+          "env": []
+        }
+      ]
+    },
+    {
+      "file": "docker-compose.vpn.admin-feature.yaml",
+      "label": "staging VPN overlay",
+      "projectName": null,
+      "networks": [],
+      "volumes": [],
+      "services": [
+        {
+          "name": "ask",
+          "containerName": null,
+          "image": null,
+          "build": null,
+          "ports": [],
+          "expose": [],
+          "networks": [],
+          "networkMode": null,
+          "restart": null,
+          "dependsOn": [],
+          "envFile": [],
+          "volumes": [],
+          "profiles": [],
+          "healthcheck": false,
+          "overrides": [],
+          "env": [
+            {
+              "key": "SEARXNG_API_URL",
+              "value": "http://ask-gluetun-admin-feature:8080"
+            }
+          ]
+        },
+        {
+          "name": "gluetun",
+          "containerName": "ask-gluetun-admin-feature",
+          "image": null,
+          "build": null,
+          "ports": [
+            "3740:8080"
+          ],
+          "expose": [],
+          "networks": [],
+          "networkMode": null,
+          "restart": null,
+          "dependsOn": [],
+          "envFile": [],
+          "volumes": [],
+          "profiles": [],
+          "healthcheck": false,
+          "overrides": [
+            "ports"
+          ],
+          "env": [
+            {
+              "key": "SERVER_COUNTRIES",
+              "value": "${MULLVAD_COUNTRIES:-USA}"
+            },
+            {
+              "key": "SERVER_HOSTNAMES",
+              "value": "${MULLVAD_SERVER_STAGING:-}"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "file": "docker-compose.vpn.lab.yaml",
+      "label": "lab VPN overlay",
+      "projectName": null,
+      "networks": [],
+      "volumes": [],
+      "services": [
+        {
+          "name": "ask",
+          "containerName": null,
+          "image": null,
+          "build": null,
+          "ports": [],
+          "expose": [],
+          "networks": [],
+          "networkMode": null,
+          "restart": null,
+          "dependsOn": [],
+          "envFile": [],
+          "volumes": [],
+          "profiles": [],
+          "healthcheck": false,
+          "overrides": [],
+          "env": [
+            {
+              "key": "SEARXNG_API_URL",
+              "value": "http://ask-gluetun-lab:8080"
+            }
+          ]
+        },
+        {
+          "name": "gluetun",
+          "containerName": "ask-gluetun-lab",
+          "image": "qmcgaw/gluetun:latest",
+          "build": null,
+          "ports": [
+            "${LAB_SEARXNG_PORT:-3743}:8080"
+          ],
+          "expose": [],
+          "networks": [
+            "default"
+          ],
+          "networkMode": null,
+          "restart": "unless-stopped",
+          "dependsOn": [],
+          "envFile": [],
+          "volumes": [
+            "./gluetun-auth.toml:/gluetun/auth/config.toml:ro"
+          ],
+          "profiles": [],
+          "healthcheck": true,
+          "overrides": [],
+          "env": [
+            {
+              "key": "FIREWALL",
+              "value": "on"
+            },
+            {
+              "key": "FIREWALL_INPUT_PORTS",
+              "value": "8080"
+            },
+            {
+              "key": "FIREWALL_OUTBOUND_SUBNETS",
+              "value": "192.168.50.0/24,172.16.0.0/12"
+            },
+            {
+              "key": "SERVER_COUNTRIES",
+              "value": "${MULLVAD_COUNTRIES:-USA}"
+            },
+            {
+              "key": "SERVER_HOSTNAMES",
+              "value": "${MULLVAD_SERVER_LAB:-}"
+            },
+            {
+              "key": "VPN_SERVICE_PROVIDER",
+              "value": "mullvad"
+            },
+            {
+              "key": "VPN_TYPE",
+              "value": "wireguard"
+            },
+            {
+              "key": "WIREGUARD_ADDRESSES",
+              "value": "${MULLVAD_ADDRESSES:?set MULLVAD_ADDRESSES in ask/.env}"
+            },
+            {
+              "key": "WIREGUARD_PRIVATE_KEY",
+              "value": "(secret — not shown)"
+            }
+          ]
+        },
+        {
+          "name": "searxng",
+          "containerName": null,
+          "image": null,
+          "build": null,
+          "ports": [],
+          "expose": [],
+          "networks": [],
+          "networkMode": "service:gluetun",
+          "restart": null,
+          "dependsOn": [
+            "gluetun"
+          ],
+          "envFile": [],
+          "volumes": [],
+          "profiles": [],
+          "healthcheck": false,
+          "overrides": [
+            "ports"
+          ],
+          "env": []
+        }
+      ]
+    },
+    {
+      "file": "docker-compose.vpn.yaml",
+      "label": "prod VPN overlay",
+      "projectName": null,
+      "networks": [],
+      "volumes": [],
+      "services": [
+        {
+          "name": "ask",
+          "containerName": null,
+          "image": null,
+          "build": null,
+          "ports": [],
+          "expose": [],
+          "networks": [],
+          "networkMode": null,
+          "restart": null,
+          "dependsOn": [],
+          "envFile": [],
+          "volumes": [],
+          "profiles": [],
+          "healthcheck": false,
+          "overrides": [],
+          "env": [
+            {
+              "key": "SEARXNG_API_URL",
+              "value": "http://ask-gluetun:8080"
+            }
+          ]
+        },
+        {
+          "name": "gluetun",
+          "containerName": "ask-gluetun",
+          "image": "qmcgaw/gluetun:latest",
+          "build": null,
+          "ports": [
+            "3741:8080"
+          ],
+          "expose": [],
+          "networks": [],
+          "networkMode": null,
+          "restart": "unless-stopped",
+          "dependsOn": [],
+          "envFile": [],
+          "volumes": [
+            "./gluetun-auth.toml:/gluetun/auth/config.toml:ro"
+          ],
+          "profiles": [],
+          "healthcheck": true,
+          "overrides": [],
+          "env": [
+            {
+              "key": "FIREWALL",
+              "value": "on"
+            },
+            {
+              "key": "FIREWALL_INPUT_PORTS",
+              "value": "8080"
+            },
+            {
+              "key": "FIREWALL_OUTBOUND_SUBNETS",
+              "value": "192.168.50.0/24"
+            },
+            {
+              "key": "SERVER_COUNTRIES",
+              "value": "${MULLVAD_COUNTRIES:-USA}"
+            },
+            {
+              "key": "SERVER_HOSTNAMES",
+              "value": "${MULLVAD_SERVER:-}"
+            },
+            {
+              "key": "VPN_SERVICE_PROVIDER",
+              "value": "mullvad"
+            },
+            {
+              "key": "VPN_TYPE",
+              "value": "wireguard"
+            },
+            {
+              "key": "WIREGUARD_ADDRESSES",
+              "value": "${MULLVAD_ADDRESSES:?set MULLVAD_ADDRESSES in .env}"
+            },
+            {
+              "key": "WIREGUARD_PRIVATE_KEY",
+              "value": "(secret — not shown)"
+            }
+          ]
+        },
+        {
+          "name": "searxng",
+          "containerName": null,
+          "image": null,
+          "build": null,
+          "ports": [],
+          "expose": [],
+          "networks": [],
+          "networkMode": "service:gluetun",
+          "restart": null,
+          "dependsOn": [
+            "gluetun"
+          ],
+          "envFile": [],
+          "volumes": [],
+          "profiles": [],
+          "healthcheck": false,
+          "overrides": [
+            "ports"
+          ],
+          "env": []
+        }
+      ]
+    },
+    {
+      "file": "docker-compose.yaml",
+      "label": "prod (base)",
+      "projectName": "ask-stack",
+      "networks": [
+        {
+          "name": "shared-infra",
+          "external": true,
+          "externalName": "shared-infra"
+        }
+      ],
+      "volumes": [
+        "postgres_data",
+        "redis_data",
+        "uploads",
+        "model-cache",
+        "searxng_data"
+      ],
+      "services": [
+        {
+          "name": "ask",
+          "containerName": "ask",
+          "image": null,
+          "build": {
+            "context": ".",
+            "dockerfile": "Dockerfile"
+          },
+          "ports": [
+            "${HOST_PORT:-3738}:3000"
+          ],
+          "expose": [],
+          "networks": [
+            "default",
+            "shared-infra"
+          ],
+          "networkMode": null,
+          "restart": "unless-stopped",
+          "dependsOn": [
+            "postgres",
+            "redis",
+            "searxng"
+          ],
+          "envFile": [
+            ".env"
+          ],
+          "volumes": [
+            "uploads:/app/uploads",
+            "model-cache:/app/model-cache"
+          ],
+          "profiles": [],
+          "healthcheck": true,
+          "overrides": [],
+          "env": [
+            {
+              "key": "DATABASE_RESTRICTED_URL",
+              "value": "(secret — not shown)"
+            },
+            {
+              "key": "DATABASE_SSL_DISABLED",
+              "value": "true"
+            },
+            {
+              "key": "DATABASE_URL",
+              "value": "(secret — not shown)"
+            },
+            {
+              "key": "DEGOOG_ENABLED",
+              "value": "true"
+            },
+            {
+              "key": "ENABLE_AUTH",
+              "value": "true"
+            },
+            {
+              "key": "LOCAL_REDIS_URL",
+              "value": "redis://redis:6379"
+            },
+            {
+              "key": "MORPHIC_CLOUD_DEPLOYMENT",
+              "value": "false"
+            },
+            {
+              "key": "REPLICATE_IMAGE_EDIT_MODEL",
+              "value": "google/nano-banana-2"
+            },
+            {
+              "key": "SEARCH_CROP_POSITION_SHADOW",
+              "value": "${SEARCH_CROP_POSITION_SHADOW:-true}"
+            },
+            {
+              "key": "SEARCH_ENRICH_MAX_CHARS",
+              "value": "${SEARCH_ENRICH_MAX_CHARS:-20000}"
+            },
+            {
+              "key": "SEARCH_QUALITY_FILTER",
+              "value": "strict"
+            },
+            {
+              "key": "SEARXNG_CRAWL_MULTIPLIER",
+              "value": "2"
+            },
+            {
+              "key": "TTS_SERVICE_URL",
+              "value": "http://192.168.50.231:8890"
+            },
+            {
+              "key": "VOICE_ENABLED",
+              "value": "true"
+            },
+            {
+              "key": "VOICE_STT_MODEL",
+              "value": "Systran/faster-distil-whisper-large-v3"
+            },
+            {
+              "key": "WHISPER_SERVICE_URL",
+              "value": "http://192.168.50.17:8788"
+            }
+          ]
+        },
+        {
+          "name": "postgres",
+          "containerName": "ask-postgres",
+          "image": "pgvector/pgvector:pg17",
+          "build": null,
+          "ports": [],
+          "expose": [],
+          "networks": [],
+          "networkMode": null,
+          "restart": "unless-stopped",
+          "dependsOn": [],
+          "envFile": [],
+          "volumes": [
+            "postgres_data:/var/lib/postgresql/data"
+          ],
+          "profiles": [],
+          "healthcheck": true,
+          "overrides": [],
+          "env": [
+            {
+              "key": "POSTGRES_DB",
+              "value": "${POSTGRES_DB:-morphic}"
+            },
+            {
+              "key": "POSTGRES_PASSWORD",
+              "value": "(secret — not shown)"
+            },
+            {
+              "key": "POSTGRES_USER",
+              "value": "${POSTGRES_USER:-morphic}"
+            }
+          ]
+        },
+        {
+          "name": "redis",
+          "containerName": "ask-redis",
+          "image": "redis:alpine",
+          "build": null,
+          "ports": [],
+          "expose": [],
+          "networks": [],
+          "networkMode": null,
+          "restart": "unless-stopped",
+          "dependsOn": [],
+          "envFile": [],
+          "volumes": [
+            "redis_data:/data"
+          ],
+          "profiles": [],
+          "healthcheck": false,
+          "overrides": [],
+          "env": []
+        },
+        {
+          "name": "searxng",
+          "containerName": "ask-searxng",
+          "image": "searxng/searxng",
+          "build": null,
+          "ports": [
+            "3741:8080"
+          ],
+          "expose": [],
+          "networks": [],
+          "networkMode": null,
+          "restart": "unless-stopped",
+          "dependsOn": [],
+          "envFile": [],
+          "volumes": [
+            "./searxng-limiter.toml:/etc/searxng/limiter.toml",
+            "./searxng-settings.yml:/etc/searxng/settings.yml",
+            "searxng_data:/data"
+          ],
+          "profiles": [],
+          "healthcheck": false,
+          "overrides": [],
+          "env": [
+            {
+              "key": "SEARXNG_SECRET",
+              "value": "(secret — not shown)"
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}
