@@ -49,4 +49,11 @@ describe('diff', () => {
     expect(out).toContain(MASK)
     expect(out).not.toContain('plaintextsecret')
   })
+  it('renders a cleared secret as (empty), never as the mask or the value', () => {
+    const out = renderDiff(
+      computeChanges({ RERANKER_API_TOKEN: 'old' }, { RERANKER_API_TOKEN: '' })
+    )
+    expect(out).toContain('(empty)')
+    expect(out).not.toContain('old')
+  })
 })

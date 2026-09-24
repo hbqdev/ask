@@ -68,4 +68,58 @@ describe('Field', () => {
     )
     expect(screen.getByPlaceholderText(/unchanged/i)).toBeInTheDocument()
   })
+  it('offers Clear for a set optional secret and reports it', () => {
+    const onClear = vi.fn()
+    render(
+      <Field
+        spec={specByKey('RERANKER_API_TOKEN')!}
+        value=""
+        onChange={() => {}}
+        isSecretSet
+        onClear={onClear}
+      />
+    )
+    fireEvent.click(screen.getByRole('button', { name: /clear this secret/i }))
+    expect(onClear).toHaveBeenCalledWith(true)
+  })
+  it('shows the pending clear with an Undo', () => {
+    const onClear = vi.fn()
+    render(
+      <Field
+        spec={specByKey('RERANKER_API_TOKEN')!}
+        value=""
+        onChange={() => {}}
+        isSecretSet
+        cleared
+        onClear={onClear}
+      />
+    )
+    expect(screen.getByText(/will be cleared on apply/i)).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: /undo/i }))
+    expect(onClear).toHaveBeenCalledWith(false)
+  })
+  it('no Clear for an unset secret or a required one', () => {
+    const spec = specByKey('RERANKER_API_TOKEN')!
+    const { unmount } = render(
+      <Field
+        spec={spec}
+        value=""
+        onChange={() => {}}
+        isSecretSet={false}
+        onClear={() => {}}
+      />
+    )
+    expect(screen.queryByRole('button', { name: /clear/i })).toBeNull()
+    unmount()
+    render(
+      <Field
+        spec={{ ...spec, required: true }}
+        value=""
+        onChange={() => {}}
+        isSecretSet
+        onClear={() => {}}
+      />
+    )
+    expect(screen.queryByRole('button', { name: /clear/i })).toBeNull()
+  })
 })
