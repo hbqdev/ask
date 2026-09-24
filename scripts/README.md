@@ -10,7 +10,7 @@ A command-line interface for testing the chat API without a browser client. This
 
 - Send messages to the chat API via command line
 - Real-time Server-Sent Events (SSE) streaming output
-- Configurable search modes (quick/adaptive) or disabled
+- Configurable search modes (`speed` / `balanced` / `quality`; there is no search-off mode — the route always offers search and the query classifier decides per turn)
 - Chat session continuity
 - Message regeneration support
 - Secure authentication via environment variables
@@ -32,11 +32,11 @@ bun chat -m "Hello, how are you?"
 # Direct usage
 bun scripts/chat-cli.ts -m "Hello, how are you?"
 
-# Disable search mode
-bun chat -m "Tell me a joke" --no-search
+# Lightest search path (there is no way to disable search from the API)
+bun chat -m "Tell me a joke" --search-mode speed
 
-# Use adaptive search mode for complex queries
-bun chat -m "Research the latest AI developments" --search-mode adaptive
+# Deepest search mode for complex queries
+bun chat -m "Research the latest AI developments" --search-mode quality
 
 # Continue an existing chat
 bun chat -c "chat_123" -m "Tell me more"
@@ -53,9 +53,9 @@ bun chat --help
 - `-m, --message <text>` - Message to send (default: "Hello, how are you?")
 - `-u, --url <url>` - API URL (default: http://localhost:3000/api/chat, localhost only)
 - `-c, --chat-id <id>` - Chat ID for session continuity (default: auto-generated)
-- `-s, --search` - Enable search mode with adaptive strategy (default)
-- `--no-search` - Disable search mode
-- `--search-mode <type>` - Search strategy: `quick` or `adaptive`
+- `-s, --search` - Use the `balanced` search mode (default)
+- `--search-mode <type>` - `speed`, `balanced` or `quality` (legacy `quick` → speed, `adaptive` → balanced)
+- `--no-search` - Removed: it used to send `searchMode=disabled`, which the route doesn't recognise and silently ran as `balanced` (with search); it now exits with an error
 - `-t, --trigger <type>` - Trigger type: `submit` (default) or `regenerate`
 - `--message-id <id>` - Message ID (required for regenerate trigger)
 - `-h, --help` - Show help message
@@ -65,17 +65,21 @@ bun chat --help
 The script displays:
 
 - 🚀 Request details
-- 🔍 Search mode status (quick/adaptive/disabled)
+- 🔍 Search mode (speed/balanced/quality)
 - 💬 Chat ID for reference
 - Real-time AI responses with proper formatting
-- 🔧 Tool usage (when search mode is enabled)
+- 🔧 Tool usage (when the turn searched)
 - ✅ Completion status
 
 ### Search Modes
 
-- **quick**: Fast search with basic results
-- **adaptive**: Intelligent search strategy based on query type, with enhanced support for complex queries (default)
-- **disabled**: No search functionality (`--no-search`)
+These are the route's modes (`app/api/chat/route.ts`, sent as the `searchMode` cookie; any other value falls back to `balanced`):
+
+- **speed**: lightest search path (legacy alias `quick`)
+- **balanced**: default (legacy alias `adaptive`)
+- **quality**: deepest research protocol
+
+There is no search-off mode: whether a turn searches is decided per turn by the query classifier (`skipSearch`).
 
 ### Advanced Usage
 
@@ -124,7 +128,7 @@ If you encounter "Selected provider is not enabled" errors:
 
 1. Verify the selected model/provider is enabled in your local configuration
 2. Check the required provider API key is set in `.env.local`
-3. Retry with `--search-mode quick` to isolate search-specific issues
+3. Retry with `--search-mode speed` to isolate search-specific issues
 
 #### General Issues
 
@@ -137,10 +141,10 @@ If you encounter "Selected provider is not enabled" errors:
 
 ```bash
 # Test basic functionality
-bun chat -m "Hello, test message" --no-search
+bun chat -m "Hello, test message" --search-mode speed
 
-# Test adaptive search
-bun chat -m "Complex analysis task" --search-mode adaptive
+# Test the deep research mode
+bun chat -m "Complex analysis task" --search-mode quality
 
 # Debug mode
 DEBUG=1 bun chat -m "Debug test"

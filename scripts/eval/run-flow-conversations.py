@@ -24,8 +24,15 @@ Usage:
 import argparse, json, os, subprocess, time, urllib.request, urllib.error
 from pathlib import Path
 
-ROOT = Path("/home/nightfury/selfhosted/ask")
-LAB = "http://192.168.50.231:3742"
+# Lab topology (mirrors the `lab` case of fleet-boot/rebuild-ask.sh): the
+# ask-flow worktree, compose project ask-stack-lab, container ask-lab, served on
+# :3742 of NightFuryX (.17), where these scripts run. ROOT MUST be the lab's OWN
+# worktree: compose resolves `env_file: .env` and the build context relative to
+# the project dir, so recreating ask-lab from another checkout (this used to
+# point at the staging worktree) silently boots the lab on THAT stack's .env.
+# lab_guard() below refuses to recreate if the running container disagrees.
+ROOT = Path(os.environ.get("ASK_LAB_DIR", "/home/nightfury/selfhosted/ask-flow"))
+LAB = os.environ.get("ASK_LAB_URL", "http://localhost:3742")
 # The VPN overlay MUST be included in every compose invocation that recreates a
 # service. Omit it and compose happily rebuilds `ask` from the overlay-less
 # config, which points SEARXNG_API_URL back at a `searxng` hostname that no
@@ -42,6 +49,9 @@ PROJ = "ask-stack-lab"
 # with prompt_tokens=None and an answer_chars frozen at turn 1's value.
 # Set well above any plausible turn so slow turns are measured, not vanished.
 TURN_TIMEOUT = 900
+# Chat model under test — same knob and default as run-flow-arms.py, so a
+# conversation run and an arms run with the same EVAL_MODEL are comparable.
+MODEL = os.environ.get("EVAL_MODEL", "kimi-k2.6:cloud")
 
 # Each conversation deliberately mixes turn KINDS, because that is what a real
 # thread does and what the arms must handle without a mode switch:
@@ -107,7 +117,19 @@ def sh(args, **kw):
     return subprocess.run(args, capture_output=True, text=True, **kw)
 
 
+def lab_guard() -> None:
+    """Abort before any recreate unless ROOT is the worktree ask-lab runs from."""
+    if not (ROOT / "docker-compose.lab.yaml").is_file():
+        raise SystemExit(f"{ROOT} has no docker-compose.lab.yaml — not the lab worktree")
+    wd = sh(["docker", "inspect", "ask-lab", "--format",
+             '{{index .Config.Labels "com.docker.compose.project.working_dir"}}']).stdout.strip()
+    if wd and Path(wd).resolve() != ROOT.resolve():
+        raise SystemExit(f"ask-lab runs from {wd}, not {ROOT}; refusing to recreate it "
+                         "from a different worktree (set ASK_LAB_DIR if the lab moved)")
+
+
 def set_arm(arm: str) -> None:
+    lab_guard()
     env = {**os.environ, "FLOW_VARIANT": arm}
     sh(["docker", "compose", *COMPOSE, "-p", PROJ, "up", "-d", "ask"], cwd=ROOT, env=env)
     for _ in range(60):
@@ -135,7 +157,7 @@ def post_turn(chat_id: str, text: str, first: bool) -> int:
     req = urllib.request.Request(LAB + "/api/chat", data=body, method="POST", headers={
         "Content-Type": "application/json",
         "Connection": "close",
-        "Cookie": "selectedModel=ollama:kimi-k2.6%3Acloud; searchMode=balanced",
+        "Cookie": f"selectedModel=ollama:{MODEL.replace(':', '%3A')}; searchMode=balanced",
     })
     try:
         with urllib.request.urlopen(req, timeout=TURN_TIMEOUT) as r:
@@ -196,7 +218,7 @@ def main() -> None:
     out_path.parent.mkdir(parents=True, exist_ok=True)
     fh = out_path.open("w")
     n_turns = sum(len(c["turns"]) for c in convos)
-    print(f"arms={arms}  {len(convos)} conversations x turns = {n_turns} per arm\n", flush=True)
+    print(f"model={MODEL}  arms={arms}  {len(convos)} conversations x turns = {n_turns} per arm\n", flush=True)
 
     for arm in arms:
         print(f"=== {arm} ===", flush=True)
@@ -221,7 +243,7 @@ def main() -> None:
                 answered = prev_answer is None or answer != prev_answer
                 prev_answer = answer
                 rec = {
-                    "arm": arm, "convo": convo["id"], "turn": i + 1, "kind": kind,
+                    "arm": arm, "model": MODEL, "convo": convo["id"], "turn": i + 1, "kind": kind,
                     "question": text, "http": code,
                     "total_s": round((t.get("total_ms") or 0) / 1000, 1),
                     "steps": t.get("steps"), "tool_calls": t.get("tool_calls"),
