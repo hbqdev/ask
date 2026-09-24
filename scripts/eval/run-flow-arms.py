@@ -20,8 +20,15 @@ Usage:
 import argparse, json, os, subprocess, sys, time, urllib.request, urllib.error
 from pathlib import Path
 
-ROOT = Path("/home/nightfury/selfhosted/ask")
-LAB = "http://192.168.50.231:3742"
+# Lab topology (mirrors the `lab` case of fleet-boot/rebuild-ask.sh): the
+# ask-flow worktree, compose project ask-stack-lab, container ask-lab, served on
+# :3742 of NightFuryX (.17), where these scripts run. ROOT MUST be the lab's OWN
+# worktree: compose resolves `env_file: .env` and the build context relative to
+# the project dir, so recreating ask-lab from another checkout (this used to
+# point at the staging worktree) silently boots the lab on THAT stack's .env.
+# lab_guard() below refuses to recreate if the running container disagrees.
+ROOT = Path(os.environ.get("ASK_LAB_DIR", "/home/nightfury/selfhosted/ask-flow"))
+LAB = os.environ.get("ASK_LAB_URL", "http://localhost:3742")
 # Must include the VPN overlay — see the note in run-flow-conversations.py.
 COMPOSE = ["-f", "docker-compose.yaml", "-f", "docker-compose.lab.yaml",
            "-f", "docker-compose.vpn.lab.yaml"]
@@ -41,7 +48,19 @@ def sh(args, **kw):
     return subprocess.run(args, capture_output=True, text=True, **kw)
 
 
+def lab_guard() -> None:
+    """Abort before any recreate unless ROOT is the worktree ask-lab runs from."""
+    if not (ROOT / "docker-compose.lab.yaml").is_file():
+        raise SystemExit(f"{ROOT} has no docker-compose.lab.yaml — not the lab worktree")
+    wd = sh(["docker", "inspect", "ask-lab", "--format",
+             '{{index .Config.Labels "com.docker.compose.project.working_dir"}}']).stdout.strip()
+    if wd and Path(wd).resolve() != ROOT.resolve():
+        raise SystemExit(f"ask-lab runs from {wd}, not {ROOT}; refusing to recreate it "
+                         "from a different worktree (set ASK_LAB_DIR if the lab moved)")
+
+
 def set_arm(arm: str) -> None:
+    lab_guard()
     env = {**os.environ, "FLOW_VARIANT": arm}
     sh(["docker", "compose", *COMPOSE, "-p", PROJ, "up", "-d", "ask"], cwd=ROOT, env=env)
     for _ in range(60):
