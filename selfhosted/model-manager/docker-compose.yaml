@@ -6,7 +6,7 @@ services:
     # NOTE: keep MODEL_MANAGER_PASSWORD (and any value containing a `$`) in
     # secrets.env, NOT .env. Compose interpolates `$` in its project .env file
     # (e.g. `$foo` → the value of var `foo`, usually empty), which silently
-    # mangles a password like `G0d$peed1522!` into `G0d!`. A dedicated env_file
+    # mangles a password like `abc$def!` into `abc!`. A dedicated env_file
     # is passed to the container literally, so `$` survives.
     env_file:
       - .env
@@ -32,6 +32,7 @@ services:
       - ${ASK_REPO_DIR:-/home/nightfury/selfhosted/ask}:${ASK_REPO_DIR:-/home/nightfury/selfhosted/ask}
       # Docker socket to run `docker compose up -d ask` on the host.
       - /var/run/docker.sock:/var/run/docker.sock
-      # SSH key to reach nightfuryS for the reranker.
+      # SSH key to reach the reranker host (NightFuryX .17, loopback SSH; the
+      # `nightfurys` filename is historical — the reranker used to be on .160).
       - ${RERANKER_SSH_KEY_HOST:-./keys/nightfurys}:/keys/nightfurys:ro
     restart: unless-stopped

@@ -11,7 +11,10 @@ This container is granted, by design:
 
 - **Read-write access to the Ask repo directory** (`/home/nightfury/selfhosted/ask`, mounted at `/ask`) — needed to write `.env` atomically and to recreate the `ask` service
 - **The host Docker socket** (`/var/run/docker.sock`)
-- **An SSH private key** used to reach `nightfuryS` (the reranker host)
+- **An SSH private key** used to reach the reranker host — NightFuryX
+  (`192.168.50.17`, the same machine that runs Ask and this app, reached over
+  loopback SSH). The key file keeps its historical name `nightfurys` from when
+  the reranker lived on nightfuryS (`.160`).
 
 Put together, these are **effectively root on the host**: write access to the
 Docker socket lets a container start arbitrary containers with arbitrary
@@ -83,13 +86,31 @@ tool without setting a password.
 
 6. Log in with `MODEL_MANAGER_PASSWORD`.
 
+## Sessions, backups and secrets
+
+- **Sessions:** each login mints a random session id (HMAC-signed, bound to
+  the password/`MODEL_MANAGER_SESSION_SECRET`) recorded server-side in a small
+  store file (`MODEL_MANAGER_SESSION_STORE`, default
+  `/tmp/model-manager-sessions.json` inside the container). Sessions expire
+  server-side after 24h; **Sign out** revokes the session immediately;
+  changing the password, or recreating the container, logs everyone out.
+- **Backups:** every apply writes `<.env>.bak.<ISO-stamp>` next to the env
+  file (keeping `MODEL_MANAGER_BACKUP_KEEP`). Only those app-made backups are
+  listed, pruned or restorable — hand-made siblings such as
+  `.env.bak.classifier-swap-…` are ignored, and `/api/restore` rejects any
+  other path. A restore snapshots the current `.env` first, so it is undoable.
+- **Clearing a secret:** a set secret is shown blank (its value never reaches
+  the browser), so an empty box means "unchanged". Use **Clear this secret**
+  to empty an optional secret on the next apply; vars marked `required` in the
+  schema cannot be emptied.
+
 ## What it mounts and why
 
 | Mount                                                       | Purpose                                                                                                                                                                                                                                                                                                                                                                                                                                                 |
 | ----------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `${ASK_REPO_DIR}` → **same path** inside the container (rw) | The whole Ask repo, mounted at the **identical host path** (a **directory**, not a single-file `.env`). Identical path is REQUIRED: the tool runs `docker compose up -d ask` via the socket, and the **host** daemon resolves Ask's relative bind mounts (`./searxng-*.yml`, build context) — so the compose project dir must be the same in-container and on-host, or the restart fails. Directory mount is also required for the atomic `.env` write. |
 | `/var/run/docker.sock`                                      | Run `docker compose -f $ASK_COMPOSE_FILE up -d ask` on the host to apply changes.                                                                                                                                                                                                                                                                                                                                                                       |
-| SSH key → `/keys/nightfurys` (ro)                           | Reach `nightfuryS` to manage the `reranker` container remotely.                                                                                                                                                                                                                                                                                                                                                                                         |
+| SSH key → `/keys/nightfurys` (ro)                           | Reach the reranker host (NightFuryX `.17`, loopback SSH) to manage the `reranker` container.                                                                                                                                                                                                                                                                                                                                                            |
 
 ## Configuration reference
 

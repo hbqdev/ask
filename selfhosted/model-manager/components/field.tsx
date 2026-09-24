@@ -21,13 +21,24 @@ export function Field({
   spec,
   value,
   onChange,
-  isSecretSet
+  isSecretSet,
+  cleared = false,
+  onClear
 }: {
   spec: EnvVarSpec
   value: string
   onChange: (v: string) => void
   isSecretSet: boolean
+  /** Secret is marked to be emptied on the next apply. */
+  cleared?: boolean
+  /** Toggle clearing a set secret. Omitted ⇒ no Clear affordance. */
+  onClear?: (clear: boolean) => void
 }) {
+  // A set secret is shown blank (the value is never sent to the browser), so
+  // an empty input means "unchanged". Clearing therefore needs an explicit
+  // action — offered only for optional vars.
+  const canClear =
+    spec.type === 'secret' && isSecretSet && !spec.required && !!onClear
   const error = spec.validate && value.trim() ? spec.validate(value) : null
 
   return (
@@ -108,6 +119,19 @@ export function Field({
           </select>
         ) : spec.type === 'model-list' ? (
           <ModelListEditor value={value} onChange={onChange} />
+        ) : cleared ? (
+          <div className="flex h-9 items-center gap-2.5">
+            <span className="text-sm text-destructive">
+              Will be cleared on apply
+            </span>
+            <button
+              type="button"
+              onClick={() => onClear?.(false)}
+              className="text-xs text-muted-foreground underline-offset-2 hover:text-foreground hover:underline"
+            >
+              Undo
+            </button>
+          </div>
         ) : (
           <Input
             id={spec.key}
@@ -124,6 +148,15 @@ export function Field({
             }
             onChange={e => onChange(e.target.value)}
           />
+        )}
+        {canClear && !cleared && !value && (
+          <button
+            type="button"
+            onClick={() => onClear?.(true)}
+            className="text-xs text-muted-foreground underline-offset-2 hover:text-destructive hover:underline"
+          >
+            Clear this secret
+          </button>
         )}
         {error && (
           <p className="text-xs font-medium text-destructive">{error}</p>
