@@ -2,6 +2,7 @@ import type { Theme } from 'vitepress'
 import DefaultTheme from 'vitepress/theme'
 
 import ApiRoutes from './components/ApiRoutes.vue'
+import CodeMap from './components/CodeMap.vue'
 import ComposeServices from './components/ComposeServices.vue'
 import DbSchema from './components/DbSchema.vue'
 import EnvFlags from './components/EnvFlags.vue'
@@ -14,6 +15,7 @@ export default {
   enhanceApp({ app }) {
     app.component('EnvFlags', EnvFlags)
     app.component('ApiRoutes', ApiRoutes)
+    app.component('CodeMap', CodeMap)
     app.component('DbSchema', DbSchema)
     app.component('ComposeServices', ComposeServices)
     app.component('SystemMap', SystemMap)

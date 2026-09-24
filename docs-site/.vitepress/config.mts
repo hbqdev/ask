@@ -11,7 +11,8 @@ const sections = [
     items: [
       ['Overview', 'overview'],
       ['Local development', 'local-dev'],
-      ['Repo tour', 'repo-tour']
+      ['Repo tour', 'repo-tour'],
+      ['Recipes (how to…)', 'recipes']
     ]
   },
   {
@@ -22,7 +23,10 @@ const sections = [
       ['Deploy', 'deploy'],
       ['Runbooks', 'runbooks'],
       ['Testing & QA', 'testing-qa'],
-      ['Telemetry', 'telemetry']
+      ['Telemetry', 'telemetry'],
+      ['Analytics & product details', 'analytics'],
+      ['Fleet scripts', 'fleet-scripts'],
+      ['Evaluation', 'evaluation']
     ]
   },
   {
@@ -32,7 +36,8 @@ const sections = [
       ['Fleet', 'fleet'],
       ['Services', 'services'],
       ['Security', 'security'],
-      ['Data layer', 'data-layer']
+      ['Data layer', 'data-layer'],
+      ['Model Manager', 'model-manager']
     ]
   },
   {
@@ -42,7 +47,9 @@ const sections = [
       ['Chat turn', 'chat-turn'],
       ['Streaming', 'streaming'],
       ['Client state', 'client-state'],
-      ['Frontend', 'frontend']
+      ['Frontend', 'frontend'],
+      ['Generative UI', 'generative-ui'],
+      ['Auth & accounts', 'auth-and-accounts']
     ]
   },
   {
@@ -59,7 +66,8 @@ const sections = [
     items: [
       ['RAG & uploads', 'rag-uploads'],
       ['Memory & recall', 'memory-recall'],
-      ['Media', 'media']
+      ['Media', 'media'],
+      ['Ingestor', 'ingestor']
     ]
   },
   {
@@ -69,7 +77,8 @@ const sections = [
       ['Env flags', 'env-flags'],
       ['API routes', 'api-routes'],
       ['Database', 'database'],
-      ['Compose services', 'compose-services']
+      ['Compose services', 'compose-services'],
+      ['Code map', 'code-map']
     ]
   },
   {
@@ -79,6 +88,7 @@ const sections = [
       ['Decisions', 'decisions'],
       ['Known issues', 'known-issues'],
       ['Changelog', 'changelog'],
+      ['Troubleshooting FAQ', 'faq'],
       ['Glossary', 'glossary']
     ]
   }

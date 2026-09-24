@@ -25,7 +25,7 @@ context-window budgeting, expiry and file serving.
 | Fast-path indexer | `lib/embeddings/upload-rag.ts` (`processFileForRAG`) | `pdftotext` / plain read → chunk → embed → `.chunks.json` |
 | Ingest queue API | `app/api/ingest/{claim,progress,complete,file/[id]}` | Token-gated pull queue for the external worker |
 | Queue state | `lib/db/file-actions.ts` | Claim / progress / failure / TTL sweep SQL (uses the RLS-bypassing `dbAdmin`) |
-| Ingestor worker | `/home/nightfury/selfhosted/ingestor/` (separate dir, **not** in the Ask repo, not under git) | Office/PDF-OCR/image/audio/video extraction, returns chunk **strings** |
+| Ingestor worker | `/home/nightfury/selfhosted/ingestor/` (separate dir, **not** in the Ask repo; its own git repo since 2026-09-23, no remote; see [Ingestor](/knowledge/ingestor)) | Office/PDF-OCR/image/audio/video extraction, returns chunk **strings** |
 | Heartbeat | `lib/utils/ingest-heartbeat.ts` | Redis key proving the worker is alive |
 | Answer-time transform | `lib/streaming/helpers/transform-file-parts.ts` | Wait for ingest, vision vs text decision, ranked chunks → document sink |
 | URL RAG | `lib/embeddings/url-rag.ts` | Fetch a pasted URL, chunk, embed, rank (ephemeral) |
@@ -51,7 +51,7 @@ headers (`x-filename`, `x-chat-id`, `content-type`, `content-length`).
 Files live on a local volume, isolated per user by the first path segment of the object key.
 The ingest routes use `dbAdmin` (bypasses Row-Level Security) and are protected only by
 `INGEST_API_TOKEN`. The answer path rejects any attachment URL whose first segment is not
-the requesting user (`transform-file-parts.ts:134`).
+the requesting user (`transform-file-parts.ts:137`).
 :::
 
 ## 2. Two ingestion paths
@@ -116,7 +116,10 @@ and not part of any Ask compose file.
 
 Queue constants (`lib/db/file-actions.ts`): `MAX_ATTEMPTS = 3`, `STALE_CLAIM_MINUTES = 30`
 (a `processing` row whose `claimed_at` is older than that is re-claimable, or finalised as
-`failed / retries exhausted` if already at the attempt cap).
+`failed / retries exhausted` if already at the attempt cap). Because only `/progress` refreshes
+`claimed_at`, the worker re-sends the current stage every `HEARTBEAT_INTERVAL` (180 s) while an
+extractor runs (since 2026-09-24). Before that, one step longer than 30 minutes (a long CPU
+transcription, for example) got the job re-claimed and run twice.
 
 **What the worker extracts** (`app/worker.py:family_for`):
 
@@ -143,16 +146,23 @@ Do not evict qwen3-vl from the 1070: image and scanned-PDF ingestion depend on i
 | `ingestor-lab` | `docker-compose.lab.yaml` | `.env.lab` | lab `:3742` |
 
 Worker env names: `ASK_URL`, `INGEST_API_TOKEN` (both required, fail-fast), `OLLAMA_URL`,
-`VLM_MODEL`, `WHISPER_MODEL`, `MAX_VIDEO_FRAMES`, `JOB_CONCURRENCY` (2), `POLL_INTERVAL` (15).
+`VLM_MODEL`, `WHISPER_MODEL`, `MAX_VIDEO_FRAMES`, `JOB_CONCURRENCY` (2), `POLL_INTERVAL` (15),
+`HEARTBEAT_INTERVAL` (180). The ingestor repo tracks `.env.example` with these names and
+placeholders (since 2026-09-24).
 `INGEST_API_TOKEN` must equal the value in the corresponding Ask environment's `.env`.
 Today the same token is shared by all three environments (a known security finding; see
-[security](/infrastructure/security)). `fleet-boot/ask-fleet-boot.sh` reconciles only the
-prod `ingestor` at boot; the lab and staging workers rely on `restart: unless-stopped`.
+[security](/infrastructure/security)). `fleet-boot/ask-fleet-boot.sh` reconciles all three
+workers at boot (since 2026-09-23; before that only the prod `ingestor`). While Ask is
+unreachable a worker backs off (poll interval doubling up to 300 s) instead of crash-looping, and
+at the cap it logs only about once an hour. A token problem no longer crash-loops it either: a
+401/403 on claim (token mismatch) or a 503 (Ask has no `INGEST_API_TOKEN`) is logged once as
+`CONFIG ERROR` and re-checked every 300 s (fixed 2026-09-24). See
+[Ingestor › Main loop](/knowledge/ingestor#main-loop-and-claim-back-off).
 
-::: warning Secrets hygiene
-`ingestor/.env` is mode 0600, but `.env.lab`, `.env.staging` and the `.env.bak` /
-`.env.premigfix` backups in that directory were group/world-readable (0664) at the time of
-writing, and they carry `INGEST_API_TOKEN`. `chmod 600` them.
+::: tip Secrets hygiene
+Every `ingestor/.env*` file (including the `.env.bak` / `.env.premigfix` backups) carries
+`INGEST_API_TOKEN` and is mode **0600** as of 2026-09-24; on 2026-09-22 several were still
+0664. The env files are not tracked by the ingestor's git repo. Keep new copies at 0600.
 :::
 
 ### Worker liveness: heartbeat and "ingest unavailable"
@@ -169,7 +179,7 @@ refreshes the Redis key `ingest:heartbeat` with TTL `INGEST_HEARTBEAT_TTL_S` (de
 
 When a turn references a file that is still `pending` / `processing`, and the file is a
 document **or** an image going to a non-vision model, `waitForIngestReady`
-(`transform-file-parts.ts:68`) polls the row:
+(`transform-file-parts.ts:69`) polls the row:
 
 | Env var | Default | Meaning |
 |---|---|---|
@@ -341,7 +351,7 @@ the message has attachments:
 - for `ollama` models, it asks Ollama `/api/show` and looks for `"vision"` in `capabilities` (cached 10 minutes per model);
 - anything unknown or failed → **text-only** (the safe direction: sending an image to a text-only model makes the provider reject the whole turn).
 
-Then `transformPart` (`transform-file-parts.ts:176`):
+Then `transformPart` (`transform-file-parts.ts:181`):
 
 | Case | What the model receives |
 |---|---|
@@ -362,7 +372,7 @@ for that window.
 
 ## 10. TTL sweep
 
-`expireIdleUploads()` (`lib/db/file-actions.ts:286`) is **disabled unless `UPLOAD_TTL_DAYS`
+`expireIdleUploads()` (`lib/db/file-actions.ts:285`) is **disabled unless `UPLOAD_TTL_DAYS`
 is a positive number** (all three environments set `14`). It:
 
 - selects files whose chat has been idle past the TTL. Activity is `GREATEST(chat.last_viewed_at, chat.created_at, last message)`, falling back to the file's own `created_at` when the chat is gone or `none`;
