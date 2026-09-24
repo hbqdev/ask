@@ -20,8 +20,8 @@ export function buildGistPrompt(answer: string): string {
   ].join('\n')
 }
 
-// Injectable generate fn so tests never hit a model. Default calls granite4.1:8b
-// on the local host (same pattern as title-generator.ts).
+// Injectable generate fn so tests never hit a model. Default calls
+// gistModelId() (granite4.2:8b) on the local host (same pattern as title-generator.ts).
 type GenerateFn = (prompt: string, signal?: AbortSignal) => Promise<string>
 
 const defaultGenerate: GenerateFn = async (prompt, signal) => {
