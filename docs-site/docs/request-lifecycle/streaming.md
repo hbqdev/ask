@@ -32,7 +32,7 @@ always share a process.
 
 ## The SSE response {#sse-response}
 
-`createUIMessageStreamResponse` (`create-chat-stream-response.ts:1169`) returns the AI
+`createUIMessageStreamResponse` (`create-chat-stream-response.ts:1179`) returns the AI
 SDK UI-message stream as Server-Sent Events. Headers: `Cache-Control: no-cache,
 no-transform` — `no-transform` stops Cloudflare-style proxies from buffering the body
 to minify it (which made progress appear only at the end); `no-cache` is restated
@@ -153,7 +153,7 @@ sequenceDiagram
     end
 ```
 
-**Producer** (`create-chat-stream-response.ts:1186`): `consumeSseStream` gets a tee'd
+**Producer** (`create-chat-stream-response.ts:1196`): `consumeSseStream` gets a tee'd
 copy of the SSE. With a resumable context it generates a `streamId`, **first** writes
 the pointer `ask:chat:{chatId}:activeStream` (TTL 300s = the generation timeout, so a
 crashed server never leaves a dangling pointer), then `rsc.createNewResumableStream`.
@@ -245,7 +245,7 @@ reason surfaces as a stream error.
 | 300s generation timeout | timeout | discarded |
 | Client disconnect (authenticated) | — no abort — | turn completes normally |
 
-**Saving the partial** (`create-chat-stream-response.ts:985-1016`):
+**Saving the partial** (`create-chat-stream-response.ts:1000-1060`):
 
 1. `wasStoppedByUser(stopController)` is checked independently of `isAborted` — a Stop
    during the classifier/recall phase fails `execute` instead of emitting an abort chunk,
@@ -268,13 +268,27 @@ reason surfaces as a stream error.
 Why the partial is kept: without it, a follow-up after Stop left two consecutive user
 messages in history and the model re-answered the stopped question.
 
-::: tip Not built
-`metadata.stopped` is set but nothing renders a "Stopped" label yet.
-:::
+**The "Stopped" label** (fixed 2026-09-24). A stopped answer shows a muted "Stopped" pill in
+its action row, so a partial answer does not pass for a complete one. There are two sources for
+the flag, one for each moment the user can see the answer:
+
+- **Live.** `handleStop` sets `userStopRequestedRef` (`components/chat.tsx:476`). When `useChat`'s
+  `onFinish` then reports an abort for the current chat and that ref is set, it calls
+  `markMessageStopped` (`lib/streaming/helpers/sanitize-stopped-message.ts:115`), which adds
+  `metadata.stopped = true` to that assistant message in client state
+  (`components/chat.tsx:291-297`). The ref is what separates a user Stop from an abort caused by
+  leaving the chat mid-answer, which must not be labelled.
+- **After a reload.** The label comes from the `metadata.stopped` that `sanitizeStoppedMessage`
+  persisted in step 2 above.
+
+`AnswerSection` passes `stopped={metadata?.stopped === true}` to `MessageActions`, which renders
+the pill (`components/message-actions.tsx:314,415`). A Stop before any answer text and before
+any settled tool result saves nothing (`nothing_to_save`), so there is no answer section and no
+label. See [frontend](/request-lifecycle/frontend#message-actions) for the layout.
 
 ## Persistence {#persistence}
 
-The authenticated `onFinish` (`create-chat-stream-response.ts:931`) ends in:
+The authenticated `onFinish` (`create-chat-stream-response.ts:941`) ends in:
 
 ```text
 stripNarrationFromMessage → rehydrateFullContent → persistStreamResults

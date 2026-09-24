@@ -296,7 +296,9 @@ boots.
 ## Automated image updates (not app code)
 
 `fleet-update-ask.timer` (Sundays 04:30, on .17) runs `fleet-boot/update-ask.sh`, which
-pulls and recreates the **sidecar** images of prod and staging (postgres, redis, searxng,
-gluetun, kokoro) through `update-images.sh` with the VPN overlays, then health-checks.
-It never rebuilds the Ask app image. The unit file and `update-ask.sh` currently exist
-only in the `ask-prod` worktree (they have not been cherry-picked to the lab).
+pulls and recreates the **sidecar** images (postgres, redis, searxng, gluetun, kokoro) of
+the lab (as a canary), then prod, then staging, through `update-images.sh` with the VPN
+overlays, then health-checks. It never rebuilds the Ask app image. Since 2026-09-24 the unit
+files and `update-ask.sh` are on `flow-design` as well; the lab step exists in the
+`flow-design` copy and runs once ported to `dev`, since the timer runs the `ask-prod` copy. See
+[fleet scripts](/operations/fleet-scripts#update-ask-sh-fleet-update-ask-service-timer).

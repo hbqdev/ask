@@ -91,13 +91,31 @@ flowchart TD
 - `endsInActiveResearch` lets `ChatMessages` show a single animated Wild Breath mark:
   the footer glyph hides while the research indicator is live.
 
+## Message actions and the "Stopped" label {#message-actions}
+
+`MessageActions` (`components/message-actions.tsx`) is the row under each answer: retry,
+read-aloud, copy, share, delete on the left, and a right-hand cluster with **Save** (to the
+library). Since 2026-09-24 the right-hand cluster also holds a muted, text-only **"Stopped"**
+pill when the answer was cut short with Stop (`StoppedBadge`, `:415`). `AnswerSection` passes
+`stopped={metadata?.stopped === true}`.
+
+- **Text only, no icon.** A square glyph next to the answer read as a second Stop button.
+- **Live and after reload.** The flag is set on the client when the Stop lands and is persisted
+  by the server, so the pill appears at once and survives a reload. See
+  [streaming → Stop](/request-lifecycle/streaming#stop) for both paths.
+- **The row wraps.** It is `flex-wrap` with `gap-y-1`, and the right cluster is `ml-auto`
+  (`:249`, `:313`). On a narrow phone an authed answer with every action plus Save and the pill
+  would overflow, so the right cluster drops to its own line and stays right-aligned.
+- A Stop before any answer text is written saves nothing, so there is no answer and no row.
+
 ## Markdown and the Streamdown sanitize pipeline {#markdown}
 
 `MarkdownMessage` (`components/message.tsx:56`):
 
 ```text
 answer text
-  → processCitations(text, citationMaps)      [n](#toolCallId) → [domain](encodeURI(url)), invalid → ''
+  → processCitations(text, citationMaps)      [n](#toolCallId) → [domain](encodeURI(url));
+                                              unknown id → resolveByUrlFragment, else ''
   → collapseCitationArtifacts                 tidy spaces/punctuation left by dropped anchors
   → <Streamdown mode="streaming"
         rehypePlugins = defaultRehypePlugins  raw → sanitize → harden
@@ -134,8 +152,24 @@ preview.
 - **Per-message scope is load-bearing.** A conversation-wide map let an anchor carried
   over from an earlier turn resolve cleanly to the wrong source (measured: 120 of 2,975
   anchors in prod history). Scoped per message, an out-of-turn anchor resolves to nothing
-  and is dropped; `citations_unresolved` on the `[latency]` line counts it.
+  and is dropped; `citations_unresolved` on the `[latency]` line counts it. Anchors are
+  deliberately **not** resolved across turns
+  ([D36](/history/decisions#d36-strip-historical-citation-anchors-resolve-citations-per-turn-only)).
 - Tool-call ids a model prefixed (`toolu_`, `call_`, `search-`) are normalised before lookup.
+- **URL-fragment fallback** (2026-09-24). When an anchor names no tool call of this message,
+  `processCitations` tries `resolveByUrlFragment` (`lib/utils/citation.ts:66`). Models write a
+  piece of the cited page's own URL as the "id" when they cannot see a real one
+  (`[1](#example.com/how-to-x)`, a zhihu post number, a YouTube video id). The anchor resolves only
+  if the fragment (lower-cased, scheme, `www.` and trailing `/` removed) is at least 6 characters,
+  is not UUID-shaped, and is contained in **exactly one** distinct source URL of this message.
+  Otherwise it is dropped as before: an invented citation is never guessed. `auditCitations`
+  counts these as `recovered`, and `extractCitedSourceUrls` applies the same rule.
+- **Where valid ids come from.** Search results always echoed their `toolCallId`. Fetch results
+  do too since 2026-09-24 (`lib/tools/fetch.ts:715`); before that a fetched page could not be
+  cited correctly. Earlier answers' anchors are removed from the history sent to the model
+  (`stripCitationAnchorsFromHistory`), because their tool calls are pruned from that history
+  and the model copied the dead ids. The stored and displayed text is unchanged. See
+  [known issues › Unresolved citations](/history/known-issues#unresolved-citations).
 - **URL-match invariant.** `Citing` (`components/custom-link.tsx`) finds the preview data by
   comparing `decodeURI(href)` to each stored `result.url` — not by number. The rewritten
   href is `encodeURI(url)`, so the round trip must reproduce the stored URL exactly. If you
@@ -191,7 +225,7 @@ real mobile emulation (Playwright), not a resized desktop window — see
 
 | Rule | Where | Why |
 |---|---|---|
-| Empty-state container is `items-center justify-start overflow-y-auto md:justify-center` | `components/chat.tsx:921` | On a phone the Discover feed is one tall column, so hero + feed exceed the viewport. A **non-scrolling `justify-center`** flex container clips *both* ends — it pushed the composer off the top and users saw only news with nowhere to type (2026-09-12). Two earlier fixes shrank the hero; the real cause was the parent container. |
+| Empty-state container is `items-center justify-start overflow-y-auto md:justify-center` | `components/chat.tsx:930` | On a phone the Discover feed is one tall column, so hero + feed exceed the viewport. A **non-scrolling `justify-center`** flex container clips *both* ends — it pushed the composer off the top and users saw only news with nowhere to type (2026-09-12). Two earlier fixes shrank the hero; the real cause was the parent container. |
 | Hero is focus-anchored: `min-h-[68vh]`, `justify-center` idle, `justify-start pt-6` while the textarea is focused on mobile | `chat-panel.tsx:1036-1041` | The on-screen keyboard shrinks the viewport and the textarea grows; `justify-center` kept re-centring the block and the line being typed drifted out of view (2026-09-20). Desktop always stays centred. |
 | Toolbar: left group `shrink-0`, right group `min-w-0`; model pill shows the short name and goes icon-only below 380px (in a chat) / 340px (homepage) | `chat-panel.tsx:880-941`, `model-selector-client.tsx:126` | An earlier `min-w-0` on the left let the model pill cover the dictation mic at 360–390px, making it untappable (2026-09-22). |
 | Popovers default to `collisionPadding={8}`; model list `max-h-[min(280px, available − 56px)]` | `components/ui/popover.tsx:23`, `model-selector-client.tsx:168` | Popovers were clipped at the screen edge / ran under the keyboard. |
@@ -199,6 +233,7 @@ real mobile emulation (Playwright), not a resized desktop window — see
 | Sidebar weather is a one-line tap-to-expand summary on mobile | `app-sidebar.tsx:249` (`compact={isMobile}`) | The full card pushed the Recent list below the fold (284 → 39px). |
 | Delete buttons (library rows, memory tab) are always visible on touch | library / `settings/memory-tab.tsx` | They were hover-only, i.e. unreachable on phones. |
 | Citation previews open on first tap | `citation-link.tsx` | Hover-only previews were unreachable on touch. |
+| Answer action row wraps (`flex-wrap`, right cluster `ml-auto`) | `components/message-actions.tsx:249,313` | With the "Stopped" pill added (2026-09-24), an authed answer's full action set could run past a 360px screen. |
 | Discover header compacted on mobile (smaller icon/title, horizontally scrolling topic chips) | `app/discover/page.tsx:279-294` | The sticky header took 247px of a 640px-tall screen (now ~155px). |
 | Tapping a sidebar link closes the mobile drawer | `app-sidebar.tsx:216` | The drawer otherwise covered the destination. |
 | Viewport `minimumScale: 1, maximumScale: 1` | `app/layout.tsx:67` | Disables pinch/auto-zoom (commonly to stop iOS zooming on input focus; the rationale is not documented in code). |

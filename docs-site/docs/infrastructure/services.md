@@ -126,8 +126,6 @@ A native systemd service on every host (not Docker). See
     model is usable. It fails at the first token.
   - `.171` down: titles fall back to the opening words (8 s timeout), memory extraction is
     skipped, and the expander fallback is skipped. Answers are unaffected.
-  - `.231` down: staging/lab classification hits its budget (`CLASSIFIER_BUDGET_MS`, default 4 s)
-    and the turn proceeds without classifier hints.
 
 ## Reranker
 
@@ -210,10 +208,15 @@ requires a full re-embed migration.
 
 ## Ingestor workers
 
+Full page: [Ingestor](/knowledge/ingestor).
+
 - **What:** a Python worker that extracts text from office documents, media and images for
   uploads that the in-app fast path (text/PDF up to 20 MB) can't handle. It lives **outside the
   Ask repo** at `/home/nightfury/selfhosted/ingestor/` and has its own compose files. That
-  directory is its own git repo (since 2026-09-23); env files are not tracked.
+  directory is its own git repo (since 2026-09-23); env files are not tracked. When Ask is
+  unreachable (a rebuild, an outage) the worker backs off, doubling its poll interval up to
+  300 s, instead of exiting; before 2026-09-23 a failed claim killed the process and Docker
+  restarted it more than 1,100 times (`app/worker.py`, ingestor commit `b15cb98`).
 - **Where:** .17. One per env: `ingestor` (prod), `ingestor-staging` and `ingestor-lab`. No
   published port. It **pulls** jobs from the app.
 - **Auth:** it sends `Authorization: Bearer <INGEST_API_TOKEN>` to the app's `/api/ingest/*`
@@ -305,8 +308,10 @@ compose `environment:` beats `.env`.
 ::: tip Three different SearXNGs
 - **Public SearXNG** is `search.hbqnexus.win`: container `searxng` on .231 behind
   `searxng-gluetun` `:8127`, settings `/home/nightfury/selfhosted/searxng/settings.yml`. It's the
-  owner's personal instance and **Ask must never point at it**. (`NEXT_PUBLIC_SEARXNG_URL` names it
-  only for UI links.)
+  owner's personal instance. Ask never uses it as a **primary**; since 2026-09-23 prod and staging
+  use it only as the `SEARXNG_FALLBACK_API_URL` failover (`http://192.168.50.231:8127`), a
+  deliberate choice (audit H2). Never make engine changes there for Ask's sake.
+  (`NEXT_PUBLIC_SEARXNG_URL` names it only for UI links.)
 - **Prod ask SearXNG** is `ask-searxng`.
 - **Staging ask SearXNG** is `ask-searxng-admin-feature`.
 
@@ -336,15 +341,18 @@ strength of a "nothing references it" check. Restart with
 
 ## Model Manager
 
+Full page: [Model Manager](/infrastructure/model-manager).
+
 - **What:** the "Ask Model Manager", a separate Next.js app for editing prod's `.env` (with
   automatic backups), recreating the prod `ask` service, and editing the reranker's `.env` and
   restarting it over SSH. Its "add a model" feature just edits the `OLLAMA_MODELS` list.
 - **Where:** .17, container `model-manager`, **`127.0.0.1:3939`** (loopback only). Source is at
   `ask/selfhosted/model-manager/` (nested in the staging worktree), with its own compose file.
   Reach it from a laptop with `ssh -L 3939:localhost:3939 nightfury@192.168.50.17`.
-- **Auth:** a password login (`MODEL_MANAGER_PASSWORD` in `secrets.env`) creates a session
-  cookie. The session is checked in middleware **and** per handler on `/api/apply`
-  (unauthenticated → 401).
+- **Auth:** a password login (`MODEL_MANAGER_PASSWORD` in `secrets.env`) creates a random
+  per-login session, allowlisted server-side with a 24 h expiry; logout revokes it (since
+  2026-09-24). The session is checked in middleware **and** per handler on `/api/apply` and
+  `/api/restore` (unauthenticated → 401). Recreating the container logs everyone out.
 - **Privilege:** **root-equivalent.** It mounts `/var/run/docker.sock`, the prod worktree
   read-write and an SSH key. Never expose it beyond loopback.
 - **Wiring (important):** `ASK_REPO_DIR` and `ASK_ENV_PATH` point at **`ask-prod`**,
@@ -431,4 +439,4 @@ against one shared account quota.
 | Nominatim (OpenStreetMap) | `/api/geocode` (weather location search) | none |
 | ipapi.co | `/api/geolocate` (IP fallback for the weather widget) | none |
 | Langfuse | optional tracing and feedback scoring | `LANGFUSE_*` (unset on the fleet) |
-| Couchbase (LAN) | `/api/quotes` homepage quotes pool, cached 24 h in Redis `quotes:pool` | `COUCHBASE_URL` + credentials |
+| Couchbase (LAN) | `/api/quotes` quotes pool for the waiting quote shown in the research-process panel while an answer is in progress (`components/research-process-section.tsx:554`), cached 24 h in Redis `quotes:pool` | `COUCHBASE_URL` + credentials |

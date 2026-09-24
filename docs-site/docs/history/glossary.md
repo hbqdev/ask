@@ -23,7 +23,7 @@ use your browser's find to jump around. Where a term maps to code, the main file
 | **Rollback point** | The prod commit before a deploy, noted in the commit message or audit log. Roll back by resetting `dev` to it and rebuilding. → [deploy](/operations/deploy) |
 | **fleet-boot** | The `fleet-boot/` scripts. `ask-fleet-boot.sh` is a host-aware systemd oneshot that waits for Docker, reconciles app stacks onto fresh networks, retries gluetun/SearXNG (`ensure_vpn_search`) and warms models. Also holds the cron wrappers (upload sweep, docker maintenance, Mullvad rotation) and the auto-update timers. |
 | **Model Manager** | A standalone Next.js admin app (`selfhosted/model-manager/`, `127.0.0.1:3939`, password-gated). It edits prod's `.env` with backups and recreates `ask` with the exact prod compose command. The sanctioned way to change prod env config. It is effectively root on the host. → [D26](/history/decisions#d26-model-manager-is-the-sanctioned-env-editor) |
-| **`shared-infra`** | An external Docker network the app containers join so they can reach shared services by name (flaresolverr, degoog). Prod's `ask` must be on both `ask-stack_default` **and** `shared-infra`. |
+| **`shared-infra`** | An external Docker network the app containers join. On .231 it let containers reach shared services by name (flaresolverr, degoog); on .17 the app reaches fleet services by LAN IP instead (FlareSolverr at `192.168.50.231:8191` since 2026-09-23). Prod's `ask` must be on both `ask-stack_default` **and** `shared-infra`. |
 
 ## Fleet
 
@@ -42,16 +42,16 @@ use your browser's find to jump around. Where a term maps to code, the main file
 | Term | Meaning |
 |---|---|
 | **SearXNG** | The meta-search engine. Each env has its own (`ask-searxng`, `ask-searxng-admin-feature`, `ask-searxng-lab`), running inside its gluetun's network namespace. In the current tiering it is only used by **quality** mode. |
-| **Public SearXNG** | `search.hbqnexus.win` on `.231`: the owner's personal instance. Ask must never depend on it (see audit H2). Always say "public SearXNG" for it and "prod/staging/lab SearXNG" for the others. |
+| **Public SearXNG** | `search.hbqnexus.win` on `.231`: the owner's personal instance. Ask never uses it as a primary; prod and staging use it only as their SearXNG fallback (`SEARXNG_FALLBACK_API_URL`, since 2026-09-23, audit H2). Always say "public SearXNG" for it and "prod/staging/lab SearXNG" for the others. |
 | **gluetun** | A VPN sidecar container (Mullvad WireGuard). Only SearXNG (and degoog) run in its network namespace, so only search egress goes through the VPN; the app's own egress does not. It has a kill switch. Exits are rotated daily (`rotate-mullvad.sh`). Can lose a cold-boot race for `/dev/net/tun`. |
 | **degoog** | A search scraper/aggregator. There are four stacks: **public `:4444` on `.231`** (people use it; never decommission it) and per-env prod `:4445`, staging `:4446` and lab `:4447` on `.17`, all **disabled** (`DEGOOG_ENABLED=false`). → [D30](/history/decisions#d30-degoog-public-instance-kept-per-env-scrapers-disabled) |
 | **crawl4ai** | A headless-Chromium page renderer (`unclecode/crawl4ai`, pinned) at `.231:11235`, token-gated. The primary crawler for advanced search and `fetch`. Its memory guard is blind to its cgroup limit, so a cron watchdog restarts it. |
 | **Legacy crawl** | The in-process fallback crawler (`crawlPage`, Readability + JSDOM). Capped, because it blocks the Node event loop. |
-| **flaresolverr** | A Cloudflare-challenge solver in the `fetch` rescue chain. |
+| **flaresolverr** | A Cloudflare-challenge solver in the `fetch` rescue chain, on `.231:8191` (`FLARESOLVERR_URL`, reachable from every env since 2026-09-23). |
 | **Reranker** | The cross-encoder service (`.17:8787` `/rerank`, `RERANKER_URL` + `RERANKER_API_TOKEN`). Scores query–passage pairs; truncates at `max_length=128`. Falls back to the bi-encoder, then to keywords. |
 | **Embedder** | The GPU embedding service (`.160:8788` `/embed`, `EMBEDDING_SERVICE_URL`). Model `Qwen3-Embedding-0.6B`, 1024-d, **data-locked** to the pgvector columns. → [D24](/history/decisions#d24-the-embedding-model-is-data-locked) |
 | **Bi-encoder** | Local embedding similarity (MiniLM for rerank, `Xenova/all-MiniLM-L6-v2`). Used for speed-mode passage selection and as the rerank fallback. |
-| **Ingestor** | The external upload-processing worker (a separate top-level `selfhosted/ingestor/`, not in this repo). It pulls jobs from `/api/ingest/claim`, extracts text from images/office/media (images via `qwen3-vl:4b`), and returns chunk strings for the app to embed. There is **one per env** (`ingestor`, `ingestor-staging`, `ingestor-lab`), each pointed at one `ASK_URL`. |
+| **Ingestor** | The external upload-processing worker (a separate top-level `selfhosted/ingestor/`, its own git repo, not in this repo). It pulls jobs from `/api/ingest/claim`, extracts text from images/office/media (images via `qwen3-vl:4b`), and returns chunk strings for the app to embed. There is **one per env** (`ingestor`, `ingestor-staging`, `ingestor-lab`), each pointed at one `ASK_URL`. |
 | **Ingest heartbeat** | Redis key `ingest:heartbeat`, refreshed whenever the worker calls claim or progress (TTL 60 s). A stale heartbeat plus an unclaimed job means "processing is down". |
 | **Kokoro / TTS** | The text-to-speech service (`ask-tts`, `.17:8890`) behind `/api/voice/speak`, for read-aloud. |
 | **Whisper / STT** | Speech-to-text (`ask-whisper`, speaches, `.17:8788`, `faster-distil-whisper-large-v3`) behind `/api/voice/transcribe`, for dictation. Must stay resident (`WHISPER__TTL=-1`). |
