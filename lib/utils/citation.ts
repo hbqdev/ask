@@ -35,11 +35,64 @@ function stripToolCallPrefix(toolCallId: string): string {
  */
 const CITATION_ANCHOR_RE = /\[\s*(\d+)\s*\]\(#([^)]+)\)/g
 
+const UUID_RE =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+const MIN_URL_FRAGMENT_LENGTH = 6
+
+function normalizeUrlForMatch(value: string): string {
+  return value
+    .trim()
+    .toLowerCase()
+    .replace(/^https?:\/\//, '')
+    .replace(/^www\./, '')
+    .replace(/\/+$/, '')
+}
+
+/**
+ * Recover an anchor whose "id" is not a toolCallId at all but a piece of the
+ * cited page's own URL — `[1](#1up-usa.com/how-to-change-a-bike-tire)`,
+ * `[9](#2022269238895736170)` for zhihu.com/p/2022269238895736170, a YouTube
+ * video id. Models do this when they cannot see the id of the call that read
+ * the page (fetch results never carried one until 2026-09-23). The anchor then
+ * names its source unambiguously even though the number is meaningless, so it
+ * resolves to that source — but ONLY when the fragment matches exactly one
+ * distinct URL among THIS message's sources. Ambiguous fragments (a bare
+ * domain several results share), UUID-shaped ids (a real or invented tool call
+ * — never a URL piece) and short fragments stay unresolved: an invented
+ * citation is dropped, never guessed.
+ *
+ * Measured on prod history: 83 of 655 unresolved anchors were this shape.
+ */
+export function resolveByUrlFragment(
+  anchorId: string,
+  citationMaps: Record<string, Record<number, SearchResultItem>>
+): SearchResultItem | undefined {
+  if (!anchorId || UUID_RE.test(anchorId)) return undefined
+  const needle = normalizeUrlForMatch(anchorId)
+  if (needle.length < MIN_URL_FRAGMENT_LENGTH) return undefined
+
+  const matches = new Map<string, SearchResultItem>()
+  for (const map of Object.values(citationMaps ?? {})) {
+    for (const item of Object.values(map ?? {})) {
+      if (!item?.url || !isValidUrl(item.url)) continue
+      const key = normalizeUrlForMatch(item.url)
+      if (key.includes(needle)) matches.set(key, item)
+      if (matches.size > 1) return undefined
+    }
+  }
+  return matches.size === 1 ? [...matches.values()][0] : undefined
+}
+
 export interface CitationAudit {
   /** Anchors in this message that processCitations will try to resolve. */
   total: number
   /** Anchors naming a toolCallId this same message actually made. */
   own: number
+  /**
+   * Anchors that name no tool call but uniquely name one of this message's
+   * source URLs (see resolveByUrlFragment) — rendered, so not unresolved.
+   */
+  recovered: number
   /**
    * Anchors naming anything else — another turn's tool call, or an id that
    * exists nowhere. Both are defects: the first renders a confidently wrong
@@ -93,14 +146,21 @@ export function auditCitations(message: {
 
   let total = 0
   let own = 0
+  let recovered = 0
+  let maps: Record<string, Record<number, SearchResultItem>> | null = null
   for (const text of texts) {
     for (const match of text.matchAll(CITATION_ANCHOR_RE)) {
       total++
-      if (ownIds.has(stripToolCallPrefix(match[2]))) own++
+      if (ownIds.has(stripToolCallPrefix(match[2]))) {
+        own++
+        continue
+      }
+      maps ??= extractCitationMaps(message as UIMessage)
+      if (resolveByUrlFragment(match[2], maps)) recovered++
     }
   }
 
-  return { total, own, unresolved: total - own }
+  return { total, own, recovered, unresolved: total - own - recovered }
 }
 
 /**
@@ -196,7 +256,8 @@ export function extractCitedSourceUrls(message: UIMessage): string[] {
   }>) {
     if (part.type !== 'text' || typeof part.text !== 'string') continue
     for (const m of part.text.matchAll(CITATION_ANCHOR_RE)) {
-      const src = byStripped[stripToolCallPrefix(m[2])]?.[Number(m[1])]
+      const map = byStripped[stripToolCallPrefix(m[2])]
+      const src = map ? map[Number(m[1])] : resolveByUrlFragment(m[2], rawMaps)
       if (src?.url) urls.add(src.url)
     }
   }
@@ -270,7 +331,12 @@ export function processCitations(
           ]
       }
       if (!citationMap) {
-        return '' // Return empty string if no citation map found
+        // Not a tool call of this message. Resolve only when the "id" is a
+        // fragment of exactly one of this message's source URLs; anything
+        // else (another turn's id, an invented one) is dropped.
+        const byUrl = resolveByUrlFragment(toolCallId, citationMaps)
+        if (!byUrl) return ''
+        return `[${displayUrlName(byUrl.url)}](${encodeURI(byUrl.url)})`
       }
 
       const citation = citationMap[citationNum]
