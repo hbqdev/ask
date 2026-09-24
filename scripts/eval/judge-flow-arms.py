@@ -27,7 +27,8 @@ import argparse, json, os, re, subprocess, sys, time, urllib.request
 from collections import defaultdict
 from pathlib import Path
 
-OLLAMA = os.environ.get("JUDGE_OLLAMA_URL", "http://192.168.50.231:11434")
+# Ollama on NightFuryX (.17) — the cloud-authed proxy; .231 is retired.
+OLLAMA = os.environ.get("JUDGE_OLLAMA_URL", "http://192.168.50.17:11434")
 JUDGE_MODEL = os.environ.get("JUDGE_MODEL", "glm-5.2:cloud")
 
 RUBRIC = """You are judging two answers to the same question, produced by two different research systems.
