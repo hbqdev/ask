@@ -104,3 +104,25 @@ export function isStoppedSaveStale(
     latestMessageId !== responseMessageId
   )
 }
+
+/**
+ * Client-side twin of the `stopped: true` flag sanitizeStoppedMessage persists:
+ * flag the assistant message `messageId` as stopped in a useChat message list so
+ * the "Stopped" badge shows immediately, without waiting for a reload. Returns
+ * the same array when there is nothing to flag (unknown id, not an assistant
+ * message, already flagged) so a React state setter can bail out.
+ */
+export function markMessageStopped<T extends UIMessage>(
+  messages: T[],
+  messageId: string | undefined
+): T[] {
+  if (!messageId) return messages
+  const index = messages.findIndex(m => m.id === messageId)
+  if (index === -1) return messages
+  const msg = messages[index]
+  const metadata = (msg.metadata as Record<string, unknown> | undefined) ?? {}
+  if (msg.role !== 'assistant' || metadata.stopped === true) return messages
+  const next = messages.slice()
+  next[index] = { ...msg, metadata: { ...metadata, stopped: true } }
+  return next
+}
