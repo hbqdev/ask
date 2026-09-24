@@ -1,3 +1,6 @@
+import { mkdtempSync } from 'fs'
+import { tmpdir } from 'os'
+import { join } from 'path'
 import { NextRequest } from 'next/server'
 import { describe, expect, it } from 'vitest'
 import { makeSessionToken } from '@/lib/auth'
@@ -8,6 +11,11 @@ const req = (path: string, cookie?: string) => {
   if (cookie) r.cookies.set('mm_session', cookie)
   return r
 }
+
+process.env.MODEL_MANAGER_SESSION_STORE = join(
+  mkdtempSync(join(tmpdir(), 'mm-proxy-')),
+  'sessions.json'
+)
 
 describe('proxy guard', () => {
   it('503 when password unset (fail-closed)', () => {
