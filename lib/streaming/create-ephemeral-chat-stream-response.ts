@@ -29,6 +29,7 @@ import { resolveContextWindow } from '../utils/resolve-context-window'
 import { isUsageLogging, logUsage } from '../utils/usage-logging'
 
 import { convertDataPart } from './helpers/convert-data-part'
+import { stripCitationAnchorsFromHistory } from './helpers/strip-citation-anchors-from-history'
 import { stripReasoningParts } from './helpers/strip-reasoning-parts'
 import { stripSpecFromMessages } from './helpers/strip-spec-from-messages'
 import { BaseStreamConfig } from './types'
@@ -118,7 +119,9 @@ export async function createEphemeralChatStreamResponse(
         }
 
         const isOpenAI = modelId.startsWith('openai:')
-        const messagesWithoutSpec = stripSpecFromMessages(messages)
+        const messagesWithoutSpec = stripCitationAnchorsFromHistory(
+          stripSpecFromMessages(messages)
+        )
         const messagesToConvert = isOpenAI
           ? stripReasoningParts(messagesWithoutSpec)
           : messagesWithoutSpec
