@@ -16,6 +16,8 @@ export interface UIMessageMetadata {
   feedbackScore?: number | null
   searchMode?: SearchMode
   modelId?: string
+  /** Set when the user pressed Stop (sanitizeStoppedMessage / markMessageStopped). */
+  stopped?: boolean
   [key: string]: any
 }
 

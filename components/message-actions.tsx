@@ -68,6 +68,8 @@ interface MessageActionsProps {
   spokenGist?: string
   /** Auto-read this answer aloud (voice mode + latest message). */
   voiceAutoPlay?: boolean
+  /** The user pressed Stop on this answer (message metadata.stopped). */
+  stopped?: boolean
 }
 
 export function MessageActions({
@@ -87,7 +89,8 @@ export function MessageActions({
   visible = true,
   citationMaps,
   spokenGist,
-  voiceAutoPlay = false
+  voiceAutoPlay = false,
+  stopped = false
 }: MessageActionsProps) {
   const [feedbackScore, setFeedbackScore] = useState<number | null>(
     initialFeedbackScore ?? null
@@ -239,7 +242,11 @@ export function MessageActions({
       <div
         aria-hidden={!visible}
         className={cn(
-          'flex w-full items-center justify-between gap-3 self-stretch transition-opacity duration-200',
+          // flex-wrap: if a stopped answer's badge would push the row past a
+          // narrow phone's width (authed prod shows retry, read-aloud, copy,
+          // share, delete + Save), the right cluster drops to its own line
+          // (ml-auto keeps it right-aligned) instead of overflowing.
+          'flex w-full flex-wrap items-center justify-between gap-x-3 gap-y-1 self-stretch transition-opacity duration-200',
           visible ? 'opacity-100' : 'pointer-events-none opacity-0 invisible',
           className
         )}
@@ -303,21 +310,24 @@ export function MessageActions({
             </>
           )}
         </div>
-        {showSaveButton ? (
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={handleSaveNote}
-            disabled={isSavingNote}
-            className="h-8 shrink-0 gap-1.5 rounded-full px-3"
-            aria-label="Save to library"
-          >
-            <Bookmark size={14} />
-            Save
-          </Button>
-        ) : (
-          <div />
-        )}
+        <div className="ml-auto flex shrink-0 items-center gap-2">
+          {stopped && <StoppedBadge />}
+          {showSaveButton ? (
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={handleSaveNote}
+              disabled={isSavingNote}
+              className="h-8 shrink-0 gap-1.5 rounded-full px-3"
+              aria-label="Save to library"
+            >
+              <Bookmark size={14} />
+              Save
+            </Button>
+          ) : (
+            <div />
+          )}
+        </div>
       </div>
 
       <Dialog open={authPromptOpen} onOpenChange={setAuthPromptOpen}>
@@ -393,5 +403,23 @@ export function MessageActions({
         </AlertDialog>
       )}
     </>
+  )
+}
+
+/**
+ * Muted marker for an answer the user cut short with Stop. The text above it is
+ * a partial, so say so — live (set on the client when the stop lands) and after
+ * a reload (persisted as metadata.stopped by sanitizeStoppedMessage). Text only,
+ * no icon: a square glyph here read as a second Stop button.
+ */
+function StoppedBadge() {
+  return (
+    <span
+      className="inline-flex h-6 shrink-0 items-center rounded-full border border-border px-2 text-xs text-muted-foreground"
+      title="You stopped this answer before it finished"
+      data-testid="stopped-badge"
+    >
+      Stopped
+    </span>
   )
 }
