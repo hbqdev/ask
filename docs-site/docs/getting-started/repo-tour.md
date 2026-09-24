@@ -52,7 +52,7 @@ flowchart TB
 | `searxng-settings*.yml`, `searxng-limiter.toml` | Bind-mounted SearXNG config (prod/lab share `searxng-settings.yml`; staging has its own). |
 | `gluetun-auth.toml` | Gluetun control-server auth config (needed by `fleet-boot/rotate-mullvad.sh`). |
 | `next.config.mjs` | Next config incl. security headers (`Permissions-Policy` must keep `geolocation=(self)` and `microphone=(self)`). |
-| `proxy.ts` | Next 16 request proxy (formerly middleware): Supabase session refresh + forwarded-host handling. |
+| `proxy.ts` | Next 16 request proxy (formerly middleware): Supabase session refresh, the signed-out page gate (`lib/supabase/middleware.ts`), forwarded-host handling. |
 | `instrumentation.ts` | OpenTelemetry/Langfuse registration and Ollama validation at server start. |
 | `vitest.config.mts`, `vitest.setup.ts` | Test config (jsdom, aliases, `server-only` stub). |
 | `AGENTS.md`, `CLAUDE.md` | Contributor notes carried over from upstream plus local conventions. |
@@ -107,7 +107,7 @@ The generated [API routes reference](/reference/api-routes) lists methods and au
 
 `use-voice-dictation.ts`, `use-speech-playback.ts`, `use-weather.ts`,
 `use-file-dropzone.ts`, `use-keyboard-shortcut.ts`, `use-mobile.tsx`,
-`use-typewriter-cycle.ts`, auth/user helpers. (`lib/hooks/` holds two more generic hooks.)
+`use-typewriter-cycle.ts`, current-user name and avatar helpers. (`lib/hooks/` holds two more generic hooks.)
 
 ## `lib/`
 
@@ -149,12 +149,13 @@ and [Deploy › Migrations](/operations/deploy#migrations-at-boot).
 | `rebuild-ask.sh {prod\|staging\|lab}` | Build + recreate + health-wait + reclaim for one stack. **The** deploy command. |
 | `reclaim-space.sh` | Prune all unused build cache + dangling images (never `-a`, never volumes/containers). |
 | `ask-fleet-boot.sh` + `ask-fleet-boot.service` | Host-aware boot reconcile (systemd oneshot) — app stacks, VPN sidecars, GPU services, model warm-up. |
-| `deploy.sh` | Pushes the boot script + unit to `.17`, `.160`, `.171` (not `.231`). |
+| `deploy.sh` | Pushes the boot script + unit to all four hosts (`.17`, `.160`, `.171`, `.231`; .231 since 2026-09-23). On .231 it also syncs the rotation and public-search update scripts to `~/fleet-boot` and enables `fleet-update-public-search.timer`. |
 | `docker-maintenance.sh` | Daily 04:30 cron: dangling-image prune, 7-day builder prune, disk warning, btree `amcheck`. |
+| `memory-consolidate-nightly.sh` | Nightly 03:45 cron: calls `/api/memory/consolidate` on the named stacks, each with its own `MEMORY_CRON_SECRET` sent on stdin. |
 | `expire-uploads-daily.sh` | Daily 04:15 cron: calls `/api/maintenance/expire-uploads` on all three stacks. |
 | `rotate-mullvad.sh`, `rotate-daily.sh` | Mullvad exit-IP rotation (manual verbs / daily 05:00 cron). |
 | `update-ollama-fleet.sh`, `update-ollama.sh` | Weekly (Sun 03:30) Ollama upgrade on every host + re-pin resident models. |
-| `update-images.sh`, `update-public-search.sh`, `fleet-update-public-search.*` | Pull + recreate third-party images (public search stacks weekly). |
+| `update-images.sh`, `update-ask.sh` + `fleet-update-ask.*`, `update-public-search.sh` + `fleet-update-public-search.*` | Pull + recreate third-party sidecar images: the Ask stacks weekly (lab, prod, staging; Sun 04:30 on .17) and the public search stacks weekly (.231). |
 | `check-crawl4ai-version.sh` | Notify-only check for a newer crawl4ai release. |
 | `create-app-user.sh` | Create the restricted `app_user` Postgres role for a stack. |
 | `keep-warm.sh`, `gpu-idle-log.sh` | Legacy 24/7 GPU keep-warm (superseded by `/api/warm`) and a P-state sampler. |

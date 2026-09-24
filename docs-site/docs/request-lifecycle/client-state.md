@@ -45,7 +45,7 @@ Inside (`components/chat.tsx:65`):
 
 ### Sections model {#sections}
 
-`messages` is converted to `sections` (`chat.tsx:567`): each user message opens a
+`messages` is converted to `sections` (`chat.tsx:576`): each user message opens a
 section `{ id, userMessage, assistantMessages[] }`; following assistant messages attach
 to it. Messages are **deduplicated by id** — `useChat` can briefly surface the same
 assistant message twice during stream finalisation, which would otherwise produce React
@@ -151,7 +151,7 @@ until the stream re-asserted itself — often surfacing when the user clicked so
 - `chat-bump` is **not** in `REFRESH_EVENTS` (`app-sidebar.tsx:79`) — it only drives the
   optimistic reorder. The only refresh triggers are `chat-history-updated` and
   `current-chat-deleted`.
-- The send path persists `touchChat` but dispatches nothing (`chat.tsx:512-522`). This
+- The send path persists `touchChat` but dispatches nothing (`chat.tsx:510-524`). This
   holds for homepage-started follow-ups too, which call `touchChat` since 2026-09-23.
 - `chat-history-updated` from a turn fires only at `onFinish`, after persistence.
 - **Stream-activity registry** (`lib/streaming/stream-activity.ts`): every mounted `Chat`
@@ -204,7 +204,7 @@ settle flipped the status to `ready` while the new answer was still streaming.
 
 **Fix / rule:** `handleUpdateAndReloadMessage` and `handleReloadFrom` refuse with a
 toast ("Wait for the current answer to finish, or stop it first.") when
-`status` is `submitted` or `streaming` (`chat.tsx:55, 765, 809`). Related-question
+`status` is `submitted` or `streaming` (`chat.tsx:55, 774, 818`). Related-question
 buttons use `isStreamingRef` from `ChatContext` for the same purpose.
 
 ### 5. Resume must replace, not append
@@ -274,4 +274,6 @@ anywhere — the live sidebar is `AppSidebar` + `RecentChatsSection`. Don't fix 
 - **The server Recent list is not reconciled after a homepage-started chat** until some
   other refresh trigger fires (a chat on its real route finishing, a delete). The
   optimistic override covers the gap in the current tab only.
-- `metadata.stopped` on a stopped answer is persisted but not rendered.
+- ~~`metadata.stopped` on a stopped answer is persisted but not rendered.~~ **Fixed 2026-09-24:**
+  a "Stopped" pill renders live (`markMessageStopped` in `onFinish`, gated on
+  `userStopRequestedRef`) and after a reload. See [streaming → Stop](/request-lifecycle/streaming#stop).

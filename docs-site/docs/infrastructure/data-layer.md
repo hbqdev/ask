@@ -273,7 +273,7 @@ question again" and a vanished first answer. See [Streaming](/request-lifecycle/
 | `replicate:budget:YYYY-MM` | counter | 35 days | `lib/imagegen/budget.ts` | Image-gen monthly spend (only when `REPLICATE_MONTHLY_BUDGET` is set) |
 | `imagegen:rr:<poolKey>` | counter | none | `lib/imagegen/rotation.ts` | Round-robin model rotation per task pool (falls back to in-memory) |
 | `imagegen:retry:<chatKey>` | counter | 24 h | `lib/imagegen/retry-tracker.ts` | Retry count, escalating to the premium model at the 4th attempt |
-| `quotes:pool` | string | 24 h | `app/api/quotes/route.ts` | Homepage quotes (Redis, then Couchbase, then bundled); validated on read |
+| `quotes:pool` | string | 24 h | `app/api/quotes/route.ts` | Waiting quotes shown in the research-process panel while an answer is in progress (Redis, then Couchbase, then bundled); validated on read |
 | `rl:chat:<userId>:<date>`, `rl:guest:chat:<ip>:<date>`, `rl:adaptive:<userId>:<date>` | counter | until UTC midnight | `lib/rate-limit/*` | Rate limits: **Upstash + `MORPHIC_CLOUD_DEPLOYMENT` only, so inert on the fleet** |
 
 All monthly and daily counter keys use the **UTC** calendar.

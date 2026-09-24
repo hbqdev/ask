@@ -46,7 +46,7 @@
       "id": "h231",
       "label": "MiniNightFury · .231",
       "kind": "host",
-      "description": "i7-12650H, 31 GB, native Linux, no GPU. Hosts crawl4ai (fast single-thread crawling), the public SearXNG/degoog, the staging/lab classifier Ollama and the idle legacy Ask stacks.",
+      "description": "i7-12650H, 31 GB, native Linux, no GPU. Hosts crawl4ai (fast single-thread crawling), FlareSolverr and the public SearXNG/degoog. No Ask app stacks since 2026-09-23 (their leftovers were deleted 2026-09-24).",
       "link": "/infrastructure/fleet#hosts"
     },
     {
@@ -106,7 +106,7 @@
       "kind": "service",
       "host": "h17",
       "port": "3741/3740/3743",
-      "description": "Per-env SearXNG inside a gluetun Mullvad WireGuard namespace (kill-switch). Quality mode only. UI on 3741/3740/3743 (unauthenticated). The configured fallback does not resolve on .17.",
+      "description": "Per-env SearXNG inside a gluetun Mullvad WireGuard namespace (kill-switch). Quality mode only. UI on 3741/3740/3743 (unauthenticated). Prod and staging fail over to the public SearXNG on .231:8127; lab has no fallback. A SearXNG failure no longer empties a quality search.",
       "link": "/infrastructure/services#searxng-and-gluetun"
     },
     {
@@ -115,7 +115,7 @@
       "kind": "service",
       "host": "h17",
       "port": "11434",
-      "description": "Native systemd, unauthenticated on 0.0.0.0. Proxies *:cloud models (answering model, prod classifier) to Ollama Cloud; serves qwen3-vl:4b on the GTX 1070 to the ingestors.",
+      "description": "Native systemd, unauthenticated on 0.0.0.0. Proxies *:cloud models (answering model and the classifier in every env) to Ollama Cloud; serves qwen3-vl:4b on the GTX 1070 to the ingestors.",
       "link": "/infrastructure/services#ollama"
     },
     {
@@ -124,7 +124,7 @@
       "kind": "service",
       "host": "h17",
       "port": "8787",
-      "description": "reranker-qwen: Qwen3-Reranker-8B on the 2080 Ti, POST /rerank, bearer token (timing-safe, fails closed). Search degrades to bi-encoder then keyword when it is down.",
+      "description": "reranker-qwen: Qwen3-Reranker-8B on the 2080 Ti (pinned by GPU UUID), POST /rerank, bearer token (timing-safe, fails closed). Search degrades to bi-encoder then keyword when it is down; recall reranks 10 passages x 384 tokens once per turn.",
       "link": "/infrastructure/services#reranker"
     },
     {
@@ -150,7 +150,7 @@
       "label": "Ingestor workers ×3",
       "kind": "service",
       "host": "h17",
-      "description": "ingestor / ingestor-staging / ingestor-lab (separate repo dir). Pull upload jobs from /api/ingest/* with INGEST_API_TOKEN; images via qwen3-vl on the .17 Ollama, audio via in-process CPU whisper.",
+      "description": "ingestor / ingestor-staging / ingestor-lab (separate git repo, all reconciled at boot). Pull upload jobs from /api/ingest/* with INGEST_API_TOKEN, backing off while Ask is unreachable; images via qwen3-vl on the .17 Ollama, audio via in-process CPU whisper.",
       "link": "/infrastructure/services#ingestor-workers"
     },
     {
@@ -185,7 +185,7 @@
       "kind": "service",
       "host": "h171",
       "port": "11434",
-      "description": "Native Ollama on the P5000 (LOCAL_LLM_BASE_URL): titles, memory extraction, query-expansion fallback, voice gist. Unauthenticated.",
+      "description": "Native Ollama on the P5000 (LOCAL_LLM_BASE_URL), bound to 0.0.0.0 via a systemd drop-in: titles, memory extraction, query-expansion fallback, voice gist. Unauthenticated.",
       "link": "/infrastructure/services#ollama"
     },
     {
@@ -198,21 +198,12 @@
       "link": "/infrastructure/services#crawl4ai"
     },
     {
-      "id": "ollama231",
-      "label": "Ollama (.231)",
-      "kind": "service",
-      "host": "h231",
-      "port": "11434",
-      "description": "Native Ollama used as the cloud proxy for the staging and lab classifier (CLASSIFIER_OLLAMA_BASE_URL hardcoded in their overlays).",
-      "link": "/infrastructure/services#ollama"
-    },
-    {
       "id": "flaresolverr",
       "label": "FlareSolverr",
       "kind": "service",
       "host": "h231",
       "port": "8191",
-      "description": "Loopback-bound (127.0.0.1:8191) on .231; the app's FLARESOLVERR_URL does not resolve on .17, so this fetch rescue tier is currently always skipped.",
+      "description": "Cloudflare-challenge solver on .231, published on 192.168.50.231:8191 (unauthenticated). FLARESOLVERR_URL points there in every env: the fetch rescue chain's bot-wall tier.",
       "link": "/infrastructure/services#flaresolverr"
     },
     {
@@ -221,7 +212,7 @@
       "kind": "service",
       "host": "h231",
       "port": "8127",
-      "description": "search.hbqnexus.win (:8127 via searxng-gluetun): the owner's personal instance. Ask must never point at it.",
+      "description": "search.hbqnexus.win (:8127 via searxng-gluetun): the owner's personal instance. Used by Ask only as the prod/staging SEARXNG_FALLBACK_API_URL, never as a primary.",
       "link": "/infrastructure/services#searxng-and-gluetun"
     },
     {
@@ -232,14 +223,6 @@
       "port": "4444",
       "description": "degoog behind degoog-gluetun on :4444. Public/personal with human consumers — never decommission.",
       "link": "/infrastructure/services#degoog"
-    },
-    {
-      "id": "legacy-stacks",
-      "label": "Legacy Ask volumes (containers removed)",
-      "kind": "service",
-      "host": "h231",
-      "description": "Pre-migration prod/staging/lab Ask stacks. Containers and networks removed 2026-09-23; only their data volumes remain, pending a decision to delete.",
-      "link": "/infrastructure/fleet#legacy-stacks-on-231-removed"
     },
     {
       "id": "ollama-cloud",
@@ -454,18 +437,18 @@
     },
     {
       "from": "ask-lab",
-      "to": "ollama231",
+      "to": "ollama17",
       "label": "classifier"
     },
     {
       "from": "ask-staging",
-      "to": "ollama231",
+      "to": "ollama17",
       "label": "classifier"
     },
     {
       "from": "ask-prod",
       "to": "ollama17",
-      "label": "classifier (prod)"
+      "label": "classifier"
     },
     {
       "from": "ask-prod",
@@ -480,12 +463,12 @@
     {
       "from": "ask-staging",
       "to": "crawl4ai",
-      "label": "crawl (misconfigured URL)"
+      "label": "crawl + fetch"
     },
     {
       "from": "ask-prod",
       "to": "flaresolverr",
-      "label": "fetch tier (unresolvable)"
+      "label": "fetch rescue tier"
     },
     {
       "from": "ask-prod",
@@ -533,11 +516,6 @@
       "label": "*:cloud"
     },
     {
-      "from": "ollama231",
-      "to": "ollama-cloud",
-      "label": "*:cloud"
-    },
-    {
       "from": "searxng",
       "to": "mullvad",
       "label": "WireGuard egress"
@@ -561,6 +539,11 @@
       "from": "model-manager",
       "to": "reranker",
       "label": "SSH restart"
+    },
+    {
+      "from": "searxng",
+      "to": "public-search",
+      "label": "fallback (prod/staging)"
     }
   ]
 }

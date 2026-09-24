@@ -171,7 +171,7 @@ sometimes got zero usable results. Sending whole Ollama bodies grew the prompt
 to 73–89k tokens. With passage selection, a lab turn went from 24.7s (broken)
 to ~6.9s, and the prompt from 89k to ~16k tokens. The remote cross-encoder was
 deliberately left out: it adds 5–7s, and Ollama's results are already ranked.
-Speed also **bypasses the classifier and recall** (`create-chat-stream-response.ts:271-313`),
+Speed also **bypasses the classifier and recall** (`create-chat-stream-response.ts:275-317`),
 because the researcher agent rewrites its own follow-up queries into
 standalone form, so the classifier's rewrite is redundant.
 
@@ -428,6 +428,13 @@ fetch, crawl4ai, FlareSolverr, Tavily extract, Firecrawl, with Jina in the
 chain as well), fetches transcripts for YouTube URLs, and has an overall caller
 deadline of `FETCH_TOTAL_DEADLINE_MS` (40s). Its wall time is reported as
 `fetch_ms` on the turn line.
+
+A successful fetch result carries the call's `toolCallId` (`fetch.ts:667,715`), like a search
+result does, because the model cites `[n](#toolCallId)` and can only copy an id it can see.
+The Ollama wire format carries no tool-call id on a tool result, so before 2026-09-24 a fetched
+page was structurally uncitable: no anchor in prod history ever named a fetch call, and models
+invented ids for fetched pages instead. A failed fetch gets no id, since it has nothing to cite.
+See [frontend › Citations](/request-lifecycle/frontend#citations).
 
 Before any request, `assertUrlAllowed` (`lib/utils/ssrf-guard.ts`, called at
 `fetch.ts:607`) rejects non-http(s) schemes, literal loopback, private,
