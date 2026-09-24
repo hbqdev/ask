@@ -118,7 +118,7 @@
     "vitest": "^4.1.0"
   },
   "engines": {
-    "node": "22.x"
+    "node": "^20.19.0 || 22.x"
   },
   "trustedDependencies": [
     "onnxruntime-node"
