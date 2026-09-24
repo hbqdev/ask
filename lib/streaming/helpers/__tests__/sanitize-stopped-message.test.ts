@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest'
 
 import {
   isStoppedSaveStale,
+  markMessageStopped,
   sanitizeStoppedMessage
 } from '../sanitize-stopped-message'
 
@@ -174,5 +175,27 @@ describe('isStoppedSaveStale', () => {
   it('fails closed when the latest id or turn id is unknown', () => {
     expect(isStoppedSaveStale(null, 'u1', 'a1')).toBe(true)
     expect(isStoppedSaveStale('u1', undefined, 'a1')).toBe(true)
+  })
+})
+
+describe('markMessageStopped', () => {
+  const msgs = [
+    { id: 'u1', role: 'user', parts: [] },
+    { id: 'a1', role: 'assistant', metadata: { traceId: 't' }, parts: [] }
+  ] as unknown as UIMessage[]
+
+  it('flags the stopped assistant message, keeping its other metadata', () => {
+    const out = markMessageStopped(msgs, 'a1')
+    expect(out).not.toBe(msgs)
+    expect(out[1].metadata).toEqual({ traceId: 't', stopped: true })
+    expect(msgs[1].metadata).toEqual({ traceId: 't' }) // not mutated
+  })
+
+  it('returns the same array when there is nothing to flag', () => {
+    expect(markMessageStopped(msgs, undefined)).toBe(msgs)
+    expect(markMessageStopped(msgs, 'missing')).toBe(msgs)
+    expect(markMessageStopped(msgs, 'u1')).toBe(msgs)
+    const flagged = markMessageStopped(msgs, 'a1')
+    expect(markMessageStopped(flagged, 'a1')).toBe(flagged)
   })
 })
