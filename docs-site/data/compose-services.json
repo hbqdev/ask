@@ -73,7 +73,7 @@
           "env": [
             {
               "key": "CLASSIFIER_MODEL_ID",
-              "value": "deepseek-v4-pro:cloud"
+              "value": "glm-5.3-flash:cloud"
             },
             {
               "key": "CLASSIFIER_OLLAMA_BASE_URL",
@@ -81,11 +81,11 @@
             },
             {
               "key": "DEGOOG_API_URL",
-              "value": "http://degoog-gluetun-staging:4444"
+              "value": "http://192.168.50.231:4446"
             },
             {
               "key": "DEGOOG_ENABLED",
-              "value": "false"
+              "value": "true"
             },
             {
               "key": "ENABLE_AUTH",
@@ -243,12 +243,16 @@
               "value": "lab-harness"
             },
             {
-              "key": "ANSWER_THINK",
-              "value": "${ANSWER_THINK:-}"
+              "key": "BRAVE_MERGE_ENABLED",
+              "value": "off"
+            },
+            {
+              "key": "BRAVE_SEARCH_API_KEY",
+              "value": "(secret — not shown)"
             },
             {
               "key": "CLASSIFIER_MODEL_ID",
-              "value": "deepseek-v4-pro:cloud"
+              "value": "glm-5.3-flash:cloud"
             },
             {
               "key": "CLASSIFIER_OLLAMA_BASE_URL",
@@ -264,7 +268,7 @@
             },
             {
               "key": "DEGOOG_API_URL",
-              "value": "http://degoog-gluetun-lab:4444"
+              "value": "http://192.168.50.231:4447"
             },
             {
               "key": "DEGOOG_ENABLED",
@@ -279,12 +283,16 @@
               "value": "true"
             },
             {
-              "key": "FLOW_ARCH",
-              "value": "${FLOW_ARCH:-}"
-            },
-            {
               "key": "FLOW_VARIANT",
               "value": "${FLOW_VARIANT:-baseline}"
+            },
+            {
+              "key": "LANGSEARCH_API_KEY",
+              "value": "(secret — not shown)"
+            },
+            {
+              "key": "LANGSEARCH_MERGE_ENABLED",
+              "value": "off"
             },
             {
               "key": "OLLAMA_SEARCH_API_KEY",
@@ -292,23 +300,7 @@
             },
             {
               "key": "OLLAMA_SEARCH_ENABLED",
-              "value": "${OLLAMA_SEARCH_ENABLED:-}"
-            },
-            {
-              "key": "PIPELINE_SOURCE_CHARS",
-              "value": "${PIPELINE_SOURCE_CHARS:-}"
-            },
-            {
-              "key": "REPLICATE_IMAGE_EDIT_MODEL",
-              "value": "${REPLICATE_IMAGE_EDIT_MODEL:-google/nano-banana-2}"
-            },
-            {
-              "key": "SEARCH_CROP_POSITION_SHADOW",
-              "value": "${SEARCH_CROP_POSITION_SHADOW:-true}"
-            },
-            {
-              "key": "SEARCH_ENRICH_MAX_CHARS",
-              "value": "${SEARCH_ENRICH_MAX_CHARS:-20000}"
+              "value": "off"
             },
             {
               "key": "SEARCH_EXCERPTS_ENABLED",
@@ -317,14 +309,6 @@
             {
               "key": "SEARCH_QUALITY_FILTER",
               "value": "${SEARCH_QUALITY_FILTER:-relaxed}"
-            },
-            {
-              "key": "SEARCH_ROUNDS_MAX",
-              "value": "${SEARCH_ROUNDS_MAX:-3}"
-            },
-            {
-              "key": "SEARCH_ROUNDS_MAX_QUALITY",
-              "value": "${SEARCH_ROUNDS_MAX_QUALITY:-5}"
             },
             {
               "key": "SEARCH_SNIPPET_GATE",
@@ -340,15 +324,19 @@
             },
             {
               "key": "SEARXNG_CRAWL_MULTIPLIER",
-              "value": "4"
+              "value": "2"
             },
             {
               "key": "SEARXNG_FALLBACK_API_URL",
               "value": ""
             },
             {
+              "key": "TAVILY_API_KEY",
+              "value": "(secret — not shown)"
+            },
+            {
               "key": "TAVILY_MERGE_ENABLED",
-              "value": "on"
+              "value": "off"
             },
             {
               "key": "TTS_SERVICE_URL",
@@ -375,7 +363,7 @@
         {
           "name": "ask-tts-lab",
           "containerName": "ask-tts-lab",
-          "image": "ghcr.io/remsky/kokoro-fastapi-gpu:latest",
+          "image": "ghcr.io/remsky/kokoro-fastapi-cpu:latest@sha256:fa52dce920c3610c78fccde4f6fa064fb092ae95018cf42b42d84d876655e8d9",
           "build": null,
           "ports": [
             "${LAB_TTS_PORT:-3744}:8880"
@@ -390,12 +378,7 @@
           "profiles": [],
           "healthcheck": true,
           "overrides": [],
-          "env": [
-            {
-              "key": "CUDA_VISIBLE_DEVICES",
-              "value": "(secret — not shown)"
-            }
-          ]
+          "env": []
         },
         {
           "name": "postgres",
