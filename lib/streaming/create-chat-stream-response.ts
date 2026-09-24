@@ -73,6 +73,7 @@ import {
 } from './helpers/sanitize-stopped-message'
 import { smoothAndStripNarration } from './helpers/smooth-and-strip-narration'
 import { streamPartTimer } from './helpers/stream-part-timer'
+import { stripCitationAnchorsFromHistory } from './helpers/strip-citation-anchors-from-history'
 import { stripNarrationFromMessage } from './helpers/strip-narration-from-message'
 import { stripReasoningParts } from './helpers/strip-reasoning-parts'
 import { stripSpecFromMessages } from './helpers/strip-spec-from-messages'
@@ -354,7 +355,11 @@ export async function createChatStreamResponse(
         // OpenAI's Responses API requires reasoning items and their following items to be kept together
         // See: https://github.com/vercel/ai/issues/11036
         const isOpenAI = context.modelId.startsWith('openai:')
-        const messagesWithoutSpec = stripSpecFromMessages(messagesToModel)
+        // History anchors name earlier turns' tool calls, which are pruned
+        // below — strip them so the model can't copy dead ids into this turn.
+        const messagesWithoutSpec = stripCitationAnchorsFromHistory(
+          stripSpecFromMessages(messagesToModel)
+        )
         const messagesToConvert = isOpenAI
           ? stripReasoningParts(messagesWithoutSpec)
           : messagesWithoutSpec
