@@ -30,7 +30,7 @@ services:
       # Applies to prod (base) + staging (overlay merges base); the lab overlay
       # overrides TTS/WHISPER to its own lab services.
       VOICE_ENABLED: 'true'
-      TTS_SERVICE_URL: 'http://192.168.50.231:8890'
+      TTS_SERVICE_URL: 'http://192.168.50.17:8890'
       WHISPER_SERVICE_URL: 'http://192.168.50.17:8788'
       VOICE_STT_MODEL: 'Systran/faster-distil-whisper-large-v3'
       # Pin the image EDIT model to one consistent, strong editor instead of
@@ -58,7 +58,7 @@ services:
       # a DIFFERENT crawler (crawl4ai on the app host, not .17), so that curve
       # does not transfer. Measure prod's own candidate/crawl response before
       # tuning SEARXNG_CRAWL_MULTIPLIER here.
-      DEGOOG_ENABLED: 'true'
+      DEGOOG_ENABLED: 'false'
       # Candidate-pool cap = maxResults x this, so 4 -> 80 candidates.
       #
       # RAISED 2 -> 4 on 2026-07-28 because the POOL COMPOSITION changed under
