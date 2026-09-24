@@ -23,6 +23,7 @@ import {
   ADAPTIVE_MODE_AUTH_REQUIRED_MESSAGE,
   isAdaptiveModeAuthBlocked
 } from '@/lib/search-mode-availability'
+import { markMessageStopped } from '@/lib/streaming/helpers/sanitize-stopped-message'
 import {
   ResumableChatTransport,
   type ResumeHooks
@@ -177,6 +178,11 @@ export function Chat({
   const setMessagesRef = useRef<
     (update: (messages: UIMessage[]) => UIMessage[]) => void
   >(() => {})
+  // Set by handleStop, consumed by onFinish: an abort that the USER asked for
+  // (as opposed to leaving the chat mid-answer) flags the partial answer as
+  // stopped on the client right away, mirroring the metadata.stopped the
+  // server persists — so the "Stopped" badge shows live, not only on reload.
+  const userStopRequestedRef = useRef(false)
   // True while resuming a turn that was in flight when the tab was hidden:
   // the partial on screen may be stale (finished while away) and must be
   // replaced from the server if there's nothing live to resume.
@@ -282,6 +288,13 @@ export function Chat({
       const isCurrentChat =
         finishedMessages[0]?.id === messagesRef.current[0]?.id
       if (isCurrentChat) isStreamingRef.current = false
+      if (isAbort && isCurrentChat && userStopRequestedRef.current) {
+        const stoppedId = message.id
+        setMessagesRef.current(current =>
+          markMessageStopped(current, stoppedId)
+        )
+      }
+      if (isCurrentChat) userStopRequestedRef.current = false
 
       if (isCurrentChat && !providedId) {
         // A chat started from home: the URL is a pushState'd /search/<id> but
@@ -460,6 +473,7 @@ export function Chat({
   // skipping the stop call there let the "stopped" first answer keep
   // generating and persist in full.
   const handleStop = useCallback(() => {
+    userStopRequestedRef.current = true
     stop()
     if (!isGuest) {
       void fetch(`/api/chat/${chatId}/stop`, { method: 'POST' }).catch(() => {})
