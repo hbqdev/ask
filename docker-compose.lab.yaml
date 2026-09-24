@@ -187,7 +187,7 @@ services:
       # correctly an environment var.
       TTS_SERVICE_URL: 'http://ask-tts-lab:8880'
       # VOICE_TTS_VOICE / VOICE_GIST_MODEL_ID left to code defaults
-      # (af_heart / granite4.1:8b).
+      # (af_heart / granite4.2:8b).
       # --- voice dictate (Slice 2) ----------------------------------------
       # Whisper STT (speaches) runs on NightFuryX's RTX 2080 Ti, reached over
       # the LAN (not a container in this compose). Server flag VOICE_ENABLED
