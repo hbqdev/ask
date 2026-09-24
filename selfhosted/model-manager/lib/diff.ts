@@ -34,7 +34,10 @@ export function computeChanges(
 }
 
 export function renderDiff(changes: Change[]): string {
-  const show = (c: Change, v?: string) => (c.secret ? MASK : (v ?? ''))
+  // An emptied secret reveals nothing, and must read as "cleared", not as a
+  // masked (i.e. still-set-looking) value.
+  const show = (c: Change, v?: string) =>
+    c.secret ? (v ? MASK : '(empty)') : (v ?? '')
   return changes
     .map(c => {
       if (c.kind === 'add') return `+ ${c.key}\n    + ${show(c, c.after)}`
