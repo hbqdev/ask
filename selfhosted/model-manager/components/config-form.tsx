@@ -44,19 +44,20 @@ export function ConfigForm({ initial }: { initial: ConfigData }) {
   const cats = CATEGORIES.filter(c => REGISTRY.some(s => s.category === c))
   const [active, setActive] = useState<Category>(cats[0] ?? 'models')
   const [edits, setEdits] = useState<Record<string, string>>({})
+  // Secrets marked to be emptied. Kept apart from `edits` because a secret's
+  // form value is '' both when untouched and when cleared.
+  const [cleared, setCleared] = useState<Record<string, boolean>>({})
 
   const value = (key: string) =>
     key in edits ? edits[key] : (initial.values[key] ?? '')
 
-  const changed = useMemo(
-    () =>
-      Object.fromEntries(
-        Object.entries(edits).filter(
-          ([k, v]) => v !== (initial.values[k] ?? '')
-        )
-      ),
-    [edits, initial.values]
-  )
+  const changed = useMemo(() => {
+    const out = Object.fromEntries(
+      Object.entries(edits).filter(([k, v]) => v !== (initial.values[k] ?? ''))
+    )
+    for (const [k, on] of Object.entries(cleared)) if (on) out[k] = ''
+    return out
+  }, [edits, cleared, initial.values])
 
   const specs = REGISTRY.filter(s => s.category === active)
   const groups = [...new Set(specs.map(s => s.group ?? ''))]
@@ -181,6 +182,11 @@ export function ConfigForm({ initial }: { initial: ConfigData }) {
                       spec={s}
                       value={value(s.key)}
                       isSecretSet={!!initial.secretSet[s.key]}
+                      cleared={!!cleared[s.key]}
+                      onClear={on => {
+                        setCleared(c => ({ ...c, [s.key]: on }))
+                        if (on) setEdits(e => ({ ...e, [s.key]: '' }))
+                      }}
                       onChange={v => setEdits(e => ({ ...e, [s.key]: v }))}
                     />
                   ))}

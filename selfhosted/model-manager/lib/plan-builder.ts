@@ -23,6 +23,10 @@ export function validateEdits(edits: Record<string, string>): EditViolation[] {
       violations.push({ key, error: 'This setting is read-only' })
       continue
     }
+    if (spec.required && !value.trim()) {
+      violations.push({ key, error: 'This setting is required' })
+      continue
+    }
     if (spec.validate && value.trim()) {
       const err = spec.validate(value)
       if (err) violations.push({ key, error: err })
@@ -31,7 +35,8 @@ export function validateEdits(edits: Record<string, string>): EditViolation[] {
   return violations
 }
 
-// RERANKER_MODEL lives in the reranker's own .env on nightfuryS. Everything
+// RERANKER_MODEL lives in the reranker's own .env on the reranker host
+// (NightFuryX .17, reached over SSH). Everything
 // else is an Ask .env var. The reranker's remote .env only needs the model
 // line (its token line is managed on the box); we send a single-key file.
 export function buildPlan(
