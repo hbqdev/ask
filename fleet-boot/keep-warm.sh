@@ -26,12 +26,12 @@ INTERVAL="${KEEP_WARM_INTERVAL:-8}"
 getenv() { grep -E "^$1=" "$ENV_FILE" 2>/dev/null | head -1 | cut -d= -f2- | tr -d '"'; }
 
 # NOTE: the CLASSIFIER moved to glm-5.2:cloud (2026-07-26) and no longer runs
-# here. Serenity still hosts granite4.1:8b for the MEMORY EXTRACTOR and the
+# here. Serenity still hosts granite4.2:8b for the MEMORY EXTRACTOR and the
 # fallback query expander, so it is still worth keeping warm — for those, not
 # for classification. Warming a :cloud model is pointless (no GPU to wake) and
 # is a billed call, so this deliberately targets LOCAL_LLM_BASE_URL.
 CLASSIFIER_BASE="$(getenv LOCAL_LLM_BASE_URL)"; CLASSIFIER_BASE="${CLASSIFIER_BASE:-http://192.168.50.171:11434}"
-CLASSIFIER_MODEL="$(getenv MEMORY_EXTRACTOR_MODEL_ID)"; CLASSIFIER_MODEL="${CLASSIFIER_MODEL:-granite4.1:8b}"
+CLASSIFIER_MODEL="$(getenv MEMORY_EXTRACTOR_MODEL_ID)"; CLASSIFIER_MODEL="${CLASSIFIER_MODEL:-granite4.2:8b}"
 RERANKER_URL="$(getenv RERANKER_URL)"
 RERANKER_TOKEN="$(getenv RERANKER_API_TOKEN)"
 EMBED_URL="$(getenv EMBEDDING_SERVICE_URL)"
