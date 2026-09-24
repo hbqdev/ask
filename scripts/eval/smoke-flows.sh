@@ -10,14 +10,27 @@
 # Usage: smoke-flows.sh [question]
 set -uo pipefail
 
-LAB=http://192.168.50.231:3742
+# Lab = the ask-flow worktree, project ask-stack-lab, container ask-lab, :3742
+# on NightFuryX (.17) — the `lab` case of fleet-boot/rebuild-ask.sh. The compose
+# call below MUST run from the lab's own worktree: compose reads `.env` and the
+# build context from the project dir, so running it from another checkout (this
+# used to cd into the staging worktree) recreates ask-lab on THAT stack's .env.
+LAB="${ASK_LAB_URL:-http://localhost:3742}"
+LAB_DIR="${ASK_LAB_DIR:-/home/nightfury/selfhosted/ask-flow}"
+MODEL="${EVAL_MODEL:-kimi-k2.6:cloud}"
 # Must include the VPN overlay — see the note in run-flow-conversations.py.
 COMPOSE="-f docker-compose.yaml -f docker-compose.lab.yaml -f docker-compose.vpn.lab.yaml"
 PROJ=ask-stack-lab
 Q="${1:-What is the difference between TCP and UDP?}"
 VARIANTS="baseline adaptive react-gap plan-execute wide-once"
 
-cd /home/nightfury/selfhosted/ask
+cd "$LAB_DIR" || exit 1
+[ -f docker-compose.lab.yaml ] || { echo "$LAB_DIR is not the lab worktree" >&2; exit 1; }
+RUNNING_FROM=$(docker inspect ask-lab --format '{{index .Config.Labels "com.docker.compose.project.working_dir"}}' 2>/dev/null)
+if [ -n "$RUNNING_FROM" ] && [ "$(realpath "$RUNNING_FROM")" != "$(realpath "$LAB_DIR")" ]; then
+  echo "ask-lab runs from $RUNNING_FROM, not $LAB_DIR — refusing to recreate it (set ASK_LAB_DIR if the lab moved)" >&2
+  exit 1
+fi
 
 for V in $VARIANTS; do
   FLOW_VARIANT="$V" docker compose $COMPOSE -p $PROJ up -d ask >/dev/null 2>&1
@@ -30,7 +43,7 @@ for V in $VARIANTS; do
     -X POST "$LAB/api/chat" \
     -H 'Content-Type: application/json' \
     -H 'Connection: close' \
-    -H 'Cookie: selectedModel=ollama:kimi-k2.6%3Acloud; searchMode=balanced' \
+    -H "Cookie: selectedModel=ollama:${MODEL//:/%3A}; searchMode=balanced" \
     -d "{\"chatId\":\"$CHAT\",\"trigger\":\"submit-message\",\"isNewChat\":true,\"message\":{\"id\":\"m_$CHAT\",\"role\":\"user\",\"parts\":[{\"type\":\"text\",\"text\":$(printf '%s' "$Q" | python3 -c 'import json,sys;print(json.dumps(sys.stdin.read()))')}]}}" 2>/dev/null)
   ELAPSED=$(( $(date +%s) - START ))
 

@@ -8,9 +8,8 @@ budgets (via `searchMode`), or any other `(model, searchMode)` pair defined
 in `run-eval.ts`'s `CONFIGS` registry.
 
 It is a dev tool, not product code. It drives the real `/api/chat` endpoint
-against **staging** (an isolated Docker stack — see `docker-compose.admin-feature.yaml`
-— that runs in anonymous-auth mode), reads results back out of Postgres, and
-scores them two ways: objective metrics that need no human labels, and a
+of a non-prod stack **without a login session**, reads results back out of
+Postgres, and scores them two ways: objective metrics that need no human labels, and a
 blind, position-bias-controlled pairwise LLM judge.
 
 ## Files
@@ -41,10 +40,26 @@ bun run eval --config-a kimi --config-b minimax --limit 10 --concurrency 2
 bun run eval --judge-only scripts/eval/results/2026-07-17T04-57-21-676Z.json
 ```
 
-Prerequisites: the staging stack must be running (`docker compose -f
-docker-compose.yaml -f docker-compose.admin-feature.yaml up -d`, or however
-your deployment starts it) and reachable at `$EVAL_API_URL`
-(default `http://localhost:3739/api/chat`).
+Prerequisites — pick the target stack; it must accept anonymous `/api/chat`:
+
+- **Lab (recommended for unattended runs):** `ask-lab` on `:3742` runs with
+  `ENABLE_AUTH=false` (`ANONYMOUS_USER_ID=lab-harness`, see
+  `docker-compose.lab.yaml`). Point the harness at it:
+  `EVAL_API_URL=http://localhost:3742/api/chat EVAL_DB_CONTAINER=ask-postgres-lab bun run eval ...`
+- **Staging (the script defaults, `:3739` / `ask-postgres-admin-feature`)
+  runs with AUTH ON** — `docker-compose.admin-feature.yaml` sets
+  `ENABLE_AUTH: ${ENABLE_AUTH:-true}` because staging is LAN-visible. An
+  anonymous run against it is rejected. Only for a bounded, attended run:
+  re-up staging with `ENABLE_AUTH=false` in the shell (same `-f` list and
+  `-p ask-stack-admin-feature` as `fleet-boot/rebuild-ask.sh staging`, from
+  the staging worktree), run, then re-up without it immediately.
+
+The flow-arm runners (`run-flow-arms.py`, `run-flow-conversations.py`,
+`smoke-flows.sh`) always target the lab and recreate `ask-lab` from the lab's
+own worktree (`/home/nightfury/selfhosted/ask-flow`, override `ASK_LAB_DIR`;
+URL `ASK_LAB_URL`, default `http://localhost:3742`; model `EVAL_MODEL`). They
+refuse to recreate if the running `ask-lab` was started from a different
+directory.
 
 ## 1. Question mining (`mine-questions.ts`)
 
@@ -212,7 +227,7 @@ Env vars:
 
 | Var                             | Default                          | Meaning                                                  |
 | ------------------------------- | -------------------------------- | -------------------------------------------------------- |
-| `EVAL_API_URL`                  | `http://localhost:3739/api/chat` | Chat API endpoint (staging)                              |
+| `EVAL_API_URL`                  | `http://localhost:3739/api/chat` | Chat API endpoint (staging; auth-on — see above)         |
 | `EVAL_DB_CONTAINER`             | `ask-postgres-admin-feature`     | Postgres container to read run results from (staging)    |
 | `EVAL_MINE_DB_CONTAINER`        | `ask-postgres`                   | Postgres container `mine-questions.ts` reads from (prod) |
 | `EVAL_DB_USER` / `EVAL_DB_NAME` | `morphic`                        | Postgres credentials, both DBs                           |
@@ -226,11 +241,12 @@ bun run eval --config-a kimi --config-b minimax
 
 ## Limitations — read before trusting the numbers
 
-- **Staging only.** Runs target the `ask-admin-feature` / `ask-postgres-admin-feature`
-  containers (anonymous auth — `ENABLE_AUTH=false`). Prod (`ask` /
-  `ask-postgres`) requires real auth and is never written to by this tool;
-  question _mining_ reads prod (read-only), everything else runs against
-  staging.
+- **Non-prod only.** Runs target staging by default
+  (`ask-admin-feature` / `ask-postgres-admin-feature`, which is **auth-on**
+  unless temporarily re-upped with `ENABLE_AUTH=false`) or the lab
+  (`ask-lab` / `ask-postgres-lab`, anonymous). Prod (`ask` / `ask-postgres`)
+  requires real auth and is never written to by this tool; question _mining_
+  reads prod (read-only), everything else runs against staging or lab.
 - **Judge structured-output fallback.** `Output.object` — the exact pattern
   the task's design and `lib/agents/query-classifier.ts` both use — was
   live-tested during development against every model in this deployment's
