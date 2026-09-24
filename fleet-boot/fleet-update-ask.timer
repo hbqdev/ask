@@ -1,0 +1,12 @@
+[Unit]
+Description=Weekly image update for the Ask app stacks (Sun 04:30)
+
+[Timer]
+# Offset 30 min from the .231 public-search timer (04:00); different hosts, so
+# no resource conflict — this is just cosmetic separation in the logs.
+OnCalendar=Sun *-*-* 04:30:00
+Persistent=true
+RandomizedDelaySec=300
+
+[Install]
+WantedBy=timers.target
