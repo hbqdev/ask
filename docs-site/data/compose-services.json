@@ -73,7 +73,7 @@
           "env": [
             {
               "key": "CLASSIFIER_MODEL_ID",
-              "value": "glm-5.3-flash:cloud"
+              "value": "deepseek-v4-pro:cloud"
             },
             {
               "key": "CLASSIFIER_OLLAMA_BASE_URL",
@@ -81,11 +81,11 @@
             },
             {
               "key": "DEGOOG_API_URL",
-              "value": "http://192.168.50.231:4446"
+              "value": "http://degoog-gluetun-staging:4444"
             },
             {
               "key": "DEGOOG_ENABLED",
-              "value": "true"
+              "value": "false"
             },
             {
               "key": "ENABLE_AUTH",
@@ -828,7 +828,7 @@
             },
             {
               "key": "DEGOOG_ENABLED",
-              "value": "true"
+              "value": "false"
             },
             {
               "key": "ENABLE_AUTH",
@@ -864,7 +864,7 @@
             },
             {
               "key": "TTS_SERVICE_URL",
-              "value": "http://192.168.50.231:8890"
+              "value": "http://192.168.50.17:8890"
             },
             {
               "key": "VOICE_ENABLED",

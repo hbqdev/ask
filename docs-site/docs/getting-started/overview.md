@@ -46,7 +46,7 @@ Four ideas explain most of the code:
    (`app/api/chat/route.ts:36`, `GENERATION_TIMEOUT_MS`). The stream is mirrored to Redis
    so a reloaded tab can resume it. See [Streaming](/request-lifecycle/streaming).
 2. **The answering model drives retrieval.** A fast classifier decides whether a turn
-   needs search at all; then a `ToolLoopAgent` (`lib/agents/researcher.ts:422`) calls
+   needs search at all; then a `ToolLoopAgent` (`lib/agents/researcher.ts:426`) calls
    tools (`search`, `fetch`, `recall`, …) until it writes plain text. The heavy lifting
    of search happens server-side in `/api/advanced-search`, not in the model.
 3. **Everything degrades rather than fails.** Rerank tiers, the snippet gate, metered
@@ -85,11 +85,11 @@ The same flow in prose, with file anchors:
 |---|---|---|
 | 1 | Request arrives; user resolved (Supabase or anonymous); search mode read from the `searchMode` cookie; model chosen (saved preference outranks the default) | `app/api/chat/route.ts:38`, `lib/utils/model-selection.ts` |
 | 2 | Authed turns register an abort controller so Stop works; guests get an ephemeral, unpersisted stream | `app/api/chat/route.ts:223-237`, `lib/streaming/active-generations.ts` |
-| 3 | Turn orchestration: prepare messages, classify (fused query expansion), recall, title generation, build agent | `lib/streaming/create-chat-stream-response.ts:136`, `:295` |
-| 4 | Agent picks a turn mode (`direct` / `stable-knowledge` / `research`) and step budget (speed 20 / balanced 50 / quality 100) | `lib/agents/researcher.ts:142`, `:567-648` |
-| 5 | `search` tool → advanced pipeline (fan-out → crawl → filter → rerank) | `lib/tools/search.ts:325`, `app/api/advanced-search/route.ts:534` |
+| 3 | Turn orchestration: prepare messages, classify (fused query expansion), recall, title generation, build agent | `lib/streaming/create-chat-stream-response.ts:140`, `:299` |
+| 4 | Agent picks a turn mode (`direct` / `stable-knowledge` / `research`) and step budget (speed 20 / balanced 50 / quality 100) | `lib/agents/researcher.ts:146`, `:574-657` |
+| 5 | `search` tool → advanced pipeline (fan-out → crawl → filter → rerank) | `lib/tools/search.ts:325`, `app/api/advanced-search/route.ts:532` |
 | 6 | Model streams the answer; narration stripped; client throttles rendering | `lib/streaming/helpers/smooth-and-strip-narration.ts`, `components/chat.tsx` |
-| 7 | `onFinish`: persist (with retry), memory extraction, recall indexing — all under RLS | `lib/streaming/create-chat-stream-response.ts:1030`, `lib/db/with-rls.ts:39` |
+| 7 | `onFinish`: persist (with retry), memory extraction, recall indexing — all under RLS | `lib/streaming/create-chat-stream-response.ts:1040`, `lib/db/with-rls.ts:39` |
 
 The interactive version of this walk-through lives on
 [One chat turn](/request-lifecycle/chat-turn).

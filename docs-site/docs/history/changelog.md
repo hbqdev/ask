@@ -18,8 +18,90 @@ behind the change. Lab-first work lives on `flow-design`. `git cherry-pick -x` l
 
 ## 2026-09 — September
 
-**Streaming lifecycle, mobile QA, and the end of the latency campaign**
+**Streaming lifecycle, mobile QA, the end of the latency campaign, and a fleet clean-up**
 
+- **09-24** — **Bug-fix batch** (built on the lab, then ported to staging and prod):
+  - **"Stopped" label.** A stopped answer shows a muted "Stopped" pill in its action row, live
+    (`markMessageStopped`, set by the client when the Stop lands) and after a reload (the
+    persisted `metadata.stopped`). The action row wraps on narrow phones.
+    → [streaming](/request-lifecycle/streaming#stop)
+  - **Unresolved citations**, three pipeline causes: fetch results now carry their
+    `toolCallId`; earlier answers' anchors are stripped from the model-bound history
+    (`strip-citation-anchors-from-history.ts`); a strict single-match URL-fragment resolver
+    (`resolveByUrlFragment`) renders anchors that name a page's URL instead of an id. New
+    `citations_recovered` field on `[latency]`. Replay on prod history: unresolved 16.6 % → 14.5 %
+    (last 45 days 7.1 % → 5.2 %) from the resolver alone.
+    → [D36](/history/decisions#d36-strip-historical-citation-anchors-resolve-citations-per-turn-only)
+  - **Memory consolidation scheduled**: `fleet-boot/memory-consolidate-nightly.sh`, .17 cron
+    03:45, each env's secret read from its own `.env` and sent on stdin.
+    → [memory & recall](/knowledge/memory-recall#how-to-schedule-memory-consolidation)
+  - **Auth middleware page gate works**: `/` is matched exactly and public prefixes match whole
+    segments, so signed-out visitors to unknown or new paths go to `/auth/login` (never with
+    `ENABLE_AUTH=false`). Dead `hooks/use-auth-check.tsx` and `components/auth-modal.tsx`
+    deleted. → [auth & accounts](/request-lifecycle/auth-and-accounts#the-page-gate-fixed-2026-09-24)
+  - **Model Manager**: random per-login sessions with a server-side 24 h expiry and revoking
+    logout; `/api/restore` accepts only listed app-made backups and snapshots `.env` first;
+    hand-made `.env.bak.*` files are ignored; a **Clear this secret** action.
+    → [Model Manager](/infrastructure/model-manager#authentication)
+  - **Ingestor** (`ba5fc5c`): 401/403 and 503 on claim are logged once as config errors and
+    re-checked every 300 s instead of crash-looping or retrying silently; a per-job heartbeat
+    (`HEARTBEAT_INTERVAL`, 180 s) stops long jobs being re-claimed as stale; `.env.example` is
+    tracked. → [ingestor](/knowledge/ingestor#main-loop-and-claim-back-off)
+  - **Fleet scripts**: `update-ask.sh` and its timer units are on `flow-design` too;
+    `update-images.sh` gained an `ask-lab` entry, and the weekly run goes lab (canary) → prod →
+    staging. → [fleet scripts](/operations/fleet-scripts#update-ask-sh-fleet-update-ask-service-timer)
+  - **Eval scripts** target the lab on .17 (`ASK_LAB_DIR`, `ASK_LAB_URL`) and refuse to recreate
+    `ask-lab` from another worktree; `judge-flow-arms.py` uses the .17 Ollama; `EVAL_MODEL` is
+    honoured everywhere; `bun chat --no-search` removed. → [evaluation](/operations/evaluation)
+  - **Hygiene**: `granite4.2:8b` in comments; the lab's copies of `docker-compose.yaml` and
+    `docker-compose.admin-feature.yaml` synced to prod and staging (degoog disabled everywhere);
+    `engines.node` is `^20.19.0 || 22.x`.
+- **09-24** — **.231 fully cleaned.** The retired stacks' kept volumes, their images and the old
+  `ask`/`ask-prod`/`ask-flow` checkouts on MiniNightFury were deleted. The 42 commits that
+  existed only in .231's lab checkout were kept as local branches `archive/231-flow-design-pipeline`
+  and `archive/231-wip-context-latency-budget` (not on `origin`).
+  → [D35](/history/decisions#d35-retire-and-remove-the-231-ask-stacks)
+- **09-23** — **Documentation-audit fixes**, shipped to lab, staging and prod the same day (prod
+  `fae9682a`..`50e03340`, lab `06dfbd2b`..`80c44c6a`):
+  - A SearXNG failure no longer empties an advanced search: it counts as an empty SearXNG share,
+    the other providers' results are returned, the degraded result is **not cached**, and
+    `[latency:search]` carries `searxng=ok|failed` (`fae9682a`).
+  - The legacy crawler (`lib/utils/legacy-fetch-html.ts`) runs the SSRF guard on the start URL and
+    on **every redirect hop**, max 5 (`4db7325e`). → [security](/infrastructure/security)
+  - The 200 s answer deadline is **enforced inside each tool's `execute`**, and its clock starts
+    at the start of the turn (`a3100ba6`, `lib/agents/answer-deadline.ts`).
+  - The memory consolidator lists users through `dbAdmin`, so RLS no longer hides them
+    (`995f23f3`). Scheduling it followed on 09-24.
+  - Follow-ups in home-started chats bump the chat and call `touchChat` (`5070af4c`).
+  - Fast-path uploads start as `processing`, so the ingestor cannot ingest them twice;
+    `UPLOAD_TTL_DAYS` has one parser, `lib/config/upload-ttl.ts` (`6a6c68af`).
+  - **Recall latency:** candidates (embed + DB) are prefetched during classification and the
+    rerank runs once on the final query; `RECALL_RERANK_POOL` 20 → 10, new
+    `RECALL_RERANK_MAX_LENGTH` 384. Recall p50 about 1.3 s, inside the 1.5 s budget (`d0585bf8`).
+    → [D34](/history/decisions#d34-recall-rerank-deferred-not-aborted)
+  - Model Manager: `EMBEDDING_MODEL` is read-only; `RECALL_RERANK_MAX_LENGTH` is editable
+    (`32e0b1d0`).
+  - Test suite fully green (`1ff09c73`). → [testing](/operations/testing-qa)
+- **09-23** — **Infra fixes:**
+  - Serenity (.171) Ollama bound to `0.0.0.0` again via the drop-in
+    `/etc/systemd/system/ollama.service.d/host.conf`; `granite4.2:8b` re-pinned. The LAN exposure
+    was accepted by the owner.
+  - Compose: the staging `CRAWL4AI_URL` pin was removed, and the staging and lab classifiers point
+    at `.17` like prod (`20f59696`).
+  - FlareSolverr is published on `192.168.50.231:8191` and `FLARESOLVERR_URL` points there in
+    every env. Prod and staging set `SEARXNG_FALLBACK_API_URL=http://192.168.50.231:8127`; lab
+    has no fallback.
+  - The retired .231 Ask stacks, which a stale boot script had recreated on 09-16, were removed
+    (containers and networks).
+  - fleet-boot: `rotate-mullvad.sh` uses each env's own worktree; `rebuild-ask.sh` exits 1 (and
+    keeps the old image) when the app never serves 200; boot reconciles all three ingestors;
+    `deploy.sh` syncs .231 (`68b97ffe`, `773bd01e`, `bd77dcc5`). .231's rotation and weekly
+    public-search update run from `~/fleet-boot` (`3dec61c9`); `update-images.sh` health-checks
+    the Ask stacks on localhost (`f1ab1b3c`).
+  - The reranker and Whisper are pinned to the 2080 Ti by GPU UUID. The ingestor directory became
+    a git repo, and the worker backs off when Ask is unreachable instead of crash-looping (it had
+    restarted more than 1,100 times during Ask outages).
+  → [known issues](/history/known-issues), [fleet](/infrastructure/fleet)
 - **09-22** — **QA sweep fixes** (two rounds):
   - **A new chat's first answer vanishing about 1 s after it finished** (a critical bug introduced
     on 09-21) is fixed. `app/search/[id]/page.tsx` now reads `loadChatUncached`. A home-started

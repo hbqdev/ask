@@ -36,15 +36,22 @@ alias, jsdom environment, `vitest.setup.ts`, the `server-only` stub) and fails e
 - Tests live next to code in `__tests__/` folders (`lib/**`, `components/**`, `app/**`,
   `hooks/**`). ~1 800 tests in ~220 files; a full run takes about a minute on the app host.
 - `next build` does **not** run the tests, so a failing test never blocks a deploy — run
-  the suite yourself and compare against the known failures below.
+  the suite yourself. Since 2026-09-23 it is fully green, so **any** failure is new.
 - The Model Manager has its own suite: `cd selfhosted/model-manager && bun run test`.
 
 ### Pre-existing failures
 
-A full run on `flow-design` (2026-09-22) gives
-**7 failed files / 26 failed tests** (1785 passed, 1 skipped). All are stale tests or
-environment-dependent, not runtime bugs: prod runs the code these tests describe. Treat
-any failure **outside** this list as new.
+::: tip The suite is green
+Since 2026-09-23 (lab `e36d5a5c`, prod `1ff09c73`, shipped to all three branches) `bun run test`
+passes: 224 files / 1,844 tests, 1 skipped. The stale expectations were updated to current
+behaviour, `chat-panel` mocks the Discover briefing and the canvas, and the SearXNG and
+Brave-budget tests mock Redis so they no longer hang on `localhost:6379`. No runtime code
+changed. The table below is the historical record of what was failing before.
+:::
+
+A full run on `flow-design` (2026-09-22) gave
+**7 failed files / 26 failed tests** (1785 passed, 1 skipped). All were stale tests or
+environment-dependent, not runtime bugs.
 
 | File | Failing tests | Why |
 |---|---|---|
@@ -56,10 +63,9 @@ any failure **outside** this list as new.
 | `lib/agents/__tests__/title-generator.test.ts` | 1 | Expects `local:granite4.1:8b`; the code default was bumped to `granite4.2:8b` on 2026-08-28. |
 | `app/api/voice/__tests__/speak.test.ts` | 1 — "400s on missing/oversized text" | Sends 5 001 characters expecting 400; the route's limit is now `MAX_TEXT = 20000` (`app/api/voice/speak/route.ts:9`). |
 
-This list changes over time (an August 2026 run had a different set, including
-`render-message`). The authoritative, maintained list is in
-[Known issues](/history/known-issues); fixing a stale test is always welcome but should
-be its own commit.
+An August 2026 run had a different set, including `render-message`. See
+[Known issues](/history/known-issues#pre-existing-test-failures). Keep the suite green: fix a
+stale test in its own commit rather than letting failures accumulate again.
 
 ## Browser QA
 
@@ -204,15 +210,22 @@ choice to search or not). For rerank/crop changes, prefer deterministic benchmar
 |---|---|
 | `run-eval.ts` (`bun run eval`) | Runs `(model, searchMode)` configs over `questions.json`, scores objective metrics and a position-bias-controlled pairwise judge; `--judge-only` re-judges saved results. |
 | `mine-questions.ts` (`bun run eval:mine`) | Regenerates `questions.json` from first messages of real prod chats (via `docker exec ask-postgres psql`). |
-| `run-flow-arms.py`, `run-flow-conversations.py` | Drive the lab through flow arms (single turns / multi-turn conversations), reading `latency:log`. |
+| `run-flow-arms.py`, `run-flow-conversations.py`, `smoke-flows.sh` | Drive the lab through flow arms (single turns / multi-turn conversations / one smoke turn per arm), reading `latency:log`. |
 | `judge-flow-arms.py` | Blind, side-swapped pairwise judge (`JUDGE_MODEL`, default `glm-5.2:cloud`). |
-| `classifier-eval.ts`, `gate-rate-live.ts`, `gate-stability.ts` | Classifier accuracy and gate-rate measurements. |
+| `classifier-eval.ts`, `gate-rate-live.ts`, `gate-stability.ts` | Classifier accuracy and gate-rate measurements. `classifier-eval.ts --check` compares the 12 cases in `classifier-cases.ts` with `classifier-baseline.json` (complete, 12 entries). |
 
-::: warning The harness predates the host migration
-Several scripts still hardcode pre-migration locations and must be edited before use:
-`run-flow-arms.py` uses `ROOT = /home/nightfury/selfhosted/ask` (the staging worktree)
-and `LAB = http://192.168.50.231:3742` (the old host). `scripts/eval/README.md` says the
-eval runs against staging "in anonymous-auth mode" — staging now has auth on; only the
-lab is anonymous (`ENABLE_AUTH=false`, `ANONYMOUS_USER_ID=lab-harness`). Point
-`EVAL_API_URL` at `http://localhost:3742/api/chat` for unattended runs.
+::: tip Where the harness points (fixed 2026-09-24)
+The flow runners (`run-flow-arms.py`, `run-flow-conversations.py`, `smoke-flows.sh`) target the lab
+on .17: the `ask-flow` worktree (`ASK_LAB_DIR`) and `http://localhost:3742` (`ASK_LAB_URL`),
+project `ask-stack-lab`. They refuse to recreate `ask-lab` from a different directory, because
+compose would boot the lab on that worktree's `.env`. `find-ddg-exit.sh` uses the same worktree
+and the lab SearXNG on `localhost:3743`; `judge-flow-arms.py` defaults `JUDGE_OLLAMA_URL` to the
+.17 Ollama; all runners honour `EVAL_MODEL`. Before 2026-09-24 they still pointed at the retired
+.231 stacks and the staging worktree.
+
+**Staging is auth-ON; the lab is anonymous** (`ENABLE_AUTH=false`,
+`ANONYMOUS_USER_ID=lab-harness`). `run-eval.ts` still defaults to staging, so point
+`EVAL_API_URL` at `http://localhost:3742/api/chat` (and `EVAL_DB_CONTAINER=ask-postgres-lab`) for
+unattended runs. `bun chat` has no `--no-search` any more (the route has no search-off mode);
+use `--search-mode speed|balanced|quality`. Details: [Evaluation](/operations/evaluation).
 :::
