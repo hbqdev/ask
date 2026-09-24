@@ -11,13 +11,15 @@
 #   bind mounts (files in git / on disk — always survive)
 #     ask/searxng-settings.yml                -> prod ask searxng  /etc/searxng/settings.yml
 #     ask/searxng-settings.admin-feature.yml  -> staging  "        /etc/searxng/settings.yml
-#     ask/searxng-limiter.toml                -> both ask searxng instances
+#     ask-flow/searxng-settings.yml           -> lab      "        /etc/searxng/settings.yml
+#     <worktree>/searxng-limiter.toml         -> every ask searxng instance
 #     searxng/settings.yml                    -> public searxng
 #     degoog/data                             -> degoog plugin + server settings
 #     degoog/valkey-data                      -> degoog cache
 #
 #   named volumes (survive recreate; only `docker compose down -v` removes them)
-#     ask-searxng-data, ask-searxng-data-admin-feature, searxng_searxng-valkey-data
+#     ask-searxng-data, ask-searxng-data-admin-feature, ask-searxng-data-lab,
+#     searxng_searxng-valkey-data
 #     postgres + redis data volumes
 #
 # The only things discarded are ANONYMOUS volumes (/etc/searxng, /var/cache/
@@ -42,6 +44,12 @@ set -uo pipefail
 # model-manager mis-wiring fixed 2026-08-09.
 ASK_PROD=/home/nightfury/selfhosted/ask-prod
 ASK=/home/nightfury/selfhosted/ask
+# LAB runs from its own ask-flow worktree (same rule: never recreate a stack
+# from another stack's worktree — compose reads that worktree's .env). Lab is
+# included so its sidecars (postgres/redis/searxng/gluetun/tts) track prod's
+# instead of silently drifting; experiments there should run on the same
+# sidecar versions they'll be ported onto.
+ASK_LAB=/home/nightfury/selfhosted/ask-flow
 DEGOOG=/home/nightfury/selfhosted/degoog
 PUBLIC_SEARXNG=/home/nightfury/selfhosted/searxng
 
@@ -53,6 +61,7 @@ ONLY="${1:-all}"
 STACKS=(
   "ask-prod|$ASK_PROD|ask-stack|-f docker-compose.yaml -f docker-compose.vpn.yaml"
   "ask-staging|$ASK|ask-stack-admin-feature|-f docker-compose.yaml -f docker-compose.admin-feature.yaml -f docker-compose.vpn.yaml -f docker-compose.vpn.admin-feature.yaml"
+  "ask-lab|$ASK_LAB|ask-stack-lab|-f docker-compose.yaml -f docker-compose.lab.yaml -f docker-compose.vpn.lab.yaml"
   "degoog|$DEGOOG|degoog|-f docker-compose.yaml -f docker-compose.vpn.yaml"
   "public-searxng|$PUBLIC_SEARXNG|searxng|-f docker-compose.yaml -f docker-compose.vpn.yaml"
 )
@@ -62,6 +71,7 @@ STACKS=(
 declare -A HEALTH=(
   [ask-prod]="http://localhost:3738/ http://localhost:3741/"
   [ask-staging]="http://localhost:3739/ http://localhost:3740/"
+  [ask-lab]="http://localhost:3742/ http://localhost:3743/"
   [degoog]="http://192.168.50.231:4444/ https://nogoog.hbqnexus.win/"
   [public-searxng]="http://192.168.50.231:8127/ https://search.hbqnexus.win/"
 )

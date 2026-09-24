@@ -16,7 +16,7 @@ systemd `oneshot` unit, deployed to each WSL2 GPU box, that on boot:
 | ---------- | -------------- | ---------------------------------------------------------- |
 | NightFuryX | 192.168.50.17  | reconcile `reranker-qwen` + `ingestor`, warm `qwen3-vl:4b` |
 | NightFuryS | 192.168.50.160 | reconcile `embedder` (preloads its own model)              |
-| Serenity   | 192.168.50.171 | warm `granite4.1:8b`                                       |
+| Serenity   | 192.168.50.171 | warm `granite4.2:8b`                                       |
 
 ## Files
 
@@ -44,3 +44,16 @@ ssh nightfury@192.168.50.17 journalctl -u ask-fleet-boot.service -n 20 -o cat
 ```
 
 Already deployed and enabled on all three hosts (2026-07-21).
+
+## Weekly sidecar image updates
+
+- `update-images.sh` — pulls newer sidecar images (postgres/redis/searxng/
+  gluetun/kokoro; never the source-built app image) for one stack or all,
+  recreates via the VPN overlays, health-checks and verifies VPN egress, then
+  reclaims space. Stacks: `ask-lab`, `ask-prod`, `ask-staging` (each from its
+  own worktree), `degoog`, `public-searxng`.
+- `update-ask.sh` + `fleet-update-ask.{service,timer}` — on NightFuryX (.17),
+  Sundays 04:30: runs `update-images.sh` for `ask-lab` (canary), `ask-prod`,
+  `ask-staging`. Logs to `/home/nightfury/selfhosted/logs/update-ask.log`.
+- `update-public-search.sh` + `fleet-update-public-search.{service,timer}` —
+  the public stacks on .231.

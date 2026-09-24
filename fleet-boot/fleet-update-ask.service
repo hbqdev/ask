@@ -1,5 +1,5 @@
 [Unit]
-Description=Weekly: update the Ask app stacks (prod + staging) on NightFuryX
+Description=Weekly: update the Ask app stacks (lab + prod + staging) on NightFuryX
 # No docker.service on .17 — Docker Desktop provides the daemon; the timer only
 # fires while the WSL distro (and thus Docker Desktop) is up, so network-online
 # is the only meaningful gate.

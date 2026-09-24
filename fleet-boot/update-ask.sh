@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Weekly image update for the ASK app stacks (prod + staging) on NightFuryX.
+# Weekly image update for the ASK app stacks (lab + prod + staging) on NightFuryX.
 #
 # Sibling of update-public-search.sh, which handles the PUBLIC stacks (degoog +
 # public-searxng) on MiniNightFury (.231). After the 2026-08 migration the ask
@@ -13,6 +13,11 @@
 # gluetun VPN overlay, then health-checks the app + verifies the tunnel egress
 # is the VPN and not the residential IP. So this only ever refreshes
 # postgres/redis/searxng/gluetun/kokoro — never the app build.
+#
+# Lab goes first as a canary: a sidecar image that breaks shows up on the
+# experimentation stack in the log before prod/staging's results. (A failure
+# does not stop the later stacks — each call is independent.) Note the lab
+# recreate drops any FLOW_VARIANT set ad hoc from a shell for an experiment.
 set -uo pipefail
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 LOG=/home/nightfury/selfhosted/logs/update-ask.log
@@ -21,6 +26,7 @@ DRY=""
 [[ "${1:-}" == "--dry-run" ]] && DRY="--dry-run"
 {
   echo "===== $(date '+%F %T %Z') — weekly ask-stack image update ${DRY} ====="
+  "$HERE/update-images.sh" $DRY ask-lab
   "$HERE/update-images.sh" $DRY ask-prod
   "$HERE/update-images.sh" $DRY ask-staging
   echo "===== done $(date '+%F %T %Z') ====="
