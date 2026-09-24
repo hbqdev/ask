@@ -333,6 +333,7 @@ export function AnswerSection({
             citationMaps={citationMaps}
             spokenGist={spokenGist}
             voiceAutoPlay={voiceAutoPlay}
+            stopped={metadata?.stopped === true}
           />
         </div>
       )}
