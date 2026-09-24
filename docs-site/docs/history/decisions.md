@@ -61,6 +61,9 @@ names the lab original. See [deploy](/operations/deploy) for the flow.
 | [D31](#d31-hands-free-voice-conversation-loop) | Hands-free voice conversation loop | **reverted** | 2026-08-22 |
 | [D32](#d32-homepage-and-mobile-layout) | Homepage and mobile layout choices | adopted | 2026-08-20 → 09-22 |
 | [D33](#d33-prod-rate-limiters-left-inert) | Prod rate-limiters left inert | adopted (declined fix) | 2026-08-11 |
+| [D34](#d34-recall-rerank-deferred-not-aborted) | Recall rerank deferred (not aborted); pool 10 × 384 tokens | adopted | 2026-09-23 |
+| [D35](#d35-retire-and-remove-the-231-ask-stacks) | Retire and remove the .231 Ask stacks | adopted | 2026-08-27 → 09-24 |
+| [D36](#d36-strip-historical-citation-anchors-resolve-citations-per-turn-only) | Strip historical citation anchors; resolve citations per turn only | adopted | 2026-09-24 |
 
 ---
 
@@ -246,6 +249,9 @@ names the lab original. See [deploy](/operations/deploy) for the flow.
   `LRANGE latency:log 0 N` gives the most recent turns.
 - **Revisit if** personalisation feels weak on slow turns (raise `RECALL_BUDGET_MS`), or
   classification quality drops because of budget fallbacks.
+- **Update (2026-09-23).** The recall budget turned out to drop recall on most prod turns (true
+  `recall_ms` about 5.5 s). Recall itself was made to fit the budget instead of raising it; see
+  [D34](#d34-recall-rerank-deferred-not-aborted).
 
 ### D9. Search round cap, enforced inside the tool
 
@@ -353,7 +359,7 @@ bounded by the ~4–10% stable prefix.
 - **Status:** **rejected** — already done · **Date:** 2026-09-11
 - **Finding.** `pruneMessages({ reasoning: 'before-last-message', toolCalls:
   'before-last-2-messages', emptyMessages: 'remove' })` in
-  `lib/streaming/create-chat-stream-response.ts:426` already strips earlier turns' crawled pages
+  `lib/streaming/create-chat-stream-response.ts:430` already strips earlier turns' crawled pages
   from the live prompt from the next turn onward. A three-turn searching chat does **not** balloon
   to 120–270k tokens. The only residual slice maps onto the excerpts idea that already lost (D15).
 - **Consequence.** The real lever is the **volatile suffix**: crop size, source count, rerank
@@ -647,7 +653,8 @@ then flip the flag. See [known issues](/history/known-issues#signed-upload-urls-
   for a pending stop-save, which keeps history ordered. Timeout aborts still discard.
 - **Why.** Discarding the partial made a follow-up re-answer the previous question.
 - **Consequences.** A finished stream is **not** replayable. A late returner gets 204 and reloads
-  the persisted conversation. `metadata.stopped` is set but **not rendered** (see
+  the persisted conversation. `metadata.stopped` is rendered as a muted "Stopped" pill in the
+  answer's action row since 2026-09-24, live and after a reload (see
   [known issues](/history/known-issues#stopped-label-not-rendered)).
 
 ### D30. degoog: public instance kept, per-env scrapers disabled
@@ -722,3 +729,124 @@ turn-based loop (`git revert b0ff56ad`) brings back the same latency.
 - **Decision.** The owner chose to keep prod unlimited. Guest chat is off, metered search APIs are
   budget-capped and fail closed, and only the Ollama balance and GPU/crawl are unbounded, which is
   acceptable for a trusted user base. Don't re-raise it without a change in audience.
+
+## Recall and fleet
+
+### D34. Recall rerank deferred, not aborted
+
+- **Status:** adopted · **Date:** 2026-09-23 · **Commit:** `d0585bf8` (lab `f87b6d3d`); Model
+  Manager field `32e0b1d0`
+- **Context.** Prod telemetry showed `recall_budget_hit=true` on 31 of 46 turns (true
+  `recall_ms` about 5.5 s against the 1.5 s `RECALL_BUDGET_MS` of D8); lab was 121 of 172. So
+  past-conversation context almost never reached the answer. Stage timings on real prod history
+  (40 real user queries, read-only) put nearly all of the cost in the cross-encoder: query embed
+  p50 45 ms, both DB arms about 12 ms, rerank of 20 passages × 512 tokens **p50 3.4 s**. The live
+  reranker is Qwen3-Reranker-8B, whose cost is linear in passages × tokens (about 160 ms per
+  512-token passage). A second cause was self-contention: the speculative recall started on the
+  raw message ran the **full** rerank, and on `refetch` turns (the classifier rewrote the query)
+  that discarded rerank was still on the GPU when the real one arrived. Replaying that pattern
+  (second request 1.5 s after the first) took the refetch rerank from 3.3 s alone to 5.0 s.
+- **Decision.**
+  1. **Defer the rerank instead of aborting it.** The speculative phase
+     (`prefetchRecallCandidates`, `lib/memory/recall-inject.ts:74`) now runs only the embed and the
+     two DB arms. The rerank runs **once**, after `chooseRecall`, on the query the turn will
+     actually use; `gated` turns never rerank.
+  2. **Pool 10 passages at 384 tokens.** `RECALL_RERANK_POOL` default 20 → **10** and a new
+     `RECALL_RERANK_MAX_LENGTH` (default **384**, previously a hardcoded 512)
+     (`lib/memory/recall-search.ts:28-42`). Both are env knobs; the length is editable in Model
+     Manager.
+- **Why not abort the speculative rerank.** Cancelling on the client does not free the GPU.
+  Aborting the HTTP call (the mechanism `crossEncoderScore` already uses for its timeout,
+  `lib/utils/cross-encoder.ts:34`) only closes the connection: the reranker's `POST /rerank` is a
+  synchronous FastAPI handler (`/home/nightfury/selfhosted/reranker-qwen/app.py`, `def rerank`)
+  that runs every forward-pass batch to completion without checking for a client disconnect. An
+  aborted request therefore keeps the 2080 Ti busy exactly as long as a finished one, and the next
+  rerank still queues behind it. The only way to avoid the contention is not to send the
+  speculative rerank at all. The embed and DB arms are cheap (under 60 ms), so prefetching just
+  those keeps most of the overlap with the classifier.
+- **Why 10 × 384 and not 20 × 256.** Both roughly halve the tokens scored. On the same 40
+  queries, **10 × 384** (p50 **1.3 s**) injected on the same 14 turns as 20 × 512 (25 vs 26 hits),
+  picked the identical injected set on **35 of 40** and the same top hit on 36 of 40; the
+  differences swap between near-equally relevant chunks of the same thread. **20 × 256** matched
+  the injected set on only **31 of 40**: truncating each passage hurt more than scoring fewer
+  passages. A pool of 8 (about 1.0 s) kept the same top hit on 37 of 40 but with 23 vs 26 hits.
+- **Evidence after.** Lab, browser, 5 non-gated turns: `recall_ms` 439–1489 ms (p50 about
+  1.3 s), 0 budget hits, and a `data-recall` chip on a turn that asked about an earlier chat. No
+  vector index was needed: an exact scan plus top-N sort takes about 12 ms at this size and avoids
+  HNSW's filtered-search recall loss.
+- **Consequences.** The margin under 1.5 s is thin; a concurrent web-search rerank on the same GPU
+  can push single turns over. Details: [memory & recall → recall latency](/knowledge/memory-recall#recall-latency).
+- **Revisit if** `recall_budget_hit` creeps back (try `RECALL_RERANK_POOL=8` before touching the
+  budget), or the reranker model changes (re-measure the per-passage cost). Don't reintroduce a
+  speculative rerank unless the reranker service learns to cancel work on disconnect.
+
+### D35. Retire and remove the .231 Ask stacks
+
+- **Status:** adopted · **Date:** 2026-08-27 (retired) → 2026-09-23 (containers removed) →
+  2026-09-24 (volumes, images and checkouts deleted)
+- **Context.** The app stacks moved from MiniNightFury (.231) to NightFuryX (.17) on 2026-08-23.
+  The .231 copies were retired on 2026-08-27/28 and their DB and upload volumes archived to
+  `.17:/home/nightfury/backups/ask-231-retire-2026-08-28/`, but containers, volumes and checkouts
+  were left in place as a rollback net. At .231's 2026-09-16 boot an outdated
+  `~/ask-fleet-boot.sh` recreated all three stacks, because `fleet-boot/deploy.sh` never synced
+  .231. They ran unnoticed until 2026-09-22 with stale code and a stale copy of user data, plus
+  legacy cron jobs (upload expiry, Mullvad rotation) aimed at them.
+- **Decision.** Remove every Ask app artefact from .231 and bring .231 under the same
+  deployment path as the other hosts:
+  - 2026-09-23: all 16 containers and the three `_default` networks removed; `deploy.sh` syncs
+    .231; its boot case reconciles only `crawl4ai` and `flaresolverr`; the crontab keeps only
+    host maintenance, the crawl4ai watchdog and `~/fleet-boot/rotate-daily.sh public-searxng
+    degoog`; the weekly `fleet-update-public-search.timer` runs from `~/fleet-boot`.
+  - 2026-09-24 (UTC; the evening of 09-23 local time): the kept volumes, the stacks' images and
+    the old `ask`, `ask-prod` and `ask-flow` checkouts were deleted. The 42 commits that existed only in .231's lab checkout were saved
+    first as local branches on .17 (`archive/231-flow-design-pipeline`,
+    `archive/231-wip-context-latency-budget`).
+- **What stays on .231, and why.** `crawl4ai` (single-thread speed, see
+  [fleet](/infrastructure/fleet#why-each-job-lives-where-it-does)), FlareSolverr (now published
+  on the LAN for every env), the public SearXNG `:8127` (the prod/staging SearXNG fallback) and
+  public degoog `:4444` (human users, see [D30](#d30-degoog-public-instance-kept-per-env-scrapers-disabled)),
+  and the host `cloudflared` for the owner's other sites.
+- **Why remove rather than keep a rollback net.** The "net" had already come back to life once
+  and served nothing but confusion (same container names and ports as the real stacks). Rollback
+  lives in git on .17 and in the August volume archive, not in a second running copy.
+- **Revisit if** Ask ever needs a second app host. Build it through `deploy.sh` and
+  `ask-fleet-boot.sh` from the start, never from a hand-kept copy.
+
+## Citations
+
+### D36. Strip historical citation anchors; resolve citations per turn only
+
+- **Status:** adopted · **Date:** 2026-09-24 *(lab; staging and prod by port)*
+- **Context.** About one prod turn in five had citation anchors that named no tool call of that
+  turn (`citations_unresolved`). The renderer scopes citation maps **per message**, so such
+  anchors render as nothing. A replay of prod history classified the unresolved anchors. The
+  largest class (146 of 655 over all history; 70 of 158 in the 11 flagged recent turns) was
+  anchors copied from **earlier answers**. The model-bound history still carried every earlier
+  answer's `[N](#<old toolCallId>)` text, while `pruneMessages` (`toolCalls:
+  'before-last-2-messages'`, `lib/streaming/create-chat-stream-response.ts:435-438`) had already
+  removed those turns' tool calls and results. Follow-up turns that ran no search had every
+  anchor unresolved.
+- **Decision.**
+  1. Remove citation anchors from **prior** assistant turns in the history sent to the model
+     (`stripCitationAnchorsFromHistory`,
+     `lib/streaming/helpers/strip-citation-anchors-from-history.ts`, applied in both the chat and
+     the ephemeral stream paths). The trailing assistant message is left alone, since it is the
+     turn being continued. Stored and displayed answers keep their anchors.
+  2. Keep citation resolution **per turn**. An anchor that names an earlier turn's tool call is
+     not looked up in that turn's results. It is dropped, unless the URL-fragment rule
+     (`resolveByUrlFragment`) matches exactly one of the current message's own sources.
+- **Why not resolve across turns.** A conversation-wide citation map was the original design and
+  was removed on purpose: it let an anchor carried over from an earlier turn resolve cleanly to
+  the **wrong** source (measured: 120 of 2,975 anchors in prod history, see
+  [frontend › Citations](/request-lifecycle/frontend#citations)). A missing citation is visible
+  and harmless; a confidently wrong one is not. Removing the dead ids from the model's context
+  fixes the cause instead of widening the lookup.
+- **Why stripping is safe.** The anchors carry no information the model can use: their tool
+  results are already pruned, so they point at nothing. The prose of earlier answers is kept.
+- **Evidence.** Resolver replay on prod history: unresolved 16.6 % → 14.5 % (all history),
+  7.1 % → 5.2 % (last 45 days). The history strip and the fetch `toolCallId` fix are preventive
+  and can only be measured on live turns; watch `citations_unresolved`. See
+  [known issues › Unresolved citations](/history/known-issues#unresolved-citations).
+- **Revisit if** live turns still show copied old ids after the port (the strip regex
+  `[N](#id)` would then be missing a format), or if per-turn scoping is ever replaced by a
+  citation store that is stable across turns.

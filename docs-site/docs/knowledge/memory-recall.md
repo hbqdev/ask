@@ -108,10 +108,11 @@ zero rows under `app_user`. Each user's dedup and eviction still go through `wit
 This was a silent no-op (`users: 0`) until the 2026-09-23 fix; see
 [known issues](/history/known-issues#memory-consolidation-never-runs).
 
-::: warning Not scheduled
-No crontab or systemd timer on any host calls this route. It runs only when someone POSTs to it.
-See [how to schedule it](#how-to-schedule-memory-consolidation) below. The per-turn writer already
-dedupes by cosine ≥ 0.9 and caps each user, so a missing schedule costs little.
+::: info Scheduled nightly (since 2026-09-24)
+`fleet-boot/memory-consolidate-nightly.sh` calls this route from the .17 crontab at 03:45. There
+is no in-app scheduler; before this job existed the route ran only when someone POSTed to it. See
+[how it is scheduled](#how-to-schedule-memory-consolidation) below. The per-turn writer already
+dedupes by cosine ≥ 0.9 and caps each user, so the sweep is a safety net, not a hot path.
 :::
 
 ## Conversation recall
@@ -317,9 +318,39 @@ re-measure these gates after swapping `RERANKER_MODEL`.
 
 The route is `POST /api/memory/consolidate`, authenticated by the secret **`MEMORY_CRON_SECRET`**
 (same one as `/api/memory/recall-backfill`). It returns `{ "users": N, "merged": M }`; a `users`
-count of 0 on an env that has memories means something is wrong. Run it from the host that
-serves the env (NightFuryX, .17), reading the secret from the running container so it never
-appears on screen or in the crontab:
+count of 0 on an env that has memories means something is wrong.
+
+**The scheduled job** is `fleet-boot/memory-consolidate-nightly.sh <prod|staging|lab>...`,
+run from the .17 crontab at **03:45**, before the 04:15 upload sweep and the 04:30 prune. For
+each env named on the command line it:
+
+1. reads that env's `MEMORY_CRON_SECRET` from its **own** `.env` (`ask-prod`, `ask`, `ask-flow`;
+   `fleet-boot/memory-consolidate-nightly.sh:54`) and skips the env with a log line if the
+   variable is missing;
+2. sends `Authorization: Bearer …` to `http://localhost:<port>/api/memory/consolidate`
+   (`:3738`, `:3739`, `:3742`) with the header read from **stdin** (`curl -H @-`, `:60-62`), so the
+   value never appears in `argv`, `ps`, the crontab or the log;
+3. appends one line per env with the HTTP code and the response body to
+   `~/.local/state/fleet-boot/memory-consolidate.log`, trimmed to the last 2,000 lines.
+
+The final crontab line, once the script is on `dev` (cron runs the `ask-prod` copy, like every
+other scheduled fleet script):
+
+```text
+45 3 * * * /home/nightfury/selfhosted/ask-prod/fleet-boot/memory-consolidate-nightly.sh prod staging lab
+```
+
+Until the port the entry runs the lab worktree's copy for the lab only
+(`…/ask-flow/fleet-boot/memory-consolidate-nightly.sh lab`). Adding an env is just another argument.
+
+**Reading the log.** `-> 200 {"users":N,"merged":M}` is success. **503** means
+`MEMORY_CRON_SECRET` is unset in that env, so the route is disabled (`requireCronSecret` fails
+closed, `lib/auth/cron-auth.ts:28-36`). **401** means the value in that env's `.env` does not
+match the one the running container has, for example after `.env` was edited without recreating
+`ask`. `000` means the app was not reachable.
+
+**One-off run by hand** (reads the secret from the running container, so it never appears on
+screen):
 
 ```bash
 # prod (:3738). For staging use container ask-admin-feature / port 3739, lab ask-lab / 3742.
@@ -327,13 +358,4 @@ curl -sS -X POST http://localhost:3738/api/memory/consolidate \
   -H "Authorization: Bearer $(docker exec ask printenv MEMORY_CRON_SECRET)"
 ```
 
-A weekly crontab line (Sunday 04:30, after the Ollama auto-update window) would be:
-
-```text
-30 4 * * 0  curl -sS -X POST http://localhost:3738/api/memory/consolidate -H "Authorization: Bearer $(docker exec ask printenv MEMORY_CRON_SECRET)" >> $HOME/ask-memory-consolidate.log 2>&1
-```
-
-Schedule an env only once it runs the `dbAdmin` fix above; before that the sweep returns
-`users: 0` and does nothing. Check the container names with `docker ps` first. A 503 means `MEMORY_CRON_SECRET` is unset in
-that env; a 401 means the value you sent does not match. Not installed yet: adding the cron entry is
-an operator decision.
+Or run the script itself: `fleet-boot/memory-consolidate-nightly.sh prod`, then read the log.

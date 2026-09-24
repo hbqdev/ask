@@ -5,7 +5,7 @@ title: Known issues
 # Known issues and gotchas
 
 Open problems, pending operator actions and traps a maintainer needs to know about, as of
-**2026-09-22**. Each entry gives the **symptom**, its **impact**, a **workaround** and a **fix
+**2026-09-24**. Each entry gives the **symptom**, its **impact**, a **workaround** and a **fix
 sketch**. Resolved history lives in the [changelog](/history/changelog). Rationale for deliberate
 trade-offs lives in [decisions](/history/decisions).
 
@@ -19,20 +19,20 @@ thing.
 
 | Issue | Area | Severity | Owner action |
 |---|---|---|---|
-| [Pre-existing test failures](#pre-existing-test-failures) | tests | ~~Low~~ fixed on lab 2026-09-23 | port |
+| [Pre-existing test failures](#pre-existing-test-failures) | tests | ~~Low~~ fixed 2026-09-23 (all branches) | done |
 | [Shared secrets across environments](#shared-secrets-across-environments) | security | Med | ops |
 | [Secrets to rotate](#secrets-to-rotate) | security | Med | ops |
 | [Unauthenticated LAN services](#unauthenticated-lan-services) | security | Med | ops |
 | [Ingest and advanced-search share one token](#ingest-and-advanced-search-share-one-token) | security | Med | code + ops |
 | [Signed upload URLs not enabled](#signed-upload-urls-not-enabled) | security | Low–Med | ops |
 | [Redirect-based SSRF](#redirect-based-ssrf) | security | Low | accepted |
-| [Other open audit items](#other-open-audit-items) | security | Low | decision |
-| [Stopped label not rendered](#stopped-label-not-rendered) | UI | Low | code |
+| [Other open audit items](#other-open-audit-items) | security | Low | decision (H2 decided 2026-09-23) |
+| [Stopped label not rendered](#stopped-label-not-rendered) | UI | ~~Low~~ fixed 2026-09-24 | done |
 | [Chain-of-thought flash in the live stream](#chain-of-thought-flash-in-the-live-stream) | UI | Low | accepted |
 | [Old answers with leaked reasoning stay leaked](#old-answers-with-leaked-reasoning-stay-leaked) | data | Low | manual |
-| [Serenity (.171) Ollama intermittently unreachable](#serenity-171-ollama-intermittently-unreachable) | fleet | Low–Med | ops |
-| [Stale mxbai embedding hints in code](#stale-mxbai-embedding-hints-in-code) | code | ~~Med~~ fixed 2026-09-22 (Model Manager dropdown fixed on lab 2026-09-23, needs a rebuild) | code |
-| [Other stale comments and docs](#other-stale-comments-and-docs) | code | Low | code |
+| [Serenity (.171) Ollama intermittently unreachable](#serenity-171-ollama-intermittently-unreachable) | fleet | Low (cause fixed 2026-09-23) | watch |
+| [Stale mxbai embedding hints in code](#stale-mxbai-embedding-hints-in-code) | code | ~~Med~~ fixed 2026-09-22 (Model Manager field read-only since 2026-09-23) | done |
+| [Other stale comments and docs](#other-stale-comments-and-docs) | code | Low (granite/compose/engines items fixed 2026-09-24) | code |
 | [Crop experiment data unread](#crop-experiment-data-unread) | search | Low | analysis |
 | [Delisted model picks keep being used](#delisted-model-picks-keep-being-used) | models | Low | by design |
 | [Overlay-pinned env vars beat `.env`](#overlay-pinned-env-vars-beat-env) | config | Med (trap) | awareness |
@@ -40,26 +40,28 @@ thing.
 | [crawl4ai memory guard is blind](#crawl4ai-memory-guard-is-blind) | fleet | Med | watchdog |
 | [Ingest wait and ingestor single point of failure](#ingest-wait-and-ingestor-single-point-of-failure) | uploads | Med | awareness |
 | [Mobile keyboard / composer on real devices](#mobile-keyboard-composer-on-real-devices) | UI | Low | verify |
-| [Lab archive tag missing](#lab-archive-tag-missing) | git | Low | info |
-| [Serenity Ollama bound to loopback](#serenity-ollama-bound-to-loopback) | fleet | **High (live)** | ops |
-| [Retired .231 Ask stacks running again](#retired-231-ask-stacks-running-again) | fleet | ~~Med~~ fixed 2026-09-23 | done (volumes kept) |
+| [Lab archive tag missing](#lab-archive-tag-missing) | git | ~~Low~~ tag present locally; .231 archive branches added 2026-09-23 | info |
+| [Serenity Ollama bound to loopback](#serenity-ollama-bound-to-loopback) | fleet | ~~High~~ fixed 2026-09-23 | done (LAN exposure accepted) |
+| [Retired .231 Ask stacks running again](#retired-231-ask-stacks-running-again) | fleet | ~~Med~~ fixed 2026-09-23; fully removed 2026-09-24 | done |
 | [Unresolvable service hostnames](#unresolvable-service-hostnames) | config | ~~Med~~ fixed 2026-09-23 (all envs) | done |
-| [SearXNG failure empties a quality search](#searxng-failure-empties-a-quality-search) | search | ~~Med~~ fixed on lab 2026-09-23 | port |
-| [Legacy crawler has no SSRF guard](#legacy-crawler-has-no-ssrf-guard) | security | ~~Low~~ fixed on lab 2026-09-23 | port |
-| [Answer deadline does not block tools](#answer-deadline-does-not-block-tools) | chat | ~~Low~~ fixed on lab 2026-09-23 | port |
-| [Recall is dropped on most turns](#recall-is-dropped-on-most-turns) | memory | ~~Med~~ fixed on lab 2026-09-23 | port |
-| [Unresolved citations](#unresolved-citations) | chat | Low–Med | analysis |
-| [Memory consolidation never runs](#memory-consolidation-never-runs) | memory | Med (code fixed on lab 2026-09-23; schedule pending) | port + ops |
-| [Home-started chats keep a stale last-viewed time](#home-started-chats-keep-a-stale-last-viewed-time) | sidebar | ~~Low~~ fixed on lab 2026-09-23 | port |
-| [Possible duplicate ingestion](#possible-duplicate-ingestion) | uploads | ~~Low~~ fixed on lab 2026-09-23 | port |
-| [Fleet automation drift](#fleet-automation-drift) | fleet | Low (mostly fixed 2026-09-23; host Node version open) | ops |
+| [SearXNG failure empties a quality search](#searxng-failure-empties-a-quality-search) | search | ~~Med~~ fixed 2026-09-23 (lab, staging, prod) | done |
+| [Legacy crawler has no SSRF guard](#legacy-crawler-has-no-ssrf-guard) | security | ~~Low~~ fixed 2026-09-23 (lab, staging, prod) | done |
+| [Answer deadline does not block tools](#answer-deadline-does-not-block-tools) | chat | ~~Low~~ fixed 2026-09-23 (lab, staging, prod) | done |
+| [Recall is dropped on most turns](#recall-is-dropped-on-most-turns) | memory | ~~Med~~ fixed 2026-09-23 (lab, staging, prod) | done |
+| [Unresolved citations](#unresolved-citations) | chat | ~~Low–Med~~ fixed 2026-09-24 (three pipeline causes) | watch `citations_unresolved` |
+| [Memory consolidation never runs](#memory-consolidation-never-runs) | memory | ~~Med~~ fixed (code 2026-09-23, nightly cron 2026-09-24) | done |
+| [Home-started chats keep a stale last-viewed time](#home-started-chats-keep-a-stale-last-viewed-time) | sidebar | ~~Low~~ fixed 2026-09-23 (lab, staging, prod) | done |
+| [Possible duplicate ingestion](#possible-duplicate-ingestion) | uploads | ~~Low~~ fixed 2026-09-23 (lab, staging, prod) | done |
+| [Fleet automation drift](#fleet-automation-drift) | fleet | ~~Low~~ fixed 2026-09-23; host Node item resolved 2026-09-24 | done |
 
 ---
 
 ## Found while writing this documentation (2026-09-22)
 
-These were discovered by checking every page's claims against the live system and code. They are
-not yet fixed unless stated.
+These were discovered by checking every page's claims against the live system and code. Most were
+fixed on 2026-09-23 and shipped to lab, staging and prod the same day; each entry's **Status**
+line says so. Prod (`dev`) commits are `fae9682a`..`50e03340` for the app fixes; the lab originals
+are `06dfbd2b`..`80c44c6a` on `flow-design`.
 
 ### Serenity Ollama bound to loopback
 
@@ -73,6 +75,13 @@ not yet fixed unless stated.
   re-pin granite. **Trade-off:** this re-exposes an unauthenticated Ollama on the LAN — see
   [unauthenticated LAN services](#unauthenticated-lan-services); prefer a LAN firewall rule allowing only .17.
   Also re-enable `ask-fleet-boot` on .171 (it is disabled there).
+- **Status: fixed 2026-09-23.** A new drop-in `/etc/systemd/system/ollama.service.d/host.conf` on
+  .171 sets `Environment=OLLAMA_HOST=0.0.0.0:11434` (the existing `parallel.conf` is unchanged),
+  and `granite4.2:8b` was re-pinned. `ss -ltn` on .171 shows `*:11434`. The owner **accepted the
+  LAN exposure** (no firewall rule was added); it stays listed under
+  [unauthenticated LAN services](#unauthenticated-lan-services). `ask-fleet-boot` is enabled on
+  .171 again, and its synced `~/ask-fleet-boot.sh` warms `granite4.2:8b`. A drop-in survives the
+  weekly `update-ollama.sh` reinstall, which rewrites only the main unit file.
 
 ### Retired .231 Ask stacks running again
 
@@ -91,6 +100,15 @@ not yet fixed unless stated.
   matches the repo (it reconciles only `crawl4ai` and `flaresolverr`), `fleet-boot/deploy.sh`
   includes .231, and the .231 crontab no longer runs `ask-expire-uploads.sh`. Its rotation cron
   now runs `~/fleet-boot/rotate-daily.sh public-searxng degoog`.
+- **Fully removed 2026-09-24.** The kept volumes, the three stacks' images and the old
+  `ask`, `ask-prod` and `ask-flow` checkouts under `~/selfhosted` on .231 were deleted, so no
+  Ask app code or data remains there (`docker volume ls`, `docker network ls` and
+  `docker images` on .231 list nothing `ask`-named). A copy of their DB and upload volumes was
+  already archived on .17 at `/home/nightfury/backups/ask-231-retire-2026-08-28/` when they were
+  first retired. The 42 commits that existed only in .231's lab checkout were saved as local
+  branches on .17 (see [lab archive tag](#lab-archive-tag-missing)). .231's weekly
+  `fleet-update-public-search.timer` now runs `~/fleet-boot/update-public-search.sh` (and the
+  crawl4ai version check) from the `~/fleet-boot` copy that `fleet-boot/deploy.sh` syncs.
 
 ### Unresolvable service hostnames
 
@@ -116,7 +134,7 @@ On NightFuryX (.17) these container names do not resolve, so each silently degra
 - When SearXNG and its fallback both reject, `advancedSearchXNGSearch` catches the error and returns
   **empty results — discarding the Tavily/Brave/LangSearch/Ollama results already gathered**.
 - **Fix sketch.** Treat SearXNG as one provider among several: on failure, continue with the others.
-- **Status: fixed on lab 2026-09-23 (uncommitted, not yet ported).** A SearXNG rejection or malformed
+- **Status: fixed and shipped 2026-09-23** (lab `06dfbd2b`, prod `fae9682a`). A SearXNG rejection or malformed
   body now becomes an empty SearXNG share (`resolveSearxngContribution`,
   `app/api/advanced-search/searxng-contribution.ts`), logged as `[searxng] advanced search failed,
   continuing with the other providers`; `[latency:search]` carries `searxng=failed`. The degraded
@@ -130,7 +148,7 @@ On NightFuryX (.17) these container names do not resolve, so each silently degra
   route is token-gated and its URLs come from search engines, not users) but inconsistent with
   the `fetch` tool's guard.
 - **Fix sketch.** Route it through the same SSRF guard (and re-check each redirect hop).
-- **Status: fixed on lab 2026-09-23 (uncommitted, not yet ported).** `fetchHtml` moved to
+- **Status: fixed and shipped 2026-09-23** (lab `f5321457`, prod `4db7325e`). `fetchHtml` moved to
   `lib/utils/legacy-fetch-html.ts`; it runs `assertUrlAllowed` on the start URL and on every
   redirect target before following it, and caps chains at 5. Residual: DNS-rebinding TOCTOU (as for
   the `fetch` tool). Tests: `lib/utils/__tests__/legacy-fetch-html.test.ts`.
@@ -143,33 +161,73 @@ On NightFuryX (.17) these container names do not resolve, so each silently degra
   [decisions](/history/decisions)). A late `fetch` can still run; its note to the model
   ("another tool call is impossible") is inaccurate.
 - **Fix sketch.** Enforce in the tool `execute` (as the search round cap does) or withhold tools.
-- **Status: fixed on lab 2026-09-23 (uncommitted, not yet ported).** `enforceAnswerDeadline`
+- **Status: fixed and shipped 2026-09-23** (lab `72fa6512`, prod `a3100ba6`). `enforceAnswerDeadline`
   (`lib/agents/answer-deadline.ts`) wraps every researcher tool's `execute`; past the deadline a call
   returns a non-error "answer now" result shaped like the tool's normal output and logs
   `[deadline] refused <tool> call`. The note now says further calls are refused. Tests drive the real
   SDK with a mock model calling `fetch` under `activeTools: []`
-  (`lib/agents/__tests__/answer-deadline.test.ts`).
+  (`lib/agents/__tests__/answer-deadline.test.ts`). The deadline clock now starts when the
+  researcher is built for the turn (`turnStartedAt`, `lib/agents/researcher.ts:781`), not at the
+  first step.
 
 
 ### Recall is dropped on most turns
 
 - Prod telemetry (46 recent turns): `recall_budget_hit=true` on 31; true `recall_ms` ≈ 5.5 s vs the
   1.5 s `RECALL_BUDGET_MS` cap. Past-conversation context rarely reaches the answer.
-- **Status: fixed on lab 2026-09-23 (uncommitted, not yet ported).** Two causes: the 8B reranker's
+- **Status: fixed and shipped 2026-09-23** (lab `f87b6d3d`, prod `d0585bf8`). Two causes: the 8B reranker's
   cost for 20 × 512-token passages (about 3.4 s alone), and the discarded speculative rerank
   holding the GPU ahead of the refetch rerank (3.3 s → 5.0 s). Speculation now prefetches only the
   embed and DB arms, and rerank runs once after `chooseRecall`. The default is 10 passages × 384
   tokens (about 1.3 s, near-identical injected hits on 40 real queries). Lab after: recall p50
   about 1.3 s, 0 of 5 budget hits. See
   [memory & recall → recall latency](/knowledge/memory-recall#recall-latency).
-- **Port:** code only (no migration, no env change needed). Afterwards, confirm
-  `recall_budget_hit` on prod `[latency]` lines.
+  No index or migration was needed. The new knob `RECALL_RERANK_MAX_LENGTH` (default 384) is
+  editable in Model Manager. Decision record:
+  [D34](/history/decisions#d34-recall-rerank-deferred-not-aborted).
+- **Follow-up:** watch `recall_budget_hit` on prod `[latency]` lines; the margin is thin (see the
+  warning in [recall latency](/knowledge/memory-recall#recall-latency)).
 
 ### Unresolved citations
 
 - 10 of 46 recent prod turns had `citations_unresolved > 0` (anchors the model invented), across
   several models. The UI drops them (per-message citation maps), so nothing wrong is shown — but
   the claim they supported is uncited. Worth tracking per model.
+- **Cause (found 2026-09-24).** Most unresolved anchors were not random inventions but three
+  pipeline defects that gave the model no valid id to copy:
+  1. **Fetch results carried no `toolCallId`.** Search results echo their id; fetch results did
+     not, and the Ollama wire format carries no tool-call id on a tool result. A fetched page was
+     structurally uncitable: 0 of 3,950 anchors in prod history named a fetch call, and messages
+     with a fetch had about twice the unresolved rate (19.8 % vs 10.9 %).
+  2. **History carried dead anchors.** Earlier answers kept their `[N](#<old id>)` anchors in the
+     model-bound history, while `pruneMessages` had removed those turns' tool calls. Models copied
+     the old ids. This was the largest class: 146 of 655 unresolved anchors across all history,
+     and every anchor in follow-up turns that ran no search.
+  3. **URL-shaped ids.** Without a visible id, models often wrote a piece of the page's own URL
+     as the "id" (`[1](#example.com/some-page)`, a YouTube video id): 83 of 655.
+- **Status: fixed 2026-09-24.**
+  1. `lib/tools/fetch.ts:667,715` echoes the call's `toolCallId` in a successful fetch result
+     (a failed fetch has nothing to cite and gets none).
+  2. `stripCitationAnchorsFromHistory` (`lib/streaming/helpers/strip-citation-anchors-from-history.ts`)
+     removes anchors from **prior** assistant turns before they reach the model. It runs in
+     `create-chat-stream-response.ts:360` and `create-ephemeral-chat-stream-response.ts:122`. The
+     stored and displayed text keeps its anchors.
+  3. `resolveByUrlFragment` (`lib/utils/citation.ts:66`) resolves an anchor whose id is a
+     fragment of **exactly one** of this message's source URLs. UUID-shaped ids, fragments shorter
+     than 6 characters and fragments matching several URLs stay unresolved. Such anchors are
+     counted as `citations_recovered` on the `[latency]` line, not as unresolved.
+- **Measured** (replaying prod history through the new resolver): unresolved anchors fell from
+  16.6 % to 14.5 % over all history, and from 7.1 % to 5.2 % over the last 45 days. That is the
+  resolver alone. Fixes 1 and 2 are preventive and show up only on live turns. Ids that are
+  genuinely invented are still dropped, by design. Other citation formats (bare `[3]`,
+  `[source](url)`) never occur in prod history, so no parser was added for them. Anchors are
+  **not** resolved across turns; see
+  [D36](/history/decisions#d36-strip-historical-citation-anchors-resolve-citations-per-turn-only).
+- **Watch.** `citations_unresolved` (and `citations_recovered`) on prod `[latency]` lines after the
+  port. A rate that stays near the old level on live turns means a cause is still missing.
+  Tests: `lib/utils/__tests__/citation.test.ts`,
+  `lib/streaming/helpers/__tests__/strip-citation-anchors-from-history.test.ts`,
+  `lib/tools/__tests__/fetch-tool-call-id.test.ts`.
 
 ### Memory consolidation never runs
 
@@ -177,10 +235,15 @@ On NightFuryX (.17) these container names do not resolve, so each silently degra
   (`lib/agents/memory-consolidator.ts:39`) lists users with the RLS-restricted `db`, which returns 0
   rows under `app_user` (`recall-backfill` correctly uses `dbAdmin`). Unverified at runtime.
 - **Fix sketch.** Use `dbAdmin` for the user listing; schedule the route (cron with the secret).
-- **Status: code fixed on lab 2026-09-23 (uncommitted, not yet ported); scheduling still open.**
-  The user listing now uses `dbAdmin`; per-user work stays RLS-scoped. The exact cron command is in
-  [memory & recall → how to schedule](/knowledge/memory-recall#how-to-schedule-memory-consolidation).
-  Tests: `lib/agents/__tests__/memory-consolidator.test.ts`.
+- **Status: code fix shipped 2026-09-23 (lab `f80ff6d7`, prod `995f23f3`); scheduled 2026-09-24.**
+  The user listing now uses `dbAdmin`; per-user work stays RLS-scoped.
+  Tests: `lib/agents/__tests__/memory-consolidator.test.ts`. A nightly job,
+  `fleet-boot/memory-consolidate-nightly.sh`, runs from the .17 crontab at 03:45. It reads each
+  env's `MEMORY_CRON_SECRET` from that env's own `.env` and passes it to `curl` on stdin, so the
+  value never appears in argv or logs. Once the script is on `dev` the crontab line is
+  `45 3 * * * /home/nightfury/selfhosted/ask-prod/fleet-boot/memory-consolidate-nightly.sh prod staging lab`.
+  Details: [memory & recall → how to schedule](/knowledge/memory-recall#how-to-schedule-memory-consolidation)
+  and [fleet scripts](/operations/fleet-scripts#memory-consolidate-nightly-sh).
 
 
 ### Home-started chats keep a stale last-viewed time
@@ -189,7 +252,7 @@ On NightFuryX (.17) these container names do not resolve, so each silently degra
   call `touchChat`. The sidebar reorders live, but after a reload the chat can sort lower than it
   should. See [client state](/request-lifecycle/client-state).
 - **Fix sketch.** Call `touchChat` for home-started chats too (after the row exists).
-- **Status: fixed on lab 2026-09-23 (uncommitted, not yet ported).** `safeSendMessage` bumps and
+- **Status: fixed and shipped 2026-09-23** (lab `b51a4a0d`, prod `5070af4c`). `safeSendMessage` bumps and
   `touchChat`s a home-started chat's follow-ups (it has messages before the send), still with no
   refresh event. See [client state](/request-lifecycle/client-state#known-gaps).
 
@@ -199,7 +262,7 @@ On NightFuryX (.17) these container names do not resolve, so each silently degra
 - The ingestor claims any `pending` file, so it can re-process a file the in-app fast path is still
   indexing and overwrite its chunks. Not observed in production. Fix: mark fast-path files
   `processing` before indexing.
-- **Status: fixed on lab 2026-09-23 (uncommitted, not yet ported).** Fast-path rows are created
+- **Status: fixed and shipped 2026-09-23** (lab `72edc7d8`, prod `6a6c68af`). Fast-path rows are created
   `processing` with `ingest_stage='fast-path'` and a fresh `claimed_at`, which the claim query skips
   until stale (30 min). Success → `ready`; declined or failed → `releaseFastPathToWorker` puts it
   back to `pending` for the worker. See [RAG uploads](/knowledge/rag-uploads#fast-path-in-app).
@@ -207,27 +270,39 @@ On NightFuryX (.17) these container names do not resolve, so each silently degra
 
 ### Fleet automation drift
 
-- `ask-fleet-boot` disabled on .171; `rotate-mullvad.sh` runs prod `pin`/`city` from the staging
-  worktree; `rebuild-ask.sh` exits 0 even when the app never returns 200 (read its `final` line);
-  reranker and Whisper rely on "device 0 is the 2080 Ti" (no `CUDA_VISIBLE_DEVICES`); the ingestor
-  directory is not in git and boot recovery reconciles only the prod ingestor; host Node is 20
-  while `engines` requires 22; ~~`UPLOAD_TTL_DAYS` has two different code defaults (0 and 14)~~
-  (fixed on lab 2026-09-23: one parser, `lib/config/upload-ttl.ts`, default 0 = disabled); ~~the
-  Model Manager offers an `EMBEDDING_MODEL` dropdown that would corrupt recall if changed~~ (fixed
-  in the flow-design copy 2026-09-23: read-only, apply rejects edits; the running Model Manager
-  needs a rebuild after porting).
-- **Status (2026-09-23).** Fixed: `ask-fleet-boot` is enabled on .171; `rotate-mullvad.sh`
-  `pin`/`city` run from each env's own worktree; `rebuild-ask.sh` exits 1 and skips the reclaim
-  when the app never returns 200; the reranker and Whisper are pinned to the 2080 Ti by UUID with
-  `CUDA_VISIBLE_DEVICES`; `/home/nightfury/selfhosted/ingestor` is a git repo (env files not
-  tracked); and boot recovery reconciles all three ingestors. Still open: host Node 20 while
-  `engines` requires 22.
+- **Found 2026-09-22.** `ask-fleet-boot` disabled on .171; `rotate-mullvad.sh` ran prod
+  `pin`/`city` from the staging worktree; `rebuild-ask.sh` exited 0 even when the app never
+  returned 200; the reranker and Whisper relied on "device 0 is the 2080 Ti" (no
+  `CUDA_VISIBLE_DEVICES`); the ingestor directory was not in git and boot recovery reconciled only
+  the prod ingestor; `UPLOAD_TTL_DAYS` had two different code defaults (0 and 14); the Model
+  Manager offered an `EMBEDDING_MODEL` dropdown that would corrupt recall if changed; .231 was not
+  in `fleet-boot/deploy.sh`; host Node is 20 while `engines` requires 22.
+- **Status: fixed 2026-09-23 (all shipped); the host Node item was resolved 2026-09-24.**
+  - `ask-fleet-boot` is enabled on all four hosts, and `deploy.sh` syncs every host, .231
+    included (on .231 it also installs `fleet-update-public-search.timer`).
+  - `rotate-mullvad.sh` `pin`/`city` run from each env's own worktree.
+  - `rebuild-ask.sh` exits 1 and skips the reclaim when the app never returns 200
+    (`fleet-boot/rebuild-ask.sh:64-67`).
+  - The reranker and Whisper are pinned to the 2080 Ti by GPU UUID with `CUDA_VISIBLE_DEVICES`.
+  - `/home/nightfury/selfhosted/ingestor` is its own git repo (env files not tracked), and boot
+    recovery reconciles all three ingestors. The worker also **backs off** when Ask is
+    unreachable (claim failures double the poll interval up to 300 s, ingestor commit
+    `b15cb98`); before that a claim error killed the process, and Docker had restarted it more
+    than 1,100 times during Ask outages.
+  - `UPLOAD_TTL_DAYS` has one parser, `lib/config/upload-ttl.ts` (default 0 = disabled; every env
+    sets 14).
+  - Model Manager shows `EMBEDDING_MODEL` read-only and its apply API rejects edits to it; the
+    running Model Manager was rebuilt on 2026-09-23.
+  - **Host Node (resolved 2026-09-24).** Host tooling on .17 runs Node `v20.19.2`, while the app
+    containers run `node:22-slim` (`Dockerfile:2,20`). `package.json` `engines.node` now reads
+    `^20.19.0 || 22.x`, which states both truths instead of flagging the host as unsupported.
+    Production parity is still Node 22 inside the container.
 
 ## Tests
 
 ### Pre-existing test failures
 
-- **Status: fixed on lab 2026-09-23 (uncommitted, not yet ported).** `bun run test` on `flow-design`
+- **Status: fixed and shipped 2026-09-23** (lab `e36d5a5c`, prod `1ff09c73`). `bun run test` on `flow-design`
   is green: 224 files / 1,844 tests pass, 1 skipped. The stale expectations were updated to the
   intended behaviour (granite4.2, think OFF by default, 20,000-character voice cap, the source
   selector's `Select sources` trigger); `chat-panel` mocks the Discover briefing and the canvas field;
@@ -315,7 +390,7 @@ values in it). Details: [security](/infrastructure/security).
 ### Ingest and advanced-search share one token
 
 - **Symptom.** `/api/advanced-search` authenticates with `checkIngestAuth`
-  (`app/api/advanced-search/route.ts:542`), i.e. the same `INGEST_API_TOKEN` as the ingest worker
+  (`app/api/advanced-search/route.ts:540`), i.e. the same `INGEST_API_TOKEN` as the ingest worker
   endpoints.
 - **Impact.** Anyone who can call search can also call the RLS-bypassing ingest file endpoints, and
   the reverse.
@@ -356,8 +431,11 @@ values in it). Details: [security](/infrastructure/security).
 
 These are decisions still pending, not bugs:
 
-- **H2.** `SEARXNG_FALLBACK_API_URL` resolves to the **public** SearXNG on every env, because of a
-  shared-infra DNS alias collision. Decide whether prod may fail over there.
+- ~~**H2.**~~ **Decided 2026-09-23.** The old `http://searxng:8080` value only resolved (to the
+  public SearXNG, through a `shared-infra` alias) while the stacks ran on .231; on .17 it did not
+  resolve at all. Prod and staging now fail over to the public SearXNG **explicitly**
+  (`SEARXNG_FALLBACK_API_URL=http://192.168.50.231:8127`); lab keeps no fallback. It is a
+  fallback only, used when the env's own gluetun/SearXNG fails.
 - **H5.** No local fallback when a cloud model returns 402. A mid-stream retry needs design work.
 - **M3.** Metered search budgets can be double-spent across envs that share API keys.
 - **M8.** The `OLLAMA_MODELS` list is not health-gated (it is operator-curated).
@@ -380,6 +458,14 @@ These are decisions still pending, not bugs:
 - **Impact.** Users can mistake a truncated answer for a full one.
 - **Fix sketch.** In the answer's action row (`render-message.tsx` / `MessageActions`), render a
   muted "Stopped" badge when `message.metadata?.stopped` is true.
+- **Status: fixed 2026-09-24.** `MessageActions` renders a muted, text-only "Stopped" pill
+  (`components/message-actions.tsx:314,415`) when `AnswerSection` passes
+  `stopped={metadata?.stopped === true}`. It shows **live**, because the client flags the message
+  on Stop (`markMessageStopped`, via `userStopRequestedRef` in `components/chat.tsx`), and
+  **after a reload**, from the persisted flag. The action row now wraps on narrow phones. A Stop
+  before any answer text is written saves nothing, so there is no answer and no badge. Details:
+  [streaming → Stop](/request-lifecycle/streaming#stop). Test:
+  `components/__tests__/message-actions-stopped.test.tsx`.
 
 ### Chain-of-thought flash in the live stream
 
@@ -428,11 +514,11 @@ These are decisions still pending, not bugs:
   model is resident, because `keep_alive=-1` only pins after the first load. Re-pin with
   `/api/generate {"model":"granite4.2:8b","keep_alive":-1}`. SSH to `.171` works from `.17`
   (added 2026-08-28).
-- **Fix sketch.** Find out whether it is the weekly Ollama auto-update (Sun 03:30), WSL sleep or GPU
-  reset (unverified). Consider a periodic re-warm like the app's warm pings. Confirm the live
-  `~/ask-fleet-boot.sh` on `.171` warms `granite4.2:8b`, not the deleted `4.1`. The repo copy was
-  fixed in `325ab31f`; the live `.171` copy was still pending as of 2026-08-28. See
-  [runbooks](/operations/runbooks).
+- **Cause found 2026-09-23:** the `ECONNREFUSED` was Ollama listening on loopback only (see
+  [Serenity Ollama bound to loopback](#serenity-ollama-bound-to-loopback), now fixed). What
+  removed the LAN bind originally (weekly auto-update, WSL restart) is unverified, so keep an eye
+  on `[warm]` failures for `.171`. The live `~/ask-fleet-boot.sh` on `.171` is synced by
+  `deploy.sh` and warms `granite4.2:8b`. See [runbooks](/operations/runbooks).
 
 ### Overlay-pinned env vars beat `.env`
 
@@ -458,8 +544,8 @@ These are decisions still pending, not bugs:
   crash-loops on `ENOTFOUND postgres`. The fix is `docker stop ask` then
   `docker compose -f docker-compose.yaml -f docker-compose.vpn.yaml up -d --force-recreate ask`
   from `ask-prod`. `reconcile_app_stack` in fleet-boot now does this automatically.
-- **The ingestors** (`ingestor`, `ingestor-staging`, `ingestor-lab`) rely only on
-  `restart: unless-stopped`; they are not in fleet-boot's reconcile.
+- **The ingestors** (`ingestor`, `ingestor-staging`, `ingestor-lab`) are all reconciled by
+  fleet-boot at boot (since 2026-09-23; before that only the prod one was).
 - **Never run a bare `docker compose up -d` in `ask/`.** The base compose is `name: ask-stack` =
   **prod**, so it would recreate prod with staging's `.env` and no VPN overlay. Use
   `fleet-boot/rebuild-ask.sh {prod|staging|lab}` or the exact `-p`/`-f` sets. See
@@ -490,7 +576,9 @@ These are decisions still pending, not bugs:
   override.
 - **Check.** `redis-cli TTL ingest:heartbeat` in the env's Redis (a positive TTL means alive).
 - **Also.** The ingestor is **single-target** (one `ASK_URL`), so each env has its own worker. A
-  new env needs its own ingestor project.
+  new env needs its own ingestor project. While Ask is down (for example during a rebuild) the
+  worker backs off (up to 300 s between claims) instead of crash-looping, so after an Ask outage
+  the first claim can lag by up to five minutes.
 
 ### Crop experiment data unread
 
@@ -524,8 +612,8 @@ These are decisions still pending, not bugs:
   ([D24](/history/decisions#d24-the-embedding-model-is-data-locked)).
 - **Status: fixed 2026-09-22** — comments and the error message in `lib/memory/write.ts`, the hint in
   `components/settings/memory-tab.tsx`, and `lib/embeddings/rerank.ts` now name Qwen3 and warn against
-  switching. The Model Manager's `EMBEDDING_MODEL` dropdown is now read-only in the flow-design
-  copy (2026-09-23); the running Model Manager needs a rebuild once ported.
+  switching. The Model Manager's `EMBEDDING_MODEL` field is read-only and its apply API rejects
+  edits (shipped and rebuilt 2026-09-23, prod `32e0b1d0`).
 - **Original fix sketch.** Rewrite the comments and the error message to name Qwen3 and to warn against
   switching. The equivalent comment in `lib/memory/recall-index.ts` was already fixed in
   `8795e1b9`.
@@ -540,9 +628,31 @@ These are decisions still pending, not bugs:
 - The `NEXT_PUBLIC_VOICE_ENABLED` and other `NEXT_PUBLIC_*` flags are build-inlined from each
   worktree's `.env`. Compose comments that present them as runtime env were corrected in
   `90f5e6a6`. Watch for new ones.
+- **Fixed 2026-09-24:**
+  - Comments that still named `granite4.1:8b` now name `granite4.2:8b`, the current local model
+    (`lib/agents/title-generator.ts`, `lib/voice/spoken-gist.ts`, `docker-compose.lab.yaml`,
+    `fleet-boot/keep-warm.sh`, `fleet-boot/README.md`, and the Model Manager's placeholders in
+    `selfhosted/model-manager/lib/env-schema.ts`).
+  - The lab's copies of `docker-compose.yaml` and `docker-compose.admin-feature.yaml` had drifted
+    from the committed prod and staging versions. They were synced: `docker-compose.yaml` now
+    matches `dev`, and `docker-compose.admin-feature.yaml` matches `admin-feature`. As a result
+    degoog is disabled in every file (`DEGOOG_ENABLED: 'false'`), the staging degoog URL is
+    `http://degoog-gluetun-staging:4444`, the staging classifier is `deepseek-v4-pro:cloud` and the
+    base `TTS_SERVICE_URL` is `http://192.168.50.17:8890`, as on prod and staging.
+  - `package.json` `engines.node` is `^20.19.0 || 22.x` (see
+    [fleet automation drift](#fleet-automation-drift)).
+  - `scripts/chat-cli.ts` no longer offers `--no-search`, which silently ran a searching
+    `balanced` turn (see [evaluation](/operations/evaluation#chat-cli-ts-bun-chat)).
 
 ### Lab archive tag missing
 
 - Notes from 2026-08-22 say the pre-merge lab tip was archived as tag `lab-archive-2026-08-22`
-  before `dd7e0ca1`. **No tags exist** in the local repository as of 2026-09-22 (a remote tag listing also returned none). To
-  recover the pre-merge lab state, use `dd7e0ca1^1` (the merge's first parent).
+  before `dd7e0ca1`. On 2026-09-22 no tags were found. As of 2026-09-24 the tag **is present in
+  the local repository** and points at `5f5dbc51`, which is `dd7e0ca1^1` (the merge's first
+  parent). It is not on `origin`. Either name recovers the pre-merge lab state.
+- **.231 archive branches (2026-09-23).** Before the old checkouts on .231 were deleted, the 42
+  commits that existed only there were saved as **local branches** in the repository on .17:
+  `archive/231-flow-design-pipeline` (40 commits, last `dfe4a85e`, 2026-07-31) and
+  `archive/231-wip-context-latency-budget` (2 commits, last `9eadba76`, 2026-07-28). They are
+  lab experiments (pipeline variants, context-budget measurements), not pushed to `origin`. Push
+  them, or back up the repository, if they must survive the loss of .17's disk.

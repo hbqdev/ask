@@ -85,7 +85,7 @@ four hosts ran **0.34.2** on 2026-09-22.
 | Host | Bind | What Ask uses it for |
 |---|---|---|
 | .17 | `0.0.0.0:11434` | `OLLAMA_BASE_URL` and `CLASSIFIER_OLLAMA_BASE_URL` (all envs). It proxies `*:cloud` models to Ollama Cloud, and serves `qwen3-vl:4b` locally on the 1070 to the ingestors (`OLLAMA_URL=http://host.docker.internal:11434`). Unit env: `OLLAMA_KEEP_ALIVE=-1`, `OLLAMA_CONTEXT_LENGTH=8192` |
-| .171 | `:11434` | `LOCAL_LLM_BASE_URL`: `granite4.2:8b` for titles, memory extraction, query-expansion fallback and voice gist |
+| .171 | `0.0.0.0:11434` (drop-in `ollama.service.d/host.conf`, restored 2026-09-23 after it was found on loopback) | `LOCAL_LLM_BASE_URL`: `granite4.2:8b` for titles, memory extraction, query-expansion fallback and voice gist |
 | .231 | `:11434` | Not used by Ask since 2026-09-23 (it was the staging/lab classifier; their overlays now point at `.17`) |
 | .160 | `:11434` | Not used by Ask (nothing resident) |
 
@@ -183,8 +183,11 @@ on each host (unit file `fleet-boot/ask-fleet-boot.service`). It branches on `ho
 
 Before the 2026-08-23 migration, .231 ran all three app stacks. They were kept as a rollback net,
 came back at .231's 2026-09-16 boot through a stale boot script, and were **removed on
-2026-09-23** (containers and networks; their volumes were kept for an owner decision). The two
-legacy cron lines are gone too. See [runbooks → retired stacks](/operations/runbooks#retired-stacks-on-231).
+2026-09-23** (containers and networks); their volumes, images and the old `ask`/`ask-prod`/`ask-flow`
+checkouts followed on **2026-09-24**, so no Ask app code or data remains on .231. The two
+legacy cron lines are gone too, and .231's rotation cron and weekly
+`fleet-update-public-search.timer` now run from `~/fleet-boot` (synced by `fleet-boot/deploy.sh`).
+See [D35](/history/decisions#d35-retire-and-remove-the-231-ask-stacks). See [runbooks → retired stacks](/operations/runbooks#retired-stacks-on-231).
 `crawl4ai`, FlareSolverr, the public `searxng`/`searxng-gluetun` (`:8127`), `degoog-*` (`:4444`)
 and the .231 `cloudflared` stay: they serve Ask or other consumers (see
 [Services → degoog](/infrastructure/services#degoog)).

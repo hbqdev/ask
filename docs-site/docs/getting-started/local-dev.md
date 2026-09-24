@@ -15,7 +15,7 @@ possible but needs its own Postgres/Redis and does not reach the fleet the same 
 | Tool | Version in use | Notes |
 |---|---|---|
 | bun | 1.3.14 (pinned in the `Dockerfile`) | Package manager **and** script runner. Lockfile is `bun.lock`. |
-| Node.js | 22.x in the image (`FROM node:22-slim`); `package.json` `engines.node` is `22.x` | The app host currently has Node 20 installed; tests and typecheck run fine on it, but production parity is Node 22 inside the container. |
+| Node.js | 22.x in the image (`FROM node:22-slim`, `Dockerfile:2,20`); host tooling on .17 is Node `v20.19.2`. `package.json` `engines.node` is `^20.19.0 \|\| 22.x` (since 2026-09-24) | The range names both runtimes that actually run the code: host-side scripts, tests and typecheck on Node 20.19, the app on Node 22 in the container. Production parity is Node 22; check anything runtime-sensitive in the container. |
 | Next.js | 16.2.x (`next` `^16.2.6`) | `proxy.ts` is Next 16's replacement for `middleware.ts`. |
 | Docker + Compose | Docker 29, Compose v5 on the app host (Docker Desktop with the WSL2 backend) | All three environments are compose projects on the same host. |
 | TypeScript | 5.x | `bun run typecheck` |
@@ -156,31 +156,28 @@ from the running containers with `docker exec <c> printenv <NAME>`):
 | Redis | `LOCAL_REDIS_URL` | `redis://redis:6379` | Set in base compose. |
 | SearXNG | `SEARXNG_API_URL` | `http://ask-gluetun:8080` | SearXNG lives inside the gluetun VPN container's network namespace, so it is addressed by the **gluetun** name. Staging: `ask-gluetun-admin-feature`; lab: `ask-gluetun-lab`. |
 | Ollama (answering models, cloud proxy) | `OLLAMA_BASE_URL` | `http://192.168.50.17:11434` | Native Ollama on the app host; `*:cloud` models are forwarded to Ollama Cloud. |
-| Classifier | `CLASSIFIER_OLLAMA_BASE_URL`, `CLASSIFIER_MODEL_ID` | prod `.17:11434`; staging/lab overlays pin `.231:11434` | Model is `deepseek-v4-pro:cloud` in all three. |
+| Classifier | `CLASSIFIER_OLLAMA_BASE_URL`, `CLASSIFIER_MODEL_ID` | `http://192.168.50.17:11434` (staging/lab overlays pin the same value) | Model is `deepseek-v4-pro:cloud` in all three. |
 | Local small LLM (titles, memory extraction, expander fallback) | `LOCAL_LLM_BASE_URL` | `http://192.168.50.171:11434` | granite on Serenity's P5000. |
 | Cross-encoder reranker | `RERANKER_URL` (+ token) | `http://192.168.50.17:8787` | |
 | Embedder | `EMBEDDING_SERVICE_URL` (+ token) | `http://192.168.50.160:8788` | Data-locked to the `vector(1024)` columns — never swap the model without a re-embed. |
-| crawl4ai | `CRAWL4AI_URL` (+ token) | `http://192.168.50.231:11235` | Lab same; **staging's overlay pins `http://crawl4ai:11235`** — see the warning below. |
-| FlareSolverr | `FLARESOLVERR_URL` | `http://flaresolverr:8191` | See warning below. |
+| crawl4ai | `CRAWL4AI_URL` (+ token) | `http://192.168.50.231:11235` | Same in all envs (from `.env`). |
+| FlareSolverr | `FLARESOLVERR_URL` | `http://192.168.50.231:8191` | Same in all envs. |
+| SearXNG fallback | `SEARXNG_FALLBACK_API_URL` | `http://192.168.50.231:8127` (public SearXNG) | Staging same; lab empty (no failover). |
 | TTS (Kokoro) | `TTS_SERVICE_URL` | `http://192.168.50.17:8890` | Lab uses its own `ask-tts-lab:8880`. |
 | STT (Whisper) | `WHISPER_SERVICE_URL` | `http://192.168.50.17:8788` | |
 
 The authoritative map of hosts and ports is [Services](/infrastructure/services).
 
-::: warning Container-name URLs from the old host no longer resolve
-Before the 2026-08-23 migration the stacks ran on MiniNightFury (.231), where
-`crawl4ai` and `flaresolverr` were containers on the external `shared-infra` Docker
-network. On the current app host, `shared-infra` contains only the three app
-containers, and `getent hosts crawl4ai` / `getent hosts flaresolverr` return nothing
-from inside `ask` or `ask-admin-feature` (checked 2026-09-22). Consequences:
-- **Staging's** `CRAWL4AI_URL: 'http://crawl4ai:11235'`
-  (`docker-compose.admin-feature.yaml` in the `ask` worktree) cannot reach crawl4ai;
-  staging's advanced search falls back to the in-process crawler.
-- `FLARESOLVERR_URL=http://flaresolverr:8191` (all envs, from `.env`) is unreachable,
-  so that step of the `fetch` tool's rescue chain is skipped. FlareSolverr runs on .231
-  bound to `127.0.0.1` only.
-These fail open, so nothing errors visibly; they are listed in
-[Known issues](/history/known-issues).
+::: warning Never use container-name URLs for fleet services
+Before the 2026-08-23 migration the stacks ran on MiniNightFury (.231), where `crawl4ai`,
+`flaresolverr` and the public `searxng` were containers on the external `shared-infra` Docker
+network and could be addressed by name. On the current app host (.17) those names do not
+resolve. Until 2026-09-23 three settings still used them and silently degraded: staging's
+overlay `CRAWL4AI_URL: 'http://crawl4ai:11235'` (staging crawled with the in-process fallback),
+`FLARESOLVERR_URL=http://flaresolverr:8191` in every env (the FlareSolverr tier was skipped),
+and `SEARXNG_FALLBACK_API_URL=http://searxng:8080` on prod/staging (no SearXNG failover). All
+now use LAN IPs. These dependencies fail open, so a bad URL shows up only as degraded quality;
+confirm with `docker exec <c> printenv <NAME>` and a request from inside the container.
 :::
 
 ## Common pitfalls
