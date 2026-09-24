@@ -1,3 +1,4 @@
+import { specByKey } from '../env-schema'
 import { describe, expect, it } from 'vitest'
 import { buildPlan, validateEdits } from '../plan-builder'
 
@@ -71,5 +72,25 @@ describe('buildPlan', () => {
     expect(plan.touchedTargets).toHaveLength(0)
     expect(plan.askEnvText).not.toContain('EMBEDDING_MODEL')
     expect(changes).toHaveLength(0)
+  })
+  it('clearing an optional secret writes an empty value', () => {
+    const { plan, changes } = buildPlan('RERANKER_API_TOKEN=sekrit\n', {
+      RERANKER_API_TOKEN: ''
+    })
+    expect(validateEdits({ RERANKER_API_TOKEN: '' })).toEqual([])
+    expect(plan.askEnvText).toMatch(/^RERANKER_API_TOKEN=("")?$/m)
+    expect(plan.askEnvText).not.toContain('sekrit')
+    expect(changes[0]).toMatchObject({ key: 'RERANKER_API_TOKEN', after: '' })
+  })
+  it('validateEdits refuses to empty a required var', () => {
+    const spec = specByKey('RERANKER_API_TOKEN')!
+    spec.required = true
+    try {
+      expect(validateEdits({ RERANKER_API_TOKEN: ' ' })).toEqual([
+        { key: 'RERANKER_API_TOKEN', error: 'This setting is required' }
+      ])
+    } finally {
+      delete spec.required
+    }
   })
 })

@@ -227,7 +227,7 @@ export const REGISTRY: EnvVarSpec[] = [
     group: 'Serenity',
     label: 'Classifier model',
     type: 'model',
-    default: 'granite4.1:8b'
+    default: 'granite4.2:8b'
   },
   {
     key: 'EXPANDER_MODEL_ID',
@@ -235,7 +235,7 @@ export const REGISTRY: EnvVarSpec[] = [
     group: 'Serenity',
     label: 'Query-expander model',
     type: 'model',
-    default: 'granite4.1:8b'
+    default: 'granite4.2:8b'
   },
   {
     key: 'MEMORY_EXTRACTOR_MODEL_ID',
@@ -243,7 +243,7 @@ export const REGISTRY: EnvVarSpec[] = [
     group: 'Serenity',
     label: 'Memory-extractor model',
     type: 'model',
-    default: 'granite4.1:8b'
+    default: 'granite4.2:8b'
   },
   // ---------- Models: Embeddings ----------
   {
@@ -626,6 +626,7 @@ export const REGISTRY: EnvVarSpec[] = [
   // ---------- Database ----------
   {
     key: 'DATABASE_URL',
+    required: true,
     category: 'database',
     label: 'Database URL',
     type: 'secret',
@@ -633,6 +634,7 @@ export const REGISTRY: EnvVarSpec[] = [
   },
   {
     key: 'DATABASE_RESTRICTED_URL',
+    required: true,
     category: 'database',
     label: 'Restricted DB URL',
     type: 'secret'
@@ -652,6 +654,7 @@ export const REGISTRY: EnvVarSpec[] = [
   },
   {
     key: 'POSTGRES_PASSWORD',
+    required: true,
     category: 'database',
     label: 'Postgres password',
     type: 'secret'
@@ -680,6 +683,7 @@ export const REGISTRY: EnvVarSpec[] = [
   },
   {
     key: 'NEXT_PUBLIC_SUPABASE_URL',
+    required: true,
     category: 'auth',
     label: 'Supabase URL',
     type: 'url',
@@ -687,12 +691,14 @@ export const REGISTRY: EnvVarSpec[] = [
   },
   {
     key: 'NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY',
+    required: true,
     category: 'auth',
     label: 'Supabase publishable key',
     type: 'string'
   },
   {
     key: 'SUPABASE_SECRET_KEY',
+    required: true,
     category: 'auth',
     label: 'Supabase secret key',
     type: 'secret'
