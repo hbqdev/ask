@@ -1,17 +1,17 @@
 {
   "generatedFrom": {
-    "ask": "ask-flow",
+    "ask": "ask-prod",
     "ingestor": "ingestor"
   },
-  "count": 646,
+  "count": 649,
   "coverage": {
-    "files": 646,
-    "withPurpose": 646,
-    "header": 166,
-    "jsdoc": 35,
-    "derived": 57,
-    "override": 388,
-    "documented": 348
+    "files": 649,
+    "withPurpose": 649,
+    "header": 167,
+    "jsdoc": 36,
+    "derived": 59,
+    "override": 387,
+    "documented": 351
   },
   "kinds": {
     "dockerfile": 3,
@@ -28,8 +28,8 @@
     "compose": 10,
     "migration": 22,
     "db-schema": 4,
-    "systemd-unit": 3,
-    "ops-script": 17,
+    "systemd-unit": 5,
+    "ops-script": 19,
     "hook": 12,
     "python-module": 11,
     "test-helper": 3,
@@ -37,7 +37,7 @@
     "server-action": 8,
     "types": 8,
     "middleware": 2,
-    "script": 18
+    "script": 17
   },
   "files": [
     {
@@ -2013,7 +2013,9 @@
       "usedBy": [
         "components/message-actions.tsx"
       ],
-      "tests": [],
+      "tests": [
+        "components/__tests__/message-actions-stopped.test.tsx"
+      ],
       "docs": []
     },
     {
@@ -2690,7 +2692,9 @@
         "components/library/library-panel.tsx",
         "components/message-actions.tsx"
       ],
-      "tests": [],
+      "tests": [
+        "components/__tests__/message-actions-stopped.test.tsx"
+      ],
       "docs": []
     },
     {
@@ -2762,7 +2766,9 @@
       "usedBy": [
         "components/answer-section.tsx"
       ],
-      "tests": [],
+      "tests": [
+        "components/__tests__/message-actions-stopped.test.tsx"
+      ],
       "docs": [
         {
           "page": "/history/known-issues",
@@ -3252,7 +3258,9 @@
       "usedBy": [
         "components/message-actions.tsx"
       ],
-      "tests": [],
+      "tests": [
+        "components/__tests__/message-actions-stopped.test.tsx"
+      ],
       "docs": []
     },
     {
@@ -5269,6 +5277,7 @@
         "components/message-actions.tsx"
       ],
       "tests": [
+        "components/__tests__/message-actions-stopped.test.tsx",
         "components/__tests__/render-message.test.tsx",
         "components/voice/__tests__/speak-button.test.tsx"
       ],
@@ -6765,7 +6774,9 @@
       "exports": [],
       "methods": [],
       "route": null,
-      "usedBy": [],
+      "usedBy": [
+        "fleet-boot/memory-consolidate-nightly.sh"
+      ],
       "tests": [],
       "docs": [
         {
@@ -6791,6 +6802,64 @@
           "title": "Fleet scripts",
           "section": "Summary",
           "anchor": "summary"
+        },
+        {
+          "page": "/operations/runbooks",
+          "title": "Runbooks",
+          "section": "What automation already exists",
+          "anchor": "what-automation-already-exists"
+        }
+      ]
+    },
+    {
+      "path": "fleet-boot/fleet-update-ask.service",
+      "dir": "fleet-boot",
+      "area": "fleet-boot",
+      "project": "ask",
+      "kind": "systemd-unit",
+      "purpose": "systemd unit: Weekly: update the Ask app stacks (lab + prod + staging) on NightFuryX",
+      "purposeSource": "derived",
+      "exports": [],
+      "methods": [],
+      "route": null,
+      "usedBy": [],
+      "tests": [],
+      "docs": [
+        {
+          "page": "/operations/fleet-scripts",
+          "title": "Fleet scripts",
+          "section": null,
+          "anchor": null
+        }
+      ]
+    },
+    {
+      "path": "fleet-boot/fleet-update-ask.timer",
+      "dir": "fleet-boot",
+      "area": "fleet-boot",
+      "project": "ask",
+      "kind": "systemd-unit",
+      "purpose": "systemd timer: Weekly image update for the Ask app stacks (Sun 04:30)",
+      "purposeSource": "derived",
+      "exports": [],
+      "methods": [],
+      "route": null,
+      "usedBy": [
+        "fleet-boot/update-ask.sh"
+      ],
+      "tests": [],
+      "docs": [
+        {
+          "page": "/operations/deploy",
+          "title": "Deploy",
+          "section": "Automated image updates (not app code)",
+          "anchor": "automated-image-updates-not-app-code"
+        },
+        {
+          "page": "/operations/fleet-scripts",
+          "title": "Fleet scripts",
+          "section": null,
+          "anchor": null
         },
         {
           "page": "/operations/runbooks",
@@ -6933,6 +7002,58 @@
           "title": "Fleet scripts",
           "section": "Summary",
           "anchor": "summary"
+        }
+      ]
+    },
+    {
+      "path": "fleet-boot/memory-consolidate-nightly.sh",
+      "dir": "fleet-boot",
+      "area": "fleet-boot",
+      "project": "ask",
+      "kind": "ops-script",
+      "purpose": "Nightly memory consolidation for the Ask app stacks on this host (.17).",
+      "purposeSource": "header",
+      "exports": [],
+      "methods": [],
+      "route": null,
+      "usedBy": [],
+      "tests": [],
+      "docs": [
+        {
+          "page": "/getting-started/repo-tour",
+          "title": "Repo tour",
+          "section": "fleet-boot/",
+          "anchor": "fleet-boot"
+        },
+        {
+          "page": "/history/changelog",
+          "title": "Changelog",
+          "section": "2026-09 — September",
+          "anchor": "_2026-09-—-september"
+        },
+        {
+          "page": "/history/known-issues",
+          "title": "Known issues",
+          "section": "Memory consolidation never runs",
+          "anchor": "memory-consolidation-never-runs"
+        },
+        {
+          "page": "/knowledge/memory-recall",
+          "title": "Memory & recall",
+          "section": "Consolidation (cron route)",
+          "anchor": "consolidation-cron-route"
+        },
+        {
+          "page": "/operations/fleet-scripts",
+          "title": "Fleet scripts",
+          "section": null,
+          "anchor": null
+        },
+        {
+          "page": "/operations/runbooks",
+          "title": "Runbooks",
+          "section": "What automation already exists",
+          "anchor": "what-automation-already-exists"
         }
       ]
     },
@@ -7236,6 +7357,60 @@
       ]
     },
     {
+      "path": "fleet-boot/update-ask.sh",
+      "dir": "fleet-boot",
+      "area": "fleet-boot",
+      "project": "ask",
+      "kind": "ops-script",
+      "purpose": "Weekly image update for the ASK app stacks (lab + prod + staging) on NightFuryX.",
+      "purposeSource": "header",
+      "exports": [],
+      "methods": [],
+      "route": null,
+      "usedBy": [
+        "fleet-boot/fleet-update-ask.service"
+      ],
+      "tests": [],
+      "docs": [
+        {
+          "page": "/getting-started/repo-tour",
+          "title": "Repo tour",
+          "section": "fleet-boot/",
+          "anchor": "fleet-boot"
+        },
+        {
+          "page": "/history/changelog",
+          "title": "Changelog",
+          "section": "2026-09 — September",
+          "anchor": "_2026-09-—-september"
+        },
+        {
+          "page": "/operations/deploy",
+          "title": "Deploy",
+          "section": "Automated image updates (not app code)",
+          "anchor": "automated-image-updates-not-app-code"
+        },
+        {
+          "page": "/operations/evaluation",
+          "title": "Evaluation harnesses & scripts",
+          "section": "Flow-arm harnesses (lab only)",
+          "anchor": "flow-arm-harnesses-lab-only"
+        },
+        {
+          "page": "/operations/fleet-scripts",
+          "title": "Fleet scripts",
+          "section": null,
+          "anchor": null
+        },
+        {
+          "page": "/operations/runbooks",
+          "title": "Runbooks",
+          "section": "What automation already exists",
+          "anchor": "what-automation-already-exists"
+        }
+      ]
+    },
+    {
       "path": "fleet-boot/update-images.sh",
       "dir": "fleet-boot",
       "area": "fleet-boot",
@@ -7248,6 +7423,7 @@
       "route": null,
       "usedBy": [
         "fleet-boot/deploy.sh",
+        "fleet-boot/update-ask.sh",
         "fleet-boot/update-public-search.sh"
       ],
       "tests": [],
@@ -7375,7 +7551,8 @@
       "route": null,
       "usedBy": [
         "fleet-boot/deploy.sh",
-        "fleet-boot/fleet-update-public-search.service"
+        "fleet-boot/fleet-update-public-search.service",
+        "fleet-boot/update-ask.sh"
       ],
       "tests": [],
       "docs": [
@@ -8453,6 +8630,7 @@
         "components/message-actions.tsx"
       ],
       "tests": [
+        "components/__tests__/message-actions-stopped.test.tsx",
         "lib/actions/__tests__/notes.test.ts"
       ],
       "docs": []
@@ -9268,7 +9446,9 @@
         "components/spec-block.tsx",
         "lib/render/components/image.tsx"
       ],
-      "tests": [],
+      "tests": [
+        "components/__tests__/message-actions-stopped.test.tsx"
+      ],
       "docs": [
         {
           "page": "/operations/analytics",
@@ -14083,6 +14263,7 @@
         "lib/streaming/create-chat-stream-response.ts"
       ],
       "tests": [
+        "components/__tests__/message-actions-stopped.test.tsx",
         "lib/streaming/helpers/__tests__/sanitize-stopped-message.test.ts"
       ],
       "docs": [
@@ -14178,6 +14359,47 @@
         "lib/streaming/helpers/__tests__/stream-part-timer.test.ts"
       ],
       "docs": []
+    },
+    {
+      "path": "lib/streaming/helpers/strip-citation-anchors-from-history.ts",
+      "dir": "lib/streaming/helpers",
+      "area": "lib",
+      "project": "ask",
+      "kind": "lib-module",
+      "purpose": "Remove citation anchors from PRIOR assistant turns before they are sent to the model as conversation history.",
+      "purposeSource": "jsdoc",
+      "exports": [
+        "stripCitationAnchorsFromHistory"
+      ],
+      "methods": [],
+      "route": null,
+      "usedBy": [
+        "lib/streaming/create-chat-stream-response.ts",
+        "lib/streaming/create-ephemeral-chat-stream-response.ts"
+      ],
+      "tests": [
+        "lib/streaming/helpers/__tests__/strip-citation-anchors-from-history.test.ts"
+      ],
+      "docs": [
+        {
+          "page": "/history/changelog",
+          "title": "Changelog",
+          "section": "2026-09 — September",
+          "anchor": "_2026-09-—-september"
+        },
+        {
+          "page": "/history/decisions",
+          "title": "Decisions",
+          "section": "D36. Strip historical citation anchors; resolve citations per turn only",
+          "anchor": "d36-strip-historical-citation-anchors-resolve-citations-per-turn-only"
+        },
+        {
+          "page": "/history/known-issues",
+          "title": "Known issues",
+          "section": "Unresolved citations",
+          "anchor": "unresolved-citations"
+        }
+      ]
     },
     {
       "path": "lib/streaming/helpers/strip-narration-from-message.ts",
@@ -14660,7 +14882,9 @@
         "lib/supabase/server.ts",
         "proxy.ts"
       ],
-      "tests": [],
+      "tests": [
+        "lib/supabase/__tests__/middleware.test.ts"
+      ],
       "docs": []
     },
     {
@@ -14680,7 +14904,9 @@
       "usedBy": [
         "proxy.ts"
       ],
-      "tests": [],
+      "tests": [
+        "lib/supabase/__tests__/middleware.test.ts"
+      ],
       "docs": [
         {
           "page": "/getting-started/local-dev",
@@ -14941,6 +15167,7 @@
       "tests": [
         "lib/embeddings/__tests__/url-rag.test.ts",
         "lib/tools/__tests__/fetch-retry-policy.test.ts",
+        "lib/tools/__tests__/fetch-tool-call-id.test.ts",
         "lib/tools/__tests__/fetch.test.ts"
       ],
       "docs": [
@@ -16446,8 +16673,7 @@
         "lib/agents/query-classifier.ts",
         "lib/agents/query-expander.ts",
         "lib/agents/title-generator.ts",
-        "lib/utils/registry.ts",
-        "lib/voice/spoken-gist.ts"
+        "lib/utils/registry.ts"
       ],
       "tests": [
         "lib/agents/__tests__/memory-extractor.test.ts",
@@ -16803,8 +17029,7 @@
       "usedBy": [
         "lib/agents/memory-extractor.ts",
         "lib/agents/query-expander.ts",
-        "lib/agents/title-generator.ts",
-        "lib/voice/spoken-gist.ts"
+        "lib/agents/title-generator.ts"
       ],
       "tests": [],
       "docs": [
@@ -16858,6 +17083,7 @@
         "lib/db/actions.ts"
       ],
       "tests": [
+        "components/__tests__/message-actions-stopped.test.tsx",
         "lib/db/__tests__/upsert-message.test.ts",
         "lib/utils/__tests__/message-mapping.test.ts"
       ],
@@ -17044,7 +17270,6 @@
       "purposeSource": "header",
       "exports": [
         "AnswerThink",
-        "AnswerTurnMode",
         "ANSWER_THINK_DEFAULT",
         "resolveAnswerThink",
         "thinkEnabledForOllama"
@@ -17498,6 +17723,7 @@
         "lib/utils/legacy-fetch-html.ts"
       ],
       "tests": [
+        "lib/tools/__tests__/fetch-tool-call-id.test.ts",
         "lib/utils/__tests__/legacy-fetch-html.test.ts",
         "lib/utils/__tests__/ssrf-guard.test.ts"
       ],
@@ -17637,6 +17863,7 @@
         "lib/tools/search.ts"
       ],
       "tests": [
+        "lib/tools/__tests__/fetch-tool-call-id.test.ts",
         "lib/tools/__tests__/fetch.test.ts"
       ],
       "docs": []
@@ -17686,7 +17913,6 @@
         "app/api/voice/speak/route.ts",
         "app/api/voice/transcribe/route.ts",
         "lib/streaming/create-chat-stream-response.ts",
-        "lib/voice/spoken-gist.ts",
         "lib/voice/stt-client.ts",
         "lib/voice/tts-client.ts"
       ],
@@ -17773,39 +17999,6 @@
       ]
     },
     {
-      "path": "lib/voice/spoken-gist.ts",
-      "dir": "lib/voice",
-      "area": "lib",
-      "project": "ask",
-      "kind": "lib-module",
-      "purpose": "Condenses a finished answer into a 2-3 sentence read-aloud gist using a local Ollama model with a timeout, for voice read-aloud.",
-      "purposeSource": "override",
-      "exports": [
-        "buildGistPrompt",
-        "condenseForSpeech"
-      ],
-      "methods": [],
-      "route": null,
-      "usedBy": [],
-      "tests": [
-        "lib/voice/__tests__/spoken-gist.test.ts"
-      ],
-      "docs": [
-        {
-          "page": "/history/known-issues",
-          "title": "Known issues",
-          "section": "Other stale comments and docs",
-          "anchor": "other-stale-comments-and-docs"
-        },
-        {
-          "page": "/knowledge/media",
-          "title": "Media, voice, weather & Discover",
-          "section": "Read-aloud (Kokoro TTS)",
-          "anchor": "read-aloud-kokoro-tts"
-        }
-      ]
-    },
-    {
       "path": "lib/voice/strip-for-speech.ts",
       "dir": "lib/voice",
       "area": "lib",
@@ -17820,8 +18013,7 @@
       "methods": [],
       "route": null,
       "usedBy": [
-        "lib/voice/emit-spoken-gist.ts",
-        "lib/voice/spoken-gist.ts"
+        "lib/voice/emit-spoken-gist.ts"
       ],
       "tests": [
         "lib/voice/__tests__/strip-for-speech.test.ts"
@@ -18646,35 +18838,6 @@
       ]
     },
     {
-      "path": "scripts/eval/harvest-pairs.py",
-      "dir": "scripts/eval",
-      "area": "scripts",
-      "project": "ask",
-      "kind": "script",
-      "purpose": "Harvest per-turn telemetry and answers for browser-driven staging/lab chats.",
-      "purposeSource": "header",
-      "exports": [
-        "sh",
-        "psql",
-        "turns",
-        "latency",
-        "summarise",
-        "main"
-      ],
-      "methods": [],
-      "route": null,
-      "usedBy": [],
-      "tests": [],
-      "docs": [
-        {
-          "page": "/operations/evaluation",
-          "title": "Evaluation harnesses & scripts",
-          "section": "Map of the harnesses",
-          "anchor": "map-of-the-harnesses"
-        }
-      ]
-    },
-    {
       "path": "scripts/eval/judge-flow-arms.py",
       "dir": "scripts/eval",
       "area": "scripts",
@@ -18689,8 +18852,7 @@
       "methods": [],
       "route": null,
       "usedBy": [
-        "scripts/eval/analyze-flow-arms.py",
-        "scripts/eval/harvest-pairs.py"
+        "scripts/eval/analyze-flow-arms.py"
       ],
       "tests": [],
       "docs": [
