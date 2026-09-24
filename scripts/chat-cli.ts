@@ -10,11 +10,23 @@ dotenvConfig({ path: '.env.local' })
 // Constants
 const DEFAULT_MESSAGE = 'Hello, how are you?'
 
+const SEARCH_MODES = [
+  'speed',
+  'balanced',
+  'quality',
+  'quick',
+  'adaptive'
+] as const
+type SearchModeArg = (typeof SEARCH_MODES)[number]
+
 interface ChatApiConfig {
   apiUrl: string
   message: string
   chatId?: string
-  searchMode?: 'quick' | 'adaptive' | boolean
+  // The route's modes (app/api/chat/route.ts). There is NO search-off mode:
+  // Ask always offers search and the query classifier's skipSearch decides
+  // per turn; any unknown cookie value silently falls back to 'balanced'.
+  searchMode?: SearchModeArg
   trigger?: 'submit-message' | 'regenerate-message'
   messageId?: string
 }
@@ -87,7 +99,7 @@ class ChatApiTester {
         this.validateUrl(config.apiUrl) || 'http://localhost:3000/api/chat',
       message: config.message || DEFAULT_MESSAGE,
       chatId: config.chatId || this.generateId(),
-      searchMode: config.searchMode ?? 'adaptive',
+      searchMode: config.searchMode ?? 'balanced',
       trigger: config.trigger || 'submit-message',
       messageId: config.messageId
     }
@@ -167,15 +179,11 @@ class ChatApiTester {
       // If cookies from env exist, append our settings to them
       cookieString = cookies
       if (!cookieString.includes('searchMode=')) {
-        const searchModeValue =
-          this.config.searchMode === false ? 'disabled' : this.config.searchMode
-        cookieString += `; searchMode=${searchModeValue}`
+        cookieString += `; searchMode=${this.config.searchMode}`
       }
     } else {
       // If no cookies from env, just use our settings
-      const searchModeValue =
-        this.config.searchMode === false ? 'disabled' : this.config.searchMode
-      cookieString = [`searchMode=${searchModeValue}`].join('; ')
+      cookieString = [`searchMode=${this.config.searchMode}`].join('; ')
     }
 
     const headers = {
@@ -320,17 +328,23 @@ function parseArgs(): Partial<ChatApiConfig> {
         break
       case '-s':
       case '--search':
-        config.searchMode = 'adaptive'
+        config.searchMode = 'balanced'
         break
       case '--no-search':
-        config.searchMode = false
-        break
+        // Used to send searchMode=disabled, which the route does not know and
+        // silently ran as 'balanced' (i.e. WITH search). Fail loudly instead.
+        console.error(
+          '❌ --no-search is not supported: the chat route has no search-off mode (the query classifier decides per turn whether to search). Use --search-mode speed for the lightest search path.'
+        )
+        process.exit(1)
       case '--search-mode':
         const searchMode = args[++i]
-        if (['quick', 'adaptive'].includes(searchMode)) {
-          config.searchMode = searchMode as 'quick' | 'adaptive'
+        if ((SEARCH_MODES as readonly string[]).includes(searchMode)) {
+          config.searchMode = searchMode as SearchModeArg
         } else {
-          console.error('❌ Invalid search mode. Use: quick or adaptive')
+          console.error(
+            '❌ Invalid search mode. Use: speed, balanced or quality (legacy quick/adaptive also accepted)'
+          )
           process.exit(1)
         }
         break
@@ -357,9 +371,10 @@ Options:
   -m, --message <text>    Message to send (default: "Hello, how are you?")
   -u, --url <url>         API URL (default: http://localhost:3000/api/chat)
   -c, --chat-id <id>      Chat ID (default: auto-generated)
-  -s, --search            Enable search mode with adaptive strategy (default)
-  --no-search             Disable search mode
-  --search-mode <type>    Search strategy: quick or adaptive
+  -s, --search            Use the balanced search mode (default)
+  --search-mode <type>    speed | balanced | quality (legacy quick → speed,
+                          adaptive → balanced). There is no search-off mode.
+  --no-search             Removed — errors out (see --search-mode speed)
   -t, --trigger <type>    Trigger type: submit (default) or regenerate
   --message-id <id>       Message ID (required for regenerate)
   -h, --help              Show this help message
@@ -368,8 +383,8 @@ Examples:
   # Simple test
   bun scripts/chat-cli.ts -m "What is the weather like?"
   
-  # Without search mode
-  bun scripts/chat-cli.ts -m "Tell me a joke" --no-search
+  # Lightest search path
+  bun scripts/chat-cli.ts -m "Tell me a joke" --search-mode speed
   
   # Continue existing chat
   bun scripts/chat-cli.ts -c "chat_123" -m "Tell me more"

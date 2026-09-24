@@ -17,9 +17,11 @@
 # address flagged.
 set -uo pipefail
 
-cd /home/nightfury/selfhosted/ask
+# Lab worktree (fleet-boot/rotate-mullvad.sh lives in it) and the lab SearXNG
+# (:3743, published by ask-gluetun-lab) on NightFuryX (.17), where this runs.
+cd "${ASK_LAB_DIR:-/home/nightfury/selfhosted/ask-flow}" || exit 1
 
-SEARX=http://192.168.50.231:3743
+SEARX="${ASK_LAB_SEARXNG_URL:-http://localhost:3743}"
 Q="linux+kernel+latest+release"
 MAX="${1:-8}"
 SETTLE="${SETTLE:-8}"
