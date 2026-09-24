@@ -14,11 +14,11 @@ import { isTracingEnabled } from '../utils/telemetry'
  * 523 billed kimi-k2.6 requests whose entire output was a sidebar label. That
  * was ~13% of the week's kimi volume, for the least demanding task in the app.
  *
- * granite4.1:8b on the local host is already resident for the memory extractor
- * and pinned warm by keep-warm.sh, so this costs nothing and adds no cold
- * start. If the local host is unreachable the catch below returns the user's
- * own opening words — the same fallback that already covered a cloud failure,
- * so the downside of a miss is a duller title, never a broken chat.
+ * granite4.2:8b (the default below) on the local host is already resident
+ * for the memory extractor and pinned warm by keep-warm.sh, so this costs
+ * nothing and adds no cold start. If the local host is unreachable the catch
+ * below returns the user's own opening words — the same fallback that already
+ * covered a cloud failure, so the downside of a miss is a duller title, never a broken chat.
  *
  * TITLE_MODEL_ID overrides the model; TITLE_USE_CHAT_MODEL=true restores the
  * old behaviour without a redeploy, for the case where a local host does not
