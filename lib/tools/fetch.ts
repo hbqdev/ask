@@ -652,10 +652,19 @@ export function createFetchTool(options?: FetchToolOptions) {
     description:
       'Fetch content from any URL — HTML pages, JavaScript-rendered pages, bot-protected pages, and PDFs are all handled automatically via an internal fallback chain, so there is no need to choose a fetch strategy. The "type" param is accepted for backward compatibility but both values behave identically. For YouTube URLs (youtube.com/watch, youtube.com/shorts, youtu.be), the tool fetches the video\'s transcript/captions instead of the HTML page, so the video\'s actual spoken content becomes available to cite.',
     inputSchema: fetchSchema,
-    async *execute({ url, type: _type = 'regular' }) {
+    async *execute({ url, type: _type = 'regular' }, context) {
       // Total wall time in the tool, reported in `finally` so both a success
       // and the graceful-failure placeholder are measured.
       const fetchStartedAt = performance.now()
+      // The model cites as [number](#toolCallId) and can only copy an id it can
+      // SEE. Search has always echoed its toolCallId in the result; fetch did
+      // not, and the Ollama wire format carries no tool-call id on a tool
+      // result — so a fetched page was structurally uncitable. Measured across
+      // prod history: 0 of 3,950 anchors ever named a fetch call, and messages
+      // with a fetch had ~2x the unresolved-citation rate (19.8% vs 10.9%) —
+      // the model invented ids for fetched pages instead (UUID-shaped,
+      // `fetched_<slug>`, or the page URL itself). Echo it like search does.
+      const toolCallId = context?.toolCallId || undefined
       const urls = normalizeFetchUrls(url)
 
       // Yield initial fetching state. `url` echoes the caller's shape so the UI
@@ -702,7 +711,8 @@ export function createFetchTool(options?: FetchToolOptions) {
 
         yield {
           state: 'complete' as const,
-          ...merged
+          ...merged,
+          ...(toolCallId && { toolCallId })
         }
       } catch (error) {
         const message =
@@ -720,6 +730,7 @@ export function createFetchTool(options?: FetchToolOptions) {
           ],
           query: '',
           images: []
+          // No toolCallId here on purpose: a failed fetch has nothing to cite.
         }
       } finally {
         // Additive telemetry: report total wall time in the tool for this call,

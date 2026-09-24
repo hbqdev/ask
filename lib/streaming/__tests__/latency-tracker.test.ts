@@ -9,6 +9,35 @@ function fakeClock(values: number[]): () => number {
 }
 
 describe('LatencyTracker', () => {
+  it('emits citation counts, with citations_recovered only when non-zero', () => {
+    const lines: string[] = []
+    const t = new LatencyTracker(
+      { chatId: 'c1', mode: 'balanced' },
+      fakeClock([0, 100, 200]),
+      l => lines.push(l)
+    )
+    t.markCitations({ total: 5, unresolved: 1, recovered: 2 })
+    t.emit({})
+    const obj = JSON.parse(lines[0].slice('[latency] '.length))
+    expect(obj).toMatchObject({
+      citations_total: 5,
+      citations_unresolved: 1,
+      citations_recovered: 2
+    })
+
+    const lines2: string[] = []
+    const t2 = new LatencyTracker(
+      { chatId: 'c2', mode: 'balanced' },
+      fakeClock([0, 100, 200]),
+      l => lines2.push(l)
+    )
+    t2.markCitations({ total: 3, unresolved: 0, recovered: 0 })
+    t2.emit({})
+    const obj2 = JSON.parse(lines2[0].slice('[latency] '.length))
+    expect(obj2.citations_total).toBe(3)
+    expect('citations_recovered' in obj2).toBe(false)
+  })
+
   it('emits one [latency] line with marks, ttft, total, and meta', () => {
     const lines: string[] = []
     // start=0, markFirstToken reads 800, emit reads 1500
@@ -337,7 +366,13 @@ describe('LatencyTracker.emit — folded tool timings', () => {
     )
     t.emit({})
     const obj = JSON.parse(lines[0].slice('[latency] '.length))
-    for (const k of ['search_ms', 'crawl_ms', 'enrich_ms', 'rerank_ms', 'fetch_ms']) {
+    for (const k of [
+      'search_ms',
+      'crawl_ms',
+      'enrich_ms',
+      'rerank_ms',
+      'fetch_ms'
+    ]) {
       expect(obj).not.toHaveProperty(k)
     }
   })

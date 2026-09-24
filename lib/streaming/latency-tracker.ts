@@ -42,7 +42,13 @@ export class LatencyTracker {
   // processCitations returns '' for an id it cannot resolve and renders the
   // wrong source for one belonging to another turn — so without a counter here
   // there is no signal at all that citations are failing.
-  private citations: { total: number; unresolved: number } | null = null
+  // `recovered` = anchors that named no tool call but uniquely named one of the
+  // turn's source URLs (resolveByUrlFragment) — rendered, so not unresolved.
+  private citations: {
+    total: number
+    unresolved: number
+    recovered?: number
+  } | null = null
   // Per-turn SUM of tool stage timings (ms), folded in from the search and
   // fetch tools so the turn line is self-contained for step attribution
   // instead of needing a join against the separate [latency:search] line. A
@@ -109,7 +115,11 @@ export class LatencyTracker {
    * Record this turn's citation audit. Absent or empty audits are not emitted,
    * so turns that cited nothing stay out of the denominator.
    */
-  markCitations(audit: { total: number; unresolved: number }): void {
+  markCitations(audit: {
+    total: number
+    unresolved: number
+    recovered?: number
+  }): void {
     this.citations = audit
   }
 
@@ -122,7 +132,10 @@ export class LatencyTracker {
    * case a future stage name collides. Fully guarded: telemetry must never
    * break a turn.
    */
-  addToolTiming(_kind: 'search' | 'fetch', stages: Record<string, number>): void {
+  addToolTiming(
+    _kind: 'search' | 'fetch',
+    stages: Record<string, number>
+  ): void {
     try {
       for (const [k, v] of Object.entries(stages)) {
         if (k.endsWith('_ms') && typeof v === 'number' && Number.isFinite(v)) {
@@ -247,7 +260,9 @@ export class LatencyTracker {
             ingest_ms: answerWait
           }),
           ...(genMs !== null && { gen_ms: genMs }),
-          ...(typeof firstStepAt === 'number' && { first_step_ms: firstStepAt }),
+          ...(typeof firstStepAt === 'number' && {
+            first_step_ms: firstStepAt
+          }),
           // Search/fetch stage timings folded in from the tools (summed across
           // this turn's calls), so the turn line stands alone for attribution.
           ...foldedToolTimings,
@@ -264,7 +279,10 @@ export class LatencyTracker {
           ...(this.citations !== null &&
             this.citations.total > 0 && {
               citations_total: this.citations.total,
-              citations_unresolved: this.citations.unresolved
+              citations_unresolved: this.citations.unresolved,
+              ...(this.citations.recovered
+                ? { citations_recovered: this.citations.recovered }
+                : {})
             }),
           total_ms: total,
           // Present only on aborted turns. blank_abort distinguishes "the user

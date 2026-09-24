@@ -7,8 +7,10 @@ import {
   auditCitations,
   collapseCitationArtifacts,
   extractCitationMaps,
+  extractCitedSourceUrls,
   isCitationLabel,
-  processCitations
+  processCitations,
+  resolveByUrlFragment
 } from '../citation'
 
 describe('processCitations', () => {
@@ -343,7 +345,7 @@ describe('auditCitations', () => {
       ])
     )
 
-    expect(result).toEqual({ total: 1, own: 1, unresolved: 0 })
+    expect(result).toEqual({ total: 1, own: 1, recovered: 0, unresolved: 0 })
   })
 
   it('counts an invented slug as unresolved even when a real call exists', () => {
@@ -359,7 +361,7 @@ describe('auditCitations', () => {
       ])
     )
 
-    expect(result).toEqual({ total: 1, own: 0, unresolved: 1 })
+    expect(result).toEqual({ total: 1, own: 0, recovered: 0, unresolved: 1 })
   })
 
   it('counts an anchor from another turn as unresolved', () => {
@@ -373,7 +375,7 @@ describe('auditCitations', () => {
       ])
     )
 
-    expect(result).toEqual({ total: 1, own: 0, unresolved: 1 })
+    expect(result).toEqual({ total: 1, own: 0, recovered: 0, unresolved: 1 })
   })
 
   it('counts a fabricated anchor as unresolved', () => {
@@ -384,7 +386,7 @@ describe('auditCitations', () => {
       ])
     )
 
-    expect(result).toEqual({ total: 1, own: 0, unresolved: 1 })
+    expect(result).toEqual({ total: 1, own: 0, recovered: 0, unresolved: 1 })
   })
 
   it('ignores a bare anchor with no citation number, which is never processed', () => {
@@ -398,7 +400,7 @@ describe('auditCitations', () => {
       ])
     )
 
-    expect(result).toEqual({ total: 0, own: 0, unresolved: 0 })
+    expect(result).toEqual({ total: 0, own: 0, recovered: 0, unresolved: 0 })
   })
 
   it('resolves through a provider prefix on either side', () => {
@@ -409,7 +411,7 @@ describe('auditCitations', () => {
       ])
     )
 
-    expect(result).toEqual({ total: 2, own: 2, unresolved: 0 })
+    expect(result).toEqual({ total: 2, own: 2, recovered: 0, unresolved: 0 })
   })
 
   it('tallies a mix across several text parts', () => {
@@ -422,7 +424,7 @@ describe('auditCitations', () => {
       ])
     )
 
-    expect(result).toEqual({ total: 4, own: 2, unresolved: 2 })
+    expect(result).toEqual({ total: 4, own: 2, recovered: 0, unresolved: 2 })
   })
 
   it('treats a fetch tool call as citable', () => {
@@ -436,7 +438,7 @@ describe('auditCitations', () => {
       ])
     )
 
-    expect(result).toEqual({ total: 1, own: 1, unresolved: 0 })
+    expect(result).toEqual({ total: 1, own: 1, recovered: 0, unresolved: 0 })
   })
 
   it('does not treat a non-citable tool as resolvable', () => {
@@ -449,15 +451,106 @@ describe('auditCitations', () => {
       ])
     )
 
-    expect(result).toEqual({ total: 1, own: 0, unresolved: 1 })
+    expect(result).toEqual({ total: 1, own: 0, recovered: 0, unresolved: 1 })
   })
 
   it('returns zeros for a message with no parts', () => {
-    expect(auditCitations({})).toEqual({ total: 0, own: 0, unresolved: 0 })
+    expect(auditCitations({})).toEqual({
+      total: 0,
+      own: 0,
+      recovered: 0,
+      unresolved: 0
+    })
     expect(auditCitations({ parts: [] })).toEqual({
       total: 0,
       own: 0,
+      recovered: 0,
       unresolved: 0
     })
+  })
+})
+
+describe('URL-fragment anchors (resolveByUrlFragment)', () => {
+  // Real prod shapes: the model could not see the fetch call's id, so it
+  // named the page by (part of) its URL instead.
+  const searchPart = (id: string, urls: string[]) => ({
+    type: 'tool-search',
+    toolCallId: id,
+    state: 'output-available',
+    output: {
+      results: urls.map((url, i) => ({ title: `t${i}`, url, content: 'c' }))
+    }
+  })
+  const zhihu = 'https://zhuanlan.zhihu.com/p/2022269238895736170'
+  const bike = 'https://1up-usa.com/how-to-change-a-bike-tire'
+  const maps = {
+    's-1': {
+      1: { title: 'a', url: zhihu, content: '' },
+      2: { title: 'b', url: bike, content: '' },
+      3: { title: 'c', url: 'https://learn.microsoft.com/a', content: '' },
+      4: { title: 'd', url: 'https://learn.microsoft.com/b', content: '' }
+    }
+  }
+
+  it('resolves an id that is a fragment of exactly one source URL', () => {
+    expect(resolveByUrlFragment('2022269238895736170', maps)?.url).toBe(zhihu)
+    expect(
+      resolveByUrlFragment('1up-usa.com/how-to-change-a-bike-tire', maps)?.url
+    ).toBe(bike)
+    expect(
+      resolveByUrlFragment(
+        'https://www.1up-usa.com/how-to-change-a-bike-tire/',
+        maps
+      )?.url
+    ).toBe(bike)
+  })
+
+  it('refuses ambiguous, short, UUID-shaped and invented ids', () => {
+    expect(resolveByUrlFragment('learn.microsoft.com', maps)).toBeUndefined()
+    expect(resolveByUrlFragment('zhihu', maps)).toBeUndefined() // < 6 chars
+    expect(
+      resolveByUrlFragment('46bdb6f3-94b7-4dca-93a3-1a1b95d4faf2', maps)
+    ).toBeUndefined()
+    expect(resolveByUrlFragment('fetched_brenndoerfer', maps)).toBeUndefined()
+    expect(resolveByUrlFragment('aHvy9Vt17r3VSmnG', maps)).toBeUndefined()
+  })
+
+  it('processCitations renders a URL-fragment anchor as its source', () => {
+    const out = processCitations(
+      'Timeline. [9](#2022269238895736170) Invented. [1](#fetched_x)',
+      maps
+    )
+    expect(out).toContain(`](${encodeURI(zhihu)})`)
+    expect(out).not.toContain('fetched_x')
+  })
+
+  it('an own toolCallId still wins over URL matching', () => {
+    const out = processCitations('Fact. [2](#s-1)', maps)
+    expect(out).toContain(`](${encodeURI(bike)})`)
+  })
+
+  it('auditCitations counts a recovered anchor separately, not as unresolved', () => {
+    const result = auditCitations({
+      parts: [
+        searchPart('s-1', [zhihu, bike]),
+        {
+          type: 'text',
+          text: 'A [1](#s-1). B [9](#2022269238895736170). C [1](#made-up-id).'
+        }
+      ]
+    })
+    expect(result).toEqual({ total: 3, own: 1, recovered: 1, unresolved: 1 })
+  })
+
+  it('extractCitedSourceUrls includes a recovered source', () => {
+    const urls = extractCitedSourceUrls({
+      id: 'm',
+      role: 'assistant',
+      parts: [
+        searchPart('s-1', [zhihu, bike]),
+        { type: 'text', text: 'B [9](#2022269238895736170).' }
+      ]
+    } as any)
+    expect(urls).toEqual([zhihu])
   })
 })
