@@ -22,6 +22,8 @@ host **NightFuryX (192.168.50.17)** unless stated otherwise; other hosts are rea
 
 ## What automation already exists
 
+Each script is described in detail in [Fleet scripts](/operations/fleet-scripts).
+
 Knowing what self-heals tells you what *should* have happened before you intervene.
 
 | Mechanism | Where | When | What it does |
@@ -29,11 +31,13 @@ Knowing what self-heals tells you what *should* have happened before you interve
 | `restart: unless-stopped` | every container | always | Restarts crashed containers (does **not** fix a container attached to a stale/wrong network, and gives up after its backoff). |
 | `ask-fleet-boot.service` → `~/ask-fleet-boot.sh` | .17, .160, .171, .231 (all synced by `fleet-boot/deploy.sh`) | once per boot (systemd oneshot) | Host-aware reconcile. On **.17**: waits for Docker, reconciles `reranker-qwen`, the three ingestors (`ingestor`, `ingestor-staging`, `ingestor-lab`), `ask-whisper`; warms `qwen3-vl:4b`; ensures the Whisper model; after a 15 s settle runs `reconcile_app_stack` for prod/staging/lab (up → force-recreate → down/up, gated on health); `ensure_vpn_search` retries gluetun+searxng 6×10 s per stack; reconciles `model-manager`. On **.160**: reconciles `embedder`. On **.171**: warms `granite4.2:8b`. On **.231**: reconciles `crawl4ai` and `flaresolverr` only. Source: `fleet-boot/ask-fleet-boot.sh`. |
 | Docker healthcheck | `ask*` containers | every 30 s | `GET /api/health` (liveness only). Marks unhealthy but does **not** restart. |
+| `memory-consolidate-nightly.sh` | .17 cron `45 3 * * *` (`prod staging lab`) | daily | Memory consolidation sweep (exact-duplicate removal + per-user cap) via `POST /api/memory/consolidate`; each env's `MEMORY_CRON_SECRET` is read from its own `.env` and sent on stdin. 503 = secret unset, 401 = mismatch. Log: `~/.local/state/fleet-boot/memory-consolidate.log`. |
 | `expire-uploads-daily.sh` | .17 cron `15 4 * * *` | daily | Upload TTL sweep on :3738/:3739/:3742. Log: `~/.local/state/fleet-boot/expire-uploads-daily.log`. |
 | `docker-maintenance.sh` | .17 cron `30 4 * * *` | daily | Dangling-image prune, 7-day build-cache prune, disk warning ≥ 85 %, btree `amcheck`. Log: `~/logs/docker-maintenance.log`. |
 | `rotate-daily.sh` | .17 cron `0 5 * * *` (`ask-prod ask-staging ask-lab`); .231 cron `0 5 * * *` runs `~/fleet-boot/rotate-daily.sh public-searxng degoog` (a copy synced by `deploy.sh`) | daily | Rotates the named stacks' Mullvad exits and clears Ask's per-engine health suspensions. Log: `~/.local/state/fleet-boot/rotate-daily.log`. |
 | `update-ollama-fleet.sh` | .17 cron `30 3 * * 0` | weekly | Upgrades native Ollama on all four hosts and re-pins resident models. Log: `~/.local/state/fleet-boot/update-ollama.log`. |
-| `fleet-update-ask.timer` | .17 systemd | Sun 04:30 | Pulls + recreates prod/staging **sidecar** images (never the app). Log: `/home/nightfury/selfhosted/logs/update-ask.log`. |
+| `fleet-update-ask.timer` → `update-ask.sh` | .17 systemd | Sun 04:30 | Pulls + recreates **sidecar** images (never the app) for lab (canary), then prod, then staging; a failed stack does not stop the next. The lab recreate drops any shell-set `FLOW_VARIANT`. Log: `/home/nightfury/selfhosted/logs/update-ask.log`. (The lab step is on `flow-design` since 2026-09-24 and runs once ported to `dev`.) |
+| `fleet-update-public-search.timer` | .231 systemd (installed by `deploy.sh`) | Sun 04:00 | Runs `~/fleet-boot/update-public-search.sh` (pull + recreate the public SearXNG and degoog stacks) and `check-crawl4ai-version.sh` (reports a newer crawl4ai release; the pin is not changed automatically). |
 | `memory-watchdog.sh` | .231 cron `*/15` | every 15 min | Restarts `crawl4ai` above 80 % of its 8 GiB cgroup limit. Log: `~/logs/crawl4ai-watchdog.log` on .231. |
 | `lan_automation` fleet-boot/sentinel | .17 systemd (outside this repo) | boot + every 15 min | Monitors all stacks; for Ask it defers recovery to `ask-fleet-boot.service`. |
 
@@ -291,12 +295,14 @@ Interpretation:
   `~/ask-fleet-boot.sh` there (it reconciles that host's containers), or
   `docker compose -f /home/nightfury/selfhosted/<service>/docker-compose.yaml up -d`.
 
-::: warning Observed 2026-09-22
+::: tip Observed 2026-09-22, fixed 2026-09-23
 Serenity's Ollama (`.171`) was running with `granite4.2:8b` resident but listening on
 `127.0.0.1:11434` only, so the app containers got `ECONNREFUSED`. The existing drop-in
-(`ollama.service.d/parallel.conf`) sets `OLLAMA_NUM_PARALLEL` and
-`OLLAMA_CONTEXT_LENGTH` but not `OLLAMA_HOST`. When this started, and its user impact,
-were not established.
+(`ollama.service.d/parallel.conf`) sets `OLLAMA_NUM_PARALLEL` and `OLLAMA_CONTEXT_LENGTH`
+but not `OLLAMA_HOST`. The fix is a second drop-in, `ollama.service.d/host.conf`, with
+`Environment=OLLAMA_HOST=0.0.0.0:11434`, followed by a re-pin of `granite4.2:8b`. The owner
+accepted the resulting unauthenticated LAN exposure. When the bind was lost originally was
+not established.
 :::
 
 ---
@@ -409,25 +415,25 @@ instant-rollback image tag: [Deploy › Rollback](/operations/deploy#rollback).
 
 ## Retired stacks on .231
 
-**Resolved 2026-09-23.** The pre-migration `ask-stack`, `ask-stack-admin-feature` and
-`ask-stack-lab` containers on MiniNightFury (`.231`) were stopped and removed. They had been
-recreated at .231's 2026-09-16 boot by a stale `~/ask-fleet-boot.sh`, because
-`fleet-boot/deploy.sh` never pushed to .231. It does now, and .231's `MiniNightFury` case
-reconciles only `crawl4ai` and `flaresolverr`. The legacy cron lines (`ask-expire-uploads.sh`,
-rotation of the retired gluetuns) are gone.
+**Resolved 2026-09-23, cleaned up 2026-09-24.** The pre-migration `ask-stack`,
+`ask-stack-admin-feature` and `ask-stack-lab` containers on MiniNightFury (`.231`) were stopped
+and removed on 2026-09-23. They had been recreated at .231's 2026-09-16 boot by a stale
+`~/ask-fleet-boot.sh`, because `fleet-boot/deploy.sh` never pushed to .231. It does now, and
+.231's `MiniNightFury` case reconciles only `crawl4ai` and `flaresolverr`. The legacy cron lines
+(`ask-expire-uploads.sh`, rotation of the retired gluetuns) are gone.
 
-Their **volumes were kept** (`ask-postgres-data*`, `ask-redis-data*`, `ask-uploads*`,
-`ask-model-cache*`, `ask-searxng-data*`). The three Postgres volumes are ~49 MB each and hold a
-stale copy of user data. Removing them is an owner decision:
+On 2026-09-24 their volumes, their images and the old `ask`, `ask-prod` and `ask-flow`
+checkouts on .231 were deleted too. An archive of the DB and upload volumes from the original
+retirement is on .17 at `/home/nightfury/backups/ask-231-retire-2026-08-28/`. The 42 commits
+that existed only in .231's lab checkout are local branches on .17
+(`archive/231-flow-design-pipeline`, `archive/231-wip-context-latency-budget`). See
+[D35](/history/decisions#d35-retire-and-remove-the-231-ask-stacks).
+
+**If anything `ask`-named ever reappears on .231**, check that .231's boot script matches the
+repo, then re-deploy:
 
 ```bash
-ssh nightfury@192.168.50.231 'docker volume ls -q | grep "^ask-"'
-# only when you are sure: ... | xargs docker volume rm
-```
-
-**If they ever reappear**, check that .231's boot script matches the repo, then re-deploy:
-
-```bash
+ssh nightfury@192.168.50.231 'docker ps -a --format "{{.Names}}" | grep -i "^ask"; docker volume ls -q | grep "^ask-"'
 ssh nightfury@192.168.50.231 'cat ~/ask-fleet-boot.sh' | diff - /home/nightfury/selfhosted/ask-prod/fleet-boot/ask-fleet-boot.sh
 bash /home/nightfury/selfhosted/ask-prod/fleet-boot/deploy.sh
 ```

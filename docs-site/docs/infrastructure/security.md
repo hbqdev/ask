@@ -57,7 +57,16 @@ There's **no `script-src` CSP**. The markdown sanitiser is the only XSS barrier 
 - **Supabase** (prod and staging, `ENABLE_AUTH=true`). `getCurrentUserId()`
   (`lib/auth/get-current-user.ts`) calls `supabase.auth.getUser()`, which **verifies the session
   with Supabase servers**. The app never trusts the unverified `getSession()` cookie payload. The
-  middleware (`proxy.ts`) refreshes session cookies.
+  middleware (`proxy.ts` → `updateSession`) refreshes session cookies.
+- **Middleware page gate** (fixed 2026-09-24). `updateSession` redirects a signed-out visitor to
+  `/auth/login` unless the path is public (`isPublicPath`, `lib/supabase/middleware.ts:20-36`):
+  `/` exactly, or a whole-segment match on `/auth`, `/share`, `/api`, `/search`, `/discover`,
+  `/library`, `/uploads`. Before the fix `'/'` sat in a `startsWith` list, every path matched it,
+  and the gate never fired. The visible change is small, because every existing page and route
+  already checks for itself: a signed-out visitor to an unknown or newly added path is now sent to
+  login. The gate is **defence in depth, not the access control**. Pages and `/api` routes must
+  still authorise themselves (see [auth & accounts](/request-lifecycle/auth-and-accounts#middleware-proxy-ts)).
+  With `ENABLE_AUTH=false` (the lab) it never redirects.
 - **No route accepts a user id from the request.** Every route derives it from the session, so
   there's no IDOR by parameter.
 - **CSRF:** Server Actions are same-origin-checked by Next.js, and cookies are `SameSite=Lax`.
@@ -207,7 +216,7 @@ These services accept unauthenticated requests from any LAN host (and, through t
 
 | Service | Port | Risk | Recommended fix |
 |---|---|---|---|
-| Ollama (.17, also .160/.171/.231) | `:11434` | **Financial:** any LAN host can `POST /api/generate` with a `:cloud` model and drain the Ollama Cloud balance. Also free GPU inference | Windows Defender Firewall inbound rule on the Windows host allowing only fleet hosts (WSL port forwards appear as Windows listeners). Can't bind loopback: the app and ingestors call it cross-host or via the Docker host gateway |
+| Ollama (.17, also .160/.171/.231; .171's LAN bind was restored 2026-09-23 with the exposure accepted by the owner) | `:11434` | **Financial:** any LAN host can `POST /api/generate` with a `:cloud` model and drain the Ollama Cloud balance. Also free GPU inference | Windows Defender Firewall inbound rule on the Windows host allowing only fleet hosts (WSL port forwards appear as Windows listeners). Can't bind loopback: the app and ingestors call it cross-host or via the Docker host gateway |
 | Whisper STT (.17) | `:8788` | Free GPU; its OpenAI-compatible API can **pull arbitrary Hugging Face models** (disk fill) | Bind to the LAN IP of the calling host or firewall; or add a token like the reranker's |
 | Kokoro TTS (.17) | `:8890`, `:3744` | Free GPU | Same |
 | Per-env SearXNG UI (via gluetun) | `:3741`, `:3740`, `:3743` | Open search proxy egressing through the paid Mullvad exit (burns its IP reputation); `searxng-limiter.toml` is a stub | Bind to loopback or firewall; the app reaches SearXNG by container DNS, not the host port |
@@ -243,11 +252,10 @@ from the ingest token (a small code change, not yet made): `/api/advanced-search
 `INGEST_API_TOKEN` means the app's own search credential can also read files.
 :::
 
-::: warning World-readable env backups (observed 2026-09-22)
-The 2026-09-15 fix set the live `.env` files to 0600, but `ingestor/.env.staging`,
-`ingestor/.env.lab`, `ingestor/.env.bak` and `ingestor/.env.premigfix` are still mode
-**0664**, and all of them contain `INGEST_API_TOKEN`. Run `chmod 600` on them (or delete the
-two backups).
+::: tip World-readable env backups (observed 2026-09-22, since fixed)
+On 2026-09-22 `ingestor/.env.staging`, `.env.lab`, `.env.bak` and `.env.premigfix` were still
+mode 0664 (they carry `INGEST_API_TOKEN`). As of 2026-09-24 every `ingestor/.env*` file is
+**0600**. Keep new env files and backups at 0600.
 :::
 
 Some keys (search, crawl, reranker, embedding, ingest, cron, Supabase secret, Replicate,
@@ -263,7 +271,17 @@ scheduled for rotation. See runbook section B.
 - **Calculator:** input capped at 512 characters, and power towers (`9^9^9^9`) are rejected, so
   mathjs can't stall the single event loop. There's no hard synchronous timeout. That would need
   a worker thread.
-- **Model-manager:** `/api/apply` checks the session per handler as well as in middleware.
+- **Model-manager** (hardened 2026-09-24, see [Model Manager](/infrastructure/model-manager#authentication)):
+  - Sessions are a random id per login (`<id>.<issuedAt>.<hmac>`), allowlisted in a server-side
+    store with a 24 h expiry. Logout revokes the session; recreating the container or changing the
+    HMAC key logs everyone out. Previously the cookie value was the same for every login and stayed
+    valid until the password changed.
+  - `/api/apply` **and** `/api/restore` check the session in the handler as well as in the proxy.
+  - `/api/restore` accepts only a backup the app itself wrote (same directory as `.env`, name
+    `<env>.bak.<ISO stamp>`, currently listed), so `../` paths and arbitrary files cannot be
+    copied over prod's `.env`. It snapshots the current `.env` before restoring.
+  - A secret can be cleared only through an explicit **Clear this secret** action, and never for a
+    var marked `required` (none is marked yet; see the warning on the Model Manager page).
 
 ## Ops runbook summary
 

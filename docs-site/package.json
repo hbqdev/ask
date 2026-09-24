@@ -6,7 +6,7 @@
     "docs:dev": "vitepress dev --host 0.0.0.0",
     "docs:build": "vitepress build",
     "docs:preview": "vitepress preview --host 0.0.0.0 --port 3750",
-    "gen": "bun scripts/gen/index.ts",
+    "gen": "bun scripts/gen/index.ts && bun scripts/gen/code-map.ts",
     "check": "vitepress build && bun scripts/check-links.ts"
   },
   "devDependencies": {

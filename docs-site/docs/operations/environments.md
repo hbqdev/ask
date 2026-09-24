@@ -130,17 +130,19 @@ only intended *behavioural* differences are env vars. Two consequences:
    lab is a genuinely separate branch, so lab-vs-staging comparisons compare code.
 
 Current notable differences (verified from the running containers with
-`docker exec <c> printenv <NAME>` on 2026-09-22):
+`docker exec <c> printenv <NAME>` on 2026-09-22; the rows touched by the 2026-09-23 fixes were
+re-checked on 2026-09-24). `CRAWL4AI_URL` (`http://192.168.50.231:11235`) is now the same in all
+three envs; the staging overlay pinned an unresolvable `http://crawl4ai:11235` until 2026-09-23.
 
 | Variable | Prod | Staging | Lab | Why |
 |---|---|---|---|---|
 | `ENABLE_AUTH` | `true` | `true` | `false` | Lab is driven by scripts without a browser session. |
 | `SEARCH_QUALITY_FILTER` | `strict` | `relaxed` | `relaxed` | Prod's answering model is slow at prompt processing, so context size is the binding cost; prod stays conservative. |
 | `SEARXNG_CRAWL_MULTIPLIER` | `2` | `4` | `4` | Same reason (candidate pool size). |
-| `CLASSIFIER_OLLAMA_BASE_URL` | `.17:11434` | `.231:11434` | `.231:11434` | Staging/lab overlays hardcode it; prod takes it from `.env`. |
-| `CRAWL4AI_URL` | `.231:11235` | `http://crawl4ai:11235` (does not resolve — see [Local dev](/getting-started/local-dev#how-the-app-reaches-fleet-services)) | `.231:11235` | Staging overlay predates the host migration. |
+| `CLASSIFIER_OLLAMA_BASE_URL` | `.17:11434` | `.17:11434` | `.17:11434` | Same value everywhere; staging/lab overlays hardcode it (they pointed at `.231` until 2026-09-23), prod takes it from `.env`. |
+| `FLARESOLVERR_URL` | `.231:8191` | `.231:8191` | `.231:8191` | From `.env`. Before 2026-09-23 it was `http://flaresolverr:8191`, which does not resolve on .17. |
 | `TTS_SERVICE_URL` | `.17:8890` | `.17:8890` | `ask-tts-lab:8880` | Lab has its own TTS container. |
-| `SEARXNG_FALLBACK_API_URL` | `http://searxng:8080` | same | empty | Lab refuses silent failover so an A/B arm is never measured on a different index. |
+| `SEARXNG_FALLBACK_API_URL` | `http://192.168.50.231:8127` (public SearXNG) | same | empty | Lab refuses silent failover so an A/B arm is never measured on a different index. Before 2026-09-23 prod/staging had `http://searxng:8080`, which does not resolve on .17. |
 | Lab-only knobs | — | — | `FLOW_VARIANT`, `FLOW_ARCH`, `PIPELINE_SOURCE_CHARS`, shell-overridable `SEARCH_*` toggles | A/B arms against one build. |
 
 The full per-env flag table is on [Env flags reference](/reference/env-flags) and
@@ -148,10 +150,11 @@ The full per-env flag table is on [Env flags reference](/reference/env-flags) an
 
 ::: warning Each env's config lives in its own worktree
 The lab worktree also contains copies of `docker-compose.yaml` and
-`docker-compose.admin-feature.yaml`, and they drift. As of 2026-09-22 the lab's copy of
-the base file still says `TTS_SERVICE_URL` `.231:8890` and `DEGOOG_ENABLED: 'true'`,
-whereas prod's (in `ask-prod`) says `.17:8890` and `'false'`. Always read or edit an
-environment's config **in that environment's worktree**, and treat
+`docker-compose.admin-feature.yaml`, and they drift. They had drifted (the lab's base file
+still said `TTS_SERVICE_URL` `.231:8890` and `DEGOOG_ENABLED: 'true'`) until 2026-09-24, when
+both were synced to the committed prod (`dev`) and staging (`admin-feature`) versions. They
+will drift again whenever a prod or staging compose change is not copied back. Always read or
+edit an environment's config **in that environment's worktree**, and treat
 `docker exec <container> printenv` as the final word.
 :::
 
@@ -183,15 +186,15 @@ Where a value is set, in order of precedence:
 Other fleet hosts (`.160` embedder, `.171` local LLM, `.231` crawl4ai + public search)
 are described in [Fleet](/infrastructure/fleet).
 
-::: warning Retired stacks are running again on .231
-The pre-migration copies of all three stacks on MiniNightFury (`.231`, same container
-names and ports) were retired on 2026-08-27, but were found **running** on 2026-09-22
-(up since that host's 2026-09-16 boot). The cause is that `.231` still has an **old**
-`~/ask-fleet-boot.sh` whose `MiniNightFury` branch reconciles the app stacks;
-`fleet-boot/deploy.sh` does not target `.231`, so the fix never reached it. Nothing
-public routes to them, but they duplicate load and can confuse anyone who opens
-`http://192.168.50.231:3738`. When checking an environment by port, use `.17`
-(or `localhost` on .17). See [Runbooks](/operations/runbooks#retired-stacks-on-231).
+::: tip No Ask stacks on .231 any more
+The pre-migration copies of all three stacks on MiniNightFury (`.231`, same container names and
+ports) were retired on 2026-08-27, came back at that host's 2026-09-16 boot through a stale
+`~/ask-fleet-boot.sh`, and were **removed** on 2026-09-23 (containers, networks) and 2026-09-24
+(volumes, images and the old checkouts). `fleet-boot/deploy.sh` now syncs .231, whose boot case
+reconciles only `crawl4ai` and `flaresolverr`. Every Ask environment runs on `.17`; when checking
+one by port, use `192.168.50.17` (or `localhost` on .17). See
+[Runbooks](/operations/runbooks#retired-stacks-on-231) and
+[D35](/history/decisions#d35-retire-and-remove-the-231-ask-stacks).
 :::
 
 ## Test account

@@ -83,7 +83,7 @@ sequenceDiagram
 
 `components/chat.tsx` owns the conversation via the AI SDK's `useChat`
 (`components/chat.tsx:212`). The composer (`chat-panel.tsx`) calls `onSubmit`
-(`chat.tsx:842`), which builds a user message from the text plus any uploaded file
+(`chat.tsx:851`), which builds a user message from the text plus any uploaded file
 parts and sends it through `safeSendMessage` (`chat.tsx:491`). The transport's
 `prepareSendMessagesRequest` (`chat.tsx:232`) shapes the body:
 
@@ -126,7 +126,7 @@ for why that matters.
 
 ## 3. Load chat and ownership {#_3-load-chat-and-ownership}
 
-`lib/streaming/create-chat-stream-response.ts:165`. Only for follow-ups:
+`lib/streaming/create-chat-stream-response.ts:169`. Only for follow-ups:
 
 - `waitForStoppedTurn(chatId)` — if the previous turn in this chat was just Stopped,
   wait (bounded, 5s) for its partial to be saved, so the new turn's history contains
@@ -155,7 +155,7 @@ New chats skip the read entirely.
 ## 5. Classifier {#_5-classifier}
 
 Kicked off **before** the stream opens and awaited only just before the agent is
-built (`create-chat-stream-response.ts:271-295`), so it overlaps message prep.
+built (`create-chat-stream-response.ts:275-299`), so it overlaps message prep.
 
 `classifyQuery` (`lib/agents/query-classifier.ts:245`) runs a fixed model (not the
 user's chat model) on the last ~20 messages and returns:
@@ -186,14 +186,14 @@ generate the fused expansions ran a ~4.6s median before the soft budget existed.
 ## 6. Inside the stream: attachments, pruning, truncation {#_6-inside-the-stream-attachments-pruning-truncation}
 
 From here on everything runs inside `createUIMessageStream({ execute })`
-(`create-chat-stream-response.ts:334`). That is a deliberate UX choice: the browser
+(`create-chat-stream-response.ts:338`). That is a deliberate UX choice: the browser
 receives a `start` chunk immediately and the pre-answer waits are rendered as
 steps instead of dead air.
 
 1. `start` chunk with `messageMetadata {traceId, searchMode, modelId}`.
 2. Strip spec blocks from history; for OpenAI models also strip reasoning parts.
 3. **Attachments** — if any user message has file parts, emit `data-attachments`
-   (running → done) around `transformFileParts` (`helpers/transform-file-parts.ts:356`):
+   (running → done) around `transformFileParts` (`helpers/transform-file-parts.ts:361`):
    PDFs/docs become ranked chunks (collected into `documentSources` for citation),
    images become data URIs for vision models, worker-path files may wait for the
    ingestor (`INGEST_WAIT_TIMEOUT_MS`, code default 30s). Vision capability is only
@@ -211,7 +211,7 @@ steps instead of dead air.
 
 ## 7. Recall race {#_7-recall-race}
 
-`create-chat-stream-response.ts:482-561`. After `await classificationPromise`:
+`create-chat-stream-response.ts:486-569`. After `await classificationPromise`:
 
 - `chooseRecall` (`helpers/choose-recall.ts`): `gated` if `skipSearch` (no rerank);
   `speculative` if the effective query equals the raw text (rerank the candidates
@@ -238,7 +238,7 @@ is rewritten as `done` with the decision and duration.
 
 ## 8. Attached documents and pasted URLs {#_8-attached-documents-and-pasted-urls}
 
-`create-chat-stream-response.ts:614-770`. Document chunks from step 6 and **this turn's**
+`create-chat-stream-response.ts:624-780`. Document chunks from step 6 and **this turn's**
 pasted URLs (`data-sourceUrl` parts, fetched + ranked by `retrieveUrlChunks`, top 10)
 are merged, deduped by a deterministic `sourceId`, relative URLs dropped, capped at
 `MAX_INJECTED_DOC_SOURCES = 8` (newest kept), then **token-budgeted**
@@ -257,7 +257,7 @@ tool the model can call — it only ever appears this way. Details:
 ## 9. Turn mode and tools {#_9-turn-mode-and-tools}
 
 `researcher()` = `createResearcher` (`lib/agents/researcher.ts`) builds a
-`ToolLoopAgent` (`researcher.ts:822`). `resolveTurnMode` (`researcher.ts:142`):
+`ToolLoopAgent` (`researcher.ts:842`). `resolveTurnMode` (`researcher.ts:146`):
 
 | Turn mode | When | Prompt | Advertised tools (`activeTools`) | maxSteps |
 |---|---|---|---|---|
@@ -270,7 +270,7 @@ tool the model can call — it only ever appears this way. Details:
 `generateImage` is added in every mode when image generation is configured **and**
 there is a user id. `askQuestion` is in the tools map but never advertised.
 
-The tools map (`researcher.ts:770`) always contains **every** tool:
+The tools map (`researcher.ts:786`) always contains **every** tool:
 `search, fetch, askQuestion, calculate, get_weather, remember, recall,
 [generateImage], todoWrite`.
 
@@ -300,7 +300,7 @@ Other per-turn wiring:
 
 ## 10. The tool loop and its caps {#_10-the-tool-loop-and-its-caps}
 
-`researchAgent.stream(...)` (`create-chat-stream-response.ts:858`). No forced
+`researchAgent.stream(...)` (`create-chat-stream-response.ts:868`). No forced
 `toolChoice` and no "done" tool: the loop ends when the model replies with plain
 text. Three independent limits keep it bounded:
 
@@ -330,7 +330,7 @@ is detailed in [Streaming](/request-lifecycle/streaming).
 
 ## 12. onFinish: persist, then learn {#_12-onfinish-persist-then-learn}
 
-`create-chat-stream-response.ts:931`, in order:
+`create-chat-stream-response.ts:941`, in order:
 
 1. `unregisterGeneration` (only removes the entry if it is still this turn's controller).
 2. Wait ≤1s for token usage; audit citations (own vs unresolved anchors); emit the `[latency]` line.

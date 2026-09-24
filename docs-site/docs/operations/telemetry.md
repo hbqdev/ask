@@ -97,6 +97,7 @@ the moment the tracker was created, which is right before `prepareMessages`.
 | `last_prompt_tokens` | Input tokens of the **final** step, i.e. the answering prompt. **Use this to judge a change to prompt size** |
 | `completion_tokens` | Output tokens summed across steps, **including reasoning**. Use this to judge a change to reasoning or `ANSWER_THINK` |
 | `citations_total`, `citations_unresolved` | Citation anchors in the answer, and how many name a `toolCallId` this turn never produced. Those anchors were **invented** by the model and render as nothing or as the wrong source. Only written when the answer has at least one citation |
+| `citations_recovered` | Since 2026-09-24. Anchors that named no tool call of this turn but named exactly one of its source URLs, and were therefore rendered by `resolveByUrlFragment` (`lib/utils/citation.ts:66`). Not counted in `citations_unresolved`. **Omitted when 0** (`lib/streaming/latency-tracker.ts:283-285`), so its absence is normal |
 | `total_ms` | Wall time from tracker creation to `onFinish`. Always present |
 | `abort_silence_ms`, `blank_abort` | Only on aborted turns: how long the turn was silent before the abort, and whether any prose had been written. Silence ≥120s with no prose looks like a provider stall; a short silence is a user pressing Stop or a disconnect |
 
@@ -259,11 +260,15 @@ Observations from that sample worth watching:
 - **`recall_budget_hit` was `true` on 31 of 46 turns**, with a real `recall_ms`
   of ~5.5s. The 1500ms cap protects latency as intended, but on most turns
   the past-conversation context was dropped. See [Memory & recall](/knowledge/memory-recall).
-  Fixed on lab 2026-09-23 (recall about 1.3 s, see
+  Fixed and shipped 2026-09-23 (recall about 1.3 s, see
   [recall latency](/knowledge/memory-recall#recall-latency)).
 - **10 of 46 turns had `citations_unresolved > 0`**, i.e. invented anchors. One
   had 16 of 44, and another had 8 of 8. The invented anchors came from several
   models.
+  Most were traced to three pipeline causes, fixed 2026-09-24 (see
+  [known issues › Unresolved citations](/history/known-issues#unresolved-citations)).
+  After the port, compare `citations_unresolved / citations_total` on live turns
+  with this baseline.
 
 ## Diagnosing "slow answers", step by step
 
