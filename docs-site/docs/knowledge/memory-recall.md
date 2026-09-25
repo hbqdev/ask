@@ -14,7 +14,7 @@ reranker:
 | Written by | `remember` tool, plus a background extractor after each turn | Background indexer after each turn, plus a backfill |
 | Read by | Every turn: confirmed memories appended to the system prompt | Every non-speed turn: auto-injected top hits (thresholded), plus the `recall` tool and Library search |
 | User toggle | `user_settings.memory_enabled` (default on) | `user_settings.recall_enabled` (default on) |
-| Global kill switch | `MEMORY_ENABLED=off` | `RECALL_ENABLED=off` |
+| Global kill switch | `MEMORY_ENABLED=off` (only `off`; `false` leaves it on) | `RECALL_ENABLED=off` (only `off`; `false` leaves it on) |
 
 Both are bound to the authenticated user and run through `withOptionalRLS`, so under the
 restricted `app_user` role a user can only read and write their own rows. Ephemeral/guest
@@ -148,7 +148,7 @@ search. It is split into two stages so the chat turn can run the cheap one specu
 2. Two arms in parallel, both scoped to the user and excluding the current chat:
    - **vector**: pgvector cosine (`<=>`) top `max(topK × 3, 30)`;
    - **keyword**: `ILIKE '%term%'` (keyword-only hits carry score 0).
-3. If reranking is requested and the cross-encoder is configured: `selectRerankCandidates` takes up to `RECALL_RERANK_POOL` (**10**) passages, the best vector hits plus up to 5 reserved keyword-only hits, and scores them with the reranker at `RECALL_RERANK_MAX_LENGTH` (**384** tokens per pair, wrapper included; 10 s timeout). Both are capped because rerank cost is linear in passages × tokens. See [recall latency](#recall-latency) for the measurements behind 10 × 384.
+3. If reranking is requested and the cross-encoder is configured: `selectRerankCandidates` takes up to `RECALL_RERANK_POOL` passages (code default **10**, `lib/memory/recall-search.ts:28-31`; prod and lab set **8**), the best vector hits plus up to 5 reserved keyword-only hits, and scores them with the reranker at `RECALL_RERANK_MAX_LENGTH` (**384** tokens per pair, wrapper included; 10 s timeout). Both are capped because rerank cost is linear in passages × tokens. See [recall latency](#recall-latency) for the measurements behind 10 × 384 and the later move to 8.
 4. **Threshold, fail-closed.** If a `minScore` was requested on the rerank scale but the rerank did **not** run (unconfigured, fewer than 2 hits, or error), return `[]` and log `[recall] fail-closed`. Cosine scores cannot be gated reliably (relevant about 0.63 vs irrelevant about 0.57), while the reranker separates them by orders of magnitude (about 0.169 vs 0.0000164). No injection is better than wrong injection.
 
 ### Auto-injection on the critical path
@@ -174,7 +174,7 @@ sequenceDiagram
 ```
 
 - **Speculative prefetch** (`create-chat-stream-response.ts` ~L300–317): `prefetchRecallCandidates` embeds the raw message and runs both DB arms while the classifier runs (~50–100 ms). The **rerank is deferred** until `chooseRecall` decides, so a discarded query never costs reranker GPU time. **Speed mode skips recall entirely.**
-- **`chooseRecall`** (`lib/streaming/helpers/choose-recall.ts`): `gated` (skipSearch turn; the answer comes from this chat; no rerank at all), `speculative` (query unchanged: rerank the prefetched candidates), or `refetch` (the classifier rewrote the query: retrieve and rerank the resolved query). Either way the critical-path wait is roughly one rerank (~1.3 s).
+- **`chooseRecall`** (`lib/streaming/helpers/choose-recall.ts`): `gated` (skipSearch turn; the answer comes from this chat; no rerank at all), `speculative` (query unchanged: rerank the prefetched candidates), or `refetch` (the classifier rewrote the query: retrieve and rerank the resolved query). Either way the critical-path wait is roughly one rerank (~1.3 s at pool 10, ~1.1 s at pool 8).
 - **Budget race:** `RECALL_BUDGET_MS` (default 1500) caps the wait. If the timer wins, the turn proceeds with no recall; the recall work still completes in the background. Telemetry on the `[latency]` line: `recall_ms` (true background cost, stamped when it actually resolves), `recall_wait_ms` (critical-path wait), `recall_budget_hit`.
 - **Injection thresholds** (`lib/memory/recall-inject.ts`): `RECALL_INJECT_TOP_K` (2) hits with rerank score ≥ `RECALL_INJECT_MIN_SCORE` (0.05). Hits become a `## Relevant past conversations` block (chat title, date, excerpt) plus a `data-recall` stream part the UI renders as attribution chips.
 
@@ -259,11 +259,54 @@ hits, and a `data-recall` chip streamed on a turn that asked about an earlier ch
 sort (about 12 ms on prod), which beats the HNSW index at this size. It also avoids HNSW's
 filtered-search recall loss for small users.
 
-::: warning Thin margin
-A rerank of about 1.3 s plus a refetch embed sits just under the 1.5 s budget (worst lab turn
-1489 ms). A concurrent web-search rerank from another turn shares the same GPU and can push
-single turns over. If `recall_budget_hit` creeps back, set `RECALL_RERANK_POOL=8` (about 1.0 s;
-on the eval it kept the same top hit on 37 of 40, with 23 vs 26 hits) before touching the budget.
+#### Pool 10 → 8 (bench 2026-09-24, deployed 2026-09-25) {#recall-pool-8}
+
+A rerank of about 1.3 s plus a refetch embed sat just under the 1.5 s budget (worst lab turn
+1489 ms), and prod turns went over it. A second bench measured the **refetch path** (query embed
++ both DB arms + rerank at `RECALL_RERANK_MAX_LENGTH` 384) on 40 real prod queries, 80 samples
+per pool size:
+
+| Pool | p50 | p90 | max | Samples over 1.2 s |
+|---|---|---|---|---|
+| 10 | 1365 ms | 1400 ms | 1452 ms | 63 of 80 |
+| **8** | **1088 ms** | **1114 ms** | **1138 ms** | **0 of 80** |
+
+**Quality.** Pool 8 injected exactly the same set as pool 10 on **40 of 40** queries, with the
+same top hit. This is better than the 2026-09-23 eval suggested, where a pool of 8 made 23
+injections against 25 for 10 × 384 and 26 for 20 × 512
+([D34](/history/decisions#d34-recall-rerank-deferred-not-aborted)). How that earlier pool-8 run
+was configured (in particular its per-passage token length) is not recorded *(unverified)*. The
+2026-09-24 bench is the direct pool 8 vs pool 10 comparison at 384 tokens, and it is the one
+the change rests on.
+
+**On prod** (one multi-turn chat before the change, one after, read from the `[latency]` lines):
+
+| | Turns | `recall_ms` | `recall_budget_hit` | Recall injected |
+|---|---|---|---|---|
+| Before (pool 10) | 5 | 1375–2076 ms | 3 of 5 | not recorded |
+| After (pool 8) | 4 | 1080–1342 ms | 0 of 4 | 4 of 4 |
+
+**Where it is set.** The code default is still **10** (`lib/memory/recall-search.ts:28-31`).
+
+| Env | `RECALL_RERANK_POOL` | Set by |
+|---|---|---|
+| prod | `8` | `ask-prod/.env`, applied through the [Model Manager](/infrastructure/model-manager) |
+| lab | `8` | `docker-compose.lab.yaml` (`environment:`, lab `8b6103e9`) |
+| staging | unset (code default 10) | nothing |
+
+Check any env with `docker exec <container> printenv RECALL_RERANK_POOL` (empty means the code
+default). To move staging, add the key to `ask/.env` and recreate `ask-admin-feature`
+([deploy › env-only changes](/operations/deploy#env-only-changes)); no rebuild is needed.
+
+::: warning Contention is not fixed by the pool size
+The reranker is one GPU (the 2080 Ti on .17) shared with web-search rerank. With a search-sized
+rerank already in flight, recall missed the 1.5 s budget in **11 of 12** trials, at pool 8 and
+pool 10 alike: the GPU interleaves the two requests, so recall finishes late no matter how small
+its own batch is. The miss is safe (the turn continues without recall, and the work finishes in
+the background), but expect some `recall_budget_hit=true` on turns that overlap a search rerank.
+Shrinking the pool further does not help, and raising `RECALL_BUDGET_MS` trades
+time-to-first-token for it. See
+[known issues › recall misses the budget under rerank contention](/history/known-issues#recall-misses-the-budget-under-rerank-contention).
 :::
 
 ## Reranker service
@@ -287,17 +330,17 @@ re-measure these gates after swapping `RERANKER_MODEL`.
 
 | Env var | Default | Effect |
 |---|---|---|
-| `MEMORY_ENABLED` | on | `off` disables extraction, the `remember` tool and injection globally |
+| `MEMORY_ENABLED` | on | `off` disables extraction, the `remember` tool and injection globally. Only the literal `off` counts: `false` leaves memory **on** |
 | `MEMORY_EXTRACTOR_MODEL_ID` | `granite4.2:8b` | Extractor model on `LOCAL_LLM_BASE_URL` |
 | `MEMORY_SIM_THRESHOLD` | 0.9 | Cosine above which a candidate counts as a repeat sighting |
 | `MEMORY_GRADUATE_SIGHTINGS` | 2 | Sightings needed for a candidate to become confirmed |
 | `MEMORY_MAX_PER_USER` | 30 | Confirmed memories kept per user (LRU eviction) |
 | `MEMORY_INJECT_TOP_K` | 30 | Confirmed memories injected per turn |
 | `MEMORY_CRON_SECRET` | unset → 503 | Bearer for `/api/memory/consolidate` and `/api/memory/recall-backfill` (secret) |
-| `RECALL_ENABLED` | on | `off` disables indexing, injection and the tool |
+| `RECALL_ENABLED` | on | `off` disables indexing, injection and the tool. Only the literal `off` counts: `false` leaves recall **on** |
 | `RECALL_CHUNK_TOKENS` / `RECALL_CHUNK_OVERLAP` | 512 / 128 | Recall chunking |
 | `RECALL_BUDGET_MS` | 1500 | Critical-path timebox for auto-injection |
-| `RECALL_RERANK_POOL` | 10 | Passages sent to the reranker per recall (was 20 until 2026-09-23) |
+| `RECALL_RERANK_POOL` | 10 | Passages sent to the reranker per recall (was 20 until 2026-09-23). **Prod and lab set 8** since 2026-09-25; staging runs the default. See [pool 10 → 8](#recall-pool-8) |
 | `RECALL_RERANK_MAX_LENGTH` | 384 | Per-pair reranker token budget for recall (was a hardcoded 512) |
 | `RECALL_INJECT_TOP_K` / `RECALL_INJECT_MIN_SCORE` | 2 / 0.05 | Auto-injection count and rerank-scale floor |
 | `RECALL_TOOL_TOP_K` | 5 | Hits returned by the `recall` tool |
@@ -312,7 +355,7 @@ re-measure these gates after swapping `RERANKER_MODEL`.
 
 **Check recall health.** On the `[latency]` line, look at `recall_ms` vs `recall_wait_ms` and `recall_budget_hit`. `[recall] fail-closed` warnings mean the reranker is unreachable. `[recall] search failed` means an embedder or DB error. Settings → Memory shows the per-user indexed/unindexed counts.
 
-**Turn memory or recall off for everyone.** Set `MEMORY_ENABLED=off` / `RECALL_ENABLED=off` in the environment and recreate the `ask` container (runtime env, no rebuild needed).
+**Turn memory or recall off for everyone.** Set `MEMORY_ENABLED=off` / `RECALL_ENABLED=off` in the environment and recreate the `ask` container (runtime env, no rebuild needed). The value must be exactly `off`: the app checks `=== 'off'` / `!== 'off'` (`lib/db/memory-actions.ts:161`, `lib/db/recall-actions.ts:225`, `lib/streaming/create-chat-stream-response.ts:1071,1129`), so `false`, `0` or `no` leave the feature on. On prod the Model Manager switch writes `on`/`off` and rejects `false` (since 2026-09-25; before that it wrote `false`, which could never turn either feature off, see [Model Manager › boolean switches](/infrastructure/model-manager#boolean-switches)).
 
 ### How to schedule memory consolidation
 

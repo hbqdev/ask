@@ -299,6 +299,10 @@
               "value": "${PIPELINE_SOURCE_CHARS:-}"
             },
             {
+              "key": "RECALL_RERANK_POOL",
+              "value": "8"
+            },
+            {
               "key": "REPLICATE_IMAGE_EDIT_MODEL",
               "value": "${REPLICATE_IMAGE_EDIT_MODEL:-google/nano-banana-2}"
             },

