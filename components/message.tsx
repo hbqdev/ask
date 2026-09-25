@@ -14,7 +14,8 @@ import type { SearchResultItem } from '@/lib/types'
 import { cn } from '@/lib/utils'
 import {
   collapseCitationArtifacts,
-  processCitations
+  processCitations,
+  stripIncompleteCitationTail
 } from '@/lib/utils/citation'
 
 import { CitationProvider } from './citation-context'
@@ -23,6 +24,16 @@ import { Citing } from './custom-link'
 import 'katex/dist/katex.min.css'
 
 const rehypePlugins = Object.values(defaultRehypePlugins)
+
+// How Streamdown completes a link still streaming at the tail. The default
+// ('protocol') rewrites `[text](https://exa` to `[text](streamdown:incomplete-link)`;
+// that href is not an allowed protocol for the sanitize step, which strips it,
+// and rehype-harden then renders the href-less link as "text [blocked]" until
+// the link completes. 'text-only' shows just the link text meanwhile. Link
+// safety is untouched: completed links still go through sanitize + harden, so
+// javascript:/data:/file: hrefs are still blocked. Module-level so the object
+// is stable (Streamdown memoizes on it).
+const STREAMDOWN_REMEND_OPTIONS = { linkMode: 'text-only' } as const
 
 // Images inside the model's ANSWER markdown are a prompt-injection
 // exfiltration channel: injected web content can make the model emit
@@ -62,11 +73,16 @@ export function MarkdownMessage({
   className?: string
   citationMaps?: Record<string, Record<number, SearchResultItem>>
 }) {
-  // Process citations to replace [number](#toolCallId) with [number](actual-url)
-  // then collapse any whitespace/punctuation artifacts left by stripped
-  // fabricated anchors (e.g. "[1](#fetch_prevention)" → "" leaves "text .")
+  // Drop a citation anchor still streaming at the tail (it would otherwise
+  // flash as "1 [blocked]"), process citations to replace [number](#toolCallId)
+  // with [domain](actual-url), then collapse any whitespace/punctuation
+  // artifacts left by stripped fabricated anchors (e.g.
+  // "[1](#fetch_prevention)" → "" leaves "text .")
   const processedMessage = collapseCitationArtifacts(
-    processCitations(message || '', citationMaps || {})
+    processCitations(
+      stripIncompleteCitationTail(message || ''),
+      citationMaps || {}
+    )
   )
 
   const streamdownProps = useMemo<Partial<StreamdownProps>>(
@@ -88,6 +104,7 @@ export function MarkdownMessage({
         <Streamdown
           {...streamdownProps}
           rehypePlugins={rehypePlugins}
+          remend={STREAMDOWN_REMEND_OPTIONS}
           components={customComponents}
         >
           {processedMessage}
