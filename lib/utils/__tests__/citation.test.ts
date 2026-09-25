@@ -10,8 +10,37 @@ import {
   extractCitedSourceUrls,
   isCitationLabel,
   processCitations,
-  resolveByUrlFragment
+  resolveByUrlFragment,
+  stripIncompleteCitationTail
 } from '../citation'
+
+describe('stripIncompleteCitationTail', () => {
+  it.each([
+    ['text. [', 'text. '],
+    ['text. [1', 'text. '],
+    ['text. [ 12 ', 'text. '],
+    ['text. [1](', 'text. '],
+    ['text. [1](#', 'text. '],
+    ['text. [1](#call_ab', 'text. '],
+    ['text.[2](#1f0e-9c2a', 'text.'],
+    ['a [1](#x) b [2](#call_a', 'a [1](#x) b ']
+  ])('drops the unfinished anchor in %j', (input, expected) => {
+    expect(stripIncompleteCitationTail(input)).toBe(expected)
+  })
+
+  it.each([
+    'text. [1](#call_abc)', // complete anchor
+    'see note [1]', // complete bracket with no link part: literal text
+    'the [Python docs', // a named link, not a citation
+    'text [1](https://exa', // an external link, not a citation anchor
+    'text [1](#call_abc) more',
+    '```py\nx = [1', // open fenced code block
+    'use `arr[1', // open inline code span
+    ''
+  ])('leaves %j unchanged', input => {
+    expect(stripIncompleteCitationTail(input)).toBe(input)
+  })
+})
 
 describe('processCitations', () => {
   const mockCitationMaps = {

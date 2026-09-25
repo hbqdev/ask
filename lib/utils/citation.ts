@@ -354,6 +354,43 @@ export function processCitations(
 }
 
 /**
+ * A citation anchor the stream has not finished yet, at the very end of the
+ * text: `[`, `[1`, `[1](`, `[1](#`, `[1](#call_ab…`. A complete bracket with no
+ * link part (`[1]`) is deliberately NOT matched — it is valid literal text a
+ * finished answer may legitimately end with.
+ */
+const INCOMPLETE_CITATION_TAIL_RE =
+  /\[[ \t]*\d{0,3}[ \t]*(?:\]\((?:#[^\s()[\]]*)?)?$/
+
+/**
+ * Drop an unfinished citation anchor from the end of streamed answer text.
+ *
+ * Streamdown completes an unclosed link at the stream tail (remend) as
+ * `[1](streamdown:incomplete-link)`; the sanitize step strips that non-http
+ * href and rehype-harden then renders the href-less link with its "blocked"
+ * indicator, so every citation flashed "1 [blocked]" while its toolCallId was
+ * still arriving. The anchor carries nothing displayable until its `)` lands
+ * (processCitations then turns it into a source chip), so it renders as
+ * nothing instead. Also covers a message persisted mid-anchor (user pressed
+ * Stop), which renders through the same streaming path forever after.
+ *
+ * Only a tail that is prose is touched: inside an open fenced block or inline
+ * code span the `[` is code, not a citation.
+ */
+export function stripIncompleteCitationTail(text: string): string {
+  if (!text) return text
+  const match = INCOMPLETE_CITATION_TAIL_RE.exec(text)
+  if (!match) return text
+  const before = text.slice(0, match.index)
+  const fences = before.match(/^[ \t]*(?:```|~~~)/gm)?.length ?? 0
+  if (fences % 2 === 1) return text
+  const lastLine = before.slice(before.lastIndexOf('\n') + 1)
+  const backticks = lastLine.match(/`/g)?.length ?? 0
+  if (backticks % 2 === 1) return text
+  return before
+}
+
+/**
  * Collapse whitespace and punctuation artifacts left behind by stripped
  * citations. When a model fabricates a citation anchor (e.g. `[1](#fetch_prevention)`)
  * and `processCitations` returns `''` for it, the surrounding text can end
