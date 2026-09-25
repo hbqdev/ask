@@ -27,7 +27,7 @@ export const Header: React.FC<HeaderProps> = ({ showGuestMenu = false }) => {
   return (
     <header
       className={cn(
-        'absolute top-0 right-0 p-2 md:p-3 flex justify-between items-center z-10 backdrop-blur-sm lg:backdrop-blur-none bg-background/80 lg:bg-transparent transition-[width] duration-200 ease-linear',
+        'absolute top-0 right-0 p-2 md:p-3 flex justify-between items-center z-20 backdrop-blur-sm lg:backdrop-blur-none bg-background/80 lg:bg-transparent transition-[width] duration-200 ease-linear',
         // Track the content area's left edge in BOTH sidebar states so the
         // pl-14 toggle-clearance below (calibrated for the open state) also
         // holds when collapsed. The sidebar reserves --sidebar-width when open
@@ -47,6 +47,9 @@ export const Header: React.FC<HeaderProps> = ({ showGuestMenu = false }) => {
         // the header's md:p-3 (a responsive variant) would otherwise override
         // a base-only pl-14 at desktop widths.
         'pl-14 md:pl-14'
+        // z-20: above the chat scroller's opaque backing strip (z-[15], see
+        // ChatMessages), which is what hides scrolled content under this bar
+        // at lg+ where the bar itself is transparent.
       )}
     >
       <div className="min-w-0">
