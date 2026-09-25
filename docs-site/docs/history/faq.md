@@ -82,7 +82,10 @@ mode, not against a different mode.
   ([runbook](/operations/runbooks#crawl4ai-memory-saturation-slow-retrieval)).
 - First turn after an Ollama restart slow → the model is not resident
   ([runbook](/operations/runbooks#ollama-model-not-resident-after-a-restart)).
-- `recall_budget_hit:true` on most turns → [known issue](/history/known-issues#recall-is-dropped-on-most-turns).
+- `recall_budget_hit:true` on most turns → [known issue](/history/known-issues#recall-is-dropped-on-most-turns);
+  on some turns, usually while another turn searches → the
+  [rerank contention limit](/history/known-issues#recall-misses-the-budget-under-rerank-contention)
+  (expected, harmless).
 - Large `last_prompt_tokens` or many `fetch` calls → pipeline levers, not a model swap.
 
 → [Telemetry › Diagnosing "slow answers", step by step](/operations/telemetry#diagnosing-slow-answers-step-by-step)
@@ -130,6 +133,19 @@ Read `modelId` from the `[latency]` line to see what really ran.
 [Old answers with leaked reasoning stay leaked](/history/known-issues#old-answers-with-leaked-reasoning-stay-leaked),
 [Models & reasoning › Narration and chain-of-thought leak handling](/search/models-reasoning#narration-and-chain-of-thought-leak-handling)
 
+### An answer shows "[blocked]" after a citation or a link
+
+**First check.** Is the build older than 2026-09-25 (prod `a9ad0ce8`)? On older builds a citation
+cut off at the stream tail rendered as "1 [blocked]" for a moment, and an answer stopped in
+the middle of a citation kept it permanently, even after a reload. Current builds drop the
+unfinished anchor and show any unfinished link as plain text, so neither case should appear.
+
+If it still appears on a finished answer, the model wrote a link whose `href` the sanitizer
+removed (for example `javascript:` or another non-http scheme). That is the XSS defence working;
+do not loosen the sanitize schema to hide it.
+→ [Frontend › Half-streamed links and the "[blocked]" flash](/request-lifecycle/frontend#blocked-flash),
+[Security › XSS pipeline](/infrastructure/security#xss-pipeline)
+
 ### Citations missing or pointing nowhere
 
 The model sometimes invents citation anchors; the UI drops them, so the claim ends up uncited.
@@ -147,9 +163,13 @@ pipeline causes were fixed on 2026-09-24; a rate that stays high on live turns i
 Titles are written by a local model on Serenity (.171), `granite4.2:8b` by default
 (`lib/agents/title-generator.ts:32`), with an 8 s timeout. On any failure the generator returns
 the first 75 characters of the user's message (`lib/agents/title-generator.ts:69`,
-`lib/agents/title-generator.ts:149`). So a "title that is the question" means .171 was
+`lib/agents/title-generator.ts:152`). So a "title that is the question" means .171 was
 unreachable, not that titling is broken. `ECONNREFUSED` usually means Ollama is listening on
 loopback only.
+
+A title like "Here is the short, concise title (4 words):" came from a build older than
+2026-09-25. The generator now skips lines ending with `:` and strips a leading `Title:` label
+(`lib/agents/title-generator.ts:113-117`). Titles already stored are not rewritten.
 → [Runbooks › A fleet service on .171 / .160 / .231 is unreachable](/operations/runbooks#a-fleet-service-on-171-160-231-is-unreachable),
 [Known issues › Serenity Ollama bound to loopback](/history/known-issues#serenity-ollama-bound-to-loopback)
 
@@ -234,6 +254,31 @@ Desktop browser resizing does not emulate a phone; use Playwright on the lab.
 → [Local dev › Common pitfalls](/getting-started/local-dev#common-pitfalls),
 [Deploy › Env-only changes](/operations/deploy#env-only-changes),
 [Model Manager](/infrastructure/model-manager)
+
+### The Model Manager cannot turn recall, memory or Ollama search off
+
+**First check.** `docker exec ask printenv RECALL_ENABLED` (likewise `MEMORY_ENABLED`,
+`OLLAMA_SEARCH_ENABLED`). These three are kill switches: the app disables them **only** for the
+literal `off`, so `false` leaves them on. Before 2026-09-25 the Model Manager switch wrote
+`false`, and showed an unset key as "Disabled" although the app treats it as enabled. Current
+builds write `on`/`off`, reject `false`, and label an unset key with the app's real default.
+Set the switch again (or write `off` by hand) and recreate `ask`.
+
+If `DATABASE_SSL_DISABLED`, `ENABLE_AUTH` or `MORPHIC_CLOUD_DEPLOYMENT` "does nothing": the base
+`docker-compose.yaml:20-22` pins them under `environment:`, which beats `.env`.
+→ [Model Manager › Boolean switches](/infrastructure/model-manager#boolean-switches),
+[Memory & recall › Knob reference](/knowledge/memory-recall#knob-reference)
+
+### `.env` owner or permissions changed after a Model Manager apply
+
+**First check.** `stat -c '%U:%G %a' /home/nightfury/selfhosted/ask-prod/.env` should print
+`nightfury:nightfury 600`. `root:root 644` is the damage an apply did with a build older than
+2026-09-25: the tool runs as root and replaced the file with a new root-owned one. The current
+build keeps whatever owner and mode the file has, so it will not repair it. Fix it once:
+`sudo chown nightfury:nightfury .env && sudo chmod 600 .env` in `ask-prod`. No recreate is
+needed.
+→ [Model Manager › File ownership and mode](/infrastructure/model-manager#file-ownership-and-mode),
+[Known issues › Prod `.env` left `root:root 0644`](/history/known-issues#prod-env-left-root-root-0644)
 
 ### A change works on the lab but not on staging/prod
 

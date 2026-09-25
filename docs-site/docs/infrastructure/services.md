@@ -354,7 +354,9 @@ Full page: [Model Manager](/infrastructure/model-manager).
   2026-09-24). The session is checked in middleware **and** per handler on `/api/apply` and
   `/api/restore` (unauthenticated → 401). Recreating the container logs everyone out.
 - **Privilege:** **root-equivalent.** It mounts `/var/run/docker.sock`, the prod worktree
-  read-write and an SSH key. Never expose it beyond loopback.
+  read-write and an SSH key. Never expose it beyond loopback. It runs as root, so its `.env`
+  writes explicitly keep the file's owner and mode (since 2026-09-25); check prod's with
+  `stat -c '%U:%G %a' ask-prod/.env` (expect `nightfury:nightfury 600`).
 - **Wiring (important):** `ASK_REPO_DIR` and `ASK_ENV_PATH` point at **`ask-prod`**,
   `ASK_COMPOSE_PROJECT=ask-stack`, and `ASK_COMPOSE_FILES` lists base + `docker-compose.vpn.yaml`.
   `apply` runs `docker compose -p ask-stack -f … up -d --force-recreate --no-deps --wait ask`,

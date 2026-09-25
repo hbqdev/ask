@@ -54,9 +54,9 @@ flowchart TD
 |---|---|---|
 | Root layout | `app/layout.tsx` | Fonts (Hanken Grotesk body, Instrument Serif headline via `next/font`, self-hosted), providers, server-loads the sidebar's Recent list + chat count; `body` is `fixed inset-0 overflow-hidden` |
 | Sidebar | `components/app-sidebar.tsx` | Brand, weather, New chat, nav, Recent (optimistic layer), chat count, account menu; `collapsible="icon"` rail on desktop, drawer on mobile |
-| Header | `components/header.tsx` | Absolute top bar; shows `ChatHeader` (title + share/delete menu) for the chat that owns the header context; left padding reserves room for the sidebar toggle |
+| Header | `components/header.tsx` | Absolute top bar (`z-20`; translucent below 1024px, transparent at `lg+`); shows `ChatHeader` (title + share/delete menu) for the chat that owns the header context; left padding reserves room for the sidebar toggle. See [header backdrop](#header-backdrop) |
 | Chat | `components/chat.tsx` | `useChat`, sections, submit/pushState, Stop, resume, edit/retry guards |
-| Messages | `components/chat-messages.tsx` | Scroll container (`pt-14` under the header), sections, latest-section min-height, per-message citation maps, footer glyph |
+| Messages | `components/chat-messages.tsx` | Scroll container (`pt-14` under the header) with an opaque sticky strip behind the header band, sections, latest-section min-height, per-message citation maps, footer glyph |
 | RenderMessage | `components/render-message.tsx` | Splits an assistant message into research-process segments, answer text and standalone image cards |
 | Research process | `components/research-process-section.tsx` | Collapsible "Working on it… / Completed N steps" accordion, `WaitingQuote` while live |
 | Tool sections | `components/tool-section.tsx` (+ `search-section`, `fetch-section`, `recall-tool-section`, `tool-todo-display`, `question-confirmation`) | One renderer per typed tool part |
@@ -66,6 +66,32 @@ flowchart TD
 | Inspector | `components/artifact/*`, `components/inspector/*` | Side panel for a clicked tool/search result; resizable (width stored in `localStorage.artifactPanelWidth`), drawer on small screens |
 | Discover | `app/discover/page.tsx`, `components/discover-briefing.tsx` | Topic news page; homepage 4-card briefing (pool of 12, random per load, auto-advance every 20s), `/api/discover` |
 | Library | `app/library/page.tsx`, `components/library/*` | Full chat manager (search, delete); dispatches the same sidebar events |
+
+### Header backdrop {#header-backdrop}
+
+The app `Header` is rendered in `app/layout.tsx:144`, outside the chat's scroll container, and
+floats over it: `absolute top-0 … z-20 … bg-background/80 lg:bg-transparent`
+(`components/header.tsx:30`). The scroller (`components/chat-messages.tsx:235`) reserves the
+band with `pt-14`. Below 1024px the header's own translucent, blurred background hides the text
+under it. At `lg+` the header is fully transparent, so until 2026-09-25 (prod `6aa6b047`, lab
+`5a1e0e59`) scrolled answer text showed straight through behind the chat title.
+
+The fix is an opaque strip **inside** the scroller, rendered only when there are messages
+(`components/chat-messages.tsx:239-255`, `data-testid="chat-header-backdrop"`):
+
+```text
+<div aria-hidden class="sticky -top-14 z-[15] -mt-14 h-14 bg-background" />
+```
+
+- **`-top-14`, not `top-0`.** Chrome measures a sticky offset from the scroller's **padding**
+  edge. With `pt-14` on the scroller, `top-0` pins the strip 56px down, over the content.
+  `-top-14` pins it to the top of the scrollport, exactly behind the header.
+- **`-mt-14`** cancels the strip's own 56px in the flow, so the layout is unchanged.
+- **`z-[15]`** sits above in-content UI and below the header (`z-20`; the header was `z-10`
+  before this change).
+- **Why inside the scroller, not a background on the header.** The strip is as wide as the
+  scroller's content box, so it does not cover the scrollbar, and it does not reach the
+  artifact/library panel beside the chat. A background on the header itself would cover both.
 
 ## How an assistant message is rendered {#render-message}
 
@@ -110,14 +136,17 @@ pill when the answer was cut short with Stop (`StoppedBadge`, `:415`). `AnswerSe
 
 ## Markdown and the Streamdown sanitize pipeline {#markdown}
 
-`MarkdownMessage` (`components/message.tsx:56`):
+`MarkdownMessage` (`components/message.tsx:67`):
 
 ```text
 answer text
+  → stripIncompleteCitationTail(text)         drop a citation anchor still streaming at the
+                                              very end ("[1](#call_ab…"), see below
   → processCitations(text, citationMaps)      [n](#toolCallId) → [domain](encodeURI(url));
                                               unknown id → resolveByUrlFragment, else ''
   → collapseCitationArtifacts                 tidy spaces/punctuation left by dropped anchors
   → <Streamdown mode="streaming"
+        remend = { linkMode: 'text-only' }    how an unclosed tail link is completed
         rehypePlugins = defaultRehypePlugins  raw → sanitize → harden
         plugins = math (KaTeX) + ```spec renderer
         components = { a: Citing, img: AnswerImage }>
@@ -134,12 +163,63 @@ answer text
   All legitimate images (generated images, search image results, news cards) render
   through their own components.
 - `mode: 'streaming'` lets Streamdown render incomplete markdown (unclosed fences,
-  tables) gracefully while text is still arriving.
+  tables) gracefully while text is still arriving. It is set unconditionally
+  (`components/message.tsx:88-94`), so a **reloaded** answer goes through the same
+  incomplete-markdown repair as a live one. A message that was saved half-way (Stop) keeps
+  whatever the repair does to its tail.
 - ```` ```spec ```` fenced blocks are rendered by `SpecFenceBlock` (json-render). This is
   how the model emits structured UI such as **related questions**
   (`getRelatedQuestionsSpecPrompt` in the researcher prompt); clicking one calls
   `sendMessage` from `ChatContext`, throttled by `isStreamingRef` so it can't overlap a
   running turn.
+
+### Half-streamed links and the "[blocked]" flash {#blocked-flash}
+
+**Symptom (fixed 2026-09-25, prod `a9ad0ce8`, lab `e658ef71`).** While an answer streamed,
+each citation briefly rendered as **"1 [blocked]"** until its anchor finished. An answer
+stopped in the middle of an anchor showed the marker **permanently**, including after a
+reload.
+
+**Cause.** The stream tail often ends inside a citation anchor: `[1](#call_ab` with no
+closing `)` yet.
+
+1. Streamdown repairs incomplete markdown before parsing (its `remend` step). With the default
+   `linkMode: 'protocol'` it completes an unclosed link as
+   `[1](streamdown:incomplete-link)`.
+2. `rehype-sanitize` drops that `href`: `streamdown:` is not an allowed scheme (the default
+   schema allows `http`, `https`, `mailto`, `irc`, `ircs` and `xmpp`; Streamdown adds `tel`).
+3. `rehype-harden` then sees an `<a>` with no `href` and appends its " [blocked]" indicator.
+
+Because reloaded answers also render in streaming mode (above), a message persisted
+mid-anchor went through the same repair on every load.
+
+**Fix.** Two independent parts:
+
+- `stripIncompleteCitationTail()` (`lib/utils/citation.ts:380`) removes an unfinished
+  citation anchor from the very end of the text before anything else runs. Its pattern
+  (`INCOMPLETE_CITATION_TAIL_RE`, `:362-363`) matches `[`, `[1`, `[1](`, `[1](#` and
+  `[1](#<partial id>` at the end of the string (up to three digits). A complete bracket with
+  no link part (`[1]`) is left alone, because a finished answer may legitimately end with it;
+  so are a named link (`[Python docs`) and an external one (`[1](https://…`), which the
+  `remend` setting below handles. The tail is not touched when it sits inside an open fenced
+  code block (odd number of fence lines before it) or an open inline code span (odd number of
+  backticks on its line), where `[` is code, not a citation. The anchor carries nothing
+  displayable until its `)` arrives, and `processCitations` turns it into a source chip at
+  that point.
+- Streamdown gets the `remend` option `{ linkMode: 'text-only' }`
+  (`components/message.tsx:36,107`, and the reasoning view
+  `components/artifact/reasoning-content.tsx:10,16`). An ordinary link still streaming
+  (`[text](https://exa`) now shows only its text until it completes, instead of the
+  placeholder `href`.
+
+**What did not change.** Sanitize and harden run exactly as before on every completed link,
+so `javascript:`, `data:` and `file:` hrefs are still blocked. Do not "fix" a future
+`[blocked]` report by loosening the sanitize schema or harden's prefixes; find which step
+produced the unsafe or empty `href` first.
+
+Tests: `components/__tests__/markdown-message-streaming-links.test.tsx` (renders
+`MarkdownMessage` with half-streamed anchors and links, and checks that unsafe links are still
+blocked) and `lib/utils/__tests__/citation.test.ts` (`stripIncompleteCitationTail` cases).
 
 ## Citations {#citations}
 
