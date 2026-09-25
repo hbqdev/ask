@@ -205,9 +205,16 @@ steps instead of dead air.
 6. Truncate to the model's **probed** context window (`resolveContextWindow`,
    `getMaxAllowedTokens` reserves output + a 10% buffer). Unknown window → no truncation.
 7. **Title** (new chats only): `generateChatTitle` starts in parallel (`TITLE_MODEL_ID`,
-   code default `granite4.2:8b`, 8s timeout, falls back to "Untitled";
-   `TITLE_USE_CHAT_MODEL=true` uses the chat model). When it resolves it is streamed as
-   `data-title`; it is persisted in `onFinish`.
+   code default `granite4.2:8b`, 8s timeout; `TITLE_USE_CHAT_MODEL=true` uses the chat
+   model). On a model failure, an empty reply or a reply longer than a title, the generator
+   returns the first 75 characters of the question (`lib/agents/title-generator.ts:69`);
+   `"Untitled"` is used only if the call itself rejects
+   (`lib/streaming/create-chat-stream-response.ts:465-468`). The reply is cleaned first: the
+   first non-empty line that does **not** end with `:` is taken, and a leading `Title:` label
+   is dropped (`lib/agents/title-generator.ts:113-117`, since 2026-09-25). That skips lead-ins
+   such as "Here is the short, concise title (4 words):", which a lab chat once stored as its
+   title; a colon inside a real title ("Python 3.15: What Changed") is kept. When it resolves
+   it is streamed as `data-title`; it is persisted in `onFinish`.
 
 ## 7. Recall race {#_7-recall-race}
 
@@ -230,7 +237,10 @@ steps instead of dead air.
 Measured (2026-09-07, lab): recall 3–6s uncapped; capping at 1.5s roughly halved
 time-to-first-token (7.7s → 3.6s). But the cap then dropped recall on most turns. Since
 2026-09-23 recall itself takes about 1.3s (rerank pool 10 × 384 tokens, no speculative
-rerank), so it fits the cap. Speed mode skips recall entirely.
+rerank), so it fits the cap; prod and lab run a pool of 8 since 2026-09-25 (about 1.1s on the
+refetch path). A web-search rerank in flight on the same GPU can still push a single turn over
+the cap (see [recall latency](/knowledge/memory-recall#recall-latency)). Speed mode skips
+recall entirely.
 
 Then expansion is resolved: fused `expandedQueries` if present, else the fallback
 expander — never awaited here; the first search awaits it (bounded). `data-classifier`

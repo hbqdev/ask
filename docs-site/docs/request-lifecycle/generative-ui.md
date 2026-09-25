@@ -177,7 +177,7 @@ Inspector wins if both flags are somehow set.
 |---|---|
 | `tool-search`, `tool-fetch`, `tool-askQuestion` | `ToolInvocationContent` → only `tool-search` has a view (`SearchArtifactContent`: images, videos, sources); the others show "Details for this tool are not available" (`components/artifact/tool-invocation-content.tsx:7`) |
 | `tool-todoWrite` | `TodoInvocationContent` (`components/artifact/todo-invocation-content.tsx:11`) |
-| `reasoning` | `ReasoningContent` — the raw thoughts through `Streamdown` (`components/artifact/reasoning-content.tsx:7`) |
+| `reasoning` | `ReasoningContent` — the raw thoughts through `Streamdown` with the `remend` option `{ linkMode: 'text-only' }`, so a link still streaming shows as text, not "[blocked]" (`components/artifact/reasoning-content.tsx:10-16`; see [frontend › half-streamed links](/request-lifecycle/frontend#blocked-flash)) |
 | other | "Details for this part type are not available" |
 
 In practice only three components call `open()`: `SearchSection`, `ToolTodoDisplay`
@@ -297,7 +297,7 @@ sequenceDiagram
   SB->>SB: ready → JSONUIProvider + ActionProvider + Renderer(registry)
 ```
 
-- `MarkdownMessage` registers the renderer at `components/message.tsx:75`.
+- `MarkdownMessage` registers the renderer at `components/message.tsx:91`.
 - `SpecFenceBlock` keeps one evaluator per block instance
   (`components/spec-fence-block.tsx:9`), so each new chunk is pushed as a delta instead
   of re-parsing the whole block.

@@ -261,7 +261,8 @@ Observations from that sample worth watching:
   of ~5.5s. The 1500ms cap protects latency as intended, but on most turns
   the past-conversation context was dropped. See [Memory & recall](/knowledge/memory-recall).
   Fixed and shipped 2026-09-23 (recall about 1.3 s, see
-  [recall latency](/knowledge/memory-recall#recall-latency)).
+  [recall latency](/knowledge/memory-recall#recall-latency)). Since 2026-09-25 prod and lab run
+  a rerank pool of 8; staging runs the default 10.
 - **10 of 46 turns had `citations_unresolved > 0`**, i.e. invented anchors. One
   had 16 of 44, and another had 8 of 8. The invented anchors came from several
   models.
@@ -286,6 +287,12 @@ Observations from that sample worth watching:
        *can* be tuned).
      - `recall_wait_ms` ≈ 1500 with `recall_budget_hit:true` → the cap did its
        job and recall is not the cause.
+     - **Expected `recall_ms`** (non-gated, non-speed turns): about 1.1–1.35 s on prod and lab
+       (pool 8; 4 prod turns measured 1080–1342 ms), about 1.35–1.45 s on staging (pool 10). A
+       turn that overlaps another turn's search rerank can go past 1.5 s and hit the budget;
+       that is the
+       [known contention limit](/history/known-issues#recall-misses-the-budget-under-rerank-contention),
+       not a fault. Many hits on quiet turns point at the reranker (health, model) instead.
      - `attachments_ms` high → the upload or ingest path (see [RAG & uploads](/knowledge/rag-uploads)).
    - **Tools** = `search_ms + crawl_ms + enrich_ms + rerank_ms + fetch_ms`.
      Open the turn's `[latency:search]` lines:

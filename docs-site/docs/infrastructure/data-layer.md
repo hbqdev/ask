@@ -188,7 +188,10 @@ If `DATABASE_RESTRICTED_URL` is unset, `db` falls back to `DATABASE_URL` and `db
 `db`. RLS is then bypassed everywhere. The **fail-fast guard** in `lib/db/index.ts` refuses to
 serve (`process.exit(1)`) when `ENABLE_AUTH=true` and the runtime role has `rolsuper` or
 `rolbypassrls`. The base compose file defaults `DATABASE_RESTRICTED_URL` to the owner URL, so a
-deploy without the real `.env` would otherwise boot with RLS off.
+deploy without the real `.env` would otherwise boot with RLS off. The guard runs only when
+`ENABLE_AUTH` is exactly `'true'` (`lib/db/index.ts:98`), although the app treats an unset
+`ENABLE_AUTH` as auth on; every compose file sets it today
+([known issue](/history/known-issues#rls-guard-ignores-an-unset-enable-auth)).
 
 **Creating the role for a new stack:** `fleet-boot/create-app-user.sh <postgres-container>` drops
 and recreates `app_user` with a fresh random password, grants DML plus default privileges for

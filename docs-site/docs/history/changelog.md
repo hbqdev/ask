@@ -20,6 +20,43 @@ behind the change. Lab-first work lives on `flow-design`. `git cherry-pick -x` l
 
 **Streaming lifecycle, mobile QA, the end of the latency campaign, and a fleet clean-up**
 
+- **09-25** (UTC; the evening of 09-24 local time) — **Rendering, recall and Model Manager fixes**
+  (built on the lab, then ported to staging and prod):
+  - **No "[blocked]" flash for a half-streamed citation** (`a9ad0ce8`, lab `e658ef71`). A citation
+    anchor cut off at the stream tail (`[1](#<toolCallId>` with no `)` yet) used to render as
+    "1 [blocked]": Streamdown's `remend` completed it as `streamdown:incomplete-link`, sanitize
+    dropped that href and `rehype-harden` labelled the empty link. Because reloaded answers also
+    render in streaming mode, an answer stopped mid-anchor kept the marker for good.
+    `stripIncompleteCitationTail()` now drops the unfinished anchor (skipping code, leaving a
+    bare `[1]`), and Streamdown runs with `remend` `linkMode: 'text-only'` in the answer and the
+    reasoning view. Sanitize and harden are unchanged.
+    → [frontend › half-streamed links](/request-lifecycle/frontend#blocked-flash)
+  - **Scrolled text no longer shows through the header** at ≥1024px (`6aa6b047`, lab
+    `5a1e0e59`): an opaque sticky strip (`sticky -top-14 -mt-14 h-14 bg-background z-[15]`) at
+    the top of the message scroller, with the header raised to `z-20`.
+    → [frontend › header backdrop](/request-lifecycle/frontend#header-backdrop)
+  - **Title lead-ins skipped** (`c6d835c6`, lab `c14661f9`): the title generator ignores lines
+    ending with `:` ("Here is the short, concise title (4 words):") and a leading `Title:`
+    label; colons inside a title are kept. → [chat turn](/request-lifecycle/chat-turn)
+  - **Recall rerank pool 8 on prod and lab.** Refetch-path bench on 40 real prod queries: p50
+    1365 → 1088 ms, samples over 1.2 s 63/80 → 0/80, same injected set on 40 of 40. Prod sets
+    `RECALL_RERANK_POOL=8` in `.env` (through the Model Manager), the lab in
+    `docker-compose.lab.yaml` (`4ea94688`, lab `8b6103e9`); staging and the code default stay at
+    10. Prod afterwards: `recall_ms` 1080–1342 ms, 0 of 4 budget hits. Under a concurrent search
+    rerank recall still misses the budget at either size (a new known issue).
+    → [D34](/history/decisions#d34-recall-rerank-deferred-not-aborted),
+    [memory & recall](/knowledge/memory-recall#recall-pool-8)
+  - **Model Manager** (`f3592665`, lab `d105bc7e`; image rebuilt): every `.env` write (apply,
+    restore) is atomic **and keeps the file's owner and mode**, backups are always 0600. An apply
+    earlier that day had turned prod's `nightfury:nightfury 0600` `.env` into `root:root 0644`;
+    the fix does not repair an already-damaged file, which needs a one-off `chown` + `chmod`.
+    Boolean switches now show the app's real unset default and write what the app honours:
+    `RECALL_ENABLED`, `MEMORY_ENABLED` and `OLLAMA_SEARCH_ENABLED` write `on`/`off` and reject
+    `false` (the old `false` left them on).
+    → [Model Manager](/infrastructure/model-manager#file-ownership-and-mode),
+    [known issues](/history/known-issues#prod-env-left-root-root-0644)
+  - **Found, not fixed:** the RLS fail-closed guard runs only for `ENABLE_AUTH === 'true'`, while
+    the app treats unset as auth on. → [known issues](/history/known-issues#rls-guard-ignores-an-unset-enable-auth)
 - **09-24** — **Bug-fix batch** (built on the lab, then ported to staging and prod):
   - **"Stopped" label.** A stopped answer shows a muted "Stopped" pill in its action row, live
     (`markMessageStopped`, set by the client when the Stop lands) and after a reload (the
