@@ -5,7 +5,7 @@ title: Known issues
 # Known issues and gotchas
 
 Open problems, pending operator actions and traps a maintainer needs to know about, as of
-**2026-09-24**. Each entry gives the **symptom**, its **impact**, a **workaround** and a **fix
+**2026-09-25**. Each entry gives the **symptom**, its **impact**, a **workaround** and a **fix
 sketch**. Resolved history lives in the [changelog](/history/changelog). Rationale for deliberate
 trade-offs lives in [decisions](/history/decisions).
 
@@ -20,6 +20,8 @@ thing.
 | Issue | Area | Severity | Owner action |
 |---|---|---|---|
 | [Pre-existing test failures](#pre-existing-test-failures) | tests | ~~Low~~ fixed 2026-09-23 (all branches) | done |
+| [Prod `.env` left `root:root 0644`](#prod-env-left-root-root-0644) | security | Med | ops (one-off `chown` + `chmod`) |
+| [RLS guard ignores an unset `ENABLE_AUTH`](#rls-guard-ignores-an-unset-enable-auth) | security | Low | code |
 | [Shared secrets across environments](#shared-secrets-across-environments) | security | Med | ops |
 | [Secrets to rotate](#secrets-to-rotate) | security | Med | ops |
 | [Unauthenticated LAN services](#unauthenticated-lan-services) | security | Med | ops |
@@ -47,7 +49,9 @@ thing.
 | [SearXNG failure empties a quality search](#searxng-failure-empties-a-quality-search) | search | ~~Med~~ fixed 2026-09-23 (lab, staging, prod) | done |
 | [Legacy crawler has no SSRF guard](#legacy-crawler-has-no-ssrf-guard) | security | ~~Low~~ fixed 2026-09-23 (lab, staging, prod) | done |
 | [Answer deadline does not block tools](#answer-deadline-does-not-block-tools) | chat | ~~Low~~ fixed 2026-09-23 (lab, staging, prod) | done |
-| [Recall is dropped on most turns](#recall-is-dropped-on-most-turns) | memory | ~~Med~~ fixed 2026-09-23 (lab, staging, prod) | done |
+| [Recall is dropped on most turns](#recall-is-dropped-on-most-turns) | memory | ~~Med~~ fixed 2026-09-23 (lab, staging, prod); pool 8 on prod and lab 2026-09-25 | done |
+| [Recall misses the budget under rerank contention](#recall-misses-the-budget-under-rerank-contention) | memory | Low | accepted (watch) |
+| [Model Manager rewrote `.env` ownership and could not switch features off](#model-manager-rewrote-env-ownership-and-could-not-switch-features-off) | config | ~~Med~~ fixed 2026-09-25 | done (see the prod `.env` entry) |
 | [Unresolved citations](#unresolved-citations) | chat | ~~Low–Med~~ fixed 2026-09-24 (three pipeline causes) | watch `citations_unresolved` |
 | [Memory consolidation never runs](#memory-consolidation-never-runs) | memory | ~~Med~~ fixed (code 2026-09-23, nightly cron 2026-09-24) | done |
 | [Home-started chats keep a stale last-viewed time](#home-started-chats-keep-a-stale-last-viewed-time) | sidebar | ~~Low~~ fixed 2026-09-23 (lab, staging, prod) | done |
@@ -185,8 +189,32 @@ On NightFuryX (.17) these container names do not resolve, so each silently degra
   No index or migration was needed. The new knob `RECALL_RERANK_MAX_LENGTH` (default 384) is
   editable in Model Manager. Decision record:
   [D34](/history/decisions#d34-recall-rerank-deferred-not-aborted).
-- **Follow-up:** watch `recall_budget_hit` on prod `[latency]` lines; the margin is thin (see the
-  warning in [recall latency](/knowledge/memory-recall#recall-latency)).
+- **Follow-up (done 2026-09-25).** Prod still went over the budget on some turns at pool 10 (one
+  5-turn chat: `recall_ms` 1375–2076 ms, 3 of 5 budget hits). A bench of the refetch path on 40
+  real prod queries put pool 10 at p50 1365 ms (63 of 80 samples over 1.2 s) and pool 8 at p50
+  1088 ms (0 of 80), with the same injected set on 40 of 40. **Prod** (`ask-prod/.env`, applied
+  through the Model Manager) and **lab** (`docker-compose.lab.yaml`, lab `8b6103e9`) now set
+  `RECALL_RERANK_POOL=8`; staging runs the code default, 10. A 4-turn prod chat afterwards had
+  `recall_ms` 1080–1342 ms, 0 budget hits and recall injected on all 4. Details:
+  [pool 10 → 8](/knowledge/memory-recall#recall-pool-8). What remains is contention, below.
+
+### Recall misses the budget under rerank contention {#recall-misses-the-budget-under-rerank-contention}
+
+- **Symptom.** `recall_budget_hit=true` on a turn whose `recall_ms` is well above the ~1.1 s the
+  refetch path normally takes, usually while another turn is searching.
+- **Cause.** The reranker (Qwen3-Reranker-8B on the .17 2080 Ti) is shared by recall, upload/URL
+  RAG and web-search rerank. With a search-sized rerank in flight, the GPU interleaves the two
+  requests and recall finishes late. Measured 2026-09-24: recall missed the 1.5 s budget in 11 of
+  12 trials under that contention, at pool 8 and pool 10 alike.
+- **Impact (Low).** That turn answers without past-conversation context; nothing breaks, and the
+  recall work completes in the background (`recall_ms` still records its true cost).
+- **Why it is accepted.** The pool size cannot fix it (both sizes miss), and raising
+  `RECALL_BUDGET_MS` would add the wait to time-to-first-token on exactly the busy turns.
+  Removing it needs a second reranker (GPU or instance) for recall, or a reranker service that
+  schedules small requests ahead of large ones. Neither exists.
+- **Watch.** The share of non-gated turns with `recall_budget_hit=true` on prod `[latency]`
+  lines. A rise on quiet turns (no concurrent search) is a different problem: check the
+  reranker's health and model first.
 
 ### Unresolved citations
 
@@ -337,10 +365,70 @@ On NightFuryX (.17) these container names do not resolve, so each silently degra
 
 ## Security (awaiting ops action)
 
-All of these come from the 2026-08-09 and 2026-09-14 audits. The public surface was judged
-**strong** (no critical or high finding). What remains is LAN-local or operational. A turnkey
+The first three entries were found on 2026-09-25. The rest come from the 2026-08-09 and
+2026-09-14 audits, which judged the public surface **strong** (no critical or high finding).
+What remains is LAN-local or operational. A turnkey
 runbook exists outside the repo at `/home/nightfury/selfhosted/security-runbook.md` (no secret
 values in it). Details: [security](/infrastructure/security).
+
+### Prod `.env` left `root:root 0644` {#prod-env-left-root-root-0644}
+
+- **Symptom.** `stat -c '%U:%G %a' /home/nightfury/selfhosted/ask-prod/.env` prints
+  `root:root 644` instead of `nightfury:nightfury 600`. Checked on 2026-09-25 after the fix below
+  was deployed: still `root:root 644`.
+- **Cause.** The Model Manager runs as root in its container. Until 2026-09-25 its atomic write
+  created a new temp file and renamed it over `.env`, so the result was owned by root with the
+  umask's default mode. An apply on 2026-09-25 turned prod's `nightfury:nightfury 0600` file into
+  `root:root 0644`, i.e. world-readable. Only the parent directory's mode (`/home/nightfury` is
+  0700) keeps other local users out; a file holding every prod secret must not rely on that.
+  The owner `nightfury` also can no longer edit it without `sudo`. See
+  [Model Manager rewrote `.env` ownership](#model-manager-rewrote-env-ownership-and-could-not-switch-features-off).
+- **Why the code fix does not repair it.** The fixed writer **preserves whatever owner and mode
+  the file already has**. It does not know what the file "should" be, so a file damaged by the
+  old build stays damaged through every later apply.
+- **Fix (one-off, on .17).**
+  ```bash
+  cd /home/nightfury/selfhosted/ask-prod
+  sudo chown nightfury:nightfury .env && sudo chmod 600 .env
+  stat -c '%U:%G %a' .env        # expect nightfury:nightfury 600
+  ```
+  No recreate is needed (the container reads its env at creation, not the file's mode). Check
+  the backups too: `stat -c '%n %U:%G %a' .env.bak.*` must show `600` for every file.
+
+### RLS guard ignores an unset `ENABLE_AUTH` {#rls-guard-ignores-an-unset-enable-auth}
+
+- **Where.** `lib/db/index.ts:98` enables the fail-closed RLS guard only when
+  `process.env.ENABLE_AUTH === 'true'`. The rest of the app treats **unset** as auth **on**: it
+  enters anonymous mode only for the literal `false` (`lib/auth/get-current-user.ts:21`,
+  `lib/supabase/middleware.ts:82`, `app/page.tsx:12`).
+- **Impact (Low today).** With `ENABLE_AUTH` unset, the app would require logins but would
+  **not** refuse to serve when its database role can bypass RLS, which is the one case the guard
+  exists for (see [security › row-level security](/infrastructure/security#row-level-security)).
+  It does not bite any current stack: the base `docker-compose.yaml:21` pins
+  `ENABLE_AUTH: 'true'` (prod), the staging overlay sets `${ENABLE_AUTH:-true}`
+  (`docker-compose.admin-feature.yaml:15`) and the lab sets `'false'` on purpose. A stack started
+  without those compose files, or a future compose edit that drops the pin, would expose it.
+- **Fix sketch.** Make the guard match the app: `const authEnabled = process.env.ENABLE_AUTH !== 'false'`,
+  with a test for the unset case. Not done yet.
+
+### Model Manager rewrote `.env` ownership and could not switch features off {#model-manager-rewrote-env-ownership-and-could-not-switch-features-off}
+
+- **Found 2026-09-25, fixed the same day** (lab `d105bc7e`, staging `36ad4f0f`, prod branch
+  `f3592665`; the running Model Manager image was rebuilt from the staging worktree on
+  2026-09-25).
+- **Ownership.** Every write (apply, restore) created a temp file as root and renamed it over
+  `.env`, leaving `root:root` with the umask default mode. Now `writeFileAtomic`
+  (`selfhosted/model-manager/lib/env-io.ts:49-84`) creates the temp file exclusively at no
+  broader than 0600, chowns and chmods it on the open descriptor to the original file's owner
+  and mode, fsyncs, then renames. Backups are always 0600 and owned like `.env`. Details:
+  [Model Manager › file ownership and mode](/infrastructure/model-manager#file-ownership-and-mode).
+- **Kill switches.** `RECALL_ENABLED`, `MEMORY_ENABLED` and `OLLAMA_SEARCH_ENABLED` are turned
+  off only by the literal `off`, but the switch wrote `false`, which the app reads as **on**. It
+  also showed an unset flag as "Disabled" while the app treated it as enabled. The switch now
+  writes `on`/`off`, the validator rejects `false`, and an unset flag shows the app's real
+  default with "(default)". Details:
+  [Model Manager › boolean switches](/infrastructure/model-manager#boolean-switches).
+- **Residual.** The prod `.env` damaged before the fix still needs the one-off repair above.
 
 ### Shared secrets across environments
 

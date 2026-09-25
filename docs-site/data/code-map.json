@@ -3,19 +3,19 @@
     "ask": "ask-flow",
     "ingestor": "ingestor"
   },
-  "count": 646,
+  "count": 651,
   "coverage": {
-    "files": 646,
-    "withPurpose": 646,
-    "header": 166,
-    "jsdoc": 35,
-    "derived": 57,
+    "files": 651,
+    "withPurpose": 651,
+    "header": 168,
+    "jsdoc": 36,
+    "derived": 59,
     "override": 388,
-    "documented": 348
+    "documented": 356
   },
   "kinds": {
     "dockerfile": 3,
-    "lib-module": 243,
+    "lib-module": 244,
     "route-handler": 37,
     "page": 13,
     "stylesheet": 2,
@@ -28,8 +28,8 @@
     "compose": 10,
     "migration": 22,
     "db-schema": 4,
-    "systemd-unit": 3,
-    "ops-script": 17,
+    "systemd-unit": 5,
+    "ops-script": 19,
     "hook": 12,
     "python-module": 11,
     "test-helper": 3,
@@ -1268,6 +1268,12 @@
           "anchor": "app"
         },
         {
+          "page": "/history/known-issues",
+          "title": "Known issues",
+          "section": "RLS guard ignores an unset ENABLE_AUTH",
+          "anchor": "rls-guard-ignores-an-unset-enable-auth"
+        },
+        {
           "page": "/infrastructure/model-manager",
           "title": "Model Manager",
           "section": "Architecture",
@@ -1712,6 +1718,12 @@
       "tests": [],
       "docs": [
         {
+          "page": "/request-lifecycle/frontend",
+          "title": "Frontend",
+          "section": "Half-streamed links and the \"[blocked]\" flash",
+          "anchor": "blocked-flash"
+        },
+        {
           "page": "/request-lifecycle/generative-ui",
           "title": "Generative UI, specs and the Inspector",
           "section": "Content dispatch",
@@ -2013,7 +2025,9 @@
       "usedBy": [
         "components/message-actions.tsx"
       ],
-      "tests": [],
+      "tests": [
+        "components/__tests__/message-actions-stopped.test.tsx"
+      ],
       "docs": []
     },
     {
@@ -2690,7 +2704,9 @@
         "components/library/library-panel.tsx",
         "components/message-actions.tsx"
       ],
-      "tests": [],
+      "tests": [
+        "components/__tests__/message-actions-stopped.test.tsx"
+      ],
       "docs": []
     },
     {
@@ -2762,7 +2778,9 @@
       "usedBy": [
         "components/answer-section.tsx"
       ],
-      "tests": [],
+      "tests": [
+        "components/__tests__/message-actions-stopped.test.tsx"
+      ],
       "docs": [
         {
           "page": "/history/known-issues",
@@ -2844,6 +2862,7 @@
       ],
       "tests": [
         "components/__tests__/answer-image.test.tsx",
+        "components/__tests__/markdown-message-streaming-links.test.tsx",
         "components/__tests__/reasoning-section.test.tsx"
       ],
       "docs": [
@@ -3252,7 +3271,9 @@
       "usedBy": [
         "components/message-actions.tsx"
       ],
-      "tests": [],
+      "tests": [
+        "components/__tests__/message-actions-stopped.test.tsx"
+      ],
       "docs": []
     },
     {
@@ -5269,6 +5290,7 @@
         "components/message-actions.tsx"
       ],
       "tests": [
+        "components/__tests__/message-actions-stopped.test.tsx",
         "components/__tests__/render-message.test.tsx",
         "components/voice/__tests__/speak-button.test.tsx"
       ],
@@ -5513,16 +5535,34 @@
           "anchor": "top-level"
         },
         {
+          "page": "/history/changelog",
+          "title": "Changelog",
+          "section": "2026-09 — September",
+          "anchor": "_2026-09-—-september"
+        },
+        {
+          "page": "/history/decisions",
+          "title": "Decisions",
+          "section": "D34. Recall rerank deferred, not aborted",
+          "anchor": "d34-recall-rerank-deferred-not-aborted"
+        },
+        {
           "page": "/history/known-issues",
           "title": "Known issues",
-          "section": "Overlay-pinned env vars beat .env",
-          "anchor": "overlay-pinned-env-vars-beat-env"
+          "section": "Recall is dropped on most turns",
+          "anchor": "recall-is-dropped-on-most-turns"
         },
         {
           "page": "/knowledge/ingestor",
           "title": "Ingestor worker",
           "section": "Deployments",
           "anchor": "deployments"
+        },
+        {
+          "page": "/knowledge/memory-recall",
+          "title": "Memory & recall",
+          "section": "Pool 10 → 8 (bench 2026-09-24, deployed 2026-09-25)",
+          "anchor": "recall-pool-8"
         },
         {
           "page": "/knowledge/rag-uploads",
@@ -5795,6 +5835,12 @@
           "anchor": "d30-degoog-public-instance-kept-per-env-scrapers-disabled"
         },
         {
+          "page": "/history/faq",
+          "title": "Troubleshooting FAQ",
+          "section": "The Model Manager cannot turn recall, memory or Ollama search off",
+          "anchor": "the-model-manager-cannot-turn-recall-memory-or-ollama-search-off"
+        },
+        {
           "page": "/history/glossary",
           "title": "Glossary",
           "section": "Environments and deployment",
@@ -5803,8 +5849,8 @@
         {
           "page": "/history/known-issues",
           "title": "Known issues",
-          "section": "Overlay-pinned env vars beat .env",
-          "anchor": "overlay-pinned-env-vars-beat-env"
+          "section": "RLS guard ignores an unset ENABLE_AUTH",
+          "anchor": "rls-guard-ignores-an-unset-enable-auth"
         },
         {
           "page": "/infrastructure/fleet",
@@ -6765,7 +6811,9 @@
       "exports": [],
       "methods": [],
       "route": null,
-      "usedBy": [],
+      "usedBy": [
+        "fleet-boot/memory-consolidate-nightly.sh"
+      ],
       "tests": [],
       "docs": [
         {
@@ -6791,6 +6839,64 @@
           "title": "Fleet scripts",
           "section": "Summary",
           "anchor": "summary"
+        },
+        {
+          "page": "/operations/runbooks",
+          "title": "Runbooks",
+          "section": "What automation already exists",
+          "anchor": "what-automation-already-exists"
+        }
+      ]
+    },
+    {
+      "path": "fleet-boot/fleet-update-ask.service",
+      "dir": "fleet-boot",
+      "area": "fleet-boot",
+      "project": "ask",
+      "kind": "systemd-unit",
+      "purpose": "systemd unit: Weekly: update the Ask app stacks (lab + prod + staging) on NightFuryX",
+      "purposeSource": "derived",
+      "exports": [],
+      "methods": [],
+      "route": null,
+      "usedBy": [],
+      "tests": [],
+      "docs": [
+        {
+          "page": "/operations/fleet-scripts",
+          "title": "Fleet scripts",
+          "section": null,
+          "anchor": null
+        }
+      ]
+    },
+    {
+      "path": "fleet-boot/fleet-update-ask.timer",
+      "dir": "fleet-boot",
+      "area": "fleet-boot",
+      "project": "ask",
+      "kind": "systemd-unit",
+      "purpose": "systemd timer: Weekly image update for the Ask app stacks (Sun 04:30)",
+      "purposeSource": "derived",
+      "exports": [],
+      "methods": [],
+      "route": null,
+      "usedBy": [
+        "fleet-boot/update-ask.sh"
+      ],
+      "tests": [],
+      "docs": [
+        {
+          "page": "/operations/deploy",
+          "title": "Deploy",
+          "section": "Automated image updates (not app code)",
+          "anchor": "automated-image-updates-not-app-code"
+        },
+        {
+          "page": "/operations/fleet-scripts",
+          "title": "Fleet scripts",
+          "section": null,
+          "anchor": null
         },
         {
           "page": "/operations/runbooks",
@@ -6933,6 +7039,58 @@
           "title": "Fleet scripts",
           "section": "Summary",
           "anchor": "summary"
+        }
+      ]
+    },
+    {
+      "path": "fleet-boot/memory-consolidate-nightly.sh",
+      "dir": "fleet-boot",
+      "area": "fleet-boot",
+      "project": "ask",
+      "kind": "ops-script",
+      "purpose": "Nightly memory consolidation for the Ask app stacks on this host (.17).",
+      "purposeSource": "header",
+      "exports": [],
+      "methods": [],
+      "route": null,
+      "usedBy": [],
+      "tests": [],
+      "docs": [
+        {
+          "page": "/getting-started/repo-tour",
+          "title": "Repo tour",
+          "section": "fleet-boot/",
+          "anchor": "fleet-boot"
+        },
+        {
+          "page": "/history/changelog",
+          "title": "Changelog",
+          "section": "2026-09 — September",
+          "anchor": "_2026-09-—-september"
+        },
+        {
+          "page": "/history/known-issues",
+          "title": "Known issues",
+          "section": "Memory consolidation never runs",
+          "anchor": "memory-consolidation-never-runs"
+        },
+        {
+          "page": "/knowledge/memory-recall",
+          "title": "Memory & recall",
+          "section": "Consolidation (cron route)",
+          "anchor": "consolidation-cron-route"
+        },
+        {
+          "page": "/operations/fleet-scripts",
+          "title": "Fleet scripts",
+          "section": null,
+          "anchor": null
+        },
+        {
+          "page": "/operations/runbooks",
+          "title": "Runbooks",
+          "section": "What automation already exists",
+          "anchor": "what-automation-already-exists"
         }
       ]
     },
@@ -7236,6 +7394,60 @@
       ]
     },
     {
+      "path": "fleet-boot/update-ask.sh",
+      "dir": "fleet-boot",
+      "area": "fleet-boot",
+      "project": "ask",
+      "kind": "ops-script",
+      "purpose": "Weekly image update for the ASK app stacks (lab + prod + staging) on NightFuryX.",
+      "purposeSource": "header",
+      "exports": [],
+      "methods": [],
+      "route": null,
+      "usedBy": [
+        "fleet-boot/fleet-update-ask.service"
+      ],
+      "tests": [],
+      "docs": [
+        {
+          "page": "/getting-started/repo-tour",
+          "title": "Repo tour",
+          "section": "fleet-boot/",
+          "anchor": "fleet-boot"
+        },
+        {
+          "page": "/history/changelog",
+          "title": "Changelog",
+          "section": "2026-09 — September",
+          "anchor": "_2026-09-—-september"
+        },
+        {
+          "page": "/operations/deploy",
+          "title": "Deploy",
+          "section": "Automated image updates (not app code)",
+          "anchor": "automated-image-updates-not-app-code"
+        },
+        {
+          "page": "/operations/evaluation",
+          "title": "Evaluation harnesses & scripts",
+          "section": "Flow-arm harnesses (lab only)",
+          "anchor": "flow-arm-harnesses-lab-only"
+        },
+        {
+          "page": "/operations/fleet-scripts",
+          "title": "Fleet scripts",
+          "section": null,
+          "anchor": null
+        },
+        {
+          "page": "/operations/runbooks",
+          "title": "Runbooks",
+          "section": "What automation already exists",
+          "anchor": "what-automation-already-exists"
+        }
+      ]
+    },
+    {
       "path": "fleet-boot/update-images.sh",
       "dir": "fleet-boot",
       "area": "fleet-boot",
@@ -7248,6 +7460,7 @@
       "route": null,
       "usedBy": [
         "fleet-boot/deploy.sh",
+        "fleet-boot/update-ask.sh",
         "fleet-boot/update-public-search.sh"
       ],
       "tests": [],
@@ -7375,7 +7588,8 @@
       "route": null,
       "usedBy": [
         "fleet-boot/deploy.sh",
-        "fleet-boot/fleet-update-public-search.service"
+        "fleet-boot/fleet-update-public-search.service",
+        "fleet-boot/update-ask.sh"
       ],
       "tests": [],
       "docs": [
@@ -8453,6 +8667,7 @@
         "components/message-actions.tsx"
       ],
       "tests": [
+        "components/__tests__/message-actions-stopped.test.tsx",
         "lib/actions/__tests__/notes.test.ts"
       ],
       "docs": []
@@ -9132,6 +9347,12 @@
           "title": "Known issues",
           "section": "Other stale comments and docs",
           "anchor": "other-stale-comments-and-docs"
+        },
+        {
+          "page": "/request-lifecycle/chat-turn",
+          "title": "Chat turn",
+          "section": "6. Inside the stream: attachments, pruning, truncation",
+          "anchor": "_6-inside-the-stream-attachments-pruning-truncation"
         }
       ]
     },
@@ -9268,7 +9489,9 @@
         "components/spec-block.tsx",
         "lib/render/components/image.tsx"
       ],
-      "tests": [],
+      "tests": [
+        "components/__tests__/message-actions-stopped.test.tsx"
+      ],
       "docs": [
         {
           "page": "/operations/analytics",
@@ -9578,6 +9801,18 @@
           "title": "Repo tour",
           "section": "lib/",
           "anchor": "lib"
+        },
+        {
+          "page": "/history/known-issues",
+          "title": "Known issues",
+          "section": "RLS guard ignores an unset ENABLE_AUTH",
+          "anchor": "rls-guard-ignores-an-unset-enable-auth"
+        },
+        {
+          "page": "/infrastructure/model-manager",
+          "title": "Model Manager",
+          "section": "Boolean switches",
+          "anchor": "boolean-switches"
         },
         {
           "page": "/infrastructure/security",
@@ -10263,10 +10498,22 @@
           "anchor": "data-and-security"
         },
         {
+          "page": "/history/known-issues",
+          "title": "Known issues",
+          "section": "RLS guard ignores an unset ENABLE_AUTH",
+          "anchor": "rls-guard-ignores-an-unset-enable-auth"
+        },
+        {
           "page": "/infrastructure/data-layer",
           "title": "Data layer",
           "section": "Postgres",
           "anchor": "postgres"
+        },
+        {
+          "page": "/infrastructure/model-manager",
+          "title": "Model Manager",
+          "section": "Boolean switches",
+          "anchor": "boolean-switches"
         },
         {
           "page": "/infrastructure/security",
@@ -10360,7 +10607,20 @@
         "lib/memory/__tests__/save.test.ts",
         "lib/tools/__tests__/remember.test.ts"
       ],
-      "docs": []
+      "docs": [
+        {
+          "page": "/infrastructure/model-manager",
+          "title": "Model Manager",
+          "section": "Boolean switches",
+          "anchor": "boolean-switches"
+        },
+        {
+          "page": "/knowledge/memory-recall",
+          "title": "Memory & recall",
+          "section": "How to…",
+          "anchor": "how-to"
+        }
+      ]
     },
     {
       "path": "lib/db/migrate.ts",
@@ -10399,6 +10659,12 @@
           "title": "Data layer",
           "section": "Migrations",
           "anchor": "migrations"
+        },
+        {
+          "page": "/infrastructure/model-manager",
+          "title": "Model Manager",
+          "section": "Boolean switches",
+          "anchor": "boolean-switches"
         },
         {
           "page": "/operations/deploy",
@@ -10470,7 +10736,20 @@
         "lib/memory/__tests__/recall-search.test.ts",
         "lib/tools/__tests__/recall.test.ts"
       ],
-      "docs": []
+      "docs": [
+        {
+          "page": "/infrastructure/model-manager",
+          "title": "Model Manager",
+          "section": "Boolean switches",
+          "anchor": "boolean-switches"
+        },
+        {
+          "page": "/knowledge/memory-recall",
+          "title": "Memory & recall",
+          "section": "How to…",
+          "anchor": "how-to"
+        }
+      ]
     },
     {
       "path": "lib/db/relations.ts",
@@ -13701,6 +13980,12 @@
           "anchor": "unresolved-citations"
         },
         {
+          "page": "/infrastructure/model-manager",
+          "title": "Model Manager",
+          "section": "Boolean switches",
+          "anchor": "boolean-switches"
+        },
+        {
           "page": "/infrastructure/security",
           "title": "Security",
           "section": "Other hardening in place",
@@ -14083,6 +14368,7 @@
         "lib/streaming/create-chat-stream-response.ts"
       ],
       "tests": [
+        "components/__tests__/message-actions-stopped.test.tsx",
         "lib/streaming/helpers/__tests__/sanitize-stopped-message.test.ts"
       ],
       "docs": [
@@ -14178,6 +14464,47 @@
         "lib/streaming/helpers/__tests__/stream-part-timer.test.ts"
       ],
       "docs": []
+    },
+    {
+      "path": "lib/streaming/helpers/strip-citation-anchors-from-history.ts",
+      "dir": "lib/streaming/helpers",
+      "area": "lib",
+      "project": "ask",
+      "kind": "lib-module",
+      "purpose": "Remove citation anchors from PRIOR assistant turns before they are sent to the model as conversation history.",
+      "purposeSource": "jsdoc",
+      "exports": [
+        "stripCitationAnchorsFromHistory"
+      ],
+      "methods": [],
+      "route": null,
+      "usedBy": [
+        "lib/streaming/create-chat-stream-response.ts",
+        "lib/streaming/create-ephemeral-chat-stream-response.ts"
+      ],
+      "tests": [
+        "lib/streaming/helpers/__tests__/strip-citation-anchors-from-history.test.ts"
+      ],
+      "docs": [
+        {
+          "page": "/history/changelog",
+          "title": "Changelog",
+          "section": "2026-09 — September",
+          "anchor": "_2026-09-—-september"
+        },
+        {
+          "page": "/history/decisions",
+          "title": "Decisions",
+          "section": "D36. Strip historical citation anchors; resolve citations per turn only",
+          "anchor": "d36-strip-historical-citation-anchors-resolve-citations-per-turn-only"
+        },
+        {
+          "page": "/history/known-issues",
+          "title": "Known issues",
+          "section": "Unresolved citations",
+          "anchor": "unresolved-citations"
+        }
+      ]
     },
     {
       "path": "lib/streaming/helpers/strip-narration-from-message.ts",
@@ -14660,7 +14987,9 @@
         "lib/supabase/server.ts",
         "proxy.ts"
       ],
-      "tests": [],
+      "tests": [
+        "lib/supabase/__tests__/middleware.test.ts"
+      ],
       "docs": []
     },
     {
@@ -14680,7 +15009,9 @@
       "usedBy": [
         "proxy.ts"
       ],
-      "tests": [],
+      "tests": [
+        "lib/supabase/__tests__/middleware.test.ts"
+      ],
       "docs": [
         {
           "page": "/getting-started/local-dev",
@@ -14699,6 +15030,18 @@
           "title": "Repo tour",
           "section": "Top level",
           "anchor": "top-level"
+        },
+        {
+          "page": "/history/known-issues",
+          "title": "Known issues",
+          "section": "RLS guard ignores an unset ENABLE_AUTH",
+          "anchor": "rls-guard-ignores-an-unset-enable-auth"
+        },
+        {
+          "page": "/infrastructure/model-manager",
+          "title": "Model Manager",
+          "section": "Boolean switches",
+          "anchor": "boolean-switches"
         },
         {
           "page": "/infrastructure/security",
@@ -14941,6 +15284,7 @@
       "tests": [
         "lib/embeddings/__tests__/url-rag.test.ts",
         "lib/tools/__tests__/fetch-retry-policy.test.ts",
+        "lib/tools/__tests__/fetch-tool-call-id.test.ts",
         "lib/tools/__tests__/fetch.test.ts"
       ],
       "docs": [
@@ -15162,6 +15506,12 @@
           "title": "Known issues",
           "section": "Ingest and advanced-search share one token",
           "anchor": "ingest-and-advanced-search-share-one-token"
+        },
+        {
+          "page": "/infrastructure/model-manager",
+          "title": "Model Manager",
+          "section": "Boolean switches",
+          "anchor": "boolean-switches"
         },
         {
           "page": "/operations/telemetry",
@@ -15859,6 +16209,7 @@
       "tests": [
         "components/__tests__/chat-panel.test.tsx",
         "components/__tests__/citation-link.test.tsx",
+        "components/__tests__/markdown-message-streaming-links.test.tsx",
         "components/__tests__/search-results.test.tsx",
         "components/__tests__/uploaded-file-list.test.tsx",
         "lib/tools/search/providers/__tests__/merge-brave.test.ts",
@@ -16054,6 +16405,7 @@
         "extractCitedSourceUrls",
         "extractCitationMapsFromMessages",
         "processCitations",
+        "stripIncompleteCitationTail",
         "collapseCitationArtifacts"
       ],
       "methods": [],
@@ -16086,6 +16438,12 @@
           "anchor": "unresolved-citations"
         },
         {
+          "page": "/infrastructure/security",
+          "title": "Security",
+          "section": "XSS pipeline",
+          "anchor": "xss-pipeline"
+        },
+        {
           "page": "/operations/telemetry",
           "title": "Telemetry",
           "section": "Tokens, citations, and totals",
@@ -16094,8 +16452,8 @@
         {
           "page": "/request-lifecycle/frontend",
           "title": "Frontend",
-          "section": "Citations",
-          "anchor": "citations"
+          "section": "Half-streamed links and the \"[blocked]\" flash",
+          "anchor": "blocked-flash"
         }
       ]
     },
@@ -16858,6 +17216,7 @@
         "lib/db/actions.ts"
       ],
       "tests": [
+        "components/__tests__/message-actions-stopped.test.tsx",
         "lib/db/__tests__/upsert-message.test.ts",
         "lib/utils/__tests__/message-mapping.test.ts"
       ],
@@ -17498,6 +17857,7 @@
         "lib/utils/legacy-fetch-html.ts"
       ],
       "tests": [
+        "lib/tools/__tests__/fetch-tool-call-id.test.ts",
         "lib/utils/__tests__/legacy-fetch-html.test.ts",
         "lib/utils/__tests__/ssrf-guard.test.ts"
       ],
@@ -17637,6 +17997,7 @@
         "lib/tools/search.ts"
       ],
       "tests": [
+        "lib/tools/__tests__/fetch-tool-call-id.test.ts",
         "lib/tools/__tests__/fetch.test.ts"
       ],
       "docs": []
@@ -19657,7 +20018,8 @@
       "methods": [],
       "route": null,
       "usedBy": [
-        "selfhosted/model-manager/lib/config.ts"
+        "selfhosted/model-manager/lib/config.ts",
+        "selfhosted/model-manager/lib/env-schema.ts"
       ],
       "tests": [],
       "docs": [
@@ -19768,6 +20130,7 @@
       "purpose": "Helpers to create timestamped .env.bak copies of the Ask .env, list and prune them, and restore a chosen backup.",
       "purposeSource": "override",
       "exports": [
+        "BACKUP_MODE",
         "writeBackup",
         "listBackups",
         "pruneBackups",
@@ -19782,7 +20145,8 @@
         "selfhosted/model-manager/app/api/restore/route.ts"
       ],
       "tests": [
-        "selfhosted/model-manager/lib/__tests__/backups.test.ts"
+        "selfhosted/model-manager/lib/__tests__/backups.test.ts",
+        "selfhosted/model-manager/lib/__tests__/env-io.test.ts"
       ],
       "docs": []
     },
@@ -19901,7 +20265,12 @@
       "purpose": "Reads the Ask .env file and writes it atomically via a temp file plus rename.",
       "purposeSource": "override",
       "exports": [
+        "NEW_ENV_FILE_MODE",
+        "FileAttrs",
+        "WriteAttrs",
         "readAskEnv",
+        "statAttrs",
+        "writeFileAtomic",
         "writeAskEnvAtomic"
       ],
       "methods": [],
@@ -19911,10 +20280,20 @@
         "selfhosted/model-manager/app/api/config/route.ts",
         "selfhosted/model-manager/app/api/preview/route.ts",
         "selfhosted/model-manager/app/api/restore/route.ts",
-        "selfhosted/model-manager/app/page.tsx"
+        "selfhosted/model-manager/app/page.tsx",
+        "selfhosted/model-manager/lib/backups.ts"
       ],
-      "tests": [],
-      "docs": []
+      "tests": [
+        "selfhosted/model-manager/lib/__tests__/env-io.test.ts"
+      ],
+      "docs": [
+        {
+          "page": "/history/known-issues",
+          "title": "Known issues",
+          "section": "Model Manager rewrote .env ownership and could not switch features off",
+          "anchor": "model-manager-rewrote-env-ownership-and-could-not-switch-features-off"
+        }
+      ]
     },
     {
       "path": "selfhosted/model-manager/lib/env-schema.ts",
@@ -19931,6 +20310,8 @@
         "CATEGORY_META",
         "FieldType",
         "EnvVarSpec",
+        "boolIsOn",
+        "boolLiteral",
         "REGISTRY",
         "specByKey"
       ],

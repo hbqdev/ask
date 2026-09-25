@@ -48,15 +48,22 @@ ssh -L 3939:127.0.0.1:3939 nightfury@192.168.50.17
 
 ### Lab copy vs. running copy
 
-The source exists in every worktree because it lives in the Ask repo. On 2026-09-23 the
-flow-design (lab) copy and the staging copy were **byte-identical** in tracked source. On
-2026-09-24 the lab copy gained the session, restore and clear-secret fixes described below; the
-running container gets them only after they are ported to `admin-feature` and the tool is
-rebuilt from the staging worktree. The staging
-copy additionally holds the gitignored runtime files: `.env`, `secrets.env` and `keys/`
-(`selfhosted/model-manager/.gitignore`). The running container's image was built on
-2026-09-23 after the `EMBEDDING_MODEL` read-only fix (`c080ac31` on lab, cherry-picked as
-`48e03628` on `admin-feature`), and the container runs that image.
+The source exists in every worktree because it lives in the Ask repo. As of 2026-09-25 the
+flow-design (lab) copy and the staging (`admin-feature`) copy are **identical** in tracked
+source (`git diff admin-feature flow-design -- selfhosted/model-manager` is empty). Both carry
+the 2026-09-24 session, restore and clear-secret fixes and the 2026-09-25 ownership and boolean
+fixes (lab `d105bc7e`, `admin-feature` `36ad4f0f`). The running image
+(`model-manager-model-manager`) was rebuilt from the staging worktree at 2026-09-25 05:29 UTC,
+after that commit. The staging copy additionally holds the gitignored runtime files: `.env`,
+`secrets.env` and `keys/` (`selfhosted/model-manager/.gitignore`).
+
+To check what the running container was built from, compare the image time with the staging
+worktree's last commit to the tool:
+
+```bash
+docker image inspect model-manager-model-manager --format '{{.Created}}'
+git -C /home/nightfury/selfhosted/ask log -1 --format='%h %cI' -- selfhosted/model-manager
+```
 
 ::: tip Why it is built from the staging worktree while it edits prod
 The *code* is deployed from the staging worktree like other companion apps. What it *targets*
@@ -83,13 +90,13 @@ flowchart LR
 
 | Module | Role |
 |---|---|
-| `lib/env-schema.ts` | The **registry**: every managed key with category, type, validator, help, default, `readOnly`, `target`, `testable` |
+| `lib/env-schema.ts` | The **registry**: every managed key with category, type, validator, help, default, `readOnly`, `target`, `testable`, `boolSense`; plus `boolIsOn` / `boolLiteral` for switches |
 | `lib/env-file.ts` | Lossless `.env` parser/serializer. It keeps comments, ordering, CRLF endings and inline `# comments`, and a bare `#` inside a value is not a comment (`lib/env-file.ts:43-63`) |
-| `lib/env-io.ts` | Read, plus atomic write: temp file in the same directory, then `rename` (`lib/env-io.ts:8-15`) |
+| `lib/env-io.ts` | Read, plus atomic write that keeps the file's owner and mode: exclusive temp file in the same directory, `chown`/`chmod` on the descriptor, `fsync`, then `rename` (`lib/env-io.ts:49-96`) |
 | `lib/plan-builder.ts` | Server-side validation and the apply plan (which targets change, new file text) |
 | `lib/diff.ts` | Change list + text diff; secrets masked as `••••••` (`lib/diff.ts:3`, `:36`) |
 | `lib/apply.ts` | Orchestrates backup → write → recreate `ask` → reranker write/restart; rollback |
-| `lib/backups.ts` | `.env.bak.<ISO-timestamp>` create / list / prune / restore |
+| `lib/backups.ts` | `.env.bak.<ISO-timestamp>` create (always 0600) / list / prune / restore |
 | `lib/lock.ts` | In-process promise-chain mutex serialising apply and restore |
 | `lib/exec.ts` | `spawn` wrapper with timeout (SIGKILL) and stdin input |
 | `lib/config.ts` | Reads the tool's own wiring env (`ASK_*`, `RERANKER_*`, backup count) |
@@ -216,36 +223,37 @@ browser's copy. A copied cookie stayed valid until the password or session secre
 
 ## The env schema (`lib/env-schema.ts`)
 
-`REGISTRY` (`lib/env-schema.ts:109`) is the single source of truth for which Ask variables the
-tool manages and how. Every entry is an `EnvVarSpec` (`lib/env-schema.ts:74-93`):
+`REGISTRY` (`lib/env-schema.ts:132`) is the single source of truth for which Ask variables the
+tool manages and how. Every entry is an `EnvVarSpec` (`lib/env-schema.ts:61-92`):
 
 | Field | Meaning |
 |---|---|
 | `key` | Env var name in Ask's `.env` |
-| `category` | Tab: `models`, `search`, `database`, `auth`, `memory`, `storage`, `infra` (`:1-18`) |
+| `category` | Tab: `models`, `search`, `database`, `auth`, `memory`, `storage`, `infra` (`:1-12`) |
 | `group` | Sub-heading within the tab (e.g. `Chat`, `Serenity`, `Embeddings`, `Reranker`) |
-| `type` | `url`, `model`, `model-list`, `secret`, `bool`, `int`, `enum`, `string`. This picks the control: switch, select, list editor, password input or text (`components/field.tsx:80-150`) |
+| `type` | `url`, `model`, `model-list`, `secret`, `bool`, `int`, `enum`, `string`. This picks the control: switch, select, list editor, password input or text (`components/field.tsx:86-158`) |
 | `validate` | Optional `(v) => error \| null`, run in the browser **and** server-side |
-| `default` | Shown as the placeholder: what the app does when the key is unset |
+| `default` | Shown as the placeholder: what the app does when the key is unset. For a `bool` it is the literal the app behaves as when unset, and the switch shows it with "(default)" |
 | `required` | Cannot be emptied: no **Clear this secret** link, and the server rejects an empty value (`lib/plan-builder.ts:26-29`). Set on the six core secrets (see below) |
 | `readOnly` | Rendered read-only; the server rejects edits |
 | `target` | `ask` (default) or `reranker` (written to the reranker host's `.env` over SSH) |
 | `testable` | Adds a **Test** button: `ollama` (lists `/api/tags`) or `reranker` (`/health`) |
+| `boolSense` | `bool` only: how Ask's code reads the flag, `'true'` (default), `'not-false'` or `'not-off'`. See [boolean switches](#boolean-switches) |
 
-As of 2026-09-23 the registry has **97 keys**: models 30, search 25, memory 15, storage 9,
-infra 7, database 6, auth 5. Of these, **26** are `type: 'secret'`.
+As of 2026-09-25 the registry has **97 keys**: models 30, search 25, memory 15, storage 9,
+infra 7, database 6, auth 5. Of these, **26** are `type: 'secret'` and **6** are `type: 'bool'`.
 
 ### How secrets are handled
 
 - The page and `/api/config` never send a secret's value to the browser. They send `''` plus a
   `secretSet` flag (`app/api/config/route.ts:12-15`, `app/page.tsx`). The input then shows
-  "•••••• (unchanged — type to replace)" (`components/field.tsx:144-147`).
+  "•••••• (unchanged — type to replace)" (`components/field.tsx:151-155`).
 - The form submits only fields whose value differs from the initial one
   (`components/config-form.tsx:54-60`). An untouched secret is therefore never rewritten, and an
   empty secret box means "unchanged".
 - **Clearing a secret** (since 2026-09-24). Because an empty box means "unchanged", emptying a set
   secret needs an explicit action: the **Clear this secret** link under an empty, set, optional
-  secret (`components/field.tsx:40-41,152-160`). The field then reads "Will be cleared on apply",
+  secret (`components/field.tsx:40-41,159-167`). The field then reads "Will be cleared on apply",
   with **Undo**. `ConfigForm` keeps cleared keys in a separate `cleared` map and submits them as
   `''` (`components/config-form.tsx:47-60`). The preview diff shows a cleared secret as
   `(empty)`, never as the mask, so it cannot be mistaken for a still-set value (`lib/diff.ts:39-40`).
@@ -266,7 +274,7 @@ variable, add `required: true` to its spec.
 
 ### Read-only fields: `EMBEDDING_MODEL` is data-locked
 
-`EMBEDDING_MODEL` (`lib/env-schema.ts:249-265`) is the only `readOnly` key. It used to be a
+`EMBEDDING_MODEL` (`lib/env-schema.ts:272-288`) is the only `readOnly` key. It used to be a
 dropdown offering MiniLM, mxbai and nomic. That was dangerous. Every stored vector (long-term
 memories, conversation-recall chunks, upload `.chunks.json` sidecars) was embedded with
 `Qwen/Qwen3-Embedding-0.6B`. A different model produces vectors in a different space, and
@@ -276,7 +284,7 @@ setting (see [Memory & recall](/knowledge/memory-recall)).
 
 The lock is enforced in three places:
 
-1. UI: rendered as a read-only input with the warning as help text (`components/field.tsx:80-94`).
+1. UI: rendered as a read-only input with the warning as help text (`components/field.tsx:86-100`).
 2. `validateEdits` returns `This setting is read-only` → `/api/preview` and `/api/apply` answer
    **400** (`lib/plan-builder.ts:14-36`).
 3. `buildPlan` skips read-only keys even if called directly (`lib/plan-builder.ts:57`).
@@ -287,9 +295,64 @@ Tests pin this behaviour: `lib/__tests__/env-schema.test.ts:49-` and
 To make another key read-only, set `readOnly: true` on its spec. Use it for any value that is
 baked into stored data.
 
+### Boolean switches {#boolean-switches}
+
+Ask does not read its boolean flags one way. Some are on only for the literal `true`, some are
+off only for `false`, and the kill switches are off only for `off`. A switch that always wrote
+`true`/`false` and treated "unset" as off therefore showed the wrong state for half the flags,
+and for the kill switches it could not turn anything off. Since 2026-09-25 (lab `d105bc7e`) each
+`bool` spec declares how the app reads it (`boolSense`, `lib/env-schema.ts:80-91`), and two
+helpers use that: `boolIsOn(spec, value)` (`:94-104`) decides what the switch shows, and
+`boolLiteral(spec, on)` (`:106-110`) decides what it writes.
+
+| Key | `boolSense` | App reads it as | Unset means | Switch writes | Validator |
+|---|---|---|---|---|---|
+| `RECALL_ENABLED` | `not-off` | `!== 'off'` (`lib/streaming/create-chat-stream-response.ts:1129`, `lib/db/recall-actions.ts:225`) | on | `on` / `off` | `on` or `off` |
+| `MEMORY_ENABLED` | `not-off` | `!== 'off'` (`create-chat-stream-response.ts:1071`, `lib/db/memory-actions.ts:161`) | on | `on` / `off` | `on` or `off` |
+| `OLLAMA_SEARCH_ENABLED` | `not-off` | `!== 'off'` (`lib/tools/search.ts:169,773`) | on | `on` / `off` | `on` or `off` |
+| `ENABLE_AUTH` | `not-false` | `=== 'false'` → anonymous mode (`lib/auth/get-current-user.ts:21`, `lib/supabase/middleware.ts:82`) | on | `true` / `false` | `true` or `false` |
+| `DATABASE_SSL_DISABLED` | `true` | `=== 'true'` (`lib/db/index.ts:50`, `lib/db/migrate.ts:21`) | off (SSL on, verified) | `true` / `false` | `true` or `false` |
+| `MORPHIC_CLOUD_DEPLOYMENT` | `true` | `=== 'true'` everywhere | off | `true` / `false` | `true` or `false` |
+
+What the operator sees:
+
+- **Unset shows the app's real default**, followed by "(default)"
+  (`components/field.tsx:43-48`, `:101-112`). `RECALL_ENABLED` unset reads "Enabled (default)", not "Disabled".
+- **A kill switch writes `on`/`off`.** The validator for the three `not-off` keys (`onOff`,
+  `lib/env-schema.ts:125-128`) rejects `false` with "Must be on or off (Ask disables this only on
+  `off`; `false` leaves it on)", in the browser and again server-side in `validateEdits`. A
+  `false` already in `.env` is shown as **Enabled**, which is what the app does with it, and the
+  field shows that error until it is changed.
+- **Toggling writes an explicit value.** There is no control that returns a key to "unset"; flip
+  the switch to the state you want and the literal is written. For a kill switch, `on` behaves
+  exactly like unset.
+
+::: danger Before 2026-09-25 the Model Manager could not turn recall, memory or Ollama search off
+The old switch wrote `false`, which the app reads as **on** for the three kill switches, and
+showed an unset key as "Disabled" while the app treated it as enabled. If an older backup or a
+hand edit contains `RECALL_ENABLED=false` (or `MEMORY_ENABLED` / `OLLAMA_SEARCH_ENABLED`), the
+feature is **on**. As of 2026-09-25 all three are unset in prod, staging and lab
+(`docker exec <container> printenv <NAME>` prints nothing), i.e. on.
+:::
+
+::: warning Three of these switches do nothing on prod
+The base `docker-compose.yaml:20-22` sets `DATABASE_SSL_DISABLED: 'true'`, `ENABLE_AUTH: 'true'`
+and `MORPHIC_CLOUD_DEPLOYMENT: 'false'` under the `ask` service's `environment:`, which
+overrides `env_file: .env`. Editing them in the Model Manager changes `.env` and recreates `ask`,
+but the container keeps the compose values. Their help text says so. Change them in the compose
+file (a code change on every branch) if they must ever differ.
+:::
+
+A registry test keeps every `bool` audited: the set of `bool` keys must equal the test's
+`APP_UNSET_BEHAVIOUR` table, and each spec's `default` must be the literal its switch writes for
+the app's unset behaviour (`lib/__tests__/env-schema.test.ts:158-228`). **When adding a boolean
+flag**, find how Ask reads it (`grep -rn "process.env.<NAME>" lib app components`), pick the
+matching `boolSense`, set `default` to the unset behaviour, and add the key to
+`APP_UNSET_BEHAVIOUR`. Use the `onOff` validator for a `not-off` flag and `bool` for the others.
+
 ### Chat model list
 
-`OLLAMA_MODELS` (`lib/env-schema.ts:131`) is `type: 'model-list'`. It is a comma-separated list
+`OLLAMA_MODELS` (`lib/env-schema.ts:154`) is `type: 'model-list'`. It is a comma-separated list
 edited with add / remove / reorder (`components/model-list-editor.tsx`, `lib/model-list.ts`).
 This is what "add a model" in the Model Manager means: it only edits this list. The full
 procedure for adding a chat model touches more than this one variable; see
@@ -298,7 +361,7 @@ procedure for adding a chat model touches more than this one variable; see
 ::: warning Hand-synced lists
 The Replicate image-model enums duplicate the capability arrays in Ask's
 `lib/imagegen/models/*.json`. The tool cannot import from the app, so the two must be kept in
-sync by hand (`lib/env-schema.ts:330-335`).
+sync by hand (`lib/env-schema.ts:354-358`).
 :::
 
 ## Preview → apply flow
@@ -321,8 +384,8 @@ sequenceDiagram
   UI->>AP: POST {edits}
   AP->>AP: re-verify session, validateEdits, buildPlan
   Note over AP: withApplyLock (one apply/restore at a time)
-  AP->>FS: copy → .env.bak.<ts>, prune to MODEL_MANAGER_BACKUP_KEEP
-  AP->>FS: write temp + rename (atomic)
+  AP->>FS: backup → .env.bak.<ts> (0600, owned like .env), prune to MODEL_MANAGER_BACKUP_KEEP
+  AP->>FS: temp file with .env's owner and mode, fsync, rename (atomic)
   alt targets include ask
     AP->>D: compose -p <project> -f base -f overlays up -d --force-recreate --no-deps --wait --wait-timeout 120 ask
   end
@@ -346,9 +409,12 @@ Step by step, with the reason for each:
    whitespace, quotes, `#` or `=` are double-quoted.
 3. **Serialize.** `withApplyLock` (`lib/lock.ts`) is a promise-chain mutex. One Node process
    serves the tool, so this is enough to stop two applies interleaving writes or restarts.
-4. **Backup** (`lib/backups.ts:8-12`), then prune to the newest `MODEL_MANAGER_BACKUP_KEEP`.
-   If the backup fails, nothing is written.
-5. **Atomic write** (`lib/env-io.ts:8-15`). A crash mid-write cannot leave a truncated `.env`.
+4. **Backup** (`lib/backups.ts:23-33`), then prune to the newest `MODEL_MANAGER_BACKUP_KEEP`.
+   If the backup fails, nothing is written. The backup is written through the same atomic
+   writer, mode 0600, owned like `.env`.
+5. **Atomic write** (`writeAskEnvAtomic`, `lib/env-io.ts:90-96`, called from
+   `app/api/apply/route.ts:38`). A crash mid-write cannot leave a truncated `.env`, and the new
+   file keeps the old one's owner and mode (see [file ownership and mode](#file-ownership-and-mode)).
 6. **Recreate `ask`** (`lib/apply.ts:57-109`). The flags matter:
    - `-p <project>` pins the stack; without it the base file's `name: ask-stack` decides.
    - `-f` base **plus overlays**; otherwise the service returns without VPN networking.
@@ -359,12 +425,16 @@ Step by step, with the reason for each:
    - `--wait --wait-timeout 120` blocks until the `ask` healthcheck is healthy. A container that
      boots and then crash-loops is reported as a **failure** instead of "ok". The subprocess
      timeout is 180 s.
-7. **Reranker** (only when `RERANKER_MODEL` changed; `lib/apply.ts:111-225`). The remote
+7. **Reranker** (only when `RERANKER_MODEL` changed; `lib/apply.ts:111-229`). The remote
    `.env` also holds `RERANKER_API_TOKEN`, and the reranker fails closed without it. The tool
    therefore reads the remote file, changes only `RERANKER_MODEL`, and writes the merged
    result back. If it cannot read the file it refuses rather than overwrite blind. An earlier
-   blind `cat >` wiped the token and took the reranker down (`49ffb638`). If the `RERANKER_SSH_*`
-   wiring is unset, this step fails with `reranker SSH not configured`.
+   blind `cat >` wiped the token and took the reranker down (`49ffb638`). The merged text is
+   written back with `cat >` over the **existing** file, which rewrites it in place (same inode),
+   so the remote `.env` keeps its owner and mode (`lib/apply.ts:167-179`). Do not replace that
+   with a temp file and `mv` unless the owner and mode are copied too; that is the bug the local
+   writer had. If the `RERANKER_SSH_*` wiring is unset, this step fails with
+   `reranker SSH not configured`.
 8. **Stream progress** as `application/x-ndjson` (`app/api/apply/route.ts:30-68`). The final
    `done` event carries the backup path.
 
@@ -376,21 +446,24 @@ backup path in the `done` event is what to restore.
 - **Format:** `<ASK_ENV_PATH>.bak.<ISO timestamp with : and . replaced by ->`, next to the file,
   for example `ask-prod/.env.bak.2026-09-23T18-03-49-097Z` (illustrative). These are gitignored in the Ask repo (see
   [Local development](/getting-started/local-dev)). They contain secrets; treat them like
-  `.env`.
+  `.env`. They are always created **0600** and owned like the env file, whatever mode `.env`
+  itself has (`BACKUP_MODE`, `lib/backups.ts:6-9`), so a too-open `.env` does not multiply into
+  too-open copies.
 - **Retention:** the newest `MODEL_MANAGER_BACKUP_KEEP` (default 20) are kept. Pruning runs on
   each apply and each restore (`app/api/apply/route.ts:39-43`, `app/api/restore/route.ts:41`).
 - **Only app-made backups count** (since 2026-09-24). `listBackups` matches only names of the
   exact form `<env file>.bak.<stamp>`, where the stamp is the ISO time with `:` and `.` replaced by
-  `-` (`lib/backups.ts:11,19-29`). Hand-made siblings such as `.env.bak.classifier-swap-20260903`
+  `-` (`lib/backups.ts:15-18,35-45`). Hand-made siblings such as `.env.bak.classifier-swap-20260903`
   are ignored: they are not listed, not pruned and not restorable from the UI. That is also what
   keeps pruning from deleting an operator's hand-made backup.
 - **Restore** (the **Backups** dialog → `/api/restore`) re-verifies the session in the handler,
   then accepts `backupPath` only if `resolveOwnBackup` confirms it is in the same directory as the
-  env file, has the app's name format and is currently listed (`lib/backups.ts:42-56`). Anything
+  env file, has the app's name format and is currently listed (`lib/backups.ts:55-72`). Anything
   else, including `../` paths, gets 400 "Unknown backup". The restore **snapshots the current
-  `.env` first** as a new backup, so a restore can itself be undone (`lib/backups.ts:60-75`), then
-  copies the backup over `.env` and recreates `ask` with the same health-gated command
-  (`lib/apply.ts`). The snapshot path is returned as the `backup` event.
+  `.env` first** as a new backup, so a restore can itself be undone (`lib/backups.ts:74-93`), then
+  writes the backup's bytes over `.env` through the same atomic writer as apply, keeping `.env`'s
+  **current** owner and mode (not the backup's 0600), and recreates `ask` with the same
+  health-gated command (`lib/apply.ts`). The snapshot path is returned as the `backup` event.
   - Restore does not touch the reranker host. Revert a reranker model change by applying the old
     value.
 
@@ -399,10 +472,64 @@ Manual restore without the UI:
 ```bash
 cd /home/nightfury/selfhosted/ask-prod
 ls -1t .env.bak.* | head          # names only
-cp .env.bak.<timestamp> .env
+cp .env.bak.<timestamp> .env      # cp onto an existing file keeps its owner and mode
+stat -c '%U:%G %a' .env           # expect nightfury:nightfury 600
 docker compose -p ask-stack -f docker-compose.yaml -f docker-compose.vpn.yaml \
   up -d --force-recreate --no-deps ask
 ```
+
+## File ownership and mode {#file-ownership-and-mode}
+
+The tool runs as **root** inside its container (`docker exec model-manager id` → `uid=0`), and
+`ask-prod` is mounted read-write at the same path. Anything it creates on that mount is
+therefore owned by root unless it says otherwise. Until 2026-09-25 the atomic write was a plain
+`writeFile(tmp)` + `rename(tmp, .env)`: the renamed file was a **new** file, owned `root:root`
+with the umask default `0644`. An apply that day turned prod's `nightfury:nightfury 0600`
+`.env` into `root:root 0644` (world-readable secrets, and no longer writable by its owner).
+
+Since 2026-09-25 (lab `d105bc7e`) every write of the env file (apply and restore) goes through
+`writeAskEnvAtomic` (`lib/env-io.ts:90-96`) and `writeFileAtomic` (`:49-84`):
+
+1. `stat` the current file (`statAttrs`, `:24-32`) to get its uid, gid and permission bits.
+2. Create the temp file `<path>.tmp.<pid>.<uuid>` with `O_EXCL` (`open(tmp, 'wx', …)`), so it
+   never follows or reuses something already at that name, with a create mode of **at most
+   0600**.
+3. Write the data, then `fchown` it to the original uid/gid and `fchmod` it to the original
+   mode, on the open descriptor, not by path, so nothing can swap the file in between. The
+   `chmod` comes after the `chown` because `chown` may clear set-id bits.
+4. `fsync`, close, then `rename` over the target. The file at the target path therefore never
+   exists with the wrong owner or mode, even for an instant.
+5. On any failure the temp file is deleted, so no stray copy of the secrets is left behind.
+
+Edge cases:
+
+- **Missing target.** A `.env` that does not exist yet is created **0600**, owned by the process
+  (`writeAskEnvAtomic`, `:90-96`).
+- **`chown` not permitted** (running as a normal user in development). It logs
+  `[env-io] could not chown <path> to <uid>:<gid> (<code>); keeping mode <mode>, owner is this process`
+  and carries on; the mode is still applied. The message contains no values.
+- **Backups** use the same writer with the env file's owner and a fixed 0600
+  (`lib/backups.ts:23-33`).
+
+::: warning It preserves the current state; it does not repair it
+The writer copies **whatever** owner and mode `.env` has now. A file already damaged by an
+older build stays `root:root 0644` through every later apply. Check it after upgrading the tool,
+and repair it once by hand:
+
+```bash
+cd /home/nightfury/selfhosted/ask-prod
+stat -c '%U:%G %a' .env                                   # expect nightfury:nightfury 600
+sudo chown nightfury:nightfury .env && sudo chmod 600 .env
+```
+
+As of 2026-09-25 prod's file still needed this; see
+[known issues](/history/known-issues#prod-env-left-root-root-0644).
+:::
+
+Tests: `lib/__tests__/env-io.test.ts` (0600 stays 0600, other modes are copied exactly, a
+missing file is created 0600, `chown` happens before the rename, a failed `chown` warns and
+still writes, no temp file is left on success or failure; backups are 0600 and owned like
+`.env`, and restore keeps `.env`'s owner and mode).
 
 ## API routes
 
@@ -457,6 +584,9 @@ When Ask gains a new env flag that operators should be able to change on prod:
    - Use `type: 'enum'` with `enumValues` for closed sets. The registry test requires the list
      to be non-empty.
    - Set `readOnly: true` if the value is locked to stored data.
+   - For `type: 'bool'`, check how Ask reads the flag and set `boolSense` and `default` to
+     match, then add it to the test's `APP_UNSET_BEHAVIOUR` (see
+     [boolean switches](#boolean-switches)). The registry test fails for an unaudited `bool`.
    - Set `target: 'reranker'` only for values that live in the reranker's `.env`. Today that is
      only `RERANKER_MODEL`, and `buildPlan` only forwards that one key (`lib/plan-builder.ts:59-63`).
      Any other reranker key needs a code change there.
@@ -483,16 +613,19 @@ When Ask gains a new env flag that operators should be able to change on prod:
 Some variables are hardcoded in the staging/lab compose overlays and read from `.env` only on
 prod (for example `CLASSIFIER_MODEL_ID`; see [Deploy](/operations/deploy)). The Model Manager
 only edits prod's `.env`. A key that the prod compose files set under `environment:` would
-override the `.env` value, and an apply would appear to do nothing. Check with
-`docker exec ask printenv <NAME>` after applying.
+override the `.env` value, and an apply would appear to do nothing. Three managed keys are in
+exactly that position today: `DATABASE_SSL_DISABLED`, `ENABLE_AUTH` and
+`MORPHIC_CLOUD_DEPLOYMENT` (`docker-compose.yaml:20-22`; see
+[boolean switches](#boolean-switches)). Check with `docker exec ask printenv <NAME>` after
+applying. When adding such a key, say so in its `help`.
 :::
 
 ## Tests
 
 The tool has its own Vitest suite, separate from Ask's:
 `cd selfhosted/model-manager && bun run test`. It covers the lib modules in `lib/__tests__/`
-(apply, auth, backups, config, connection tests, diff, env-file, env-schema, exec, lock,
-model list, plan builder), `proxy.test.ts`, and component tests in `components/__tests__/`.
+(apply, auth, backups, config, connection tests, diff, env-file, env-io, env-schema, exec,
+lock, model list, plan builder), `proxy.test.ts`, and component tests in `components/__tests__/`.
 See [Testing & QA](/operations/testing-qa).
 
 ## Failure modes
@@ -506,6 +639,9 @@ See [Testing & QA](/operations/testing-qa).
 | `ask-restart` fails after about 120 s | New value makes `ask` unhealthy | Restore the backup named in the `done` event |
 | `reranker-write` fails "refusing to overwrite blind" | SSH to the reranker host failed | Check the key mount and `RERANKER_SSH_TARGET`; nothing was written remotely |
 | Logged out unexpectedly | Container recreated, session older than 24 h, or password/session secret changed | Log in again; this is by design |
+| `stat -c '%U:%G %a' .env` shows `root:root 644` | Written by a build older than 2026-09-25; the current writer keeps whatever it finds | `sudo chown nightfury:nightfury .env && sudo chmod 600 .env` once ([file ownership and mode](#file-ownership-and-mode)) |
+| A switch was turned off but the feature is still on | `RECALL_ENABLED` / `MEMORY_ENABLED` / `OLLAMA_SEARCH_ENABLED` hold `false` (written by an older build or by hand); only `off` disables them | Set the switch again; it writes `off` ([boolean switches](#boolean-switches)) |
+| `DATABASE_SSL_DISABLED`, `ENABLE_AUTH` or `MORPHIC_CLOUD_DEPLOYMENT` edits have no effect | Pinned under `environment:` in the base `docker-compose.yaml:20-22` | Change the compose file instead |
 | UI down | Container stopped | Only the editor is affected; Ask keeps serving. Edit `.env` by hand ([Deploy](/operations/deploy)) or `docker compose up -d` in the tool's directory |
 
 ## Related
