@@ -61,7 +61,7 @@ names the lab original. See [deploy](/operations/deploy) for the flow.
 | [D31](#d31-hands-free-voice-conversation-loop) | Hands-free voice conversation loop | **reverted** | 2026-08-22 |
 | [D32](#d32-homepage-and-mobile-layout) | Homepage and mobile layout choices | adopted | 2026-08-20 → 09-22 |
 | [D33](#d33-prod-rate-limiters-left-inert) | Prod rate-limiters left inert | adopted (declined fix) | 2026-08-11 |
-| [D34](#d34-recall-rerank-deferred-not-aborted) | Recall rerank deferred (not aborted); pool 10 × 384 tokens | adopted | 2026-09-23 |
+| [D34](#d34-recall-rerank-deferred-not-aborted) | Recall rerank deferred (not aborted); pool 10 × 384 tokens (8 on prod and lab since 09-25) | adopted | 2026-09-23 / 09-25 |
 | [D35](#d35-retire-and-remove-the-231-ask-stacks) | Retire and remove the .231 Ask stacks | adopted | 2026-08-27 → 09-24 |
 | [D36](#d36-strip-historical-citation-anchors-resolve-citations-per-turn-only) | Strip historical citation anchors; resolve citations per turn only | adopted | 2026-09-24 |
 
@@ -589,8 +589,10 @@ then flip the flag. See [known issues](/history/known-issues#signed-upload-urls-
   `--force-recreate` `.env` edits never took effect.
 - **Consequences.** It is effectively root on the host (repo RW, docker socket, SSH key), so it is
   bound to loopback; reach it with `ssh -L 3939:localhost:3939`. It now re-verifies the session
-  inside the `/api/apply` handler (`ac437a2b`). Some newer knobs (for example the `UPLOADS_*` ones)
-  may not yet be in its env schema *(unverified)*.
+  inside the `/api/apply` handler (`ac437a2b`). Because it writes prod's `.env` as root, every
+  write must keep the file's owner and mode; until 2026-09-25 it did not, and left prod's file
+  `root:root 0644` ([known issues](/history/known-issues#prod-env-left-root-root-0644)). Some
+  newer knobs (for example the `UPLOADS_*` ones) may not yet be in its env schema *(unverified)*.
 - **Revisit if** staging/lab need the same UI. It manages prod only.
 
 ### D27. Saved model pick outranks the default
@@ -776,9 +778,32 @@ turn-based loop (`git revert b0ff56ad`) brings back the same latency.
   HNSW's filtered-search recall loss.
 - **Consequences.** The margin under 1.5 s is thin; a concurrent web-search rerank on the same GPU
   can push single turns over. Details: [memory & recall → recall latency](/knowledge/memory-recall#recall-latency).
-- **Revisit if** `recall_budget_hit` creeps back (try `RECALL_RERANK_POOL=8` before touching the
-  budget), or the reranker model changes (re-measure the per-passage cost). Don't reintroduce a
+- **Revisit if** the reranker model changes (re-measure the per-passage cost). Don't reintroduce a
   speculative rerank unless the reranker service learns to cancel work on disconnect.
+- **Addendum 2026-09-25: pool 8 on prod and lab.** The thin margin showed on prod: one 5-turn
+  chat at pool 10 had `recall_ms` 1375–2076 ms and 3 of 5 budget hits. A bench on 2026-09-24
+  timed the refetch path (query embed + both DB arms + rerank at 384 tokens) on 40 real prod
+  queries, 80 samples per pool size:
+
+  | Pool | p50 | p90 | max | Samples over 1.2 s |
+  |---|---|---|---|---|
+  | 10 | 1365 ms | 1400 ms | 1452 ms | 63 of 80 |
+  | 8 | 1088 ms | 1114 ms | 1138 ms | 0 of 80 |
+
+  Pool 8 injected exactly the same set as pool 10 on **40 of 40** queries, with the same top hit.
+  (The 2026-09-23 note above, "23 vs 26 hits" at pool 8, came from an earlier run whose
+  configuration is not recorded; the 2026-09-24 bench is the direct comparison.) **Decision:**
+  run `RECALL_RERANK_POOL=8` where recall matters most, without changing the code default (10):
+  prod sets it in `ask-prod/.env` (applied through the Model Manager), the lab in
+  `docker-compose.lab.yaml` (lab `8b6103e9`); staging keeps the default. A 4-turn prod chat
+  afterwards had `recall_ms` 1080–1342 ms, 0 of 4 budget hits, and recall injected on all 4.
+  **Limit found in the same bench:** with a search-sized rerank already running on the shared
+  reranker, recall missed the 1.5 s budget in 11 of 12 trials at either pool size. The GPU
+  interleaves the two requests, so no pool size fixes that; it is tracked as
+  [a known issue](/history/known-issues#recall-misses-the-budget-under-rerank-contention).
+  **Don't** shrink the pool further to chase those misses. Revisit the pool only with a new
+  quality comparison on real queries, and the budget only if time-to-first-token can afford
+  it.
 
 ### D35. Retire and remove the .231 Ask stacks
 

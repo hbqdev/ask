@@ -11,7 +11,7 @@
     "jsdoc": 36,
     "derived": 59,
     "override": 387,
-    "documented": 351
+    "documented": 354
   },
   "kinds": {
     "dockerfile": 3,
@@ -1268,6 +1268,12 @@
           "anchor": "app"
         },
         {
+          "page": "/history/known-issues",
+          "title": "Known issues",
+          "section": "RLS guard ignores an unset ENABLE_AUTH",
+          "anchor": "rls-guard-ignores-an-unset-enable-auth"
+        },
+        {
           "page": "/infrastructure/model-manager",
           "title": "Model Manager",
           "section": "Architecture",
@@ -1711,6 +1717,12 @@
       ],
       "tests": [],
       "docs": [
+        {
+          "page": "/request-lifecycle/frontend",
+          "title": "Frontend",
+          "section": "Half-streamed links and the \"[blocked]\" flash",
+          "anchor": "blocked-flash"
+        },
         {
           "page": "/request-lifecycle/generative-ui",
           "title": "Generative UI, specs and the Inspector",
@@ -2850,6 +2862,7 @@
       ],
       "tests": [
         "components/__tests__/answer-image.test.tsx",
+        "components/__tests__/markdown-message-streaming-links.test.tsx",
         "components/__tests__/reasoning-section.test.tsx"
       ],
       "docs": [
@@ -5522,16 +5535,34 @@
           "anchor": "top-level"
         },
         {
+          "page": "/history/changelog",
+          "title": "Changelog",
+          "section": "2026-09 — September",
+          "anchor": "_2026-09-—-september"
+        },
+        {
+          "page": "/history/decisions",
+          "title": "Decisions",
+          "section": "D34. Recall rerank deferred, not aborted",
+          "anchor": "d34-recall-rerank-deferred-not-aborted"
+        },
+        {
           "page": "/history/known-issues",
           "title": "Known issues",
-          "section": "Overlay-pinned env vars beat .env",
-          "anchor": "overlay-pinned-env-vars-beat-env"
+          "section": "Recall is dropped on most turns",
+          "anchor": "recall-is-dropped-on-most-turns"
         },
         {
           "page": "/knowledge/ingestor",
           "title": "Ingestor worker",
           "section": "Deployments",
           "anchor": "deployments"
+        },
+        {
+          "page": "/knowledge/memory-recall",
+          "title": "Memory & recall",
+          "section": "Pool 10 → 8 (bench 2026-09-24, deployed 2026-09-25)",
+          "anchor": "recall-pool-8"
         },
         {
           "page": "/knowledge/rag-uploads",
@@ -5804,6 +5835,12 @@
           "anchor": "d30-degoog-public-instance-kept-per-env-scrapers-disabled"
         },
         {
+          "page": "/history/faq",
+          "title": "Troubleshooting FAQ",
+          "section": "The Model Manager cannot turn recall, memory or Ollama search off",
+          "anchor": "the-model-manager-cannot-turn-recall-memory-or-ollama-search-off"
+        },
+        {
           "page": "/history/glossary",
           "title": "Glossary",
           "section": "Environments and deployment",
@@ -5812,8 +5849,8 @@
         {
           "page": "/history/known-issues",
           "title": "Known issues",
-          "section": "Overlay-pinned env vars beat .env",
-          "anchor": "overlay-pinned-env-vars-beat-env"
+          "section": "RLS guard ignores an unset ENABLE_AUTH",
+          "anchor": "rls-guard-ignores-an-unset-enable-auth"
         },
         {
           "page": "/infrastructure/fleet",
@@ -9310,6 +9347,12 @@
           "title": "Known issues",
           "section": "Other stale comments and docs",
           "anchor": "other-stale-comments-and-docs"
+        },
+        {
+          "page": "/request-lifecycle/chat-turn",
+          "title": "Chat turn",
+          "section": "6. Inside the stream: attachments, pruning, truncation",
+          "anchor": "_6-inside-the-stream-attachments-pruning-truncation"
         }
       ]
     },
@@ -9758,6 +9801,18 @@
           "title": "Repo tour",
           "section": "lib/",
           "anchor": "lib"
+        },
+        {
+          "page": "/history/known-issues",
+          "title": "Known issues",
+          "section": "RLS guard ignores an unset ENABLE_AUTH",
+          "anchor": "rls-guard-ignores-an-unset-enable-auth"
+        },
+        {
+          "page": "/infrastructure/model-manager",
+          "title": "Model Manager",
+          "section": "Boolean switches",
+          "anchor": "boolean-switches"
         },
         {
           "page": "/infrastructure/security",
@@ -10443,10 +10498,22 @@
           "anchor": "data-and-security"
         },
         {
+          "page": "/history/known-issues",
+          "title": "Known issues",
+          "section": "RLS guard ignores an unset ENABLE_AUTH",
+          "anchor": "rls-guard-ignores-an-unset-enable-auth"
+        },
+        {
           "page": "/infrastructure/data-layer",
           "title": "Data layer",
           "section": "Postgres",
           "anchor": "postgres"
+        },
+        {
+          "page": "/infrastructure/model-manager",
+          "title": "Model Manager",
+          "section": "Boolean switches",
+          "anchor": "boolean-switches"
         },
         {
           "page": "/infrastructure/security",
@@ -10540,7 +10607,20 @@
         "lib/memory/__tests__/save.test.ts",
         "lib/tools/__tests__/remember.test.ts"
       ],
-      "docs": []
+      "docs": [
+        {
+          "page": "/infrastructure/model-manager",
+          "title": "Model Manager",
+          "section": "Boolean switches",
+          "anchor": "boolean-switches"
+        },
+        {
+          "page": "/knowledge/memory-recall",
+          "title": "Memory & recall",
+          "section": "How to…",
+          "anchor": "how-to"
+        }
+      ]
     },
     {
       "path": "lib/db/migrate.ts",
@@ -10579,6 +10659,12 @@
           "title": "Data layer",
           "section": "Migrations",
           "anchor": "migrations"
+        },
+        {
+          "page": "/infrastructure/model-manager",
+          "title": "Model Manager",
+          "section": "Boolean switches",
+          "anchor": "boolean-switches"
         },
         {
           "page": "/operations/deploy",
@@ -10650,7 +10736,20 @@
         "lib/memory/__tests__/recall-search.test.ts",
         "lib/tools/__tests__/recall.test.ts"
       ],
-      "docs": []
+      "docs": [
+        {
+          "page": "/infrastructure/model-manager",
+          "title": "Model Manager",
+          "section": "Boolean switches",
+          "anchor": "boolean-switches"
+        },
+        {
+          "page": "/knowledge/memory-recall",
+          "title": "Memory & recall",
+          "section": "How to…",
+          "anchor": "how-to"
+        }
+      ]
     },
     {
       "path": "lib/db/relations.ts",
@@ -13881,6 +13980,12 @@
           "anchor": "unresolved-citations"
         },
         {
+          "page": "/infrastructure/model-manager",
+          "title": "Model Manager",
+          "section": "Boolean switches",
+          "anchor": "boolean-switches"
+        },
+        {
           "page": "/infrastructure/security",
           "title": "Security",
           "section": "Other hardening in place",
@@ -14927,6 +15032,18 @@
           "anchor": "top-level"
         },
         {
+          "page": "/history/known-issues",
+          "title": "Known issues",
+          "section": "RLS guard ignores an unset ENABLE_AUTH",
+          "anchor": "rls-guard-ignores-an-unset-enable-auth"
+        },
+        {
+          "page": "/infrastructure/model-manager",
+          "title": "Model Manager",
+          "section": "Boolean switches",
+          "anchor": "boolean-switches"
+        },
+        {
           "page": "/infrastructure/security",
           "title": "Security",
           "section": "Authentication",
@@ -15389,6 +15506,12 @@
           "title": "Known issues",
           "section": "Ingest and advanced-search share one token",
           "anchor": "ingest-and-advanced-search-share-one-token"
+        },
+        {
+          "page": "/infrastructure/model-manager",
+          "title": "Model Manager",
+          "section": "Boolean switches",
+          "anchor": "boolean-switches"
         },
         {
           "page": "/operations/telemetry",
@@ -16086,6 +16209,7 @@
       "tests": [
         "components/__tests__/chat-panel.test.tsx",
         "components/__tests__/citation-link.test.tsx",
+        "components/__tests__/markdown-message-streaming-links.test.tsx",
         "components/__tests__/search-results.test.tsx",
         "components/__tests__/uploaded-file-list.test.tsx",
         "lib/tools/search/providers/__tests__/merge-brave.test.ts",
@@ -16281,6 +16405,7 @@
         "extractCitedSourceUrls",
         "extractCitationMapsFromMessages",
         "processCitations",
+        "stripIncompleteCitationTail",
         "collapseCitationArtifacts"
       ],
       "methods": [],
@@ -16313,6 +16438,12 @@
           "anchor": "unresolved-citations"
         },
         {
+          "page": "/infrastructure/security",
+          "title": "Security",
+          "section": "XSS pipeline",
+          "anchor": "xss-pipeline"
+        },
+        {
           "page": "/operations/telemetry",
           "title": "Telemetry",
           "section": "Tokens, citations, and totals",
@@ -16321,8 +16452,8 @@
         {
           "page": "/request-lifecycle/frontend",
           "title": "Frontend",
-          "section": "Citations",
-          "anchor": "citations"
+          "section": "Half-streamed links and the \"[blocked]\" flash",
+          "anchor": "blocked-flash"
         }
       ]
     },
@@ -19819,7 +19950,8 @@
       "methods": [],
       "route": null,
       "usedBy": [
-        "selfhosted/model-manager/lib/config.ts"
+        "selfhosted/model-manager/lib/config.ts",
+        "selfhosted/model-manager/lib/env-schema.ts"
       ],
       "tests": [],
       "docs": [
@@ -19930,6 +20062,7 @@
       "purpose": "Helpers to create timestamped .env.bak copies of the Ask .env, list and prune them, and restore a chosen backup.",
       "purposeSource": "override",
       "exports": [
+        "BACKUP_MODE",
         "writeBackup",
         "listBackups",
         "pruneBackups",
@@ -19944,7 +20077,8 @@
         "selfhosted/model-manager/app/api/restore/route.ts"
       ],
       "tests": [
-        "selfhosted/model-manager/lib/__tests__/backups.test.ts"
+        "selfhosted/model-manager/lib/__tests__/backups.test.ts",
+        "selfhosted/model-manager/lib/__tests__/env-io.test.ts"
       ],
       "docs": []
     },
@@ -20063,7 +20197,12 @@
       "purpose": "Reads the Ask .env file and writes it atomically via a temp file plus rename.",
       "purposeSource": "override",
       "exports": [
+        "NEW_ENV_FILE_MODE",
+        "FileAttrs",
+        "WriteAttrs",
         "readAskEnv",
+        "statAttrs",
+        "writeFileAtomic",
         "writeAskEnvAtomic"
       ],
       "methods": [],
@@ -20073,10 +20212,20 @@
         "selfhosted/model-manager/app/api/config/route.ts",
         "selfhosted/model-manager/app/api/preview/route.ts",
         "selfhosted/model-manager/app/api/restore/route.ts",
-        "selfhosted/model-manager/app/page.tsx"
+        "selfhosted/model-manager/app/page.tsx",
+        "selfhosted/model-manager/lib/backups.ts"
       ],
-      "tests": [],
-      "docs": []
+      "tests": [
+        "selfhosted/model-manager/lib/__tests__/env-io.test.ts"
+      ],
+      "docs": [
+        {
+          "page": "/history/known-issues",
+          "title": "Known issues",
+          "section": "Model Manager rewrote .env ownership and could not switch features off",
+          "anchor": "model-manager-rewrote-env-ownership-and-could-not-switch-features-off"
+        }
+      ]
     },
     {
       "path": "selfhosted/model-manager/lib/env-schema.ts",
@@ -20093,6 +20242,8 @@
         "CATEGORY_META",
         "FieldType",
         "EnvVarSpec",
+        "boolIsOn",
+        "boolLiteral",
         "REGISTRY",
         "specByKey"
       ],
