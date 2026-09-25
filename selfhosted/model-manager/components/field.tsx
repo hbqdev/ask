@@ -2,7 +2,7 @@
 
 import { HelpCircle } from 'lucide-react'
 
-import { EnvVarSpec } from '@/lib/env-schema'
+import { boolIsOn, boolLiteral, EnvVarSpec } from '@/lib/env-schema'
 import { cn } from '@/lib/utils'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -40,6 +40,12 @@ export function Field({
   const canClear =
     spec.type === 'secret' && isSecretSet && !spec.required && !!onClear
   const error = spec.validate && value.trim() ? spec.validate(value) : null
+  // A bool shows what Ask actually does: unset falls back to the app's own
+  // default (e.g. RECALL_ENABLED unset = ON), not a blanket "off".
+  const boolUnset = spec.type === 'bool' && value === ''
+  const boolOn =
+    spec.type === 'bool' &&
+    boolIsOn(spec, boolUnset ? (spec.default ?? '') : value)
 
   return (
     <div className="grid gap-2 py-3.5 sm:grid-cols-[minmax(0,15rem)_1fr] sm:items-start sm:gap-6">
@@ -96,11 +102,12 @@ export function Field({
           <div className="flex h-9 items-center gap-2.5">
             <Switch
               id={spec.key}
-              checked={value === 'true'}
-              onCheckedChange={c => onChange(c ? 'true' : 'false')}
+              checked={boolOn}
+              onCheckedChange={c => onChange(boolLiteral(spec, c))}
             />
             <span className="text-sm text-muted-foreground">
-              {value === 'true' ? 'Enabled' : 'Disabled'}
+              {boolOn ? 'Enabled' : 'Disabled'}
+              {boolUnset && ' (default)'}
             </span>
           </div>
         ) : spec.type === 'enum' ? (

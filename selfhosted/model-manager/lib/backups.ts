@@ -1,5 +1,12 @@
-import { copyFile, readdir, unlink } from 'fs/promises'
+import { readdir, readFile, unlink } from 'fs/promises'
 import { basename, dirname, join, resolve } from 'path'
+
+import { statAttrs, writeAskEnvAtomic, writeFileAtomic } from './env-io'
+
+// Backups carry every secret in the env file: owner read/write only, whatever
+// the env file's own mode is (a group/world-readable .env must not multiply
+// into group/world-readable copies).
+export const BACKUP_MODE = 0o600
 
 function stamp(now: Date): string {
   return now.toISOString().replace(/[:.]/g, '-')
@@ -10,9 +17,18 @@ function stamp(now: Date): string {
 // NOT match: they are neither listed, pruned, nor restorable from the UI.
 const STAMP_RE = /^\d{4}-\d{2}-\d{2}T\d{2}-\d{2}-\d{2}-\d{3}Z$/
 
+// Byte-exact copy of the env file, created 0600 and owned like the env file
+// (so the host user who owns .env can still read/prune its backups). Written
+// via the same atomic temp+rename path, so a backup is never half-written.
 export async function writeBackup(envPath: string, now: Date): Promise<string> {
   const bak = `${envPath}.bak.${stamp(now)}`
-  await copyFile(envPath, bak)
+  const data = await readFile(envPath)
+  const src = await statAttrs(envPath)
+  await writeFileAtomic(bak, data, {
+    uid: src?.uid,
+    gid: src?.gid,
+    mode: BACKUP_MODE
+  })
   return bak
 }
 
@@ -70,6 +86,8 @@ export async function restoreBackup(
     when = new Date(when.getTime() + 1)
   }
   const snapshot = await writeBackup(envPath, when)
-  await copyFile(own, envPath)
+  // Atomic, and keeps the CURRENT env file's owner/mode — copyFile would have
+  // written in place and stamped the backup's mode onto .env.
+  await writeAskEnvAtomic(envPath, await readFile(own))
   return snapshot
 }
