@@ -169,6 +169,8 @@ services:
       # call and in what order, which the [latency] line only counts.
       ENABLE_USAGE_LOGGING: 'true'
       UPLOAD_TTL_DAYS: '14'
+      # Recall rerank pool 10->8 (bench 2026-09-24, 40 real prod queries: refetch p50 1365->1088ms vs 1500 budget, same injected set 40/40)
+      RECALL_RERANK_POOL: '8'
 
       # --- voice read-aloud (Slice 1) -------------------------------------
       # Lab-only: text users see zero change; these two flags light up the
