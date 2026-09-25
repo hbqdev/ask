@@ -69,6 +69,27 @@ describe('generateChatTitle', () => {
     )
   })
 
+  it('skips a lead-in line and uses the title after it', async () => {
+    gen(
+      'Here is the short, concise title (4 words):\nPython Dict Hash Collisions'
+    )
+    await expect(call('how do python dicts handle collisions?')).resolves.toBe(
+      'Python Dict Hash Collisions'
+    )
+  })
+
+  it('falls back when the model emits only a lead-in', async () => {
+    gen('Here is the short, concise title (4 words):')
+    await expect(call('how do python dicts handle collisions?')).resolves.toBe(
+      'how do python dicts handle collisions?'
+    )
+  })
+
+  it('drops a "Title:" label but keeps colons inside a title', async () => {
+    gen('Title: Python 3.15: What Changed')
+    await expect(call('q')).resolves.toBe('Python 3.15: What Changed')
+  })
+
   it('strips surrounding quotes', async () => {
     gen('"Firecrawl Alternatives"')
     await expect(call('q')).resolves.toBe('Firecrawl Alternatives')
