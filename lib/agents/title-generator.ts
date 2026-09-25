@@ -106,12 +106,15 @@ export async function generateChatTitle({
 
     // Take the first non-empty line: a model that emits a real title and then
     // keeps talking ("Firecrawl Alternatives\n\nHere's why...") still gave us
-    // a usable title on line one.
+    // a usable title on line one. Skip lead-in lines first — a title never
+    // ends with a colon, but "Here is the short, concise title (4 words):"
+    // does (stored as a lab chat's title on 2026-09-25) — and drop a
+    // "Title:" label.
     const cleanedTitle =
       generatedTitle
         .split('\n')
-        .map(line => line.trim())
-        .find(line => line.length > 0) ?? ''
+        .map(line => line.trim().replace(/^title\s*:\s*/i, ''))
+        .find(line => line.length > 0 && !line.endsWith(':')) ?? ''
 
     // If the model returns an empty string, use the fallback.
     if (!cleanedTitle) {
