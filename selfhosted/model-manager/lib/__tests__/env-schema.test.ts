@@ -1,7 +1,13 @@
 import { readFileSync } from 'fs'
 import { join } from 'path'
 import { describe, expect, it } from 'vitest'
-import { CATEGORIES, REGISTRY, specByKey } from '../env-schema'
+import {
+  boolIsOn,
+  boolLiteral,
+  CATEGORIES,
+  REGISTRY,
+  specByKey
+} from '../env-schema'
 
 const IGNORE = new Set<string>([
   // keys deliberately NOT managed by the UI (add here with justification)
@@ -143,6 +149,81 @@ describe('Replicate image-generation env', () => {
     expect(spec).toBeDefined()
     expect(spec!.type).toBe('int')
     expect(spec!.default).toBe('120000')
+  })
+})
+
+// What Ask does when each boolean key is UNSET, read from the app's code (not
+// the old UI, which showed every unset bool as "Disabled"). A new bool must
+// be added here, i.e. audited against the app, before this suite passes.
+const APP_UNSET_BEHAVIOUR: Record<string, boolean> = {
+  // `!== 'off'` / `=== 'off'` kill switches — unset = ON
+  OLLAMA_SEARCH_ENABLED: true, // lib/tools/search.ts
+  MEMORY_ENABLED: true, // lib/db/memory-actions.ts, create-chat-stream-response.ts
+  RECALL_ENABLED: true, // lib/db/recall-actions.ts, create-chat-stream-response.ts
+  // `=== 'false'` disables — unset = ON
+  ENABLE_AUTH: true, // lib/auth/get-current-user.ts, lib/supabase/middleware.ts
+  // `=== 'true'` enables — unset = OFF
+  DATABASE_SSL_DISABLED: false, // lib/db/index.ts, lib/db/migrate.ts
+  MORPHIC_CLOUD_DEPLOYMENT: false // lib/auth/get-current-user.ts, lib/analytics, …
+}
+
+describe('boolean flags show and write what Ask actually does', () => {
+  const bools = REGISTRY.filter(s => s.type === 'bool')
+
+  it('every bool has been audited against the app', () => {
+    expect(bools.map(s => s.key).sort()).toEqual(
+      Object.keys(APP_UNSET_BEHAVIOUR).sort()
+    )
+  })
+
+  it.each(Object.entries(APP_UNSET_BEHAVIOUR))(
+    '%s: display default matches the app when unset (on=%s)',
+    (key, on) => {
+      const spec = specByKey(key)!
+      expect(spec.default).toBeDefined()
+      expect(boolIsOn(spec, '')).toBe(on)
+      expect(boolIsOn(spec, spec.default!)).toBe(on)
+      // …and the default is the literal the switch itself would write.
+      expect(boolLiteral(spec, on)).toBe(spec.default)
+    }
+  )
+
+  it('RECALL_ENABLED unset is ON (was shown as Disabled)', () => {
+    const spec = specByKey('RECALL_ENABLED')!
+    expect(spec.default).toBe('on')
+    expect(boolIsOn(spec, '')).toBe(true)
+  })
+
+  it('kill switches: only `off` disables, so the switch writes on/off, never false', () => {
+    for (const key of [
+      'RECALL_ENABLED',
+      'MEMORY_ENABLED',
+      'OLLAMA_SEARCH_ENABLED'
+    ]) {
+      const spec = specByKey(key)!
+      expect(boolIsOn(spec, 'off')).toBe(false)
+      // The app reads `false` as ON — it must not look like "Disabled"…
+      expect(boolIsOn(spec, 'false')).toBe(true)
+      // …and the UI must never write it to mean "off".
+      expect(boolLiteral(spec, false)).toBe('off')
+      expect(boolLiteral(spec, true)).toBe('on')
+      expect(spec.validate!('off')).toBeNull()
+      expect(spec.validate!('on')).toBeNull()
+      expect(spec.validate!('false')).toMatch(/only on `off`/)
+    }
+  })
+
+  it('ENABLE_AUTH is off only for `false`; SSL/cloud flags only on for `true`', () => {
+    const auth = specByKey('ENABLE_AUTH')!
+    expect(boolIsOn(auth, 'false')).toBe(false)
+    expect(boolIsOn(auth, 'true')).toBe(true)
+    expect(boolLiteral(auth, false)).toBe('false')
+    for (const key of ['DATABASE_SSL_DISABLED', 'MORPHIC_CLOUD_DEPLOYMENT']) {
+      const spec = specByKey(key)!
+      expect(boolIsOn(spec, 'true')).toBe(true)
+      expect(boolIsOn(spec, 'false')).toBe(false)
+      expect(boolIsOn(spec, 'yes')).toBe(false)
+    }
   })
 })
 

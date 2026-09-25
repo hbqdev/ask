@@ -99,6 +99,12 @@ tool without setting a password.
   listed, pruned or restorable — hand-made siblings such as
   `.env.bak.classifier-swap-…` are ignored, and `/api/restore` rejects any
   other path. A restore snapshots the current `.env` first, so it is undoable.
+- **File ownership and mode:** the app runs as root, but every `.env` write
+  (apply, restore) keeps the file's original owner and mode: the temp file is
+  chowned/chmodded to match before the atomic rename (a missing file is
+  created `0600`). Backups are always `0600`, owned like the `.env`. If chown
+  is not permitted (non-root dev), the mode is still kept and a warning is
+  logged.
 - **Clearing a secret:** a set secret is shown blank (its value never reaches
   the browser), so an empty box means "unchanged". Use **Clear this secret**
   to empty an optional secret on the next apply; vars marked `required` in the
