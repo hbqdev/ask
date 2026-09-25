@@ -303,6 +303,10 @@
               "value": "off"
             },
             {
+              "key": "RECALL_RERANK_POOL",
+              "value": "8"
+            },
+            {
               "key": "SEARCH_EXCERPTS_ENABLED",
               "value": "false"
             },

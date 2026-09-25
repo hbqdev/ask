@@ -236,7 +236,9 @@ listening on **`127.0.0.1:3939`** on the app host (reach it from another machine
 **prod's** `.env`:
 
 - Shows and validates settings, previews a diff, writes atomically with a timestamped
-  backup (`.env.bak.*`), and can restore backups.
+  backup (`.env.bak.*`, mode 0600), and can restore backups. Writes keep `.env`'s owner and
+  mode (since 2026-09-25; an older build left prod's file `root:root 0644`, see
+  [Model Manager › file ownership and mode](/infrastructure/model-manager#file-ownership-and-mode)).
 - **Apply** runs `docker compose -p ask-stack -f <base> -f <vpn> up -d --force-recreate --no-deps --wait --wait-timeout 120 ask`
   (`selfhosted/model-manager/lib/apply.ts:81-93`) — the same command as a manual prod
   env change, gated on the healthcheck.
