@@ -82,6 +82,14 @@ describe('buildPlan', () => {
     expect(plan.askEnvText).not.toContain('sekrit')
     expect(changes[0]).toMatchObject({ key: 'RERANKER_API_TOKEN', after: '' })
   })
+  it('validateEdits rejects `false` for a kill switch (a silent no-op in Ask)', () => {
+    expect(validateEdits({ RECALL_ENABLED: 'false' })).toEqual([
+      { key: 'RECALL_ENABLED', error: expect.stringMatching(/on or off/) }
+    ])
+    expect(validateEdits({ RECALL_ENABLED: 'off' })).toEqual([])
+    expect(validateEdits({ MEMORY_ENABLED: 'on' })).toEqual([])
+    expect(validateEdits({ ENABLE_AUTH: 'false' })).toEqual([])
+  })
   it('validateEdits refuses to empty a required var', () => {
     const spec = specByKey('RERANKER_API_TOKEN')!
     spec.required = true
