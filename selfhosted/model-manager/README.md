@@ -61,8 +61,8 @@ tool without setting a password.
    because Docker Compose interpolates `$` in the project `.env`, which would
    mangle a password containing `$`. **If your password contains a `$`, double
    it (`$$`) in `secrets.env`** — Compose turns each `$$` back into one `$`, so
-   you log in with the real password (e.g. store `G0d$$peed1522!` to use the
-   password `G0d$peed1522!`). A password without `$` needs no escaping.
+   you log in with the real password (e.g. store `abc$$def!` to use the
+   password `abc$def!`). A password without `$` needs no escaping.
    Optionally set `MODEL_MANAGER_SESSION_SECRET` in `secrets.env` too; if left
    unset it is derived from the password.
 
