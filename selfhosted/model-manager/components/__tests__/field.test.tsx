@@ -98,6 +98,70 @@ describe('Field', () => {
     fireEvent.click(screen.getByRole('button', { name: /undo/i }))
     expect(onClear).toHaveBeenCalledWith(false)
   })
+  it('shows an unset RECALL_ENABLED as Enabled (the app default), not Disabled', () => {
+    render(
+      <Field
+        spec={specByKey('RECALL_ENABLED')!}
+        value=""
+        onChange={() => {}}
+        isSecretSet={false}
+      />
+    )
+    expect(screen.getByRole('switch')).toHaveAttribute('aria-checked', 'true')
+    expect(screen.getByText(/^Enabled \(default\)$/)).toBeInTheDocument()
+  })
+  it('turning a kill switch off writes `off` (the app ignores `false`)', () => {
+    const onChange = vi.fn()
+    render(
+      <Field
+        spec={specByKey('RECALL_ENABLED')!}
+        value=""
+        onChange={onChange}
+        isSecretSet={false}
+      />
+    )
+    fireEvent.click(screen.getByRole('switch'))
+    expect(onChange).toHaveBeenCalledWith('off')
+  })
+  it('shows RECALL_ENABLED=false as Enabled, and flags the value', () => {
+    render(
+      <Field
+        spec={specByKey('RECALL_ENABLED')!}
+        value="false"
+        onChange={() => {}}
+        isSecretSet={false}
+      />
+    )
+    expect(screen.getByRole('switch')).toHaveAttribute('aria-checked', 'true')
+    expect(screen.getByText(/only on `off`/)).toBeInTheDocument()
+  })
+  it('ENABLE_AUTH unset is Enabled and toggles to `false`; SSL-disabled unset is Disabled', () => {
+    const onChange = vi.fn()
+    const { unmount } = render(
+      <Field
+        spec={specByKey('ENABLE_AUTH')!}
+        value=""
+        onChange={onChange}
+        isSecretSet={false}
+      />
+    )
+    expect(screen.getByRole('switch')).toHaveAttribute('aria-checked', 'true')
+    fireEvent.click(screen.getByRole('switch'))
+    expect(onChange).toHaveBeenCalledWith('false')
+    unmount()
+    render(
+      <Field
+        spec={specByKey('DATABASE_SSL_DISABLED')!}
+        value=""
+        onChange={onChange}
+        isSecretSet={false}
+      />
+    )
+    expect(screen.getByRole('switch')).toHaveAttribute('aria-checked', 'false')
+    expect(screen.getByText(/^Disabled \(default\)$/)).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('switch'))
+    expect(onChange).toHaveBeenLastCalledWith('true')
+  })
   it('no Clear for an unset secret or a required one', () => {
     const spec = specByKey('RERANKER_API_TOKEN')!
     const { unmount } = render(

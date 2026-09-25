@@ -164,6 +164,10 @@ async function restartReranker(
       ? serializeEnv(setValue(parseEnv(read.stdout), 'RERANKER_MODEL', model))
       : read.stdout
 
+    // `cat >` truncates and rewrites the EXISTING file in place (we just read
+    // it, so it exists): same inode, so the remote file keeps its owner and
+    // mode. Do not swap this for a temp-file + mv without copying those over —
+    // that is exactly the bug that left the local .env root:root 0644.
     const write = await runner.run(
       'ssh',
       [
