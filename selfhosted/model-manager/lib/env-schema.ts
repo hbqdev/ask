@@ -1,11 +1,5 @@
 export type Category =
-  | 'models'
-  | 'search'
-  | 'database'
-  | 'auth'
-  | 'memory'
-  | 'storage'
-  | 'infra'
+  'models' | 'search' | 'database' | 'auth' | 'memory' | 'storage' | 'infra'
 
 export const CATEGORIES: Category[] = [
   'models',
@@ -62,14 +56,7 @@ export const CATEGORY_META: Record<Category, CategoryMeta> = {
 }
 
 export type FieldType =
-  | 'url'
-  | 'model'
-  | 'model-list'
-  | 'secret'
-  | 'bool'
-  | 'int'
-  | 'enum'
-  | 'string'
+  'url' | 'model' | 'model-list' | 'secret' | 'bool' | 'int' | 'enum' | 'string'
 
 export interface EnvVarSpec {
   key: string
@@ -90,6 +77,36 @@ export interface EnvVarSpec {
   readOnly?: boolean
   target?: 'ask' | 'reranker' // default 'ask'
   testable?: 'ollama' | 'reranker' | 'http'
+  /**
+   * bool only: how Ask's code reads the flag, so the switch shows what the app
+   * really does (including when the key is unset) and writes a value the app
+   * honours. Verified against the app, not assumed:
+   *  - 'true'      (default) on only for the literal `true`; unset = off.
+   *  - 'not-false' off only for the literal `false`; unset = on.
+   *  - 'not-off'   kill switch: off only for the literal `off`; unset = on.
+   *                `false` does NOT turn it off, so the switch writes on/off.
+   * A bool's `default` is the value the app behaves as when the key is unset;
+   * a registry test keeps the two consistent.
+   */
+  boolSense?: 'true' | 'not-false' | 'not-off'
+}
+
+/** Whether Ask treats `value` ('' = unset) as ON for this bool spec. */
+export function boolIsOn(spec: EnvVarSpec, value: string): boolean {
+  switch (spec.boolSense ?? 'true') {
+    case 'not-false':
+      return value !== 'false'
+    case 'not-off':
+      return value !== 'off'
+    default:
+      return value === 'true'
+  }
+}
+
+/** The literal the switch writes to turn this bool spec on / off. */
+export function boolLiteral(spec: EnvVarSpec, on: boolean): string {
+  if (spec.boolSense === 'not-off') return on ? 'on' : 'off'
+  return on ? 'true' : 'false'
 }
 
 // --- shared validators ---
@@ -103,6 +120,12 @@ const num = (v: string): string | null =>
   /^-?\d+(\.\d+)?$/.test(v.trim()) ? null : 'Must be a number'
 const bool = (v: string): string | null =>
   /^(true|false)$/.test(v.trim()) ? null : 'Must be true or false'
+// For 'not-off' kill switches: `false` would be a silent no-op (the app keeps
+// the feature ON for anything but `off`), so only on/off are accepted.
+const onOff = (v: string): string | null =>
+  /^(on|off)$/.test(v.trim())
+    ? null
+    : 'Must be on or off (Ask disables this only on `off`; `false` leaves it on)'
 const nonEmpty = (v: string): string | null =>
   v.trim().length ? null : 'Required'
 
@@ -604,7 +627,11 @@ export const REGISTRY: EnvVarSpec[] = [
     group: 'Ollama search',
     label: 'Ollama search enabled',
     type: 'bool',
-    validate: bool
+    // lib/tools/search.ts: `OLLAMA_SEARCH_ENABLED !== 'off'` (both gates).
+    boolSense: 'not-off',
+    default: 'on',
+    validate: onOff,
+    help: 'Kill switch: only `off` disables it; unset (the default) = on. Inert anyway without the Ollama search key.'
   },
   {
     key: 'OLLAMA_SEARCH_MAX_RESULTS',
@@ -644,7 +671,11 @@ export const REGISTRY: EnvVarSpec[] = [
     category: 'database',
     label: 'Disable DB SSL',
     type: 'bool',
-    validate: bool
+    // lib/db/index.ts + migrate.ts: `DATABASE_SSL_DISABLED === 'true'`.
+    boolSense: 'true',
+    default: 'false',
+    validate: bool,
+    help: 'Only `true` disables SSL; unset = SSL on with certificate verification. The base docker-compose.yaml pins this to `true` under `environment:`, which overrides .env, so editing it here has no effect on a stack deployed from it (prod).'
   },
   {
     key: 'POSTGRES_USER',
@@ -672,7 +703,12 @@ export const REGISTRY: EnvVarSpec[] = [
     category: 'auth',
     label: 'Enable auth',
     type: 'bool',
-    validate: bool
+    // lib/auth/get-current-user.ts + middleware: anonymous mode only when
+    // `ENABLE_AUTH === 'false'`; unset = auth ON.
+    boolSense: 'not-false',
+    default: 'true',
+    validate: bool,
+    help: 'Only `false` disables auth (anonymous mode); unset = auth on. The base docker-compose.yaml pins this to `true` under `environment:`, which overrides .env, so editing it here has no effect on a stack deployed from it (prod).'
   },
   {
     key: 'ANONYMOUS_USER_ID',
@@ -710,7 +746,12 @@ export const REGISTRY: EnvVarSpec[] = [
     category: 'memory',
     label: 'Memory enabled',
     type: 'bool',
-    validate: bool
+    // lib/db/memory-actions.ts + create-chat-stream-response.ts: only
+    // `MEMORY_ENABLED === 'off'` disables.
+    boolSense: 'not-off',
+    default: 'on',
+    validate: onOff,
+    help: 'Global kill switch: only `off` disables long-term memory; unset (the default) = on. Each user also has their own toggle.'
   },
   {
     key: 'MEMORY_SIM_THRESHOLD',
@@ -751,7 +792,12 @@ export const REGISTRY: EnvVarSpec[] = [
     category: 'memory',
     label: 'Recall enabled',
     type: 'bool',
-    validate: bool
+    // lib/db/recall-actions.ts + create-chat-stream-response.ts: only
+    // `RECALL_ENABLED === 'off'` disables.
+    boolSense: 'not-off',
+    default: 'on',
+    validate: onOff,
+    help: 'Global kill switch: only `off` disables conversation recall; unset (the default) = on. Each user also has their own toggle.'
   },
   {
     key: 'RECALL_INJECT_TOP_K',
@@ -857,8 +903,11 @@ export const REGISTRY: EnvVarSpec[] = [
     category: 'infra',
     label: 'Cloud deployment',
     type: 'bool',
+    // Every read is `MORPHIC_CLOUD_DEPLOYMENT === 'true'`; unset = off.
+    boolSense: 'true',
+    default: 'false',
     validate: bool,
-    help: 'Set true only on Morphic Cloud. Self-hosted stays false.'
+    help: 'Set true only on Morphic Cloud. Self-hosted stays false (unset = false). The base docker-compose.yaml pins it to `false` under `environment:`, which overrides .env.'
   },
 
   // ---------- Storage: uploads (file attachments / RAG) ----------
