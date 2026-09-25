@@ -236,6 +236,23 @@ export function ChatMessages({
         sections.length > 0 ? 'flex-1 overflow-y-auto' : ''
       )}
     >
+      {sections.length > 0 && (
+        // Opaque backing for the app Header's band. The Header floats over
+        // this container's pt-14 (absolute, and transparent at lg+), so scrolled
+        // content used to show straight through under the chat title. Sticky
+        // keeps it pinned to the top of the scrollport: -top-14, not top-0,
+        // because Chrome measures sticky offsets from the scroller's padding
+        // edge, so top-0 would pin it 56px down, over the content. -mt-14
+        // cancels its flow height so layout is unchanged. z-[15] sits above
+        // in-content UI and below the Header (z-20). Living inside the scroller
+        // keeps it off the scrollbar and off the artifact/library panel, which
+        // a background on the Header itself would cover.
+        <div
+          aria-hidden
+          data-testid="chat-header-backdrop"
+          className="sticky -top-14 z-[15] -mt-14 h-14 bg-background"
+        />
+      )}
       <div className="relative mx-auto w-full max-w-full md:max-w-3xl px-4">
         {sections.map((section, sectionIndex) => (
           <div
