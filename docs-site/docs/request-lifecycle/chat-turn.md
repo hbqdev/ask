@@ -401,7 +401,8 @@ is detailed in [Streaming](/request-lifecycle/streaming).
 `create-chat-stream-response.ts:962`, in order:
 
 1. `unregisterGeneration` (only removes the entry if it is still this turn's controller).
-2. Wait ≤1s for token usage; audit citations (own vs unresolved anchors); emit the `[latency]` line
+2. Wait ≤1s for token usage; audit citations (`auditCitations`, `:984`: own / recovered /
+   unresolved, by the same resolver rendering uses); emit the `[latency]` line
    (with `turn_mode`, `forced_search` and `forced_skip`, `create-chat-stream-response.ts:1003-1010`).
 3. Abort handling: aborted and not a user Stop → **discard**. User Stop → sanitize +
    newer-turn guard (see [Streaming → Stop](/request-lifecycle/streaming#stop)).

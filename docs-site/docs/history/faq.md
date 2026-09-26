@@ -190,10 +190,26 @@ do not loosen the sanitize schema to hide it.
 
 ### Citations missing or pointing nowhere
 
-The model sometimes invents citation anchors; the UI drops them, so the claim ends up uncited.
-Check `citations_unresolved` (and `citations_recovered`) on the turn's `[latency]` line. Three
-pipeline causes were fixed on 2026-09-24; a rate that stays high on live turns is worth a look.
-→ [Known issues › Unresolved citations](/history/known-issues#unresolved-citations)
+The model sometimes writes a citation anchor that resolves to nothing (an invented or copied
+id, or a number past the end of that call's results); the UI drops it, so the claim ends up
+uncited. Check `citations_unresolved` (and `citations_recovered`) on the turn's `[latency]` line.
+Three pipeline causes were fixed on 2026-09-24, and copied placeholders and too-high numbers on
+2026-09-26. Builds with the 09-26 fix also count out-of-range numbers as unresolved, so their
+rate reads higher than older lines for the same answers
+([telemetry](/operations/telemetry#tokens-citations-and-totals)). A rate that stays high on
+live turns of one build is worth a look.
+→ [Known issues › Unresolved citations](/history/known-issues#unresolved-citations),
+[Citation placeholders and out-of-range numbers](/history/known-issues#citation-placeholders-and-out-of-range-numbers)
+
+### A citation links to the wrong page of the right search
+
+The chip opens a real source from the turn's search, but not the one the sentence came from.
+The usual cause is a model numbering its sources as a running count across the answer:
+`[5](#<search id>)` meaning "my fifth source" renders that search's **fifth result**. The anchor
+is valid, so no counter sees it (`citations_unresolved` stays 0 for it). The prompts state the
+within-call rule since 2026-09-26; the problem is open and not yet measured on live turns.
+Diagnose by reading the stored answer text next to the search's `results` order.
+→ [Known issues › Running-count citation numbers](/history/known-issues#running-count-citation-numbers-can-point-at-the-wrong-result)
 
 ## Titles, memory and recall
 
