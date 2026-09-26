@@ -102,12 +102,29 @@ returns:
 
 | Field | Meaning |
 |---|---|
-| `skipSearch` | the conversation already answers this. The turn mode becomes `direct` |
-| `standaloneQuery` | the latest message rewritten so it makes sense without the conversation (used as a hint and for recall) |
+| `skipSearch` | the message is **not a question**: social talk that asks for nothing (greeting, thanks, acknowledgement, chit-chat, venting), a pure transform of text already present (rewrite, translate, summarise, reformat; asking for a recommendation or verdict is not a transform), pure arithmetic or unit conversion, an image request, or an explicit instruction to remember or forget something about the user that asks nothing else. The turn mode becomes `direct`. Every question, including a follow-up that confirms or chooses, is `false`; when unsure, `false` |
+| `standaloneQuery` | the latest message rewritten so it makes sense without the conversation. It is the **query of the forced first search**, the scope hint in the system prompt, the recall query and the document-retrieval query |
 | `needsRecent` | the answer changes over time. Searches get `time_range=month` |
-| `needsSources` | whether citing sources would improve the answer at all |
+| `needsSources` | whether the answer turns on citable specifics or on advice where a mistake could cause harm. **Recorded for analysis only** while `ALWAYS_SEARCH` is on; it gated the `stable-knowledge` mode before 2026-09-26 |
 | `intent` | e.g. `news`. Adds an intent-specific SearXNG category or engine |
 | `expandedQueries` | up to 3 alternative phrasings. **Expansion is fused into this call** |
+
+The prompt is chosen per call by `getClassifierSystemPrompt`
+(`lib/agents/query-classifier.ts:296-302`): `CLASSIFIER_SYSTEM_PROMPT` (`:234`, the
+"every question searches" definition above) while `ALWAYS_SEARCH` is on, and the old prompt, kept
+verbatim as `LEGACY_CLASSIFIER_SYSTEM_PROMPT` (`:165`), when it is `off`. The legacy prompt set
+`skipSearch` for "the conversation already answers this" and steered `needsSources` towards
+`false` for well-known concepts. The new prompt's examples deliberately avoid the questions used
+for the lab browser check, so that check measures generalisation, not a memorised example.
+
+The explicit memory-instruction skip (`:241`, with examples 17–19) keeps "remember that …",
+"forget …" and "update my …" on a `direct` turn, where the `remember` tool writes a
+**confirmed** memory; on a `research` turn it would write an unconfirmed candidate and run a
+meaningless forced search first. A memory instruction that also asks a question ("remember I'm
+vegetarian — what can I cook tonight?") is a question and searches. On `deepseek-v4-pro:cloud`
+the legacy prompt and the first ALWAYS_SEARCH prompt already skipped these messages (the model
+read past a skip list that did not name them); the rule makes the behaviour explicit, so it does
+not depend on the classifier model.
 
 **Why expansion is fused into the classifier.** Classification and expansion
 used to be two calls in a row to the same model (classify 6.9–9s, then expand
@@ -122,27 +139,68 @@ first advanced search already runs without waiting on the variants.
 
 ### Turn modes
 
-`resolveTurnMode` (`lib/agents/researcher.ts:146`) maps the classifier's
-output to one of three configurations:
+`resolveTurnMode` (`lib/agents/researcher.ts:154-188`) maps the classifier's
+output to one of three configurations. Which ones are reachable depends on
+`ALWAYS_SEARCH` (`lib/agents/always-search.ts:30-34`; default on, only the literal
+`off` disables it, read per call):
 
 | Turn mode | Condition | Prompt | Tools advertised | `maxSteps` |
 |---|---|---|---|---|
 | `direct` | `skipSearch` | `DIRECT_ANSWER_PROMPT` (answer from the conversation) | escape hatch: search, fetch, calculate, weather, remember, recall | 10 |
-| `stable-knowledge` | `!needsSources && !needsRecent` | `STABLE_KNOWLEDGE_PROMPT` (answer from knowledge) | calculate, weather, remember, recall. **`search` is not advertised** | 10 |
-| `research` | otherwise | the search mode's prompt | per mode (see [Search pipeline](/search/pipeline#the-three-search-modes)) | 20 / 50 / 100 |
+| `stable-knowledge` | only with `ALWAYS_SEARCH=off`: `!needsSources && !needsRecent` | `STABLE_KNOWLEDGE_PROMPT` (answer from knowledge) | calculate, weather, remember, recall. **`search` is not advertised** | 10 |
+| `research` | everything else (with `ALWAYS_SEARCH` on: every turn that is not `direct`) | the search mode's prompt, plus the forced-search addendum when step 0 is forced | per mode (see [Search pipeline](/search/pipeline#the-three-search-modes)) | 20 / 50 / 100 |
 
-`stable-knowledge` exists because of a blind pairwise judge over 46 turns: when
-Ask searched a settled question and the comparison system did not, the
-comparison won 13–2. Searching settled questions padded answers with citations
-to introductory pages. A separate evaluation found the gate is right
-to suppress search: forcing retrieval on the turns it suppressed scored 1W-7L-3T
-(operational questions) and 1W-8L-1T (concept questions). **Source counts and
-gate rates describe what Ask did. They do not show whether the answer was
-better.** Judge the answers before deciding a gate is wrong.
+**Every question searches (since 2026-09-26).** With `ALWAYS_SEARCH` on, step 0
+of a `research` turn is a **forced web search**: `prepareStep` hands that step to
+a synthetic model (`createForcedSearchModel`, `lib/agents/always-search.ts:262`)
+whose only output is one `search` call on `standaloneQuery` (URLs removed, at most
+400 characters). The real `search` tool runs it with every wrapper, and the
+user's model answers from step 1. `toolChoice` could not do this: the Ollama
+provider ignores it. The mechanism, evidence and cost are in
+[D37](/history/decisions#d37-always-search-every-question). A turn whose resolved
+**The exception: the user supplied the source.** A `research` turn is **not**
+forced when the latest message carries a URL (typed inline or pasted as a link
+chip), an attachment with no typed text, or an attachment whose text only points
+at it ("what is this", "summarise this file"). `detectUserSuppliedSource`
+(`lib/agents/always-search.ts:116-135`) decides this from the message's parts,
+because the classifier sees text only and does not run on the bypass paths. The
+turn keeps its mode prompt and advertised tools, so the model reads the page with
+`fetch` (or the injected attached source) and may still search; it just is not
+made to search first. A URL turn is therefore exactly what it was before
+2026-09-26. The attachment check (`isAttachmentReferenceOnly`,
+`always-search.ts:181-191`) is deliberately conservative: a closed English word
+list of question frames, pronouns, verbs that act on the attachment ("read",
+"describe", "summarise") and medium nouns ("picture", "file", "pdf"), capped at 10
+words. Any subject word ("what is this **plant**", "is this **mushroom** safe")
+keeps the forced search, because a wrongly skipped search would break "every
+question searches" while a wrongly kept one costs only a round. A turn whose
+resolved query is empty once URLs are removed is also not forced.
 
-The classifier is **bypassed** (defaults to "search, needsSources=true") when
-the message contains a URL, when the user hits Retry, and in **speed mode**
-(`create-chat-stream-response.ts:275`).
+**Why `stable-knowledge` existed, and why it is off.** A blind pairwise judge over
+46 turns found that when Ask searched a settled question and the comparison system
+did not, the comparison won 13–2: searching settled questions padded answers with
+citations to introductory pages. A separate evaluation found that forcing
+retrieval on the turns the gate suppressed scored 1W-7L-3T (operational
+questions) and 1W-8L-1T (concept questions). The owner reversed the gate on
+2026-09-26 after prod turns showed it answering named-product, policy, repair and
+safety questions from memory (one recommended acetone for melted plastic on an
+oven tray with no fire warning). A small blind A/B on the lab scored forced search
+2W-1L-3T. See [D3](/history/decisions#d3-needssources-skip-retrieval-for-stable-knowledge)
+and [D37](/history/decisions#d37-always-search-every-question). **Source counts
+and gate rates describe what Ask did. They do not show whether the answer was
+better.** Judge the answers before deciding a gate is right or wrong.
+
+The classifier is **bypassed** when the message contains a URL, when the user hits
+Retry, and in **speed mode** (`create-chat-stream-response.ts:273-309`). A
+bypassed turn gets a fixed classification: `skipSearch:false`,
+`needsSources:true`, `standaloneQuery` = the raw message, no expansions. A
+classifier failure, empty reply or soft-budget timeout falls back to the same
+values (`query-classifier.ts:363-378`). All of these are therefore `research`
+turns. A URL turn is not forced (above). Retry, speed and classifier-failure
+turns are forced on the raw message minus its URLs, which is what those paths
+searched before, now guaranteed, unless the message carries an attachment it
+only points at. Guests (`create-ephemeral-chat-stream-response.ts:86-101`)
+bypass only for a URL; they run the classifier in speed mode and have no Retry.
 
 ### Classifier model, host, and budget
 
@@ -249,6 +307,15 @@ was not shipped: that cost is not worth paying for a problem that does not
 reproduce on the current roster. To decide properly, re-run the A/B pinned to
 `glm-5.3-flash` and include a turn that hits the round cap.
 
+::: warning `targeted` is no longer selective
+Since 2026-09-26 `ALWAYS_SEARCH` makes every turn except the few `direct` ones a
+`research` turn. `targeted` would therefore turn reasoning on for almost every
+turn and pay the +14s nearly everywhere. Rethink its trigger before trying it
+again ([D18](/history/decisions#d18-targeted-reasoning-reasoning-only-on-research-turns),
+[D37](/history/decisions#d37-always-search-every-question)). `ANSWER_THINK` is
+unset on all three envs.
+:::
+
 ## Narration and chain-of-thought leak handling
 
 "Narration" is the model talking about its process ("Let me search for…",
@@ -339,7 +406,12 @@ How Ask handles this:
   this way.
 - **`stable-knowledge` hides `search` from the advertised list but deliberately
   keeps it in the map** as an escape hatch. A wrong "no sources needed" decision
-  should lead to an extra search, not an ungrounded answer.
+  should lead to an extra search, not an ungrounded answer. (That mode is only
+  reachable with `ALWAYS_SEARCH=off`.)
+- **To force a tool call, override the step's model, not `toolChoice`.** The
+  forced first search (`ALWAYS_SEARCH`) returns `model: <synthetic model>` from
+  `prepareStep` for step 0; the AI SDK resolves that itself, so the Ollama
+  provider cannot drop it (`lib/agents/researcher.ts:1031-1033`).
 - `applyAnswerDeadline` (`lib/agents/answer-deadline.ts`) returns
   `activeTools: []` after 200s together with a "TIME TO ANSWER" note. Because of
   the behavior above, that alone only stops *advertising* tools, so the deadline

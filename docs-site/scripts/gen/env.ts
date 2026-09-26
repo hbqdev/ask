@@ -125,17 +125,30 @@ function collectReads(vars: Map<string, EnvVar>) {
     ...CODE_DIRS.flatMap(d => walk(d, f => CODE_EXT.test(f) && !TEST_RE.test(f))),
     ...rootFiles(/^(instrumentation.*|next\.config\..*|proxy)\.(ts|mjs|js|mts)$/)
   ]
-  const access = /process\.env(?:\.([A-Z_][A-Z0-9_]*)|\[\s*['"]([A-Z_][A-Z0-9_]*)['"]\s*\])/g
+  const directAccess = /process\.env(?:\.([A-Z_][A-Z0-9_]*)|\[\s*['"]([A-Z_][A-Z0-9_]*)['"]\s*\])/g
+  // A name bound to the whole of process.env, e.g. a testable reader
+  //   function isOn(env: Record<string, string | undefined> = process.env) {
+  //     return env.FLAG !== 'off'
+  // (lib/agents/always-search.ts). Reads through such an alias count as reads.
+  const aliasDecl =
+    /(?<![\w$.])([A-Za-z_$][\w$]*)\s*(?::[^=;()\n]*)?(?<![=!<>])=(?!=)\s*process\.env\b(?!\s*[.[])/g
   for (const file of files) {
     const src = read(file)
     const lines = src.split('\n')
+    const aliases = [...new Set([...src.matchAll(aliasDecl)].map(a => a[1]))]
+    const access = aliases.length
+      ? new RegExp(
+          `${directAccess.source}|(?<![\\w$.])(?:${aliases.join('|')})\\.([A-Z_][A-Z0-9_]*)`,
+          'g'
+        )
+      : directAccess
     lines.forEach((line, i) => {
       const trimmed = line.trim()
       if (trimmed.startsWith('//') || trimmed.startsWith('*')) return
       let m: RegExpExecArray | null
       access.lastIndex = 0
       while ((m = access.exec(line))) {
-        const name = m[1] ?? m[2]
+        const name = m[1] ?? m[2] ?? m[3]
         const rest = line.slice(m.index + m[0].length)
         if (/^\s*=[^=]/.test(rest)) continue // assignment, not a read
         const v = ensure(vars, name)
