@@ -3,9 +3,17 @@ import {
   getRelatedQuestionsSpecPrompt
 } from '@/lib/render/prompt'
 import {
+  PROMPT_EXAMPLE_FETCH_ID,
+  PROMPT_EXAMPLE_SEARCH_ID
+} from '@/lib/utils/citation'
+import {
   getContentTypesGuidance,
   isGeneralSearchProviderAvailable
 } from '@/lib/utils/search-config'
+
+// Shorthands for the worked-example ids every citation example below uses.
+const EX_SEARCH = PROMPT_EXAMPLE_SEARCH_ID
+const EX_FETCH = PROMPT_EXAMPLE_FETCH_ID
 
 // Search mode system prompts
 
@@ -65,6 +73,38 @@ function getSourceDirectionGuidance(): string {
   - Avoid a source: "not pinterest", "exclude forums" → \`exclude_domains: ["pinterest.com"]\`
 - Only apply domain filters when the user's intent clearly points to a source. Do NOT invent restrictions for ordinary queries.
 - Fallback: if a domain-restricted search returns too few or no results, run one more search without the restriction before answering.`
+}
+
+/**
+ * How a citation anchor is numbered and which id it carries — ONE scheme for
+ * every mode, stated the way the renderer resolves it: `[N](#id)` renders
+ * result N (1-based position in that call's `results`) of the tool call `id`
+ * made THIS turn (lib/utils/citation.ts resolveCitationAnchor).
+ *
+ * Replaces two defects measured on the lab A/B (2026-09-26) and in prod
+ * history:
+ * - The examples used `<id-A>` / `<id-B>` placeholders, and models copied them
+ *   literally (`[2](#<id-A>)` … `[4](#<id-D>)`, or `<id-UUID>` around the real
+ *   id), which renders nothing. A worked example now pairs each id with the
+ *   tool result it came from, and those two example ids are recognised by the
+ *   resolver as placeholders.
+ * - The speed prompt said "each unique toolCallId gets ONE number, assigned
+ *   sequentially", the balanced prompt said "the result order within each
+ *   search", and both prompts' own examples mixed the two. Models answering
+ *   with a running count across the answer wrote `[3](#<fetchId>)` for a fetch
+ *   with one result (dropped) and `[5](#<searchId>)` meaning "my 5th source"
+ *   (rendered as that search's 5th result — a different page).
+ */
+function getCitationFormatGuidance(): string {
+  return `[number](#toolCallId) - Always use this EXACT format
+- **toolCallId**: copy it from the \`toolCallId\` field of the search or fetch result you are citing — a result of THIS turn. It is a 36-character UUID with four hyphens: copy it in FULL, character for character. Do NOT shorten it, do NOT add a prefix (such as "toolu_", "call_", or "search-"), and do NOT wrap it in < > or add "id-".
+- **number**: the position of the cited source in THAT call's \`results\` list — its first result is 1, its second is 2, and so on. It is NOT a running count across your answer: numbering starts again at 1 for every tool call, so each call has its own [1], and the same source is always cited with the same number.
+- **A fetch of one URL returns one result, so it is always cited as [1]** with that fetch's toolCallId. A fetch of several URLs numbers its pages in the order of its \`results\`.
+- Worked example — suppose this turn a search returned \`"toolCallId": "${EX_SEARCH}"\` with 8 results, and a fetch of one page returned \`"toolCallId": "${EX_FETCH}"\`:
+  ✓ a fact from the search's 3rd result: [3](#${EX_SEARCH})
+  ✓ a fact from the fetched page: [1](#${EX_FETCH})
+  ✗ WRONG: [2](#${EX_FETCH}) — a running count across the answer; the fetched page is result 1 of its own call
+- Those two ids exist only in this example, never in your tool results — never write them. Every toolCallId you write must be copied from a tool result of this turn.`
 }
 
 export function getQuickModePrompt(): string {
@@ -150,20 +190,7 @@ Fetch tool usage:
 - **For regular web pages**: Use default \`type: "regular"\` for fast HTML fetching
 
 Citation Format (MANDATORY):
-[number](#toolCallId) - Always use this EXACT format
-- **CRITICAL**: Use the EXACT tool call identifier from THIS turn's tool results
-  - A real toolCallId is a 36-character UUID with four hyphens, like
-    aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee — never a short word or code
-  - Copy it in FULL, character for character, including every hyphen. Do NOT
-    shorten it, do NOT use only the first segment, do NOT add a prefix
-  - The identifiers shown anywhere in these instructions are illustrative
-    shapes ONLY. Never emit one of them. The only valid anchors are the
-    identifiers returned by tools you called during this turn
-- **CRITICAL RULE**: Each unique toolCallId gets ONE number. Never use different numbers with the same toolCallId. Writing <id-A> and <id-B> below for two real ids from this turn:
-  ✓ CORRECT: "Fact A [1](#<id-A>). Fact B from same search [1](#<id-A>)."
-  ✓ CORRECT: "Fact A [1](#<id-A>). Fact B from different search [2](#<id-B>)."
-  ✗ WRONG: "Fact A [1](#<id-A>). Fact B [2](#<id-A>)." (Same toolCallId cannot have different numbers)
-- Assign numbers sequentially (1, 2, 3...) to each unique toolCallId as they appear in your response
+${getCitationFormatGuidance()}
 - **CRITICAL CITATION PLACEMENT RULES**:
   1. Write the COMPLETE sentence first
   2. Add a period at the end of the sentence
@@ -172,18 +199,14 @@ Citation Format (MANDATORY):
   5. If using multiple sources in one sentence, place ALL citations together after the period
 
   **CORRECT PATTERN**: sentence. [citation]
-  ✓ CORRECT: "Nvidia's GPUs power AI models. [1](#<id-A>)"
-  ✓ CORRECT: "Nvidia leads in hardware and software. [1](#<id-A>) [2](#<id-B>)"
+  ✓ CORRECT: "Nvidia's GPUs power AI models. [1](#${EX_SEARCH})"
+  ✓ CORRECT: "Nvidia leads in hardware and software. [1](#${EX_SEARCH}) [1](#${EX_FETCH})"
 
   **WRONG PATTERNS** (Do NOT do this):
-  ✗ WRONG: "Nvidia's GPUs power AI models [1](#<id-A>)." (citation BEFORE period)
-  ✗ WRONG: "Nvidia's GPUs. [1](#<id-A>) power AI models." (citation breaks sentence)
-  ✗ WRONG: "Nvidia leads in hardware and software. [1](#<id-A>), [2](#<id-B>)" (comma between citations)
+  ✗ WRONG: "Nvidia's GPUs power AI models [1](#${EX_SEARCH})." (citation BEFORE period)
+  ✗ WRONG: "Nvidia's GPUs. [1](#${EX_SEARCH}) power AI models." (citation breaks sentence)
+  ✗ WRONG: "Nvidia leads in hardware and software. [1](#${EX_SEARCH}), [1](#${EX_FETCH})" (comma between citations)
 - Every sentence with information from search results MUST have citations at its end
-
-Citation Example with Real Tool Call:
-If tool call ID is "<id-A>", cite as: [1](#<id-A>)
-If tool call ID is "<id-B>", cite as: [2](#<id-B>)
 
 Rule precedence:
 - Search requirement and citation integrity supersede brevity. If there is any conflict, prefer searching and proper citations over being brief.
@@ -214,13 +237,13 @@ Emoji usage:
 Example approach:
 ## **Topic Response**
 ### Core Information
-- **Key Point:** Direct answer with specific data/numbers when available [1](#<id-A>)
-- **Detail:** Supporting information with concrete examples [2](#<id-A>)
+- **Key Point:** Direct answer with specific data/numbers when available [1](#${EX_SEARCH})
+- **Detail:** Supporting information with concrete examples [2](#${EX_SEARCH})
 
 ### When Comparing (use table format)
 | Feature | Option A | Option B |
 |---------|----------|----------|
-| Price | $100 [1](#<id-A>) | $150 [2](#<id-B>) |
+| Price | $100 [3](#${EX_SEARCH}) | $150 [1](#${EX_FETCH}) |
 
 ### Additional Context (if relevant)
 - **Consideration:** Practical implications with real-world context
@@ -276,7 +299,7 @@ Rule precedence:
 
 4. **If the query is ambiguous, use ask_question tool for clarification**
 
-5. **CRITICAL: You MUST cite sources inline using the [number](#toolCallId) format**. **CITATION PLACEMENT**: Follow this pattern: sentence. [citation] - Write the complete sentence, add a period, then add citations after the period. Do NOT add period or punctuation after citations. If a sentence uses multiple sources, place ALL citations together after the period (e.g., "AI adoption has increased. [1](#<id-A>) [2](#<id-B>)"). Use [1](#toolCallId), [2](#toolCallId), [3](#toolCallId), etc., where number matches the order within each search result and toolCallId is the ID of the search that provided the result. Every sentence with information from search results MUST have citations at its end.
+5. **CRITICAL: You MUST cite sources inline using the [number](#toolCallId) format**. **CITATION PLACEMENT**: Follow this pattern: sentence. [citation] - Write the complete sentence, add a period, then add citations after the period. Do NOT add period or punctuation after citations. If a sentence uses multiple sources, place ALL citations together after the period (e.g., "AI adoption has increased. [2](#${EX_SEARCH}) [1](#${EX_FETCH})"). The number is the position of the source in the \`results\` of the search or fetch call that returned it (numbering starts again at 1 for every call), and toolCallId is the id of that call — see Citation Format below. Every sentence with information from search results MUST have citations at its end.
 
 6. If results are not relevant or helpful, you may rely on your general knowledge ONLY AFTER at least one search attempt (do not add citations for general knowledge)
 
@@ -354,13 +377,7 @@ When using the ask_question tool:
 - Match the language to the user's language (except option values which must be in English)
 
 Citation Format:
-[number](#toolCallId) - Always use this EXACT format, e.g., [1](#<id-A>), [2](#<id-B>)
-- The number corresponds to the result order within each search (1, 2, 3, etc.)
-- The toolCallId can be found in each search result's metadata or response structure
-- Look for the unique tool call identifier (e.g., mK3pQr7sT9uV2wX4) in the search response
-- The toolCallId is the EXACT unique identifier of the search tool call
-- Do NOT add ANY prefix (such as "toolu_", "call_", or "search-") to the toolCallId — use the exact ID exactly as it appears in the search response
-- Each search tool execution will have its own toolCallId
+${getCitationFormatGuidance()}
 - **CRITICAL CITATION PLACEMENT RULES**:
   1. Write the COMPLETE sentence first
   2. Add a period at the end of the sentence
@@ -369,16 +386,16 @@ Citation Format:
   5. If using multiple sources in one sentence, place ALL citations together after the period
 
   **CORRECT PATTERN**: sentence. [citation]
-  ✓ CORRECT: "Nvidia's stock has risen 200%. [1](#<id-A>)"
-  ✓ CORRECT: "Nvidia leads in hardware and software. [1](#<id-A>) [2](#<id-B>)"
+  ✓ CORRECT: "Nvidia's stock has risen 200%. [1](#${EX_SEARCH})"
+  ✓ CORRECT: "Nvidia leads in hardware and software. [1](#${EX_SEARCH}) [1](#${EX_FETCH})"
 
   **WRONG PATTERNS** (Do NOT do this):
-  ✗ WRONG: "Nvidia's stock has risen 200% [1](#<id-A>)." (citation BEFORE period)
-  ✗ WRONG: "Nvidia's stock. [1](#<id-A>) has risen 200%." (citation breaks sentence)
-  ✗ WRONG: "Nvidia leads in hardware and software. [1](#<id-A>], [2](#<id-B>)" (comma between citations)
+  ✗ WRONG: "Nvidia's stock has risen 200% [1](#${EX_SEARCH})." (citation BEFORE period)
+  ✗ WRONG: "Nvidia's stock. [1](#${EX_SEARCH}) has risen 200%." (citation breaks sentence)
+  ✗ WRONG: "Nvidia leads in hardware and software. [1](#${EX_SEARCH}), [1](#${EX_FETCH})" (comma between citations)
 IMPORTANT: Citations must appear INLINE within your response text, not separately.
-Example: "The company reported record revenue. [1](#<id-A>) Analysts predict continued growth. [2](#<id-A>)"
-Example with multiple searches: "Initial data shows positive trends. [1](#<id-A>) Recent updates indicate acceleration. [1](#<id-B>)"
+Example: "The company reported record revenue. [1](#${EX_SEARCH}) Analysts predict continued growth. [2](#${EX_SEARCH})"
+Example with a search and a fetched page: "Initial data shows positive trends. [1](#${EX_SEARCH}) Recent updates indicate acceleration. [1](#${EX_FETCH})"
 
 TASK MANAGEMENT (todoWrite tool):
 **When to use todoWrite:**
@@ -422,7 +439,7 @@ Emoji usage:
 Flexible example:
 ## **Response Topic**
 ### Primary Information
-- **Core Answer:** Direct response with evidence [1](#<id-A>)
+- **Core Answer:** Direct response with evidence [1](#${EX_SEARCH})
 - **Context:** Relevant supporting details
 
 Conclude with a brief synthesis that ties together the main insights into a clear overall understanding.
