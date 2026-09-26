@@ -208,7 +208,7 @@ standaloneQuery is always a short plain string, never empty, never a meta-questi
 
 // ALWAYS_SEARCH prompt (the default). The owner's 2026-09-26 decision: any
 // question must search; only a NON-question may skip. So skipSearch is
-// redefined to exactly four kinds of non-question, and everything else —
+// redefined to exactly five kinds of non-question, and everything else —
 // settled concepts, follow-ups that confirm/choose/apply the previous answer,
 // questions the conversation seems to answer already — is a question and
 // searches. needsSources no longer gates anything (it is logged only), so its
@@ -220,8 +220,17 @@ standaloneQuery is always a short plain string, never empty, never a meta-questi
 // and current fiction answered confidently from memory.
 //
 // The examples deliberately avoid the lab verification turns (TCP vs UDP, a
-// game-server follow-up, melted plastic, "Thanks, that's helpful!") so a
-// browser check measures generalisation rather than a memorised example.
+// game-server follow-up, melted plastic, "Thanks, that's helpful!", "remember
+// that I prefer metric units", "remember that I'm vegetarian", "forget my
+// address") so a check measures generalisation rather than a memorised example.
+//
+// The memory-instruction skip keeps "remember that …" a DIRECT turn: the
+// `remember` tool writes a confirmed memory only off a retrieval turn
+// (researcher.ts, createRememberTool's retrievalTurn), so a research turn
+// would save it as an unconfirmed candidate — and run a meaningless forced
+// search on "remember that …" first. The legacy prompt, and this one before
+// the rule existed, already skipped these on the live classifier model, but
+// only because the model read past the list; the rule makes it explicit.
 export const CLASSIFIER_SYSTEM_PROMPT = `You classify the latest user message, given the conversation so far. Every message that asks for information gets a web search. Your main job is to recognise the few messages that are NOT requests for information.
 
 skipSearch — set true ONLY when the latest message is one of these non-questions:
@@ -229,6 +238,7 @@ skipSearch — set true ONLY when the latest message is one of these non-questio
 - A pure transform of text that is already present — text the user supplied, or the assistant's previous answer: rewrite, rephrase, shorten, translate, summarise, reformat, or turn it into a list/table/email ("rewrite that shorter", "summarise the plan you gave me as a numbered list", "translate this into Spanish: ..."). It must ask for NO new information. Asking for a recommendation, decision, verdict or reasoning is NOT a transform, even when phrased as "give me your final recommendation and the reasoning in short" — that asks for a judgement, so it is a question.
 - Pure arithmetic or a unit conversion on numbers given in the message ("what is 17% of 4500", "convert 12 miles to km").
 - A request only to generate, draw or edit an image ("draw me a picture of the Sydney Opera House").
+- An explicit instruction about what to remember or forget about the user that asks nothing else ("remember that my daughter is allergic to peanuts", "please forget where I work", "don't remember that", "update my city to Lisbon"). It is saved to memory, not looked up.
 
 Everything else is skipSearch=false, including:
 - Any question at all, however simple, settled or widely known ("explain closures in JavaScript", "what is the capital of Germany").
@@ -237,6 +247,7 @@ Everything else is skipSearch=false, including:
 - A transform request that ALSO asks for anything new ("summarise that and add current prices").
 - Any request for advice, instructions, how-to, safety, health, cleaning or repair steps, product, company or policy information, opinions or recommendations.
 - A message that mixes social talk with a question ("thanks! does it also work on wool?").
+- A memory instruction that also asks a question ("remember I use a Mac — how do I take a screenshot?").
 
 If uncertain, skipSearch=false.
 
@@ -273,7 +284,10 @@ Examples:
 13) User: "what mechanical keyboard do people actually recommend" -> opinions/community consensus -> skipSearch=false, needsRecent=false, needsSources=true, intent="discussion", standaloneQuery="Recommended mechanical keyboards according to users"
 14) User: "does creatine actually improve muscle recovery, any studies" -> scientific evidence -> skipSearch=false, needsRecent=false, needsSources=true, intent="academic", standaloneQuery="Does creatine improve muscle recovery (research evidence)?"
 15) Assistant explained how to remove a wine stain from cotton. User: "thanks! does it also work on wool?" -> thanks plus a new question -> skipSearch=false, needsRecent=false, needsSources=true, intent="general", standaloneQuery="Does the wine stain removal method work on wool?"
-16) Assistant compared two ways to back up a home server. User: "give me your final recommendation and the reasoning in short" -> asks for a decision, not a restatement -> skipSearch=false, needsRecent=false, needsSources=true, intent="general", standaloneQuery="Best way to back up a home server: recommendation and reasoning"`
+16) Assistant compared two ways to back up a home server. User: "give me your final recommendation and the reasoning in short" -> asks for a decision, not a restatement -> skipSearch=false, needsRecent=false, needsSources=true, intent="general", standaloneQuery="Best way to back up a home server: recommendation and reasoning"
+17) User: "remember that my daughter is allergic to peanuts" -> an instruction to remember a fact about the user, asks nothing -> skipSearch=true, needsRecent=false, needsSources=false, intent="general", standaloneQuery="Remember that the user's daughter is allergic to peanuts"
+18) User: "please forget where I work" -> an instruction to forget, asks nothing -> skipSearch=true, needsRecent=false, needsSources=false, intent="general", standaloneQuery="Forget the user's workplace"
+19) User: "remember I use a Mac — how do I take a screenshot?" -> a memory instruction plus a question -> skipSearch=false, needsRecent=false, needsSources=true, intent="general", standaloneQuery="How to take a screenshot on a Mac"`
 
 /**
  * The classifier system prompt for this turn: the ALWAYS_SEARCH prompt by
