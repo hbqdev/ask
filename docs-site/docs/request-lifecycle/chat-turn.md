@@ -63,6 +63,11 @@ sequenceDiagram
     S-->>B: data-classifier(done), data-recall chips
     S->>S: doc/URL retrieval → budget → synthetic documentRetrieval parts
     S->>A: researcher(turn mode, activeTools, maxSteps)
+    opt research turn, ALWAYS_SEARCH on, no user-supplied URL/attachment (step 0)
+        A->>T: forced search(standaloneQuery), issued by a synthetic model, no model call
+        T-->>A: results
+        A-->>B: tool parts stream live
+    end
     loop until plain-text answer / step cap / round cap / 200s deadline
         A->>M: step (tools advertised = activeTools)
         M-->>A: tool calls or text
@@ -126,7 +131,7 @@ for why that matters.
 
 ## 3. Load chat and ownership {#_3-load-chat-and-ownership}
 
-`lib/streaming/create-chat-stream-response.ts:169`. Only for follow-ups:
+`lib/streaming/create-chat-stream-response.ts:170`. Only for follow-ups:
 
 - `waitForStoppedTurn(chatId)` — if the previous turn in this chat was just Stopped,
   wait (bounded, 5s) for its partial to be saved, so the new turn's history contains
@@ -155,25 +160,45 @@ New chats skip the read entirely.
 ## 5. Classifier {#_5-classifier}
 
 Kicked off **before** the stream opens and awaited only just before the agent is
-built (`create-chat-stream-response.ts:275-299`), so it overlaps message prep.
+built (`create-chat-stream-response.ts:273-309`), so it overlaps message prep.
 
-`classifyQuery` (`lib/agents/query-classifier.ts:245`) runs a fixed model (not the
+`classifyQuery` (`lib/agents/query-classifier.ts:350`) runs a fixed model (not the
 user's chat model) on the last ~20 messages and returns:
 
 | Output | Used for |
 |---|---|
-| `skipSearch` | "the conversation already answers this" → `direct` turn mode, recall gated off |
-| `needsSources`, `needsRecent` | both false → `stable-knowledge` mode (no search advertised) |
+| `skipSearch` | the message is **not a question** (greeting/thanks/venting, a pure transform of text already present, pure arithmetic, an image request, an explicit remember/forget instruction that asks nothing else) → `direct` turn mode, recall gated off. Any question is `false` |
+| `needsRecent` | `time_range=month` on this turn's searches |
+| `needsSources` | logged only while `ALWAYS_SEARCH` is on; with `ALWAYS_SEARCH=off`, `needsSources` and `needsRecent` both false → `stable-knowledge` mode (no search advertised) |
 | `intent` | search tuning |
-| `standaloneQuery` | follow-up rewritten to stand alone; scope hint in the system prompt, recall query, doc-retrieval query |
+| `standaloneQuery` | follow-up rewritten to stand alone; the **forced first search's query**, the scope hint in the system prompt, the recall query and the doc-retrieval query |
 | `expandedQueries` | query expansion **fused into the same call** (a separate expander call used to cost 6.6–12.3s serially); the standalone `query-expander.ts` is only a fallback when the model returns none |
 
-**Bypass** (default classification: search, `needsSources:true`, raw text as the
-query, no expansions) when:
+Which prompt it runs is decided per call: `CLASSIFIER_SYSTEM_PROMPT` ("every question
+searches") by default, `LEGACY_CLASSIFIER_SYSTEM_PROMPT` with `ALWAYS_SEARCH=off`
+(`getClassifierSystemPrompt`, `query-classifier.ts:296-302`). See
+[D37](/history/decisions#d37-always-search-every-question).
 
-- the message contains a URL (the page must be fetched; stable-knowledge mode would not advertise `fetch`),
-- the trigger is regenerate (Retry is the user's override for a wrongly-skipped turn; the classifier is deterministic and would repeat the mistake),
+**Bypass** (default classification: `skipSearch:false`, `needsSources:true`, raw text as
+the query, no expansions) when:
+
+- the message contains a URL (the page must be fetched; with `ALWAYS_SEARCH=off`, stable-knowledge mode would not advertise `fetch`),
+- the trigger is regenerate (Retry is the user's override for a wrongly-handled turn; the classifier is deterministic and would repeat the mistake),
 - `searchMode === 'speed'` (speed searches the raw query anyway; the researcher rewrites its own follow-ups).
+
+A bypassed turn, and a turn whose classifier fails, times out or returns nothing (same
+default values, `query-classifier.ts:363-378`), is a research turn. A URL turn is **not**
+forced (the user supplied the source; see step 9). Retry, speed and classifier-failure turns
+are forced on the raw message with its URLs removed, unless the message carries an attachment
+it only points at. The guest path bypasses only for a URL.
+
+**User-supplied source.** Next to the bypass check, `detectUserSuppliedSource`
+(`lib/agents/always-search.ts:116-135`, called at `create-chat-stream-response.ts:281-283`)
+reads the latest message's **parts**: a URL in the text or a pasted link chip (`url`), an
+attachment with no typed text (`attachment-only`), or an attachment whose text only points at
+it (`attachment-reference`, e.g. "what is this", "summarise this file"). It is read from the
+parts because the classifier sees text only and does not run on the bypass paths. The result
+goes to the researcher and cancels the forced first search.
 
 **Cost & knobs.** `CLASSIFIER_MODEL_ID` (code default `granite4.2:8b`; the lab compose
 pins `deepseek-v4-pro:cloud`; check each env's compose/.env for its value),
@@ -186,7 +211,7 @@ generate the fused expansions ran a ~4.6s median before the soft budget existed.
 ## 6. Inside the stream: attachments, pruning, truncation {#_6-inside-the-stream-attachments-pruning-truncation}
 
 From here on everything runs inside `createUIMessageStream({ execute })`
-(`create-chat-stream-response.ts:338`). That is a deliberate UX choice: the browser
+(`create-chat-stream-response.ts:351`). That is a deliberate UX choice: the browser
 receives a `start` chunk immediately and the pre-answer waits are rendered as
 steps instead of dead air.
 
@@ -209,7 +234,7 @@ steps instead of dead air.
    model). On a model failure, an empty reply or a reply longer than a title, the generator
    returns the first 75 characters of the question (`lib/agents/title-generator.ts:69`);
    `"Untitled"` is used only if the call itself rejects
-   (`lib/streaming/create-chat-stream-response.ts:465-468`). The reply is cleaned first: the
+   (`lib/streaming/create-chat-stream-response.ts:477-480`). The reply is cleaned first: the
    first non-empty line that does **not** end with `:` is taken, and a leading `Title:` label
    is dropped (`lib/agents/title-generator.ts:113-117`, since 2026-09-25). That skips lead-ins
    such as "Here is the short, concise title (4 words):", which a lab chat once stored as its
@@ -218,7 +243,7 @@ steps instead of dead air.
 
 ## 7. Recall race {#_7-recall-race}
 
-`create-chat-stream-response.ts:486-569`. After `await classificationPromise`:
+`create-chat-stream-response.ts:498-581`. After `await classificationPromise`:
 
 - `chooseRecall` (`helpers/choose-recall.ts`): `gated` if `skipSearch` (no rerank);
   `speculative` if the effective query equals the raw text (rerank the candidates
@@ -248,7 +273,7 @@ is rewritten as `done` with the decision and duration.
 
 ## 8. Attached documents and pasted URLs {#_8-attached-documents-and-pasted-urls}
 
-`create-chat-stream-response.ts:624-780`. Document chunks from step 6 and **this turn's**
+`create-chat-stream-response.ts:636-792`. Document chunks from step 6 and **this turn's**
 pasted URLs (`data-sourceUrl` parts, fetched + ranked by `retrieveUrlChunks`, top 10)
 are merged, deduped by a deterministic `sourceId`, relative URLs dropped, capped at
 `MAX_INJECTED_DOC_SOURCES = 8` (newest kept), then **token-budgeted**
@@ -267,12 +292,12 @@ tool the model can call — it only ever appears this way. Details:
 ## 9. Turn mode and tools {#_9-turn-mode-and-tools}
 
 `researcher()` = `createResearcher` (`lib/agents/researcher.ts`) builds a
-`ToolLoopAgent` (`researcher.ts:842`). `resolveTurnMode` (`researcher.ts:146`):
+`ToolLoopAgent` (`researcher.ts:972`). `resolveTurnMode` (`researcher.ts:154-188`):
 
 | Turn mode | When | Prompt | Advertised tools (`activeTools`) | maxSteps |
 |---|---|---|---|---|
 | `direct` | `skipSearch` | `DIRECT_ANSWER_PROMPT` (answer from the conversation) | search, fetch, calculate, get_weather, remember, recall | 10 |
-| `stable-knowledge` | `!needsSources && !needsRecent` | `STABLE_KNOWLEDGE_PROMPT` (answer from knowledge, don't search) | calculate, get_weather, remember, recall | 10 |
+| `stable-knowledge` | **only with `ALWAYS_SEARCH=off`**: `!needsSources && !needsRecent` | `STABLE_KNOWLEDGE_PROMPT` (answer from knowledge, don't search) | calculate, get_weather, remember, recall | 10 |
 | `research` / speed | otherwise | speed prompt | search, fetch, calculate, get_weather, remember, recall | 20 |
 | `research` / balanced | | adaptive prompt | + todoWrite | 50 |
 | `research` / quality | | quality prompt | + todoWrite | 100 |
@@ -280,7 +305,30 @@ tool the model can call — it only ever appears this way. Details:
 `generateImage` is added in every mode when image generation is configured **and**
 there is a user id. `askQuestion` is in the tools map but never advertised.
 
-The tools map (`researcher.ts:786`) always contains **every** tool:
+**Forced first search (`ALWAYS_SEARCH`, default on).** On a `research` turn, step 0 is a
+web search that the answering model does not choose:
+
+1. `resolveForcedFirstSearch` (`researcher.ts:199-216`) returns null (not forced) when the
+   user supplied the source (`userSuppliedSource`, above): the turn keeps its mode prompt
+   and tools, so a URL is read with `fetch` or the injected attached source, and the model
+   may still search. Otherwise it takes `standaloneQuery`, removes URLs and clips it to 400
+   characters; if nothing is left, the turn is not forced either.
+2. The system prompt gets `FORCED_SEARCH_PROMPT_ADDENDUM` (`researcher.ts:832-834`): the
+   first search already ran; ground and cite; the "clarifying your own prior answer"
+   exception does not apply.
+3. `prepareStep` returns `model: forcedSearchModel` for step 0 (`researcher.ts:1031-1033`).
+   That synthetic model (`lib/agents/always-search.ts:262`) emits one `search` call and
+   nothing else; the SDK executes it through the full `search` wrapper chain below. The
+   answering model runs from step 1 with the results in context.
+4. `onTurnPlan` reports `{turnMode, forcedSearch, forcedSkip}` for the `[latency]` line
+   (`researcher.ts:671-675`); `forcedSkip` names the user-supplied source when a research
+   turn was not forced.
+
+`toolChoice` cannot do this job because the Ollama provider ignores it; the step's model
+override is resolved by the AI SDK itself. Details, evidence and the revert switch:
+[D37](/history/decisions#d37-always-search-every-question).
+
+The tools map (`researcher.ts:894`) always contains **every** tool:
 `search, fetch, askQuestion, calculate, get_weather, remember, recall,
 [generateImage], todoWrite`.
 
@@ -300,19 +348,26 @@ Other per-turn wiring:
   instructions), the resolved `standaloneQuery` as the **entire scope of the turn**,
   image-tool guidance, and the current date/time.
 - `remember` writes are candidate-only on research turns (a retrieved page could have
-  induced them) and immediate on direct/stable-knowledge turns.
+  induced them) and immediate on direct/stable-knowledge turns (`researcher.ts:900-909`).
+  An explicit "remember that …" / "forget …" instruction is a classifier skip, so it is a
+  `direct` turn and its memory is **confirmed**; a `remember` call the model makes on its own
+  during a research turn is a candidate (see
+  [memory › candidate vs confirmed](/knowledge/memory-recall#candidate-vs-confirmed-and-the-prompt-injection-mitigation)).
 - Search tool wrappers: per-turn URL dedup and repeated-query short-circuit, source
   forcing, speed quick-mode; the first search of balanced/quality runs `advanced`
   depth, later ones `basic`.
 - `FLOW_VARIANT` (default `baseline`, a no-op) can reshape the loop — lab experiment knob.
+  A non-baseline variant's own step-0 control is overridden by the forced search.
 - The answering model's reasoning is controlled by `ANSWER_THINK` (code default off);
   see [Models & reasoning](/search/models-reasoning).
 
 ## 10. The tool loop and its caps {#_10-the-tool-loop-and-its-caps}
 
-`researchAgent.stream(...)` (`create-chat-stream-response.ts:868`). No forced
-`toolChoice` and no "done" tool: the loop ends when the model replies with plain
-text. Three independent limits keep it bounded:
+`researchAgent.stream(...)` (`create-chat-stream-response.ts:889`). No `toolChoice`
+and no "done" tool: apart from the forced step 0 of a research turn (above), every
+step is the model's own choice, and the loop ends when the model replies with plain
+text. The forced search is round 1 of the search-round cap. Three independent limits
+keep it bounded:
 
 | Cap | Where | Default | Effect |
 |---|---|---|---|
@@ -332,7 +387,10 @@ Server-generated progress lines for the research panel come from
 ## 11. The answer stream {#_11-the-answer-stream}
 
 The agent's UI stream is merged into the response (`writer.merge(result.toUIMessageStream({ sendStart: false }))`)
-through two timers (first chunk → `ttft_ms`; per-part-type first-seen offsets). The
+through two timers (first chunk → `ttft_ms`; per-part-type first-seen offsets). On a
+forced-search turn the first chunk belongs to the synthetic step 0, which emits its tool call
+with no model round trip, so `ttft_ms` measures only the pre-work; time to first prose is
+`stream["text-start"]`. The
 `smoothAndStripNarration()` transform removes "thinking out loud" preambles before the
 `## ` heading. On voice turns the final text is condensed into a `data-spokenGist`
 part inside `execute` (the only scope where the writer is still open). All of this
@@ -340,10 +398,11 @@ is detailed in [Streaming](/request-lifecycle/streaming).
 
 ## 12. onFinish: persist, then learn {#_12-onfinish-persist-then-learn}
 
-`create-chat-stream-response.ts:941`, in order:
+`create-chat-stream-response.ts:962`, in order:
 
 1. `unregisterGeneration` (only removes the entry if it is still this turn's controller).
-2. Wait ≤1s for token usage; audit citations (own vs unresolved anchors); emit the `[latency]` line.
+2. Wait ≤1s for token usage; audit citations (own vs unresolved anchors); emit the `[latency]` line
+   (with `turn_mode`, `forced_search` and `forced_skip`, `create-chat-stream-response.ts:1003-1010`).
 3. Abort handling: aborted and not a user Stop → **discard**. User Stop → sanitize +
    newer-turn guard (see [Streaming → Stop](/request-lifecycle/streaming#stop)).
 4. `stripNarrationFromMessage` → `rehydrateFullContent` (swap excerpts back to full
@@ -373,6 +432,7 @@ orders of magnitude, not SLOs. Re-measure with the `[latency]` line.
 | Title | no (parallel) | ≤8s | `TITLE_MODEL_ID` |
 | Doc/URL injection | only with docs/URLs | URL fetch + embed per URL | `DOC_INJECT_MAX_TOKENS` |
 | Search stage (per round) | yes | speed ~7s total turn; balanced ~8s; quality 26–48s | `SEARCH_ROUNDS_MAX(_QUALITY)`, see search pipeline |
+| Forced first search | yes, every question (since 2026-09-26) except a pasted URL or an attachment the text only points at | the first round above; on questions that used to skip search, first prose ~7–20s later | `ALWAYS_SEARCH=off` restores the old gate |
 | Answering model | yes | dominates: 13–60s on fast models, minutes on loopy ones | model choice; `ANSWER_THINK`; 200s deadline |
 | Persist | after the stream | small | retry on failure |
 | Memory + recall indexing | no (async) | seconds | `MEMORY_ENABLED`, `RECALL_ENABLED` |

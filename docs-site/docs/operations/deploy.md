@@ -28,7 +28,9 @@ prompts, step budgets, streaming) are built on `flow-design` in
 variable moves at a time; prod carries real traffic and has no control arm. Only the
 component that **measured** positive is ported, as its own commit — the surrounding
 experiment stays on the lab. The `needsSources` gate is the canonical example: the
-whole pipeline experiment ran on the lab and only the one piece that won was ported.
+whole pipeline experiment ran on the lab and only the one piece that won was ported
+(the gate itself was later reversed by an owner decision, behind a revert flag:
+[D37](/history/decisions#d37-always-search-every-question)).
 
 Plain bug fixes and non-architectural changes (a broken tool, a timeout, a model swap)
 may skip the measurement step, but should still be committed on `flow-design` first so

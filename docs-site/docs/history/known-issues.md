@@ -5,7 +5,7 @@ title: Known issues
 # Known issues and gotchas
 
 Open problems, pending operator actions and traps a maintainer needs to know about, as of
-**2026-09-25**. Each entry gives the **symptom**, its **impact**, a **workaround** and a **fix
+**2026-09-26**. Each entry gives the **symptom**, its **impact**, a **workaround** and a **fix
 sketch**. Resolved history lives in the [changelog](/history/changelog). Rationale for deliberate
 trade-offs lives in [decisions](/history/decisions).
 
@@ -29,6 +29,8 @@ thing.
 | [Signed upload URLs not enabled](#signed-upload-urls-not-enabled) | security | Low–Med | ops |
 | [Redirect-based SSRF](#redirect-based-ssrf) | security | Low | accepted |
 | [Other open audit items](#other-open-audit-items) | security | Low | decision (H2 decided 2026-09-23) |
+| [Image attachment forces a generic search](#image-attachment-forces-a-generic-search) | search | Low (URL, attachment-only and "what is this" shapes fixed 2026-09-26 on lab) | code (remaining shapes) |
+| [Citation placeholders and out-of-range numbers](#citation-placeholders-and-out-of-range-numbers) | chat | Low–Med | code (prompt + audit) |
 | [Stopped label not rendered](#stopped-label-not-rendered) | UI | ~~Low~~ fixed 2026-09-24 | done |
 | [Chain-of-thought flash in the live stream](#chain-of-thought-flash-in-the-live-stream) | UI | Low | accepted |
 | [Old answers with leaked reasoning stay leaked](#old-answers-with-leaked-reasoning-stay-leaked) | data | Low | manual |
@@ -171,7 +173,7 @@ On NightFuryX (.17) these container names do not resolve, so each silently degra
   `[deadline] refused <tool> call`. The note now says further calls are refused. Tests drive the real
   SDK with a mock model calling `fetch` under `activeTools: []`
   (`lib/agents/__tests__/answer-deadline.test.ts`). The deadline clock now starts when the
-  researcher is built for the turn (`turnStartedAt`, `lib/agents/researcher.ts:781`), not at the
+  researcher is built for the turn (`turnStartedAt`, `lib/agents/researcher.ts:889`), not at the
   first step.
 
 
@@ -238,7 +240,7 @@ On NightFuryX (.17) these container names do not resolve, so each silently degra
      (a failed fetch has nothing to cite and gets none).
   2. `stripCitationAnchorsFromHistory` (`lib/streaming/helpers/strip-citation-anchors-from-history.ts`)
      removes anchors from **prior** assistant turns before they reach the model. It runs in
-     `create-chat-stream-response.ts:360` and `create-ephemeral-chat-stream-response.ts:122`. The
+     `create-chat-stream-response.ts:372` and `create-ephemeral-chat-stream-response.ts:126`. The
      stored and displayed text keeps its anchors.
   3. `resolveByUrlFragment` (`lib/utils/citation.ts:66`) resolves an anchor whose id is a
      fragment of **exactly one** of this message's source URLs. UUID-shaped ids, fragments shorter
@@ -252,7 +254,9 @@ On NightFuryX (.17) these container names do not resolve, so each silently degra
   **not** resolved across turns; see
   [D36](/history/decisions#d36-strip-historical-citation-anchors-resolve-citations-per-turn-only).
 - **Watch.** `citations_unresolved` (and `citations_recovered`) on prod `[latency]` lines after the
-  port. A rate that stays near the old level on live turns means a cause is still missing.
+  port. A rate that stays near the old level on live turns means a cause is still missing. The
+  counter does not see out-of-range numbers on a real id; see
+  [Citation placeholders and out-of-range numbers](#citation-placeholders-and-out-of-range-numbers).
   Tests: `lib/utils/__tests__/citation.test.ts`,
   `lib/streaming/helpers/__tests__/strip-citation-anchors-from-history.test.ts`,
   `lib/tools/__tests__/fetch-tool-call-id.test.ts`.
@@ -537,6 +541,69 @@ These are decisions still pending, not bugs:
 ---
 
 ## Chat and UI
+
+### Image attachment forces a generic search
+
+- **Symptom.** Since every question searches
+  ([D37](/history/decisions#d37-always-search-every-question)), a message that was only an image
+  plus "what is this?" got a forced first search for "What is this?". The classifier sees only
+  the message **text** (`buildConversationTranscript` → `getTextFromParts`,
+  `lib/agents/query-classifier.ts:312-330`), so it cannot write a query about the image.
+- **Related shapes, same cause.** A message with a URL bypassed the classifier, and the forced
+  query was the text around the URL with the URL removed: "summarise this https://…" searched
+  "summarise this", overriding the prompts' "a URL: fetch it first" rule. An attachment with
+  **no** text reached the classifier as an empty message, and the classifier (told never to
+  return an empty query) invented one. A contextual follow-up in speed mode or on Retry is
+  searched unresolved, because those paths skip the classifier.
+- **Impact.** One wasted search round (the advanced one on balanced/quality) and a few seconds of
+  latency; the results are irrelevant, and the addendum tells the model not to cite irrelevant
+  results. The image is still read by a vision model or the ingestor, and a URL is still read by
+  `fetch` or the attached-source path. No wrong answer has been traced to it.
+- **Status: URL, attachment-only and attachment-reference shapes fixed 2026-09-26 (lab).**
+  `detectUserSuppliedSource` (`lib/agents/always-search.ts:116-135`) reads the latest message's
+  parts and cancels the forced search when it carries a URL (inline or a link chip), an
+  attachment with no typed text, or an attachment whose text only points at it
+  (`isAttachmentReferenceOnly`, `:181-191`: a closed English word list, at most 10 words). The
+  turn stays `research` with search available; `[latency]` logs `forced_search:false` and
+  `forced_skip` with the reason. Lab browser check: "summarise this
+  https://en.wikipedia.org/wiki/User_Datagram_Protocol" → `forced_skip:"url"`, one `fetch`, no
+  search.
+- **Still open.** An attachment with a real question ("is this mushroom safe to eat?") is
+  force-searched on its words alone, so that first search can be generic; a non-English pointer
+  ("¿qué es esto?") is treated as a question; speed-mode and Retry follow-ups are searched
+  unresolved.
+- **Workaround.** Type a real question with the image ("what bird is this, it was in my garden in
+  Oregon").
+- **Fix sketch.** Give the classifier the attachment's ingest caption so it can write a real
+  query for the remaining shapes. Measure with judged answers, not search counts
+  ([D4](/history/decisions#d4-judge-answers-not-source-counts)).
+
+### Citation placeholders and out-of-range numbers
+
+- **Symptom.** Seen in the D37 lab A/B (2026-09-26) with kimi-k2.6: the answer sometimes cites
+  the literal placeholders from the prompt's citation examples, `[1](#<id-A>)` / `[2](#<id-B>)`,
+  and sometimes cites a number beyond what a call returned, for example `[2]` or `[3]` on a
+  `fetch`, which has one result. The placeholders appear throughout the citation examples of the
+  speed prompt (`lib/agents/prompts/search-mode-prompts.ts:162-223`) and the balanced prompt,
+  which quality mode extends (`:279` in the shared `getApproachStrategy`, and `:357-425`).
+- **Impact.** The UI silently drops both (`processCitations`, `lib/utils/citation.ts:299-354`):
+  the claim ends up uncited. The telemetry sees only half of it. A placeholder anchor names no
+  tool call of the turn, so it counts in `citations_unresolved`. An out-of-range number on a
+  real id does **not**: `auditCitations` (`lib/utils/citation.ts:118-164`) checks only that the
+  id belongs to the turn, so the anchor is scored as resolved while rendering as nothing.
+- **A code-level inconsistency worth checking first** *(effect not measured)*. The renderer reads
+  `[N](#id)` as **result N of that call** (`extractCitationMaps`, `lib/utils/citation.ts:199-235`),
+  and the balanced prompt says the same ("number matches the order within each search result",
+  `search-mode-prompts.ts:279`, `:358`). The speed prompt says the opposite: "Each unique
+  toolCallId gets ONE number … Assign numbers sequentially (1, 2, 3...) to each unique
+  toolCallId" (`:162-166`), and its own example at `:217-218` breaks that rule. A model that
+  follows the sequential rule writes `[2](#<fetch id>)` for a fetch cited second, which is out of
+  range, and for a search picks the wrong result.
+- **Fix sketch.** Make every prompt state one rule, the renderer's (N = result position within
+  that call; a `fetch` is always `[1]`), and replace the `<id-A>` examples with text a model
+  cannot paste as an anchor. Count out-of-range numbers in `auditCitations` (for example as
+  `citations_out_of_range`) so the rate becomes visible. Measure on the lab before porting;
+  prompt edits are architectural changes ([recipes](/getting-started/recipes#change-a-prompt-safely)).
 
 ### Stopped label not rendered
 

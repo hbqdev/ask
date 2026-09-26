@@ -13,6 +13,7 @@ Lightweight ADRs for the choices that shaped Ask. Each record has a **status**:
 | **reverted** | Shipped (or built on lab), then removed |
 | **shelved** | Built, parked on lab behind a flag or in git history; could come back |
 | **inconclusive** | Built and measured, but the measurement could not decide it |
+| **reversed** | Shipped, then overruled by a later decision; the code stays behind a revert switch |
 
 ::: tip Read the negative results first
 The **rejected / reverted / shelved** records are the most useful part of this page. Each one
@@ -30,7 +31,7 @@ names the lab original. See [deploy](/operations/deploy) for the flow.
 |---|---|---|---|
 | [D1](#d1-optimise-the-pipeline-not-the-answering-model) | Optimise the pipeline, not the answering model | adopted | 2026-09-07 |
 | [D2](#d2-lab-first-and-env-flag-isolation-no-per-env-builds) | Lab first; staging/prod differ only by env flags | adopted | 2026-08-01 |
-| [D3](#d3-needssources-skip-retrieval-for-stable-knowledge) | `needsSources`: skip retrieval for stable knowledge | adopted | 2026-07-30 |
+| [D3](#d3-needssources-skip-retrieval-for-stable-knowledge) | `needsSources`: skip retrieval for stable knowledge | **reversed** 2026-09-26 by [D37](#d37-always-search-every-question) (owner) | 2026-07-30 |
 | [D4](#d4-judge-answers-not-source-counts) | Judge answers, not source counts | adopted (method) | 2026-08-01 |
 | [D5](#d5-source-tiering-by-search-mode) | Source tiering by search mode | adopted | 2026-09-03 |
 | [D6](#d6-classifier-on-a-cloud-model-with-expansion-fused-in) | Classifier on a cloud model, with expansion fused in | adopted | 2026-09-04 |
@@ -45,8 +46,8 @@ names the lab original. See [deploy](/operations/deploy) for the flow.
 | [D15](#d15-source-excerpts-instead-of-full-pages) | Source excerpts instead of full pages | **rejected** | 2026-08-01 |
 | [D16](#d16-two-stage-full-content-rerank) | Two-stage full-content rerank | **shelved** | 2026-08-05 |
 | [D17](#d17-20k-per-page-crop-with-a-crop-position-shadow) | 20k per-page crop + crop-position shadow | adopted (experiment) | 2026-08-06 |
-| [D18](#d18-targeted-reasoning-reasoning-only-on-research-turns) | Targeted reasoning (research turns only) | **inconclusive** | 2026-09-19 |
-| [D19](#d19-follow-up-re-search-prompt-nudge) | Follow-up re-search prompt nudge | adopted (soft) | 2026-09-19 |
+| [D18](#d18-targeted-reasoning-reasoning-only-on-research-turns) | Targeted reasoning (research turns only); since D37 nearly every turn is a research turn | **inconclusive** | 2026-09-19 |
+| [D19](#d19-follow-up-re-search-prompt-nudge) | Follow-up re-search prompt nudge (only re-searching since D37) | adopted (soft) | 2026-09-19 |
 | [D20](#d20-narration-strippers-strict-at-persist-best-effort-live) | Narration strippers: strict at persist, best-effort live | adopted | 2026-09-10 / 09-17 |
 | [D21](#d21-other-latency-knobs-measured) | Other latency knobs measured (rerank budget, enrich cap, crawl parallelism, turn budget) | mixed | 2026-07/09 |
 | [D22](#d22-multi-agent-deep-research) | Multi-agent deep research | **shelved** | 2026-08-04 |
@@ -64,6 +65,7 @@ names the lab original. See [deploy](/operations/deploy) for the flow.
 | [D34](#d34-recall-rerank-deferred-not-aborted) | Recall rerank deferred (not aborted); pool 10 × 384 tokens (8 on prod and lab since 09-25) | adopted | 2026-09-23 / 09-25 |
 | [D35](#d35-retire-and-remove-the-231-ask-stacks) | Retire and remove the .231 Ask stacks | adopted | 2026-08-27 → 09-24 |
 | [D36](#d36-strip-historical-citation-anchors-resolve-citations-per-turn-only) | Strip historical citation anchors; resolve citations per turn only | adopted | 2026-09-24 |
+| [D37](#d37-always-search-every-question) | Always search every question (forced first search) | adopted | 2026-09-26 |
 
 ---
 
@@ -126,7 +128,9 @@ names the lab original. See [deploy](/operations/deploy) for the flow.
 
 ### D3. `needsSources`: skip retrieval for stable knowledge
 
-- **Status:** adopted · **Date:** 2026-07-30 · **Commit:** `74062395`
+- **Status:** **reversed 2026-09-26 (owner)** by [D37](#d37-always-search-every-question) ·
+  **Date:** 2026-07-30 · **Commit:** `74062395`. The gate is still in the code and comes back
+  with `ALWAYS_SEARCH=off` (see "Reversal" below).
 - **Context.** Every turn searched, including "explain closures in JavaScript".
 - **Decision.** The classifier emits `needsSources: true` only when the answer turns on specifics an
   expert could not state from memory (a version, price, date, statistic, or named
@@ -144,6 +148,22 @@ names the lab original. See [deploy](/operations/deploy) for the flow.
   `search` stays callable, because `activeTools` is advertising, not enforcement.
 - **Revisit if** judged answers (not counts) show the gate withholding retrieval where it should
   not. See D4.
+- **Reversal (2026-09-26, owner decision).** The prod record over the 60 days before the change
+  showed what the gate was withholding: of 164 turns, 69 used no tools, 20 of them `skipSearch`
+  turns and 47 `stable-knowledge` turns (`lib/agents/query-classifier.ts:217-221`,
+  `lib/agents/researcher.ts:175-180`). Many asked about named products, company policies, home
+  repair and cleaning, health and safety, or current fiction, and were answered confidently from
+  memory. One answer about melted plastic on an oven tray recommended acetone with no fire
+  warning. D3's evaluation judged answer style on settled concepts; it did not cover these
+  questions. The owner ruled that correctness and safety on such questions outweigh the padding
+  D3 avoided, so every question now searches ([D37](#d37-always-search-every-question)).
+  - **What still exists.** `resolveTurnMode` keeps the gate after the flag check
+    (`lib/agents/researcher.ts:186`), `STABLE_KNOWLEDGE_PROMPT` is unchanged, and the old
+    classifier prompt is kept verbatim as `LEGACY_CLASSIFIER_SYSTEM_PROMPT`
+    (`lib/agents/query-classifier.ts:165`). The classifier still emits `needsSources`; with the
+    flag on it is logged and gates nothing.
+  - **Revert switch.** Set `ALWAYS_SEARCH=off` in the environment and force-recreate `ask` (no
+    rebuild). That restores the legacy prompt and this gate exactly. Details in D37.
 
 ### D4. Judge answers, not source counts
 
@@ -163,6 +183,10 @@ names the lab original. See [deploy](/operations/deploy) for the flow.
 - **Consequences.** Eval harnesses live under `scripts/eval/`. Live-search A/Bs are noisy (search
   non-determinism, the agent's choice to search or not, the ceiling on mainstream queries). Prefer
   deterministic benchmarks or prod passage-position logging.
+- **Later result.** The 2026-09-26 A/B behind [D37](#d37-always-search-every-question) used this
+  method (validity filter, both orderings) and went the other way on a small sample: forced search
+  2W-1L-3T over 6 valid pairs. The evaluations above were larger. Neither settles the question on
+  its own; D37 was decided on correctness and safety grounds.
 - **Revisit if:** never. This is a method, not a feature.
 
 ---
@@ -359,7 +383,7 @@ bounded by the ~4–10% stable prefix.
 - **Status:** **rejected** — already done · **Date:** 2026-09-11
 - **Finding.** `pruneMessages({ reasoning: 'before-last-message', toolCalls:
   'before-last-2-messages', emptyMessages: 'remove' })` in
-  `lib/streaming/create-chat-stream-response.ts:430` already strips earlier turns' crawled pages
+  `lib/streaming/create-chat-stream-response.ts:447` already strips earlier turns' crawled pages
   from the live prompt from the next turn onward. A three-turn searching chat does **not** balloon
   to 120–270k tokens. The only residual slice maps onto the excerpts idea that already lost (D15).
 - **Consequence.** The real lever is the **volatile suffix**: crop size, source count, rerank
@@ -436,6 +460,12 @@ non-determinism, the agent's search-or-not choice and the ceiling swamp live A/B
 - **Revisit if** CoT leaks or under-searching return on the live roster. Re-run the A/B pinned to
   `glm-5.3-flash` with a turn that hits the round cap. The code is inert until
   `ANSWER_THINK=targeted` is set, and it exists only on `flow-design`.
+- **Interplay with D37 (2026-09-26).** `targeted` keys on `turnMode === 'research'`
+  (`lib/utils/ollama-think.ts:136-138`, lab only). With `ALWAYS_SEARCH` on, every turn except
+  the few `direct` ones is a research turn, so `targeted` would now mean reasoning on for almost
+  every turn, with the measured +14 s each. It is not the selective lever it was designed as. Re-think
+  the trigger before trying it again. `ANSWER_THINK` is unset on all three envs (checked
+  2026-09-26).
 
 ### D19. Follow-up re-search prompt nudge
 
@@ -448,6 +478,10 @@ non-determinism, the agent's search-or-not choice and the ceiling swamp live A/B
   follow-ups. There was no over-searching on clarification turns, because the classifier routes
   pure clarification to `direct` before the prompt applies.
 - **Revisit if** under-searching persists: D18 is the stronger lever.
+- **Since D37 (2026-09-26).** Moot for the **first** search of a follow-up: every follow-up that is
+  a question now gets a forced first search on the classifier's resolved query, whatever the
+  prompt says. The clause still matters for whether the model searches **again** after that first
+  result, so keep it.
 
 ### D20. Narration strippers: strict at persist, best-effort live
 
@@ -848,7 +882,7 @@ turn-based loop (`git revert b0ff56ad`) brings back the same latency.
   largest class (146 of 655 over all history; 70 of 158 in the 11 flagged recent turns) was
   anchors copied from **earlier answers**. The model-bound history still carried every earlier
   answer's `[N](#<old toolCallId>)` text, while `pruneMessages` (`toolCalls:
-  'before-last-2-messages'`, `lib/streaming/create-chat-stream-response.ts:435-438`) had already
+  'before-last-2-messages'`, `lib/streaming/create-chat-stream-response.ts:447-450`) had already
   removed those turns' tool calls and results. Follow-up turns that ran no search had every
   anchor unresolved.
 - **Decision.**
@@ -875,3 +909,154 @@ turn-based loop (`git revert b0ff56ad`) brings back the same latency.
 - **Revisit if** live turns still show copied old ids after the port (the strip regex
   `[N](#id)` would then be missing a format), or if per-turn scoping is ever replaced by a
   citation store that is stable across turns.
+
+## Retrieval policy
+
+### D37. Always search every question
+
+- **Status:** adopted · **Date:** 2026-09-26 (owner decision; lab, staging and prod the same day)
+  · **Commit:** `0ea17872` (lab `453bfba1`, staging `3822f475`). Reverses
+  [D3](#d3-needssources-skip-retrieval-for-stable-knowledge).
+- **Context.** Under D3 the classifier could send a question down one of two no-search paths:
+  `direct` (`skipSearch`, "the conversation already answers this") or `stable-knowledge` (no
+  sources or recency needed, `search` not advertised). Over the 60 days before this change, 69 of
+  164 prod turns used no tools: 20 `skipSearch` turns and 47 `stable-knowledge` turns. Many were
+  about named products, company policies, home repair and cleaning, health and safety, or current
+  fiction, answered confidently from memory. An answer about melted plastic on an oven tray
+  recommended acetone with no fire warning.
+- **Decision.** Every question gets a web search. Only a message that is not a question may skip
+  it.
+  1. **What may skip.** The classifier's new `CLASSIFIER_SYSTEM_PROMPT`
+     (`lib/agents/query-classifier.ts:234`) sets `skipSearch=true` only for:
+     - social talk that asks for nothing: a greeting, thanks, an acknowledgement, chit-chat,
+       venting or a rhetorical remark;
+     - a pure transform of text already present (the user's text or the previous answer):
+       rewrite, rephrase, shorten, translate, summarise, reformat. It must ask for no new
+       information. Asking for a recommendation, decision, verdict or reasoning is **not** a
+       transform;
+     - pure arithmetic or a unit conversion on numbers given in the message;
+     - a request only to generate, draw or edit an image;
+     - an explicit instruction to remember, forget or update something about the user that asks
+       nothing else (added the same day, see "`remember` writes" below). One that also asks a
+       question ("remember I'm vegetarian — what can I cook tonight?") searches.
+
+     Every question searches, including follow-ups that confirm, choose, clarify or apply the
+     previous answer, and questions the conversation already seems to answer. If the classifier
+     is unsure, it searches. `needsSources` is still produced, but only for analysis: it gates
+     nothing.
+  2. **Turn mode.** `resolveTurnMode` (`lib/agents/researcher.ts:154-188`): `skipSearch` →
+     `direct`; everything else → `research`. `stable-knowledge` cannot be reached while the flag
+     is on.
+  3. **A guaranteed first search.** On a `research` turn, `prepareStep` gives step 0 to a
+     synthetic model instead of the user's model (`researcher.ts:1031-1033`).
+     `createForcedSearchModel` (`lib/agents/always-search.ts:262`) is a `LanguageModelV3` whose
+     only output is **one `search` tool call**. Its query is the classifier's `standaloneQuery`
+     with URLs removed, clipped at a word boundary to 400 characters (`resolveForcedSearchQuery`,
+     `always-search.ts:59-71`). The call spells out every schema field and carries the turn's
+     `firstSearchDepth` (`buildForcedSearchInput`, `:202-216`). The AI SDK validates and runs it
+     exactly like a call the model made. It goes through the real, wrapped `search` tool, so
+     source forcing, dedup, the answer deadline, the round cap, expansion fan-out, advanced depth
+     and telemetry all apply. The result streams to the browser, is persisted, and is citable by
+     its toolCallId. The user's model answers from step 1 with those results in context.
+  4. **The prompt is told.** `FORCED_SEARCH_PROMPT_ADDENDUM` (`always-search.ts:317`, appended at
+     `researcher.ts:832-834`) says the first search has already run, asks for the answer to be
+     grounded and cited, and cancels the mode prompts' "clarifying your own prior answer, do not
+     search" exception. It is appended after the mode prompt, so it wins.
+- **Why not `toolChoice`.** The obvious lever is `prepareStep` returning
+  `toolChoice: { type: 'tool', toolName: 'search' }`. But `ai-sdk-ollama` 3.8.4, the provider for
+  every answering model, never reads `toolChoice`: its `getCallOptions` takes the prompt, sampling
+  settings, `responseFormat` and `tools` and nothing else, and its request carries no tool choice
+  (`node_modules/ai-sdk-ollama/dist/index.js:16108-16120`, `:16865-16876`).
+  [D9](#d9-search-round-cap-enforced-inside-the-tool) and the classifier's `toolChoice:
+  'required'` comment record the same finding. A prompt mandate was not enough either: the
+  research prompts already say "your FIRST action in every turn (without a URL) MUST be the
+  `search` tool", yet on the lab about one research turn in three still made no tool call. The
+  per-step `model` override is applied by the AI SDK itself, so no provider can drop it, and the
+  step that would have spent a model round trip deciding to search now costs about 0 ms.
+- **Which turns are forced.** The code lives in `createResearcher`, so logged-in and guest turns
+  behave the same.
+  - **Forced:** every `research` turn where the user did not supply the source and the resolved
+    query still has text after URLs are removed (`resolveForcedFirstSearch`,
+    `researcher.ts:199-216`).
+  - **Research but not forced: the user supplied the source** (follow-up the same day,
+    `detectUserSuppliedSource`, `lib/agents/always-search.ts:116-135`, read from the latest
+    message's parts). A URL in the text or a pasted link chip: the first version searched the
+    text around the URL ("summarise this https://…" searched "summarise this"), overriding the
+    mode prompts' "a URL: fetch it, do not search first" rule; a URL turn is now exactly the
+    research turn it was before D37 (same prompt, same tools, no addendum). An attachment with
+    no typed text: the classifier sees text only, so it classified an empty message and
+    invented a query. An attachment whose text only points at it ("what is this", "summarise
+    this file"; `isAttachmentReferenceOnly`, `always-search.ts:181-191`, a closed word list, at
+    most 10 words): the attachment is the subject, which the model sees. An attachment with a
+    real question is still forced. The log says `always-search: the user supplied the source
+    (<reason>)`; a query with nothing left after URLs are removed logs `nothing searchable in the
+    resolved query`.
+  - **Bypass paths** (speed mode, a URL in the message, Retry, a classifier failure, empty reply
+    or soft-budget timeout) have no classifier rewrite: `standaloneQuery` is the raw message, so
+    apart from the URL and attachment cases above the forced search runs on the raw text. That
+    is what those paths searched before. Guest turns bypass the classifier only for a URL
+    (`lib/streaming/create-ephemeral-chat-stream-response.ts:86-101`) and apply the same
+    user-supplied-source check.
+- **Telemetry.** The `[latency]` line gains `turn_mode`, `forced_search` and (with the
+  follow-up) `forced_skip`, the user-supplied-source reason
+  (`lib/streaming/latency-tracker.ts:313-317`, set from `onTurnPlan` at
+  `lib/streaming/create-chat-stream-response.ts:831-833`). The container log also gets
+  `[Researcher] always-search: step 0 forced to search "<query>"`. On a forced turn the synthetic
+  step emits at once, so `ttft_ms` and `first_step_ms` measure only the pre-work (about 2 s). Use
+  `stream["text-start"]` for the time to first prose. Guest turns write no `[latency]` line.
+- **Evidence (lab, 2026-09-26).**
+  - Classifier replay of those 164 prod turns with the new prompt: 145 search, 19 skip (11 image
+    requests, "hello", "hi", 3 transforms, one venting message, "so nothing exciting").
+  - Browser check: TCP vs UDP, a clarification follow-up and the oven question were all
+    force-searched and answered with citations; "Thanks, that's helpful!" stayed `direct`.
+  - Blind pairwise A/B ([D4](#d4-judge-answers-not-source-counts) method: answering model
+    kimi-k2.6, judge deepseek-v4-pro, both orderings, recall and memory off, validity filter).
+    6 of 12 pairs were valid; on the other 6 the old gate had searched anyway. Forced search
+    scored **2W-1L-3T**: it won the oven safety answer and the sourcing of TCP vs UDP, and lost a
+    troubleshooting question where the search led to a confident, wrong root cause.
+- **Caveat: the older evaluations went the other way.** D3's judge (46 pairs, 13W-2L-3T for *not*
+  searching, July) and D4's (forcing retrieval: 1W-7L-3T on operational and 1W-8L-1T on concept
+  questions, August) were larger. Six valid pairs cannot overturn them.
+  D37 is an owner decision on correctness and safety grounds, not a measured quality win, and the
+  quality effect should be treated as open.
+- **Cost.** Questions that used to skip search start their prose about 7–20 s later: median time
+  to first prose went from about 3 s to about 21 s in the A/B, and 10–15 s in the lab browser
+  check. The forced search also uses round 1 of the turn's `SEARCH_ROUNDS_MAX` budget.
+- **Interplays and weak spots.**
+  - **`FLOW_VARIANT`** (lab only; `baseline` or unset everywhere): a non-baseline variant loses
+    its own step-0 control. The forced model replaces step 0 whatever the variant asks for, for
+    example `plan-execute`'s forced `todoWrite` or `adaptive`'s optional search.
+  - **`ANSWER_THINK=targeted`** ([D18](#d18-targeted-reasoning-reasoning-only-on-research-turns),
+    lab only, unset everywhere) would now turn reasoning on for almost every turn.
+  - **[D19](#d19-follow-up-re-search-prompt-nudge)** no longer decides the first search of a
+    follow-up; it still governs re-searching.
+  - **Speed mode and Retry** skip the classifier, so a contextual follow-up is force-searched on
+    its unresolved text ("which one should I pick?"). The model can search again with a better
+    query, at the cost of a round.
+  - **Image plus "what is this"**: the classifier sees only text, so the first version forced a
+    search for "What is this?". Fixed by the user-supplied-source exception above; an image with a
+    real question is still searched on its words alone
+    ([known issue](/history/known-issues#image-attachment-forces-a-generic-search)).
+  - **`remember` writes**: `remember` is candidate-only on research turns
+    (`researcher.ts:900-909`), so a "remember that …" message must stay `direct` to be confirmed.
+    Checked on the lab classifier (`deepseek-v4-pro:cloud`, single message and as a second turn):
+    "remember that I'm vegetarian", "remember I prefer metric units" and "forget my address"
+    were already `skipSearch:true` under both the legacy and the first ALWAYS_SEARCH prompt, so no
+    regression was observed; the first prompt's skip list simply did not name them. The follow-up
+    names them in the skip list with examples, so the behaviour no longer depends on the
+    classifier model. Lab browser check: "remember that I prefer metric units" →
+    `turn_mode:"direct"`, the `remember` tool ran, and the memory row is `confirmed`. On a research turn
+    the background extractor can still rescue it: when it extracts a near-duplicate (similarity ≥
+    `MEMORY_SIM_THRESHOLD`, 0.9), the bump to 2 sightings graduates the candidate (`decideWrite`,
+    `lib/memory/write.ts:35-51`); a differently worded extraction does not
+    ([memory](/knowledge/memory-recall#candidate-vs-confirmed-and-the-prompt-injection-mitigation)).
+- **Revert.** Set `ALWAYS_SEARCH=off` in that env's `.env` (the Model Manager's Search tab has an
+  "Always search" switch; it writes `on`/`off` and rejects `false`) and force-recreate `ask`; no
+  rebuild. Only the literal `off` disables it; unset, empty or any
+  other value leaves it on (`isAlwaysSearchEnabled`, `always-search.ts:30-34`). The flag is read
+  per call, so the recreate is only needed to change the container's environment. Off restores
+  the legacy classifier prompt (`getClassifierSystemPrompt`, `query-classifier.ts:296-302`) and
+  the D3 gate exactly. Check with `docker exec <container> printenv ALWAYS_SEARCH`.
+- **Revisit if** the forced searches make answers measurably worse on judged turns (not on counts;
+  see D4), or the latency cost starts to hurt. The skip definition is the lever to tune first, not
+  the forcing mechanism.

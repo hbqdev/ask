@@ -3,19 +3,19 @@
     "ask": "ask-flow",
     "ingestor": "ingestor"
   },
-  "count": 651,
+  "count": 652,
   "coverage": {
-    "files": 651,
-    "withPurpose": 651,
+    "files": 652,
+    "withPurpose": 652,
     "header": 168,
     "jsdoc": 36,
     "derived": 59,
-    "override": 388,
-    "documented": 356
+    "override": 389,
+    "documented": 357
   },
   "kinds": {
     "dockerfile": 3,
-    "lib-module": 244,
+    "lib-module": 245,
     "route-handler": 37,
     "page": 13,
     "stylesheet": 2,
@@ -8620,8 +8620,8 @@
         {
           "page": "/knowledge/memory-recall",
           "title": "Memory & recall",
-          "section": "Read path",
-          "anchor": "read-path"
+          "section": "Candidate vs confirmed, and the prompt-injection mitigation",
+          "anchor": "candidate-vs-confirmed-and-the-prompt-injection-mitigation"
         }
       ]
     },
@@ -8702,6 +8702,95 @@
           "title": "Memory & recall",
           "section": "Backfill",
           "anchor": "backfill"
+        }
+      ]
+    },
+    {
+      "path": "lib/agents/always-search.ts",
+      "dir": "lib/agents",
+      "area": "lib",
+      "project": "ask",
+      "kind": "lib-module",
+      "purpose": "ALWAYS_SEARCH flag (default on) plus the forced first search: resolves the query, detects a user-supplied source (a URL, or an attachment the text only points at) that cancels the forced search…",
+      "purposeSource": "override",
+      "exports": [
+        "isAlwaysSearchEnabled",
+        "FORCED_SEARCH_QUERY_MAX_CHARS",
+        "resolveForcedSearchQuery",
+        "UserSuppliedSource",
+        "detectUserSuppliedSource",
+        "isAttachmentReferenceOnly",
+        "buildForcedSearchInput",
+        "FORCED_SEARCH_PROVIDER",
+        "createForcedSearchModel",
+        "FORCED_SEARCH_PROMPT_ADDENDUM"
+      ],
+      "methods": [],
+      "route": null,
+      "usedBy": [
+        "lib/agents/query-classifier.ts",
+        "lib/agents/researcher.ts",
+        "lib/streaming/create-chat-stream-response.ts",
+        "lib/streaming/create-ephemeral-chat-stream-response.ts"
+      ],
+      "tests": [
+        "lib/agents/__tests__/always-search.test.ts",
+        "lib/agents/__tests__/researcher-always-search.test.ts"
+      ],
+      "docs": [
+        {
+          "page": "/getting-started/recipes",
+          "title": "Recipes",
+          "section": "Change a prompt safely",
+          "anchor": "change-a-prompt-safely"
+        },
+        {
+          "page": "/history/changelog",
+          "title": "Changelog",
+          "section": "2026-09 — September",
+          "anchor": "_2026-09-—-september"
+        },
+        {
+          "page": "/history/decisions",
+          "title": "Decisions",
+          "section": "D37. Always search every question",
+          "anchor": "d37-always-search-every-question"
+        },
+        {
+          "page": "/history/glossary",
+          "title": "Glossary",
+          "section": "A chat turn",
+          "anchor": "a-chat-turn"
+        },
+        {
+          "page": "/history/known-issues",
+          "title": "Known issues",
+          "section": "Image attachment forces a generic search",
+          "anchor": "image-attachment-forces-a-generic-search"
+        },
+        {
+          "page": "/infrastructure/model-manager",
+          "title": "Model Manager",
+          "section": "Boolean switches",
+          "anchor": "boolean-switches"
+        },
+        {
+          "page": "/request-lifecycle/chat-turn",
+          "title": "Chat turn",
+          "section": "5. Classifier",
+          "anchor": "_5-classifier"
+        },
+        {
+          "page": "/search/models-reasoning",
+          "title": "Models & reasoning",
+          "section": "Turn modes",
+          "anchor": "turn-modes"
+        },
+        {
+          "page": "/search/pipeline",
+          "title": "Search pipeline",
+          "section": "4. Depth tiering: one advanced search per turn",
+          "anchor": "_4-depth-tiering-one-advanced-search-per-turn"
         }
       ]
     },
@@ -9006,6 +9095,12 @@
           "anchor": "d19-follow-up-re-search-prompt-nudge"
         },
         {
+          "page": "/history/known-issues",
+          "title": "Known issues",
+          "section": "Citation placeholders and out-of-range numbers",
+          "anchor": "citation-placeholders-and-out-of-range-numbers"
+        },
+        {
           "page": "/infrastructure/security",
           "title": "Security",
           "section": "SSRF guard",
@@ -9072,10 +9167,15 @@
       "area": "lib",
       "project": "ask",
       "kind": "lib-module",
-      "purpose": "classifyQuery, a per-turn structured-output call on a dedicated Ollama classifier model deciding skipSearch, a standalone query, expanded queries and recency needs.",
+      "purpose": "classifyQuery, a per-turn tool-calling classification on a dedicated classifier model: skipSearch (only non-questions skip while ALWAYS_SEARCH is on), the standalone query that seeds the forced…",
       "purposeSource": "override",
       "exports": [
+        "classifierSchema",
         "QueryClassification",
+        "LEGACY_CLASSIFIER_SYSTEM_PROMPT",
+        "CLASSIFIER_SYSTEM_PROMPT",
+        "getClassifierSystemPrompt",
+        "buildConversationTranscript",
         "classifyQuery"
       ],
       "methods": [],
@@ -9110,10 +9210,34 @@
           "anchor": "lib"
         },
         {
+          "page": "/history/decisions",
+          "title": "Decisions",
+          "section": "D3. needsSources: skip retrieval for stable knowledge",
+          "anchor": "d3-needssources-skip-retrieval-for-stable-knowledge"
+        },
+        {
+          "page": "/history/faq",
+          "title": "Troubleshooting FAQ",
+          "section": "Ask did not search my question",
+          "anchor": "ask-did-not-search-my-question"
+        },
+        {
           "page": "/history/glossary",
           "title": "Glossary",
           "section": "A chat turn",
           "anchor": "a-chat-turn"
+        },
+        {
+          "page": "/history/known-issues",
+          "title": "Known issues",
+          "section": "Image attachment forces a generic search",
+          "anchor": "image-attachment-forces-a-generic-search"
+        },
+        {
+          "page": "/knowledge/memory-recall",
+          "title": "Memory & recall",
+          "section": "Candidate vs confirmed, and the prompt-injection mitigation",
+          "anchor": "candidate-vs-confirmed-and-the-prompt-injection-mitigation"
         },
         {
           "page": "/operations/evaluation",
@@ -9200,12 +9324,14 @@
       "area": "lib",
       "project": "ask",
       "kind": "lib-module",
-      "purpose": "Builds the main researcher ToolLoopAgent for chat turns: resolves turn mode, assembles search/fetch tools and source prompts, and applies search-mode settings.",
+      "purpose": "Builds the main researcher ToolLoopAgent for chat turns: resolves the turn mode, forces step 0 of a research turn to a web search (ALWAYS_SEARCH), assembles search/fetch tools and source prompts…",
       "purposeSource": "override",
       "exports": [
         "sanitizeSourceTitle",
         "TurnMode",
         "resolveTurnMode",
+        "resolveForcedFirstSearch",
+        "TurnPlan",
         "wrapSearchToolForSources",
         "getSourcesPromptAddendum",
         "createResearcher",
@@ -9219,6 +9345,7 @@
         "lib/streaming/create-ephemeral-chat-stream-response.ts"
       ],
       "tests": [
+        "lib/agents/__tests__/researcher-always-search.test.ts",
         "lib/agents/__tests__/researcher.test.ts"
       ],
       "docs": [
@@ -9275,6 +9402,18 @@
           "title": "RAG & uploads",
           "section": "5. documentRetrieval: making excerpts citable",
           "anchor": "_5-documentretrieval-making-excerpts-citable"
+        },
+        {
+          "page": "/operations/evaluation",
+          "title": "Evaluation harnesses & scripts",
+          "section": "Flow-arm harnesses (lab only)",
+          "anchor": "flow-arm-harnesses-lab-only"
+        },
+        {
+          "page": "/operations/telemetry",
+          "title": "Telemetry",
+          "section": "The lines",
+          "anchor": "the-lines"
         },
         {
           "page": "/request-lifecycle/chat-turn",
@@ -12243,6 +12382,7 @@
         "lib/agents/researcher.ts"
       ],
       "tests": [
+        "lib/agents/__tests__/researcher-always-search.test.ts",
         "lib/agents/__tests__/researcher.test.ts",
         "lib/memory/__tests__/inject.test.ts"
       ],
@@ -12509,6 +12649,12 @@
           "title": "Repo tour",
           "section": "lib/",
           "anchor": "lib"
+        },
+        {
+          "page": "/history/decisions",
+          "title": "Decisions",
+          "section": "D37. Always search every question",
+          "anchor": "d37-always-search-every-question"
         },
         {
           "page": "/history/known-issues",
@@ -13361,6 +13507,8 @@
         "lib/tools/search.ts"
       ],
       "tests": [
+        "lib/agents/__tests__/always-search.test.ts",
+        "lib/agents/__tests__/researcher-always-search.test.ts",
         "lib/schema/__tests__/search.test.ts"
       ],
       "docs": []
@@ -14074,6 +14222,12 @@
           "anchor": "lib"
         },
         {
+          "page": "/history/decisions",
+          "title": "Decisions",
+          "section": "D37. Always search every question",
+          "anchor": "d37-always-search-every-question"
+        },
+        {
           "page": "/history/known-issues",
           "title": "Known issues",
           "section": "Unresolved citations",
@@ -14090,6 +14244,12 @@
           "title": "Streaming",
           "section": "Moving parts",
           "anchor": "moving-parts"
+        },
+        {
+          "page": "/search/models-reasoning",
+          "title": "Models & reasoning",
+          "section": "Turn modes",
+          "anchor": "turn-modes"
         }
       ]
     },
@@ -14734,6 +14894,12 @@
         "lib/streaming/__tests__/latency-tracker.test.ts"
       ],
       "docs": [
+        {
+          "page": "/history/decisions",
+          "title": "Decisions",
+          "section": "D37. Always search every question",
+          "anchor": "d37-always-search-every-question"
+        },
         {
           "page": "/operations/evaluation",
           "title": "Evaluation harnesses & scripts",
@@ -15481,6 +15647,7 @@
         "lib/types/ai.ts"
       ],
       "tests": [
+        "lib/agents/__tests__/researcher-always-search.test.ts",
         "lib/render/__tests__/llm-image-output.e2e.test.ts",
         "lib/tools/__tests__/search-dedup.test.ts",
         "lib/tools/__tests__/search-depth-tiering.test.ts",
@@ -17545,6 +17712,7 @@
         "scripts/eval/run-eval.ts"
       ],
       "tests": [
+        "lib/agents/__tests__/researcher-always-search.test.ts",
         "lib/agents/__tests__/title-generator.test.ts",
         "lib/model-selector/__tests__/get-model-selector-data.test.ts",
         "lib/models/__tests__/fetch-models.test.ts",
