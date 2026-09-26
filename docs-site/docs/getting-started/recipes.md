@@ -347,7 +347,12 @@ Procedure:
    citation bug). The comments name the failure. Removing that sentence brings the failure back.
 2. **Keep the regression tests green**, and add one for the new rule.
    `lib/agents/prompts/__tests__/search-mode-prompts.test.ts` asserts the wording that fixed
-   past issues (for example "Default to NO emojis").
+   past issues (for example "Default to NO emojis"). Citation wording lives in one place,
+   `getCitationFormatGuidance()`; its tests fail if a prompt shows a copyable placeholder or a
+   retired example id, states a second numbering scheme, or has an example anchor that would
+   not render. Example ids belong in `lib/utils/citation.ts` (`PROMPT_EXAMPLE_*_ID`,
+   `PLACEHOLDER_ANCHOR_IDS`), not in the prompt text
+   ([D36 addendum](/history/decisions#d36-strip-historical-citation-anchors-resolve-citations-per-turn-only)).
 3. **Remember what gets appended.** The final system prompt is the mode prompt plus sources
    addendum, `UNTRUSTED_CONTENT_RULE`, scope-of-turn block, the forced-search addendum (only
    when step 0 is a forced search), user instructions, memories, recall, attached-source

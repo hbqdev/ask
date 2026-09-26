@@ -142,8 +142,8 @@ pill when the answer was cut short with Stop (`StoppedBadge`, `:415`). `AnswerSe
 answer text
   → stripIncompleteCitationTail(text)         drop a citation anchor still streaming at the
                                               very end ("[1](#call_ab…"), see below
-  → processCitations(text, citationMaps)      [n](#toolCallId) → [domain](encodeURI(url));
-                                              unknown id → resolveByUrlFragment, else ''
+  → processCitations(text, citationMaps)      [N](#toolCallId) → [domain](encodeURI(url)),
+                                              resolved by resolveCitationAnchor; unresolved → ''
   → collapseCitationArtifacts                 tidy spaces/punctuation left by dropped anchors
   → <Streamdown mode="streaming"
         remend = { linkMode: 'text-only' }    how an unclosed tail link is completed
@@ -195,9 +195,9 @@ mid-anchor went through the same repair on every load.
 
 **Fix.** Two independent parts:
 
-- `stripIncompleteCitationTail()` (`lib/utils/citation.ts:380`) removes an unfinished
+- `stripIncompleteCitationTail()` (`lib/utils/citation.ts:533`) removes an unfinished
   citation anchor from the very end of the text before anything else runs. Its pattern
-  (`INCOMPLETE_CITATION_TAIL_RE`, `:362-363`) matches `[`, `[1`, `[1](`, `[1](#` and
+  (`INCOMPLETE_CITATION_TAIL_RE`, `:515-516`) matches `[`, `[1`, `[1](`, `[1](#` and
   `[1](#<partial id>` at the end of the string (up to three digits). A complete bracket with
   no link part (`[1]`) is left alone, because a finished answer may legitimately end with it;
   so are a named link (`[Python docs`) and an external one (`[1](https://…`), which the
@@ -226,24 +226,69 @@ blocked) and `lib/utils/__tests__/citation.test.ts` (`stripIncompleteCitationTai
 Pipeline: the researcher cites `[N](#<toolCallId>)` → `ChatMessages` builds **per-message**
 citation maps (`extractCitationMaps`: `toolCallId → {N → result}` from that message's
 `tool-search` / `tool-fetch` / `tool-documentRetrieval` outputs) → `processCitations`
-rewrites anchors to real URLs → `Citing` resolves the URL back to its result for the
+rewrites each anchor to its real URL → `Citing` resolves the URL back to its result for the
 preview.
+
+**What N means.** N is the 1-based position of the cited result in **that tool call's**
+`results`: `extractCitationMaps` maps N to `results[N-1]` (`lib/utils/citation.ts:409-414`).
+Numbering restarts at 1 for every call, so each call has its own `[1]`, and a fetch of one page
+is always `[1]`. It is **not** a running count across the answer. Since 2026-09-26 every mode
+prompt states this one rule through the shared `getCitationFormatGuidance()`
+(`lib/agents/prompts/search-mode-prompts.ts:98-108`); before that the speed prompt taught
+"one number per toolCallId, assigned sequentially", and models that counted sources across
+the answer produced numbers that were either out of range (dropped) or in range but pointing at
+a different result of the same search
+([known issue](/history/known-issues#running-count-citation-numbers-can-point-at-the-wrong-result)).
+
+**One resolver.** `resolveCitationAnchor(N, id, maps)` (`lib/utils/citation.ts:263-289`)
+decides every anchor. Rendering (`processCitations`, `citation.ts:483-507`), the telemetry
+audit (`auditCitations`, `citation.ts:328-353`) and the cited-URL list
+(`extractCitedSourceUrls`, `citation.ts:435-449`) all call it, so `citations_unresolved`
+counts exactly the anchors a reader loses. The copy and save-note text of an answer goes
+through `processCitations` too (`components/message-actions.tsx:103-110`). The result is `own`,
+`recovered` (with the repair used) or `unresolved`:
+
+| Anchor | Result |
+|---|---|
+| id of a citable call of this message, N in range (and the result has a valid URL) | `own`: result N of that call |
+| same id with a model-added `toolu_` / `call_` / `search-` prefix | normalised, then as above |
+| one of this message's ids wrapped as `<id-UUID>`, `<UUID>` or `id-UUID` | `recovered` (`wrapped-id`): unwrapped, then looked up |
+| a placeholder: `<token>`, `id-X`, `toolCallId`, or any example id the prompts have used | `recovered` (`placeholder`) only if the message made **exactly one** citable call and N is in range for it (or it is a one-page fetch); otherwise dropped |
+| a real id, N past the end, and the call is a fetch whose output holds exactly one page that is not `Fetch failed:` | `recovered` (`fetch-out-of-range`): that page |
+| a real id, N past the end of a search or of a fetch with several pages | dropped |
+| an id that is a URL fragment of exactly one of this message's sources | `recovered` (`url-fragment`) |
+| anything else (another turn's id, an invented id), or N outside 1–100 | dropped |
+
+A dropped anchor renders as nothing and `collapseCitationArtifacts` tidies the spacing it
+leaves. Repairs apply only where the intended source is unambiguous; a wrong number on a
+multi-result call is never guessed. An **in-range** wrong number cannot be detected at all: it
+is a well-formed anchor for another result.
 
 - **Per-message scope is load-bearing.** A conversation-wide map let an anchor carried
   over from an earlier turn resolve cleanly to the wrong source (measured: 120 of 2,975
   anchors in prod history). Scoped per message, an out-of-turn anchor resolves to nothing
   and is dropped; `citations_unresolved` on the `[latency]` line counts it. Anchors are
-  deliberately **not** resolved across turns
+  deliberately **not** resolved across turns, and no repair looks at another message's calls
   ([D36](/history/decisions#d36-strip-historical-citation-anchors-resolve-citations-per-turn-only)).
-- Tool-call ids a model prefixed (`toolu_`, `call_`, `search-`) are normalised before lookup.
-- **URL-fragment fallback** (2026-09-24). When an anchor names no tool call of this message,
-  `processCitations` tries `resolveByUrlFragment` (`lib/utils/citation.ts:66`). Models write a
-  piece of the cited page's own URL as the "id" when they cannot see a real one
-  (`[1](#example.com/how-to-x)`, a zhihu post number, a YouTube video id). The anchor resolves only
-  if the fragment (lower-cased, scheme, `www.` and trailing `/` removed) is at least 6 characters,
+- **The fetch rule needs the map object itself.** `extractCitationMaps` records each map's tool
+  type in a `WeakMap` keyed by the map (`CITATION_MAP_TOOL_TYPE`, `citation.ts:163`, set at
+  `:419`), so
+  the map shape did not change. `ChatMessages` builds the maps once per message in a `useMemo`
+  (`components/chat-messages.tsx:131-140`) and components pass them through by reference. A
+  cloned or hand-built map (`{ ...map }`) has no tool type, and the one-page-fetch repair then
+  silently stops applying to it.
+- **Placeholders and example ids.** The prompts' worked example uses two realistic ids,
+  `PROMPT_EXAMPLE_SEARCH_ID` and `PROMPT_EXAMPLE_FETCH_ID`, defined in
+  `lib/utils/citation.ts:92-93` (not in the prompt module, so the client bundle does not import
+  the prompts). `PLACEHOLDER_ANCHOR_IDS` (`:101-119`) lists every example id the prompts have
+  ever shown, so a verbatim copy is recognised. To change an example, change it there and keep
+  the retired id in the list.
+- **URL-fragment fallback** (2026-09-24). Models write a piece of the cited page's own URL as
+  the "id" when they cannot see a real one (`[1](#example.com/how-to-x)`, a zhihu post number,
+  a YouTube video id). `resolveByUrlFragment` (`lib/utils/citation.ts:66`) resolves it only if
+  the fragment (lower-cased, scheme, `www.` and trailing `/` removed) is at least 6 characters,
   is not UUID-shaped, and is contained in **exactly one** distinct source URL of this message.
-  Otherwise it is dropped as before: an invented citation is never guessed. `auditCitations`
-  counts these as `recovered`, and `extractCitedSourceUrls` applies the same rule.
+  Otherwise it is dropped: an invented citation is never guessed.
 - **Where valid ids come from.** Search results always echoed their `toolCallId`. Fetch results
   do too since 2026-09-24 (`lib/tools/fetch.ts:715`); before that a fetched page could not be
   cited correctly. Earlier answers' anchors are removed from the history sent to the model
