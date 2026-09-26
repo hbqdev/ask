@@ -10,9 +10,15 @@ import { randomUUID } from 'crypto'
 /**
  * ALWAYS_SEARCH — the owner's 2026-09-26 decision: every question gets a web
  * search. Only a non-question (greeting/thanks/venting, a pure transform of
- * text already present, pure arithmetic, an image request) may skip it, and
- * that call is made by the classifier's `skipSearch` (see
- * CLASSIFIER_SYSTEM_PROMPT in query-classifier.ts).
+ * text already present, pure arithmetic, an image request, an explicit
+ * remember/forget instruction) may skip it, and that call is made by the
+ * classifier's `skipSearch` (see CLASSIFIER_SYSTEM_PROMPT in
+ * query-classifier.ts).
+ *
+ * The search is GUARANTEED (step 0 is forced) unless the user supplied the
+ * subject themselves — a URL, or an attachment the text only points at (see
+ * detectUserSuppliedSource). Those turns stay research turns with `search`
+ * available; the model just is not made to search first.
  *
  * DEFAULT ON. Unset, empty or any other value keeps it on; only the literal
  * `off` disables it — the same convention as RECALL_ENABLED / MEMORY_ENABLED
@@ -44,10 +50,11 @@ export const FORCED_SEARCH_QUERY_MAX_CHARS = 400
  * message, which is what those paths searched before.
  *
  * URLs are stripped: a URL is not a search query (the dedup wrapper routes a
- * URL-only query to `fetch` guidance for the same reason), and a pasted link
- * is read by the `fetch` tool / documentRetrieval path. Null — no forced
- * search — only when nothing searchable remains: a message that is only a URL
- * or only an attachment.
+ * URL-only query to `fetch` guidance for the same reason). A URL in the
+ * latest message already cancels the forced search outright
+ * (detectUserSuppliedSource); this strip covers a URL the classifier carried
+ * into its rewrite from an earlier turn. Null — no forced search — when
+ * nothing searchable remains.
  */
 export function resolveForcedSearchQuery(
   standaloneQuery: string | undefined | null
@@ -61,6 +68,126 @@ export function resolveForcedSearchQuery(
   const clipped = cleaned.slice(0, FORCED_SEARCH_QUERY_MAX_CHARS)
   const lastSpace = clipped.lastIndexOf(' ')
   return (lastSpace > 0 ? clipped.slice(0, lastSpace) : clipped).trim()
+}
+
+/**
+ * Why a research turn's first step is NOT forced: the user supplied the
+ * subject of the turn themselves.
+ *  - 'url': the latest message carries a URL — typed/pasted inline, or a
+ *    pasted link chip (`data-sourceUrl`). The mode prompts say "a URL → fetch
+ *    it, do NOT search first", and a chip is also retrieved and injected as a
+ *    citable documentRetrieval. A forced search would run the message minus
+ *    its URL ("summarise this") and override both.
+ *  - 'attachment-only': an attachment (file, pasted-content card, quoted
+ *    passage) with no typed text. The classifier sees text parts only, so it
+ *    would be classifying an empty message and invent a query.
+ *  - 'attachment-reference': an attachment whose text only points at it
+ *    ("what is this", "summarise this file") — see isAttachmentReferenceOnly.
+ */
+export type UserSuppliedSource =
+  | 'url'
+  | 'attachment-only'
+  | 'attachment-reference'
+
+// Same test as the classifier bypass in create-chat-stream-response.ts, so an
+// inline URL means the same thing on both paths. Non-global on purpose:
+// RegExp#test on a /g pattern is stateful.
+const CONTAINS_URL = /https?:\/\/\S+/i
+
+// Non-text parts a user attaches to a message (chat-panel.tsx composer). A
+// `data-sourceUrl` chip is handled as a URL above, before this.
+const ATTACHMENT_PART_TYPES = new Set([
+  'file',
+  'data-pastedContent',
+  'data-quotedContext'
+])
+
+type MessagePartLike = { type: string; text?: unknown; data?: unknown }
+
+/**
+ * Whether the latest user message supplies its own subject (see
+ * UserSuppliedSource), from its UI parts. null = it does not, and the forced
+ * first search applies as usual.
+ *
+ * Reads the parts, not the classifier's output: the classifier sees text parts
+ * only (buildConversationTranscript) and never runs on the bypass paths (URL,
+ * Retry, speed), so it cannot report an attachment or a link chip.
+ */
+export function detectUserSuppliedSource(
+  parts: readonly MessagePartLike[] | null | undefined
+): UserSuppliedSource | null {
+  const list = parts ?? []
+  const typedText = list
+    .filter(p => p.type === 'text' && typeof p.text === 'string')
+    .map(p => p.text as string)
+    .join(' ')
+  const hasLinkChip = list.some(
+    p =>
+      p.type === 'data-sourceUrl' &&
+      typeof (p.data as { url?: unknown } | undefined)?.url === 'string' &&
+      Boolean((p.data as { url: string }).url)
+  )
+  if (hasLinkChip || CONTAINS_URL.test(typedText)) return 'url'
+  if (!list.some(p => ATTACHMENT_PART_TYPES.has(p.type))) return null
+  if (!typedText.trim()) return 'attachment-only'
+  if (isAttachmentReferenceOnly(typedText)) return 'attachment-reference'
+  return null
+}
+
+// Every word a message may use and still be ONLY a pointer at its attachment:
+// question frames, auxiliaries, pronouns and deictics, politeness, verbs that
+// act on the attachment itself, and nouns that name the attachment's medium.
+// Deliberately closed and free of subject words: "what is this plant", "is
+// this mushroom safe" or "how much does this cost" contain a word outside it,
+// so they stay questions and keep their forced search. Only English is
+// recognised; any other language is treated as a question (forced).
+const ATTACHMENT_REFERENCE_WORDS = new Set(
+  [
+    // question frames and auxiliaries ("what's" is normalised to "whats")
+    'what whats who whos which is are was does do did can could would will',
+    // pronouns, deictics, articles, prepositions
+    'you u i me my it its this that thats these those here heres there theres',
+    'above attached a an the in on of about for with from at',
+    // politeness and filler
+    'please pls plz hey hi ok okay so and just quickly briefly kindly',
+    // acting on the attachment itself
+    'read summarise summarize summary describe explain identify transcribe',
+    'extract analyse analyze review check look see show tell say says mean',
+    'means contain contains written going happening help',
+    // the attachment's medium
+    'attachment attachments picture pictures pic pics photo photos photograph',
+    'image images screenshot screenshots file files document documents doc',
+    'docs pdf page pages text article video chart graph diagram table',
+    'spreadsheet slide slides scan'
+  ]
+    .join(' ')
+    .split(' ')
+)
+
+// A reference to an attachment is a short phrase; anything longer is treated
+// as a question in its own right even if every word is in the list.
+const ATTACHMENT_REFERENCE_MAX_WORDS = 10
+
+/**
+ * True when `text` asks nothing beyond pointing at the message's attachment —
+ * "what is this", "what's in this picture?", "read this", "summarise this
+ * file", "?" — so a web search on it would be meaningless: the subject is the
+ * attachment, which the answering model sees and can search about afterwards.
+ *
+ * Conservative by construction (a closed word list, a length cap): a wrong
+ * `false` costs one unhelpful search, a wrong `true` would drop the guaranteed
+ * search from a real question, so every doubt resolves to `false`.
+ */
+export function isAttachmentReferenceOnly(text: string): boolean {
+  const words = text
+    .toLowerCase()
+    .replace(/[\u2018\u2019]/g, "'")
+    .replace(/'s\b/g, 's')
+    .replace(/[^\p{L}\p{N}\s]/gu, ' ')
+    .split(/\s+/)
+    .filter(Boolean)
+  if (words.length > ATTACHMENT_REFERENCE_MAX_WORDS) return false
+  return words.every(w => ATTACHMENT_REFERENCE_WORDS.has(w))
 }
 
 /**

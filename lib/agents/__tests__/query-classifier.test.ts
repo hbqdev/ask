@@ -484,14 +484,15 @@ describe('classifier prompt selection (ALWAYS_SEARCH)', () => {
     )
   })
 
-  it('the always-search prompt limits skipSearch to the four non-question kinds', () => {
+  it('the always-search prompt limits skipSearch to the five non-question kinds', () => {
     const p = CLASSIFIER_SYSTEM_PROMPT
     expect(p).toContain('skipSearch — set true ONLY when')
     for (const kind of [
       'greeting, thanks',
       'pure transform',
       'Pure arithmetic',
-      'generate, draw or edit an image'
+      'generate, draw or edit an image',
+      'An explicit instruction about what to remember or forget about the user that asks nothing else'
     ]) {
       expect(p).toContain(kind)
     }
@@ -499,6 +500,58 @@ describe('classifier prompt selection (ALWAYS_SEARCH)', () => {
       'A question that re-asks or confirms something already said is still a question.'
     )
     expect(p).toContain('If uncertain, skipSearch=false.')
+  })
+
+  // An explicit remember/forget instruction must stay a DIRECT turn: on a
+  // research turn the `remember` tool writes an unconfirmed candidate
+  // (researcher.ts) and ALWAYS_SEARCH would force a meaningless search first.
+  it('the always-search prompt skips explicit memory instructions, with examples', () => {
+    const p = CLASSIFIER_SYSTEM_PROMPT
+    // The rule names remember, forget, "don't remember" and update.
+    for (const phrase of [
+      '"remember that my daughter is allergic to peanuts"',
+      '"please forget where I work"',
+      '"don\'t remember that"',
+      '"update my city to Lisbon"',
+      'It is saved to memory, not looked up.'
+    ]) {
+      expect(p).toContain(phrase)
+    }
+    // Worked examples: remember and forget skip…
+    expect(p).toContain(
+      'User: "remember that my daughter is allergic to peanuts" -> an instruction to remember a fact about the user, asks nothing -> skipSearch=true'
+    )
+    expect(p).toContain(
+      'User: "please forget where I work" -> an instruction to forget, asks nothing -> skipSearch=true'
+    )
+    // …but an instruction that also asks a question searches.
+    expect(p).toContain(
+      '- A memory instruction that also asks a question ("remember I use a Mac — how do I take a screenshot?").'
+    )
+    expect(p).toContain(
+      'User: "remember I use a Mac — how do I take a screenshot?" -> a memory instruction plus a question -> skipSearch=false'
+    )
+    // The skip rule sits in the skip list, before "Everything else".
+    expect(p.indexOf('It is saved to memory, not looked up.')).toBeLessThan(
+      p.indexOf('Everything else is skipSearch=false')
+    )
+  })
+
+  it('the memory examples are not the lab check messages (a check measures generalisation)', () => {
+    const p = CLASSIFIER_SYSTEM_PROMPT.toLowerCase()
+    for (const checkMessage of [
+      "remember that i'm vegetarian",
+      'forget my address',
+      'remember i prefer metric units',
+      'remember that i prefer metric units'
+    ]) {
+      expect(p).not.toContain(checkMessage)
+    }
+  })
+
+  it('the legacy prompt is untouched by the memory rule (the off path is unchanged)', () => {
+    expect(LEGACY_CLASSIFIER_SYSTEM_PROMPT).not.toContain('remember')
+    expect(LEGACY_CLASSIFIER_SYSTEM_PROMPT).not.toContain('forget')
   })
 
   it('the always-search prompt no longer tells the model to avoid sources', () => {

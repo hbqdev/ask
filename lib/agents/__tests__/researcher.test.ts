@@ -484,4 +484,34 @@ describe('resolveForcedFirstSearch', () => {
       })
     ).toBeNull()
   })
+
+  it('does not force when the user supplied the source (URL / attachment), whatever the query', () => {
+    for (const userSuppliedSource of [
+      'url',
+      'attachment-only',
+      'attachment-reference'
+    ] as const) {
+      expect(
+        resolveForcedFirstSearch({
+          alwaysSearch: true,
+          turnMode: 'research',
+          // What a bypass path hands over for "summarise this <url>": the
+          // URL-stripped remainder would otherwise be searched.
+          standaloneQuery: 'summarise this https://example.com/post',
+          userSuppliedSource
+        })
+      ).toBeNull()
+    }
+  })
+
+  it('still forces when no source was supplied (null / omitted)', () => {
+    expect(
+      resolveForcedFirstSearch({
+        alwaysSearch: true,
+        turnMode: 'research',
+        standaloneQuery: 'Is this mushroom safe to eat?',
+        userSuppliedSource: null
+      })
+    ).toBe('Is this mushroom safe to eat?')
+  })
 })

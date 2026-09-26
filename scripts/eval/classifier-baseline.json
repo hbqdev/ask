@@ -1,9 +1,9 @@
 {
   "standalone-vectordb": {
     "skipSearch": false,
-    "standaloneQuery": "What is the best open-source vector database in 2026?",
+    "standaloneQuery": "Best open source vector database in 2026",
     "needsRecent": true,
-    "intent": "general"
+    "intent": "code"
   },
   "standalone-photosynthesis": {
     "skipSearch": false,
@@ -13,43 +13,43 @@
   },
   "standalone-news": {
     "skipSearch": false,
-    "standaloneQuery": "What are the latest news events concerning OpenAI for this week?",
+    "standaloneQuery": "Latest news about OpenAI this week",
     "needsRecent": true,
     "intent": "news"
   },
   "followup-pricing": {
     "skipSearch": false,
-    "standaloneQuery": "What is the pricing for Pinecone's vector database?",
+    "standaloneQuery": "Pinecone vector database pricing",
     "needsRecent": true,
     "intent": "general"
   },
   "followup-pronoun": {
     "skipSearch": false,
-    "standaloneQuery": "Where did Dario Amodei attend school?",
+    "standaloneQuery": "Where did Dario Amodei go to school?",
     "needsRecent": false,
     "intent": "general"
   },
   "new-entity": {
     "skipSearch": false,
-    "standaloneQuery": "What is Rust?",
+    "standaloneQuery": "What is the Rust programming language?",
     "needsRecent": false,
-    "intent": "general"
+    "intent": "code"
   },
   "confirm-restate": {
-    "skipSearch": true,
-    "standaloneQuery": "Confirm: Is the capital of France Paris?",
+    "skipSearch": false,
+    "standaloneQuery": "What is the capital of France?",
     "needsRecent": false,
     "intent": "general"
   },
   "greeting": {
     "skipSearch": true,
-    "standaloneQuery": "Greeting acknowledgment.",
+    "standaloneQuery": "Greeting, no search needed",
     "needsRecent": false,
     "intent": "general"
   },
   "thanks": {
     "skipSearch": true,
-    "standaloneQuery": "greeting, no search needed",
+    "standaloneQuery": "Thanks, no search needed",
     "needsRecent": false,
     "intent": "general"
   },
@@ -67,7 +67,25 @@
   },
   "stable-fact": {
     "skipSearch": false,
-    "standaloneQuery": "What year did the Western Roman Empire fall?",
+    "standaloneQuery": "What year did the Roman Empire fall?",
+    "needsRecent": false,
+    "intent": "general"
+  },
+  "memory-remember": {
+    "skipSearch": true,
+    "standaloneQuery": "Remember that the user prefers metric units",
+    "needsRecent": false,
+    "intent": "general"
+  },
+  "memory-forget": {
+    "skipSearch": true,
+    "standaloneQuery": "Forget the user's address",
+    "needsRecent": false,
+    "intent": "general"
+  },
+  "memory-plus-question": {
+    "skipSearch": false,
+    "standaloneQuery": "Easy vegetarian dinner ideas to cook tonight",
     "needsRecent": false,
     "intent": "general"
   }
