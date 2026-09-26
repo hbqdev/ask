@@ -10,7 +10,7 @@ import { randomUUID } from 'crypto'
 import { Langfuse } from 'langfuse'
 
 import { resolveFlowVariant } from '@/lib/agents/flows/variants'
-import { researcher } from '@/lib/agents/researcher'
+import { researcher, type TurnPlan } from '@/lib/agents/researcher'
 import { modelSupportsVision } from '@/lib/config/model-vision'
 import {
   createPublicErrorResponse,
@@ -322,6 +322,9 @@ export async function createChatStreamResponse(
     // the createUIMessageStream object, not nested inside it — can read the
     // resolved standaloneQuery hint.
     let classification: Awaited<typeof classificationPromise> | undefined
+    // The researcher's resolved turn mode + whether step 0 was a forced
+    // search (ALWAYS_SEARCH), for the [latency] line emitted in onFinish.
+    let turnPlan: TurnPlan | undefined
 
     // Everything from here runs inside the UI message stream so the client
     // gets a live response immediately — most importantly, the classifier
@@ -814,7 +817,10 @@ export async function createChatStreamResponse(
           // Fold each search/fetch call's stage timings into the turn's
           // [latency] line. addToolTiming is itself guarded, so this can never
           // break a turn.
-          onToolTiming: (kind, stages) => latency.addToolTiming(kind, stages)
+          onToolTiming: (kind, stages) => latency.addToolTiming(kind, stages),
+          onTurnPlan: plan => {
+            turnPlan = plan
+          }
         })
 
         llmStart = performance.now()
@@ -960,6 +966,8 @@ export async function createChatStreamResponse(
           // without searching is indistinguishable from one that searched and
           // found nothing, which makes the gate's real-world firing rate
           // unmeasurable — and the gate is a behaviour change worth watching.
+          // With ALWAYS_SEARCH on (default) needsSources gates nothing, so the
+          // resolved turn_mode and forced_search are logged directly too.
           // Audited before the isAborted guard below so a turn that was cut
           // short still reports the citations it had already written.
           if (responseMessage) {
@@ -985,7 +993,9 @@ export async function createChatStreamResponse(
           latency.emit({
             skipSearch: classification?.skipSearch ?? null,
             needsRecent: classification?.needsRecent ?? null,
-            needsSources: classification?.needsSources ?? null
+            needsSources: classification?.needsSources ?? null,
+            turnMode: turnPlan?.turnMode ?? null,
+            forcedSearch: turnPlan?.forcedSearch ?? null
           })
           if (!responseMessage) return
           // An aborted turn is persisted ONLY when the user pressed Stop: the
