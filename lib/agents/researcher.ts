@@ -41,7 +41,8 @@ import {
   createForcedSearchModel,
   FORCED_SEARCH_PROMPT_ADDENDUM,
   isAlwaysSearchEnabled,
-  resolveForcedSearchQuery
+  resolveForcedSearchQuery,
+  type UserSuppliedSource
 } from './always-search'
 import {
   ANSWER_DEADLINE_MS,
@@ -168,7 +169,8 @@ export function resolveTurnMode({
   // prompt that reads the conversation rather than ignoring it. Under
   // ALWAYS_SEARCH the classifier sets skipSearch ONLY for non-questions
   // (greeting/thanks, a pure transform of text already present, pure
-  // arithmetic, an image request), so this is the one remaining skip.
+  // arithmetic, an image request, an explicit remember/forget instruction),
+  // so this is the one remaining skip.
   if (skipSearch) return 'direct'
   // ALWAYS_SEARCH reverses decision D3 (owner, 2026-09-26): every question is
   // a research turn, so needsSources no longer gates anything. Prod evidence:
@@ -187,26 +189,42 @@ export function resolveTurnMode({
 
 /**
  * The query this turn's first step is forced to search, or null when the turn
- * is not forced. Forced only for a research turn with ALWAYS_SEARCH on and
- * something searchable in the resolved query (see resolveForcedSearchQuery for
- * the URL-only / attachment-only null). Pure and exported so the decision is
- * testable apart from the agent, which keeps its prepareStep private.
+ * is not forced. Forced only for a research turn with ALWAYS_SEARCH on, when
+ * the user did not supply the subject themselves (a URL, or an attachment the
+ * text only points at — see detectUserSuppliedSource) and something
+ * searchable remains in the resolved query (resolveForcedSearchQuery). Pure
+ * and exported so the decision is testable apart from the agent, which keeps
+ * its prepareStep private.
  */
 export function resolveForcedFirstSearch({
   alwaysSearch,
   turnMode,
-  standaloneQuery
+  standaloneQuery,
+  userSuppliedSource = null
 }: {
   alwaysSearch: boolean
   turnMode: TurnMode
   standaloneQuery?: string
+  userSuppliedSource?: UserSuppliedSource | null
 }): string | null {
   if (!alwaysSearch || turnMode !== 'research') return null
+  // The user handed over the source: the turn stays research (search is still
+  // advertised and the model may use it) but is not made to search first —
+  // exactly how a URL turn behaved before ALWAYS_SEARCH.
+  if (userSuppliedSource) return null
   return resolveForcedSearchQuery(standaloneQuery)
 }
 
-/** What createResearcher decided for this turn, reported for telemetry. */
-export type TurnPlan = { turnMode: TurnMode; forcedSearch: boolean }
+/**
+ * What createResearcher decided for this turn, reported for telemetry.
+ * `forcedSkip` is set only on an ALWAYS_SEARCH research turn whose first step
+ * was not forced because the user supplied the source.
+ */
+export type TurnPlan = {
+  turnMode: TurnMode
+  forcedSearch: boolean
+  forcedSkip?: UserSuppliedSource
+}
 
 /** Same query modulo case, surrounding space and internal run-length. */
 function normalizeQuery(q: string): string {
@@ -508,6 +526,10 @@ export async function createResearcher({
   onToolTiming,
   // ALWAYS_SEARCH override for tests; production reads the env flag.
   alwaysSearch = isAlwaysSearchEnabled(),
+  // Set by the caller from the latest user message's parts
+  // (detectUserSuppliedSource): a URL or an attachment the user supplied as
+  // the subject. Cancels the forced first search; changes nothing else.
+  userSuppliedSource = null,
   // Reports the resolved turn mode and whether step 0 is a forced search, so
   // the [latency] line can carry turn_mode / forced_search. Telemetry only.
   onTurnPlan
@@ -566,6 +588,7 @@ export async function createResearcher({
     stages: Record<string, number>
   ) => void
   alwaysSearch?: boolean
+  userSuppliedSource?: UserSuppliedSource | null
   onTurnPlan?: (plan: TurnPlan) => void
 }) {
   try {
@@ -637,10 +660,19 @@ export async function createResearcher({
     const forcedSearchQuery = resolveForcedFirstSearch({
       alwaysSearch,
       turnMode,
-      standaloneQuery
+      standaloneQuery,
+      userSuppliedSource
     })
+    const forcedSkip =
+      alwaysSearch && turnMode === 'research' && userSuppliedSource
+        ? userSuppliedSource
+        : undefined
     try {
-      onTurnPlan?.({ turnMode, forcedSearch: forcedSearchQuery !== null })
+      onTurnPlan?.({
+        turnMode,
+        forcedSearch: forcedSearchQuery !== null,
+        ...(forcedSkip && { forcedSkip })
+      })
     } catch {
       // Telemetry must never break a turn.
     }
@@ -926,9 +958,13 @@ Treat each exactly like a \`search\` or \`fetch\` result from this turn: you MAY
       console.log(
         `[Researcher] always-search: step 0 forced to search "${forcedSearchQuery!.slice(0, 80)}" (turnMode=${turnMode}, mode=${searchMode})`
       )
+    } else if (forcedSkip) {
+      console.log(
+        `[Researcher] always-search: the user supplied the source (${forcedSkip}) — first step not forced, search stays available`
+      )
     } else if (alwaysSearch && turnMode === 'research') {
       console.log(
-        `[Researcher] always-search: nothing searchable in the resolved query (URL- or attachment-only) — first step not forced`
+        `[Researcher] always-search: nothing searchable in the resolved query — first step not forced`
       )
     }
 

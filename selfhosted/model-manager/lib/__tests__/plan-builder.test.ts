@@ -89,6 +89,11 @@ describe('buildPlan', () => {
     expect(validateEdits({ RECALL_ENABLED: 'off' })).toEqual([])
     expect(validateEdits({ MEMORY_ENABLED: 'on' })).toEqual([])
     expect(validateEdits({ ENABLE_AUTH: 'false' })).toEqual([])
+    expect(validateEdits({ ALWAYS_SEARCH: 'false' })).toEqual([
+      { key: 'ALWAYS_SEARCH', error: expect.stringMatching(/on or off/) }
+    ])
+    expect(validateEdits({ ALWAYS_SEARCH: 'off' })).toEqual([])
+    expect(validateEdits({ ALWAYS_SEARCH: 'on' })).toEqual([])
   })
   it('validateEdits refuses to empty a required var', () => {
     const spec = specByKey('RERANKER_API_TOKEN')!

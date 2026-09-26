@@ -75,5 +75,17 @@ export const CASES: { name: string; messages: UIMessage[] }[] = [
   {
     name: 'stable-fact',
     messages: [u('1', 'what year did the Roman Empire fall')]
+  },
+  // Explicit memory instructions → skipSearch true (a direct turn, so the
+  // `remember` tool writes a confirmed memory); one that also asks a question
+  // → skipSearch false.
+  {
+    name: 'memory-remember',
+    messages: [u('1', 'remember that I prefer metric units')]
+  },
+  { name: 'memory-forget', messages: [u('1', 'forget my address')] },
+  {
+    name: 'memory-plus-question',
+    messages: [u('1', "remember I'm vegetarian — what can I cook tonight?")]
   }
 ]

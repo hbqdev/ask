@@ -1,6 +1,7 @@
 import { MockLanguageModelV3 } from 'ai/test'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
+import { detectUserSuppliedSource } from '../always-search'
 import { createResearcher, type TurnPlan } from '../researcher'
 
 // createResearcher end to end with only the edges stubbed: the answering
@@ -217,6 +218,172 @@ describe('createResearcher — ALWAYS_SEARCH on', () => {
   })
 })
 
+// The user supplied the turn's subject (a URL, or an attachment the text only
+// points at): the turn stays research with search available, but step 0 is
+// not forced. The caller derives userSuppliedSource from the latest message's
+// UI parts, exactly as create-chat-stream-response.ts does.
+describe('createResearcher — ALWAYS_SEARCH on, user-supplied source', () => {
+  beforeEach(() => {
+    searchCalls.length = 0
+    answeringModels.length = 0
+  })
+
+  const text = (t: string) => ({ type: 'text', text: t })
+  const photo = {
+    type: 'file',
+    url: 'https://ask.example/uploads/photo.jpg',
+    mediaType: 'image/jpeg',
+    filename: 'photo.jpg'
+  }
+  const systemOf = (m: MockLanguageModelV3) =>
+    JSON.stringify(m.doStreamCalls[0].prompt[0])
+      // The date is appended per call; everything else must be identical.
+      .replace(/Current date and time: [^"\\]*/g, 'Current date and time: X')
+  const toolNamesOf = (m: MockLanguageModelV3) =>
+    (m.doStreamCalls[0].tools ?? []).map(t => t.name).sort()
+
+  it('"summarise this <url>" (classifier bypassed: raw text) is research, NOT forced, search still advertised', async () => {
+    const raw =
+      'summarise this https://en.wikipedia.org/wiki/User_Datagram_Protocol'
+    const { plan, stepToolNames } = await runTurn({
+      model: 'ollama:kimi-k2.6:cloud',
+      alwaysSearch: true,
+      skipSearch: false,
+      needsSources: true,
+      standaloneQuery: raw,
+      userSuppliedSource: detectUserSuppliedSource([text(raw)])
+    })
+    expect(plan).toEqual({
+      turnMode: 'research',
+      forcedSearch: false,
+      forcedSkip: 'url'
+    })
+    // No "summarise this" search: the model answers (it would fetch the URL).
+    expect(searchCalls).toHaveLength(0)
+    expect(stepToolNames[0]).toEqual([])
+    const model = answeringModels[0]
+    expect(JSON.stringify(model.doStreamCalls[0].prompt)).not.toContain(
+      'A first web search has already been run'
+    )
+    expect(toolNamesOf(model)).toEqual(
+      expect.arrayContaining(['search', 'fetch'])
+    )
+  })
+
+  it('a URL turn gets exactly the pre-ALWAYS_SEARCH research turn (same prompt, same tools)', async () => {
+    const raw = 'summarise this https://example.com/post'
+    await runTurn({
+      model: 'ollama:kimi-k2.6:cloud',
+      alwaysSearch: false,
+      skipSearch: false,
+      needsSources: true,
+      standaloneQuery: raw
+    })
+    await runTurn({
+      model: 'ollama:kimi-k2.6:cloud',
+      alwaysSearch: true,
+      skipSearch: false,
+      needsSources: true,
+      standaloneQuery: raw,
+      userSuppliedSource: 'url'
+    })
+    const [before, after] = answeringModels
+    expect(after.doStreamCalls[0].prompt[0].role).toBe('system')
+    expect(systemOf(after)).toContain('Current date and time: X')
+    expect(systemOf(after)).toBe(systemOf(before))
+    expect(toolNamesOf(after)).toEqual(toolNamesOf(before))
+    expect(searchCalls).toHaveLength(0)
+  })
+
+  it('a pasted link chip with classified text is not forced either', async () => {
+    const { plan } = await runTurn({
+      model: 'ollama:kimi-k2.6:cloud',
+      alwaysSearch: true,
+      skipSearch: false,
+      needsSources: true,
+      // What the classifier resolves "summarise this" to — it never sees the chip.
+      standaloneQuery: 'Summarise this article',
+      userSuppliedSource: detectUserSuppliedSource([
+        { type: 'data-sourceUrl', data: { url: 'https://example.com/post' } },
+        text('summarise this')
+      ])
+    })
+    expect(plan).toEqual({
+      turnMode: 'research',
+      forcedSearch: false,
+      forcedSkip: 'url'
+    })
+    expect(searchCalls).toHaveLength(0)
+  })
+
+  it('an attachment-only message (the classifier invented a query) is not forced', async () => {
+    const { plan } = await runTurn({
+      model: 'ollama:kimi-k2.6:cloud',
+      alwaysSearch: true,
+      skipSearch: false,
+      needsSources: true,
+      standaloneQuery: 'Describe the attached image',
+      userSuppliedSource: detectUserSuppliedSource([photo])
+    })
+    expect(plan).toEqual({
+      turnMode: 'research',
+      forcedSearch: false,
+      forcedSkip: 'attachment-only'
+    })
+    expect(searchCalls).toHaveLength(0)
+  })
+
+  it('attachment + deictic text ("what is this") is not forced', async () => {
+    const { plan } = await runTurn({
+      model: 'ollama:kimi-k2.6:cloud',
+      alwaysSearch: true,
+      skipSearch: false,
+      needsSources: true,
+      standaloneQuery: 'What is this?',
+      userSuppliedSource: detectUserSuppliedSource([
+        photo,
+        text('what is this')
+      ])
+    })
+    expect(plan).toEqual({
+      turnMode: 'research',
+      forcedSearch: false,
+      forcedSkip: 'attachment-reference'
+    })
+    expect(searchCalls).toHaveLength(0)
+    expect(toolNamesOf(answeringModels[0])).toContain('search')
+  })
+
+  it('attachment + a real question is still forced — every question searches', async () => {
+    const q = 'is this mushroom safe to eat?'
+    const { plan, stepToolNames } = await runTurn({
+      model: 'ollama:kimi-k2.6:cloud',
+      alwaysSearch: true,
+      skipSearch: false,
+      needsSources: true,
+      standaloneQuery: 'Is this mushroom safe to eat?',
+      userSuppliedSource: detectUserSuppliedSource([photo, text(q)])
+    })
+    expect(plan).toEqual({ turnMode: 'research', forcedSearch: true })
+    expect(searchCalls.map(c => c.query)).toEqual([
+      'Is this mushroom safe to eat?'
+    ])
+    expect(stepToolNames[0]).toEqual(['search'])
+  })
+
+  it('a skipSearch turn with an attachment stays direct; no forcedSkip is reported', async () => {
+    const { plan } = await runTurn({
+      model: 'ollama:kimi-k2.6:cloud',
+      alwaysSearch: true,
+      skipSearch: true,
+      standaloneQuery: 'Summarise the pasted text',
+      userSuppliedSource: 'attachment-reference'
+    })
+    expect(plan).toEqual({ turnMode: 'direct', forcedSearch: false })
+    expect(plan).not.toHaveProperty('forcedSkip')
+  })
+})
+
 describe('createResearcher — ALWAYS_SEARCH off (legacy D3 behaviour)', () => {
   beforeEach(() => {
     searchCalls.length = 0
@@ -260,6 +427,19 @@ describe('createResearcher — ALWAYS_SEARCH off (legacy D3 behaviour)', () => {
       standaloneQuery: 'hello'
     })
     expect(plan).toEqual({ turnMode: 'direct', forcedSearch: false })
+  })
+
+  it('a URL turn is unaffected by userSuppliedSource (nothing is forced when off)', async () => {
+    const { plan } = await runTurn({
+      model: 'ollama:kimi-k2.6:cloud',
+      alwaysSearch: false,
+      skipSearch: false,
+      needsSources: true,
+      standaloneQuery: 'summarise this https://example.com/post',
+      userSuppliedSource: 'url'
+    })
+    expect(plan).toEqual({ turnMode: 'research', forcedSearch: false })
+    expect(plan).not.toHaveProperty('forcedSkip')
   })
 })
 
