@@ -90,6 +90,48 @@ mode, not against a different mode.
 
 → [Telemetry › Diagnosing "slow answers", step by step](/operations/telemetry#diagnosing-slow-answers-step-by-step)
 
+### Answers got slower after 2026-09-26
+
+**First check.** Is the slow turn a forced search? `forced_search:true` on its `[latency]` line
+means yes.
+
+That is the intended cost of "every question gets a web search"
+([D37](/history/decisions#d37-always-search-every-question)). Questions that used to be answered
+from memory (settled concepts, how-tos, follow-ups that confirm or choose) now wait for a search
+first. On the lab their first prose arrived about 7–20 s later (median about 3 s → 21 s in the
+A/B). Measure time to first prose with `stream["text-start"]`, **not** `ttft_ms`: on a forced turn
+`ttft_ms` covers only the pre-work, so it looks faster than before. If the extra time is inside
+the search itself (`search_ms`, `crawl_ms`, `rerank_ms`), use "Answers are slow" above.
+
+**Revert switch.** Set `ALWAYS_SEARCH=off` in that env's `.env` (the Model Manager's Search tab
+has an "Always search" switch for prod; it writes `on`/`off`) and force-recreate `ask` (no
+rebuild); confirm with `docker exec ask printenv ALWAYS_SEARCH`. That restores the old classifier prompt and the `stable-knowledge` gate exactly,
+and with them the ungrounded answers D37 was made to stop. It is an owner decision, not an
+operator default.
+→ [Recipes › Add an env flag](/getting-started/recipes#add-an-env-flag) (apply step),
+[D3](/history/decisions#d3-needssources-skip-retrieval-for-stable-knowledge)
+
+### Ask did not search my question
+
+**First check.** The turn's `[latency]` line
+(`docker logs ask 2>&1 | grep '<chatId>' | grep '\[latency\]'`): read `turn_mode` and
+`forced_search`.
+
+| `turn_mode` / `forced_search` | Meaning | Next step |
+|---|---|---|
+| `direct` / `false` | The classifier judged the message **not a question** (`skipSearch`): a greeting, thanks, venting, a pure rewrite/translate/summarise of text already in the chat, arithmetic, an image request, an explicit remember/forget instruction | Expected for those. A real question here is a classifier miss: press **Retry** (regenerate bypasses the classifier and force-searches the raw message) and keep the example for the classifier prompt (`CLASSIFIER_SYSTEM_PROMPT`, `lib/agents/query-classifier.ts:234`) |
+| `research` / `true` | A search did run at step 0 | Look for the chat's `[latency:search]` lines. Empty or irrelevant results are answered without citations on purpose. See "No search results" below |
+| `research` / `false` | The user supplied the source: `forced_skip` says `url` (a URL in the text or a link chip), `attachment-only`, or `attachment-reference` (an attachment the text only points at, e.g. "what is this"). The model reads the page or attachment first and may still search. `forced_skip:null` means nothing searchable was left, or `ALWAYS_SEARCH=off` | Expected for a URL or attachment. Otherwise `docker exec ask printenv ALWAYS_SEARCH` |
+| `stable-knowledge` | `ALWAYS_SEARCH=off` is set on that container | Intended only as a revert; see above |
+| field missing | A line from before 2026-09-26, or a guest turn | Guest turns write no `[latency]` line: grep `[Researcher] always-search` in the logs |
+
+An image with "what is this?" is not force-searched: the image is the subject, and the model
+sees it. An image with a real question ("is this mushroom safe to eat?") is force-searched on
+the words alone, so that first search can be generic
+([known issue](/history/known-issues#image-attachment-forces-a-generic-search)).
+→ [Telemetry › the per-turn line](/operations/telemetry#latency-the-per-turn-line),
+[Models & reasoning › Turn modes](/search/models-reasoning#turn-modes)
+
 ### No search results, or answers without sources
 
 **First check.** `docker ps -a --format '{{.Names}}\t{{.Status}}' | grep -E 'gluetun|searxng'`.

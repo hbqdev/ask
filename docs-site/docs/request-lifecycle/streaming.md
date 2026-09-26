@@ -32,7 +32,7 @@ always share a process.
 
 ## The SSE response {#sse-response}
 
-`createUIMessageStreamResponse` (`create-chat-stream-response.ts:1179`) returns the AI
+`createUIMessageStreamResponse` (`create-chat-stream-response.ts:1205`) returns the AI
 SDK UI-message stream as Server-Sent Events. Headers: `Cache-Control: no-cache,
 no-transform` — `no-transform` stops Cloudflare-style proxies from buffering the body
 to minify it (which made progress appear only at the end); `no-cache` is restated
@@ -153,7 +153,7 @@ sequenceDiagram
     end
 ```
 
-**Producer** (`create-chat-stream-response.ts:1196`): `consumeSseStream` gets a tee'd
+**Producer** (`create-chat-stream-response.ts:1222`): `consumeSseStream` gets a tee'd
 copy of the SSE. With a resumable context it generates a `streamId`, **first** writes
 the pointer `ask:chat:{chatId}:activeStream` (TTL 300s = the generation timeout, so a
 crashed server never leaves a dangling pointer), then `rsc.createNewResumableStream`.
@@ -245,7 +245,7 @@ reason surfaces as a stream error.
 | 300s generation timeout | timeout | discarded |
 | Client disconnect (authenticated) | — no abort — | turn completes normally |
 
-**Saving the partial** (`create-chat-stream-response.ts:1000-1060`):
+**Saving the partial** (`create-chat-stream-response.ts:1021-1081`):
 
 1. `wasStoppedByUser(stopController)` is checked independently of `isAborted` — a Stop
    during the classifier/recall phase fails `execute` instead of emitting an abort chunk,
@@ -288,7 +288,7 @@ label. See [frontend](/request-lifecycle/frontend#message-actions) for the layou
 
 ## Persistence {#persistence}
 
-The authenticated `onFinish` (`create-chat-stream-response.ts:941`) ends in:
+The authenticated `onFinish` (`create-chat-stream-response.ts:962`) ends in:
 
 ```text
 stripNarrationFromMessage → rehydrateFullContent → persistStreamResults
