@@ -30,7 +30,8 @@ thing.
 | [Redirect-based SSRF](#redirect-based-ssrf) | security | Low | accepted |
 | [Other open audit items](#other-open-audit-items) | security | Low | decision (H2 decided 2026-09-23) |
 | [Image attachment forces a generic search](#image-attachment-forces-a-generic-search) | search | Low (URL, attachment-only and "what is this" shapes fixed 2026-09-26 on lab) | code (remaining shapes) |
-| [Citation placeholders and out-of-range numbers](#citation-placeholders-and-out-of-range-numbers) | chat | Low–Med | code (prompt + audit) |
+| [Citation placeholders and out-of-range numbers](#citation-placeholders-and-out-of-range-numbers) | chat | ~~Low–Med~~ fixed 2026-09-26 | watch `citations_unresolved` (now counts out-of-range numbers) |
+| [Running-count citation numbers can point at the wrong result](#running-count-citation-numbers-can-point-at-the-wrong-result) | chat | Med | code (prompt-mitigated; tool-output numbering needs a lab A/B) |
 | [Stopped label not rendered](#stopped-label-not-rendered) | UI | ~~Low~~ fixed 2026-09-24 | done |
 | [Chain-of-thought flash in the live stream](#chain-of-thought-flash-in-the-live-stream) | UI | Low | accepted |
 | [Old answers with leaked reasoning stay leaked](#old-answers-with-leaked-reasoning-stay-leaked) | data | Low | manual |
@@ -254,8 +255,10 @@ On NightFuryX (.17) these container names do not resolve, so each silently degra
   **not** resolved across turns; see
   [D36](/history/decisions#d36-strip-historical-citation-anchors-resolve-citations-per-turn-only).
 - **Watch.** `citations_unresolved` (and `citations_recovered`) on prod `[latency]` lines after the
-  port. A rate that stays near the old level on live turns means a cause is still missing. The
-  counter does not see out-of-range numbers on a real id; see
+  port. A rate that stays near the old level on live turns means a cause is still missing. Until
+  2026-09-26 the counter did not see out-of-range numbers on a real id. It does now, so lines
+  from builds with that fix report a **higher** `citations_unresolved` for the same answers;
+  compare rates only between lines from the same build. See
   [Citation placeholders and out-of-range numbers](#citation-placeholders-and-out-of-range-numbers).
   Tests: `lib/utils/__tests__/citation.test.ts`,
   `lib/streaming/helpers/__tests__/strip-citation-anchors-from-history.test.ts`,
@@ -580,30 +583,108 @@ These are decisions still pending, not bugs:
 
 ### Citation placeholders and out-of-range numbers
 
-- **Symptom.** Seen in the D37 lab A/B (2026-09-26) with kimi-k2.6: the answer sometimes cites
-  the literal placeholders from the prompt's citation examples, `[1](#<id-A>)` / `[2](#<id-B>)`,
-  and sometimes cites a number beyond what a call returned, for example `[2]` or `[3]` on a
-  `fetch`, which has one result. The placeholders appear throughout the citation examples of the
-  speed prompt (`lib/agents/prompts/search-mode-prompts.ts:162-223`) and the balanced prompt,
-  which quality mode extends (`:279` in the shared `getApproachStrategy`, and `:357-425`).
-- **Impact.** The UI silently drops both (`processCitations`, `lib/utils/citation.ts:299-354`):
-  the claim ends up uncited. The telemetry sees only half of it. A placeholder anchor names no
-  tool call of the turn, so it counts in `citations_unresolved`. An out-of-range number on a
-  real id does **not**: `auditCitations` (`lib/utils/citation.ts:118-164`) checks only that the
-  id belongs to the turn, so the anchor is scored as resolved while rendering as nothing.
-- **A code-level inconsistency worth checking first** *(effect not measured)*. The renderer reads
-  `[N](#id)` as **result N of that call** (`extractCitationMaps`, `lib/utils/citation.ts:199-235`),
-  and the balanced prompt says the same ("number matches the order within each search result",
-  `search-mode-prompts.ts:279`, `:358`). The speed prompt says the opposite: "Each unique
-  toolCallId gets ONE number … Assign numbers sequentially (1, 2, 3...) to each unique
-  toolCallId" (`:162-166`), and its own example at `:217-218` breaks that rule. A model that
-  follows the sequential rule writes `[2](#<fetch id>)` for a fetch cited second, which is out of
-  range, and for a search picks the wrong result.
-- **Fix sketch.** Make every prompt state one rule, the renderer's (N = result position within
-  that call; a `fetch` is always `[1]`), and replace the `<id-A>` examples with text a model
-  cannot paste as an anchor. Count out-of-range numbers in `auditCitations` (for example as
-  `citations_out_of_range`) so the rate becomes visible. Measure on the lab before porting;
-  prompt edits are architectural changes ([recipes](/getting-started/recipes#change-a-prompt-safely)).
+- **Symptom.** Seen in the D37 lab A/B (2026-09-26) with kimi-k2.6: answers cited the literal
+  placeholders from the prompt's citation examples (`<id-A>` … `<id-E>`, as in `[2](#<id-A>)`),
+  wrapped a correct id in the same template syntax (`<id-470411cd-…>`), or used a number beyond
+  what a call returned, for example `[2]` or `[3]` on a one-page `fetch`, which has one result. All
+  three render as nothing, so the claim ends up uncited.
+- **Cause.** Three defects, all in the pre-fix code (`git show dbbbc376`):
+  1. **Copyable placeholders.** Every citation example in the speed and balanced prompts used
+     `<id-A>` / `<id-B>`. The prompts also showed example ids (`mK3pQr7sT9uV2wX4`,
+     `aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee`), and before 2026-08-02 (`f1652eab`) others such as
+     `I8NzFUKwrKX88107`. Models copied them verbatim.
+  2. **Two numbering schemes.** The renderer reads `[N](#id)` as **result N of that call**. The
+     balanced prompt said the same ("the result order within each search"), but the speed prompt
+     said "Each unique toolCallId gets ONE number … Assign numbers sequentially (1, 2, 3...) to
+     each unique toolCallId as they appear in your response", and its own format example
+     (`[1](#<id-A>)` then `[2](#<id-A>)`) broke that rule. Many models numbered sources as a
+     **running count across the answer**: a fetch cited third became `[3](#<fetch id>)`, out of
+     range.
+  3. **The audit undercounted.** `auditCitations` checked only that an anchor's id belonged to
+     the turn, so a real id with an out-of-range number was scored as resolved although it
+     rendered nothing.
+- **Measured** (replay of stored answers from the last 60 days through the old and new
+  resolver). Prod: 88 answers with citations, 1,705 anchors. Lab: 286 answers, 4,219 anchors.
+  - Placeholder copying on prod was only the old example ids (17, all pre-2026-08-02 answers by
+    glm-5.2) and one literal `toolCallId`. On the lab kimi-k2.6 copied `<id-A>`…`<id-E>` (21
+    anchors) and wrapped a real id (7).
+  - The audit agreed with rendering in 333 of 374 messages before the fix, 374 of 374 after.
+- **Status: fixed 2026-09-26** (lab `dbbbc376`; cherry-picked to `dev` as `0bd8f8cc` and to
+  `admin-feature` as `7af2beff`).
+  1. **One resolver.** `resolveCitationAnchor` (`lib/utils/citation.ts:263-289`) decides every
+     anchor, and `processCitations` (rendering, `:483-507`), `auditCitations` (telemetry,
+     `:328-353`) and `extractCitedSourceUrls` (`[cite-urls]`, `:435-449`) all call it, so the
+     counter reports exactly what the reader sees. It repairs an anchor only when the intended
+     source is unambiguous: a real id of this message wrapped in `<id-…>` / `<…>` is unwrapped
+     (`unwrapTemplateId`, `:148-154`); a placeholder resolves only when the message made exactly
+     **one** citable call (`isPlaceholderAnchorId`, `:128-139`); a number past the end of a fetch
+     whose output holds exactly one page, and is not a `Fetch failed:` result, resolves to that
+     page (`resolveWithinCall`, `:208-242`). Everything else is still dropped, and nothing is
+     resolved across turns
+     ([D36](/history/decisions#d36-strip-historical-citation-anchors-resolve-citations-per-turn-only)).
+  2. **One numbering rule in every prompt.** `getCitationFormatGuidance()`
+     (`lib/agents/prompts/search-mode-prompts.ts:98-108`) is shared by the speed prompt (`:193`)
+     and the balanced prompt (`:380`), which quality mode extends: N is the 1-based position of
+     the source in **that call's** `results`, restarting at 1 for every call, and a one-page
+     fetch is always `[1]`. The worked example uses two realistic ids and says they must never
+     be written. All `<id-*>` placeholders are gone from the prompts. The forced-search addendum
+     (`FORCED_SEARCH_PROMPT_ADDENDUM`, `lib/agents/always-search.ts:317-320`) no longer shows a
+     `[n](#toolCallId)` example; it points at the citation format above it.
+  3. **Honest audit.** `citations_unresolved` now counts every anchor that renders nothing,
+     including out-of-range numbers, and `citations_recovered` covers every repair. Expect
+     `citations_unresolved` to be higher than on older builds for the same behaviour
+     ([telemetry](/operations/telemetry#tokens-citations-and-totals)).
+- **Effect** (same replay). Visible citations on prod 1,460 → 1,470 (+10, all too-high numbers
+  on one-page fetches, by deepseek-v4.1-flash); on the lab 3,880 → 3,925 (+38 one-page fetch,
+  +7 wrapped id). No citation was lost and no rendered link changed. None of the 18 copied
+  placeholders on prod and none of the lab's 21 lettered ones was recovered; they stay dropped
+  (a placeholder resolves only in a turn with one citable call, because with several, which call
+  was meant is unknown).
+- **Not repaired.** A number that is **in range** but means "my Nth source" renders a real,
+  different result of that search. That is the larger remaining problem:
+  [Running-count citation numbers can point at the wrong result](#running-count-citation-numbers-can-point-at-the-wrong-result).
+- Tests: `lib/utils/__tests__/citation.test.ts` ("resolveCitationAnchor repairs", "audit,
+  rendering and cited URLs agree") and `lib/agents/prompts/__tests__/search-mode-prompts.test.ts`
+  ("citation examples match what the renderer resolves": no copyable placeholder or retired
+  example id, one numbering scheme, and every non-WRONG example anchor renders).
+
+### Running-count citation numbers can point at the wrong result
+
+- **Symptom.** A citation chip links to a real page from the turn's search, but not to the page
+  the sentence came from. Nothing looks broken, so users cannot tell.
+- **Cause.** The same running-count numbering as above. A model that numbers its sources 1, 2, 3
+  … across the whole answer and writes `[5](#<search id>)` meaning "my fifth source" gets that
+  search's **fifth result**, which is a valid anchor for a different page. A too-high number is
+  dropped; an in-range one renders the wrong source.
+- **Impact** *(heuristic estimate, not a judged sample)*. On the 60-day replay, 22 of 88 prod
+  answers and 38 of 286 lab answers show the running-count pattern, and about 459 prod anchors
+  likely point at the wrong page. This is the failure D36 calls worse than a missing citation:
+  it is confidently wrong and invisible.
+- **Why the renderer cannot fix it.** An in-range `[N](#id)` is a well-formed anchor for result
+  N. Nothing in it says the model meant something else, so any rewrite would be a guess.
+- **Status: open, prompt-mitigated (2026-09-26), not yet measured on live turns.** The unified
+  citation guidance states the within-call rule explicitly and shows a running count as WRONG
+  (`search-mode-prompts.ts:101-106`). No counter sees this failure: `citations_unresolved`
+  cannot, because the anchor resolves. Measure it by judging whether each cited page supports
+  its sentence ([D4](/history/decisions#d4-judge-answers-not-source-counts)), on the lab first.
+- **Follow-ups.**
+  1. Put an explicit per-result number, or a ready-made anchor, into the tool output the model
+     sees, so the number does not have to be counted. This addresses the cause at the source.
+     It changes every search and fetch result, so it needs a lab A/B.
+  2. 12 anchors in 2 replayed messages use a UUID within 1–2 characters of one of the turn's
+     ids. A typo repair is not implemented.
+  3. 6 anchors use a too-high number on a search that returned **one** result. The fetch-only
+     rule does not cover them (`resolveWithinCall` checks the tool type).
+  4. The attached-sources clause (`lib/agents/researcher.ts:873`) still shows
+     `[1](#<toolCallId>)`, `<first-id>` and `<second-id>`. A verbatim copy is recognised as a
+     placeholder, so it renders only when the turn made exactly one citable call.
+  5. `scripts/eval/run-eval.ts` scores citation validity by id only (`scoreCitations`,
+     `:405-429`): it ignores N and applies none of the renderer's repairs, so it cannot see
+     this issue ([evaluation](/operations/evaluation)).
+  6. The `FLOW_VARIANT` experiment prompts replace the mode prompt and carry their own
+     `CITATION_RULES` (`lib/agents/flows/variants.ts:52-59`), which do not state the numbering
+     rule. No env sets `FLOW_VARIANT`, so every env runs `baseline` (the mode prompts); this
+     matters only if a variant is revived.
 
 ### Stopped label not rendered
 
