@@ -21,6 +21,30 @@ behind the change. Lab-first work lives on `flow-design`. `git cherry-pick -x` l
 **Streaming lifecycle, mobile QA, the end of the latency campaign, a fleet clean-up, and every
 question searches**
 
+- **09-26** — **Citations: one numbering scheme, no copyable placeholders, an honest audit**
+  (lab `dbbbc376`; cherry-picked to `dev` as `0bd8f8cc` and to staging as `7af2beff`).
+  - One resolver, `resolveCitationAnchor` (`lib/utils/citation.ts`), now decides every anchor
+    for rendering, the `[latency]` audit and `[cite-urls]`, so they always agree. It repairs an
+    anchor only when the source is unambiguous: a real id wrapped as `<id-UUID>` is unwrapped; a
+    placeholder id (`<token>`, `id-X`, `toolCallId`, any example id the prompts have used)
+    resolves only in a turn with one citable call; a too-high number on a one-page fetch
+    resolves to that page. A wrong number on a search or a multi-page fetch stays dropped, and
+    nothing resolves across turns.
+  - Prompts: one shared citation guidance for every mode. N is the source's position within
+    that call's `results`, restarting at 1 per call; a one-page fetch is always `[1]`; the
+    worked example uses realistic ids that the resolver recognises if copied. All `<id-A>`-style
+    placeholders are gone, and the forced-search addendum no longer shows a `[n](#toolCallId)`
+    example.
+  - `citations_unresolved` now counts every anchor that renders nothing, including out-of-range
+    numbers it used to score as resolved, so it reads **higher** than before for the same
+    answers; `citations_recovered` covers every repair.
+    → [telemetry](/operations/telemetry#tokens-citations-and-totals)
+  - Replay of 60 days of stored answers: visible citations prod 1,460 → 1,470, lab 3,880 →
+    3,925; 0 lost, 0 rendered links changed; audit matches rendering on 374 of 374 messages
+    (was 333). Still open: in-range running-count numbers that render the wrong result of the
+    right search (prompt-mitigated, unmeasured on live turns).
+    → [known issues](/history/known-issues#running-count-citation-numbers-can-point-at-the-wrong-result),
+    [D36 addendum](/history/decisions#d36-strip-historical-citation-anchors-resolve-citations-per-turn-only)
 - **09-26** — **Every question gets a web search** (`0ea17872`, lab `453bfba1`, staging
   `3822f475`; owner decision, [D37](/history/decisions#d37-always-search-every-question),
   reversing [D3](/history/decisions#d3-needssources-skip-retrieval-for-stable-knowledge)).
@@ -41,13 +65,13 @@ question searches**
     pre-work; use `stream["text-start"]` for first prose.
   - Lab blind A/B on the 6 valid formerly unsearched pairs: 2W-1L-3T for searching. Cost: first
     prose about 7–20 s later on those questions. Found along the way: an image plus "what is
-    this?" force-searches the words alone (fixed by the follow-up below), and models sometimes
-    cite the prompt's
-    `<id-A>` placeholders or out-of-range numbers
-    ([known issues](/history/known-issues#image-attachment-forces-a-generic-search)).
+    this?" force-searches the words alone (fixed by the follow-up below,
+    [known issues](/history/known-issues#image-attachment-forces-a-generic-search)), and models
+    sometimes cite the prompt's `<id-A>` placeholders or out-of-range numbers (fixed by the
+    citation entry above).
   - Docs: the env reference generator now also finds reads through a name bound to
     `process.env` (`env.ALWAYS_SEARCH`).
-  - **Follow-ups (lab, not yet ported):** a research turn is **not** forced when the user
+  - **Follow-ups (`11f57ab1`; `dev` `fa50d81b`, `admin-feature` `79888ea5`):** a research turn is **not** forced when the user
     supplied the source: a URL (inline or a link chip; such a turn is again exactly the
     pre-D37 research turn, read with `fetch` or the attached-source path), an attachment with no
     typed text, or an attachment whose text only points at it ("what is this", "summarise this

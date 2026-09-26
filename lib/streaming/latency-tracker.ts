@@ -37,13 +37,14 @@ export class LatencyTracker {
   private readonly partLastSeen: Record<string, number> = {}
   private usage: { inputTokens?: number; outputTokens?: number } | null = null
   private lastStepInputTokens: number | null = null
-  // Citation anchors this turn emitted, split by whether they name a tool call
-  // this same turn made. Both failure modes are silent at render time —
-  // processCitations returns '' for an id it cannot resolve and renders the
-  // wrong source for one belonging to another turn — so without a counter here
-  // there is no signal at all that citations are failing.
-  // `recovered` = anchors that named no tool call but uniquely named one of the
-  // turn's source URLs (resolveByUrlFragment) — rendered, so not unresolved.
+  // Citation anchors this turn emitted, counted by auditCitations with the same
+  // resolution rendering uses (resolveCitationAnchor). A dropped citation is
+  // silent at render time — processCitations returns '' for it — so without a
+  // counter here there is no signal at all that citations are failing.
+  // `unresolved` = anchors that render as nothing (another turn's id, an
+  // invented id, or — since 2026-09-26 — a real id with an out-of-range
+  // number). `recovered` = anchors rendered only through a repair (URL
+  // fragment, wrapped or placeholder id, a number past a one-page fetch).
   private citations: {
     total: number
     unresolved: number

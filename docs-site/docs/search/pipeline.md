@@ -391,7 +391,8 @@ measurement-only shadow (`SEARCH_CROP_POSITION_SHADOW=true`). After the rerank,
 `measureCropPositions` (run via `after()`, so it never affects the response)
 logs where each source's best passage sits in the **uncropped** page, as
 `[crop-pos] {chatId, detail:[{u,o,t}]}`. `[cite-urls] {chatId, cited}` records
-which URLs the answer cited. Joining the two on `chatId` gives the fraction of
+which URLs the answer cited (`extractCitedSourceUrls`, which uses the same resolver as
+rendering, so since 2026-09-26 it also includes anchors rendered through a repair). Joining the two on `chatId` gives the fraction of
 cited sources whose best passage lies past the crop. On the lab, 20k recovered
 about 22% of sources' best content with no visible change in time to first
 token. To revert: `SEARCH_ENRICH_MAX_CHARS=10000`.
@@ -448,9 +449,13 @@ took +142% more steps. With it off, the model reads the full cropped page text.
 
 The pool is sliced to `maxResults`, cached (if non-empty), and returned with a
 `timings` object. The search tool adds those timings to the turn's
-`[latency]` line. The tool output keeps `toolCallId` (the model cites as
-`[n](#toolCallId)`) and `images`, and drops `state`/`citationMap` before the
-result is shown to the model (`toModelOutput`).
+`[latency]` line. The tool output keeps `toolCallId` and `images`, and drops
+`state`/`citationMap` before the result is shown to the model (`toModelOutput`). The model
+cites result N of this call as `[N](#toolCallId)`, where N is the result's 1-based position in
+this output's `results`, restarting at 1 for every call. The renderer reads it the same way
+([frontend › Citations](/request-lifecycle/frontend#citations)), so the order of `results` is
+part of the citation contract: reordering results after the model has seen them would make
+every in-range citation point at a different page.
 
 ## The `fetch` tool and the SSRF guard
 
@@ -462,7 +467,10 @@ deadline of `FETCH_TOTAL_DEADLINE_MS` (40s). Its wall time is reported as
 `fetch_ms` on the turn line.
 
 A successful fetch result carries the call's `toolCallId` (`fetch.ts:667,715`), like a search
-result does, because the model cites `[n](#toolCallId)` and can only copy an id it can see.
+result does, because the model cites `[N](#toolCallId)` and can only copy an id it can see.
+A fetch of one URL returns one result, so it is always cited as `[1]`; a fetch of several URLs
+numbers its pages in the order of its `results`. Since 2026-09-26 a too-high number on a fetch
+whose output holds exactly one page resolves to that page, because the id alone names it.
 The Ollama wire format carries no tool-call id on a tool result, so before 2026-09-24 a fetched
 page was structurally uncitable: no anchor in prod history ever named a fetch call, and models
 invented ids for fetched pages instead. A failed fetch gets no id, since it has nothing to cite.

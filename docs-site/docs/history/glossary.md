@@ -104,7 +104,7 @@ use your browser's find to jump around. Where a term maps to code, the main file
 | **Passage budget** | `RERANK_PASSAGE_BUDGET` (160): total passages scored per rerank call. It trims passages per document, never the document list. |
 | **Excerpts** | The retired mode (`SEARCH_EXCERPTS_ENABLED`, off) in which the model saw top-3 passages instead of the page. → [D15](/history/decisions#d15-source-excerpts-instead-of-full-pages) |
 | **`fetch` rescue chain** | The `fetch` tool's escalation for reading a URL: plain → crawl4ai → flaresolverr → Tavily → Firecrawl, capped at ~40 s. SSRF-guarded (initial URL only). |
-| **Citation** | Inline `[n](#toolCallId)` in the answer, resolved to a source card by `lib/utils/citation.ts`. Citable part types: search, fetch, `documentRetrieval`. |
+| **Citation** | Inline `[N](#toolCallId)` in the answer: result N (1-based position in that call's `results`, restarting at 1 for every call) of a tool call made in the same message. Resolved to a source chip by `resolveCitationAnchor` in `lib/utils/citation.ts`; an anchor it cannot resolve renders as nothing. Citable part types: search, fetch, `documentRetrieval`. → [frontend › Citations](/request-lifecycle/frontend#citations) |
 | **`documentRetrieval`** | A synthetic, citable tool part emitted for attached documents and pasted URLs, so they cite like web sources. |
 
 ## Streaming and client state

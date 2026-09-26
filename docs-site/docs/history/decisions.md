@@ -64,7 +64,7 @@ names the lab original. See [deploy](/operations/deploy) for the flow.
 | [D33](#d33-prod-rate-limiters-left-inert) | Prod rate-limiters left inert | adopted (declined fix) | 2026-08-11 |
 | [D34](#d34-recall-rerank-deferred-not-aborted) | Recall rerank deferred (not aborted); pool 10 × 384 tokens (8 on prod and lab since 09-25) | adopted | 2026-09-23 / 09-25 |
 | [D35](#d35-retire-and-remove-the-231-ask-stacks) | Retire and remove the .231 Ask stacks | adopted | 2026-08-27 → 09-24 |
-| [D36](#d36-strip-historical-citation-anchors-resolve-citations-per-turn-only) | Strip historical citation anchors; resolve citations per turn only | adopted | 2026-09-24 |
+| [D36](#d36-strip-historical-citation-anchors-resolve-citations-per-turn-only) | Strip historical citation anchors; resolve citations per turn only (one resolver, N = position within that call, since 09-26) | adopted | 2026-09-24 / 09-26 |
 | [D37](#d37-always-search-every-question) | Always search every question (forced first search) | adopted | 2026-09-26 |
 
 ---
@@ -909,6 +909,65 @@ turn-based loop (`git revert b0ff56ad`) brings back the same latency.
 - **Revisit if** live turns still show copied old ids after the port (the strip regex
   `[N](#id)` would then be missing a format), or if per-turn scoping is ever replaced by a
   citation store that is stable across turns.
+- **Addendum 2026-09-26: one resolver; N is the position within that call.** Lab `dbbbc376`
+  (cherry-picked to `dev` as `0bd8f8cc`, staging `7af2beff`).
+  - **Context.** Three places decided whether an anchor resolved, each with its own rules:
+    `processCitations` (rendering), `auditCitations` (the `[latency]` counters) and
+    `extractCitedSourceUrls` (`[cite-urls]`). The audit only checked that an anchor's id belonged
+    to the turn, so a real id with an out-of-range number counted as resolved while rendering
+    nothing; on a 60-day replay the audit agreed with rendering on 333 of 374 messages. The
+    prompts also taught two numbering schemes (the speed prompt: one number per toolCallId,
+    assigned sequentially; the balanced prompt: result order within each search) and used
+    `<id-A>`-style placeholders that models copied verbatim.
+  - **Decision 1: a single resolver.** `resolveCitationAnchor` (`lib/utils/citation.ts:263-289`)
+    is the only place an anchor is resolved, and all three callers use it, so the counter
+    reports exactly what the reader sees. It returns `own`, `recovered` (with the repair used)
+    or `unresolved`. Lookup order: the id as written (after the `toolu_`/`call_`/`search-`
+    prefix normalisation); the id unwrapped from `<id-…>` / `<…>` / `id-…`
+    (`unwrapTemplateId`, `:148-154`); a placeholder (`isPlaceholderAnchorId`, `:128-139`),
+    resolved only when the message made exactly one citable call; the URL-fragment rule from
+    2026-09-24. Within a call, an in-range N is that result; an out-of-range N resolves only on
+    a fetch whose output holds exactly one page that is not a `Fetch failed:` result
+    (`resolveWithinCall`, `:208-242`).
+  - **Decision 2: N is the 1-based position of the result within that tool call's `results`,
+    restarting at 1 for every call.** It is what `extractCitationMaps` always built
+    (`results[N-1]`, `lib/utils/citation.ts:409-414`), so the prompts were changed to match the
+    renderer, not the other way round. One shared `getCitationFormatGuidance()`
+    (`lib/agents/prompts/search-mode-prompts.ts:98-108`) states it for speed and balanced (and
+    so quality), including "a one-page fetch is always [1]" and a running count shown as WRONG.
+  - **Decision 3: the worked-example ids live in `citation.ts`.** `PROMPT_EXAMPLE_SEARCH_ID` and
+    `PROMPT_EXAMPLE_FETCH_ID` (`lib/utils/citation.ts:92-93`) are defined next to the resolver
+    and imported by the prompt module, and `PLACEHOLDER_ANCHOR_IDS` (`:101-119`) lists every
+    example id the prompts have ever shown. A model that copies an example is then recognised
+    rather than treated as an invented id. They are defined there, not in the prompt module,
+    so the client bundle does not import the prompts. Realistic UUIDs replaced `<id-A>` because
+    a model copies the **shape** of an example: the lab showed `<id-A>` copied literally and
+    also wrapped around correct ids.
+  - **Decision 4: a multi-result call with a wrong number stays dropped.** A search, or a fetch
+    that returned several pages, has many candidate sources; an out-of-range number does not
+    say which one was meant, so any choice would be a guess. Only a one-page fetch is
+    unambiguous. Likewise a placeholder in a turn with two or more citable calls stays dropped.
+    Per-turn scoping (point 2 of the original decision) is unchanged: no repair ever looks at
+    another message's calls.
+  - **How the fetch rule knows the tool type.** `extractCitationMaps` records each map's part
+    type in a module-level `WeakMap` keyed by the map object (`CITATION_MAP_TOOL_TYPE`,
+    `lib/utils/citation.ts:163`, set at `:419`), so the `Record<toolCallId, Record<N, item>>`
+    shape every component passes around did not change. A map that is copied or built by hand
+    has no entry, and the fetch rule silently does not apply to it: pass the maps through by
+    reference.
+  - **Evidence** (replay of 60 days of stored answers through the old and new resolver). Visible
+    citations: prod 1,460 → 1,470, lab 3,880 → 3,925; 0 lost, 0 rendered links changed; audit
+    agrees with rendering on 374 of 374 messages. In-range running-count numbers (a real,
+    different result of the same search) cannot be repaired and remain open
+    ([known issue](/history/known-issues#running-count-citation-numbers-can-point-at-the-wrong-result)).
+  - **How to change the examples.** Keep every example id in `citation.ts`. When an example id
+    is retired, leave it in `PLACEHOLDER_ANCHOR_IDS` so answers that copied it keep being
+    recognised. `lib/agents/prompts/__tests__/search-mode-prompts.test.ts` fails if a prompt
+    shows a placeholder or retired id, states a second numbering scheme, or has a non-WRONG
+    example anchor that would not render.
+  - **Revisit if** judged live answers still show running-count numbers after the unified
+    prompt; the next lever is numbering results explicitly in the tool output the model sees
+    (needs a lab A/B).
 
 ## Retrieval policy
 

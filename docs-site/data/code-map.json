@@ -7,10 +7,10 @@
   "coverage": {
     "files": 652,
     "withPurpose": 652,
-    "header": 168,
+    "header": 167,
     "jsdoc": 36,
     "derived": 59,
-    "override": 389,
+    "override": 390,
     "documented": 357
   },
   "kinds": {
@@ -8946,6 +8946,12 @@
       ],
       "docs": [
         {
+          "page": "/history/known-issues",
+          "title": "Known issues",
+          "section": "Running-count citation numbers can point at the wrong result",
+          "anchor": "running-count-citation-numbers-can-point-at-the-wrong-result"
+        },
+        {
           "page": "/operations/evaluation",
           "title": "Evaluation harnesses & scripts",
           "section": "Flow-arm harnesses (lab only)",
@@ -9062,8 +9068,8 @@
       "area": "lib",
       "project": "ask",
       "kind": "lib-module",
-      "purpose": "Search mode system prompts",
-      "purposeSource": "header",
+      "purpose": "System prompts for the speed, balanced and quality search modes, the one shared citation-format guidance (N = result position within that tool call, restarting at 1 per call) and the…",
+      "purposeSource": "override",
       "exports": [
         "getQuickModePrompt",
         "getAdaptiveModePrompt",
@@ -9111,6 +9117,12 @@
           "title": "Memory & recall",
           "section": "Candidate vs confirmed, and the prompt-injection mitigation",
           "anchor": "candidate-vs-confirmed-and-the-prompt-injection-mitigation"
+        },
+        {
+          "page": "/request-lifecycle/frontend",
+          "title": "Frontend",
+          "section": "Citations",
+          "anchor": "citations"
         },
         {
           "page": "/request-lifecycle/generative-ui",
@@ -16561,11 +16573,17 @@
       "area": "lib",
       "project": "ask",
       "kind": "lib-module",
-      "purpose": "Citation utilities: builds citation maps from search/fetch tool outputs, rewrites [n](#toolCallId) citations into links, audits citations, and extracts cited URLs.",
+      "purpose": "Citation utilities: builds per-message citation maps from search/fetch/documentRetrieval outputs (N = result position within that call) and resolves every [N](#toolCallId) anchor through one…",
       "purposeSource": "override",
       "exports": [
         "isCitationLabel",
         "resolveByUrlFragment",
+        "PROMPT_EXAMPLE_SEARCH_ID",
+        "PROMPT_EXAMPLE_FETCH_ID",
+        "isPlaceholderAnchorId",
+        "CitationRepair",
+        "CitationResolution",
+        "resolveCitationAnchor",
         "CitationAudit",
         "auditCitations",
         "extractCitationMaps",
@@ -16583,15 +16601,35 @@
         "components/custom-link.tsx",
         "components/message-actions.tsx",
         "components/message.tsx",
+        "lib/agents/prompts/search-mode-prompts.ts",
         "lib/streaming/create-chat-stream-response.ts"
       ],
       "tests": [
+        "lib/agents/prompts/__tests__/search-mode-prompts.test.ts",
         "lib/streaming/helpers/__tests__/document-retrieval-part.test.ts",
         "lib/utils/__tests__/citation-cited-urls.test.ts",
         "lib/utils/__tests__/citation.test.ts",
         "lib/utils/citation.test.ts"
       ],
       "docs": [
+        {
+          "page": "/getting-started/recipes",
+          "title": "Recipes",
+          "section": "Change a prompt safely",
+          "anchor": "change-a-prompt-safely"
+        },
+        {
+          "page": "/history/changelog",
+          "title": "Changelog",
+          "section": "2026-09 — September",
+          "anchor": "_2026-09-—-september"
+        },
+        {
+          "page": "/history/decisions",
+          "title": "Decisions",
+          "section": "D36. Strip historical citation anchors; resolve citations per turn only",
+          "anchor": "d36-strip-historical-citation-anchors-resolve-citations-per-turn-only"
+        },
         {
           "page": "/history/glossary",
           "title": "Glossary",
@@ -16609,6 +16647,12 @@
           "title": "Security",
           "section": "XSS pipeline",
           "anchor": "xss-pipeline"
+        },
+        {
+          "page": "/operations/evaluation",
+          "title": "Evaluation harnesses & scripts",
+          "section": "Browser-driven comparisons: harvest-pairs.py",
+          "anchor": "browser-driven-comparisons-harvest-pairs-py"
         },
         {
           "page": "/operations/telemetry",
@@ -19345,6 +19389,12 @@
           "title": "Repo tour",
           "section": "scripts/",
           "anchor": "scripts"
+        },
+        {
+          "page": "/history/known-issues",
+          "title": "Known issues",
+          "section": "Running-count citation numbers can point at the wrong result",
+          "anchor": "running-count-citation-numbers-can-point-at-the-wrong-result"
         },
         {
           "page": "/operations/evaluation",
