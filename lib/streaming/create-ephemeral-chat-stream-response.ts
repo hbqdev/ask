@@ -10,6 +10,7 @@ import {
 import { randomUUID } from 'crypto'
 import { Langfuse } from 'langfuse'
 
+import { detectUserSuppliedSource } from '@/lib/agents/always-search'
 import { researcher } from '@/lib/agents/researcher'
 import {
   createPublicErrorResponse,
@@ -83,6 +84,9 @@ export async function createEphemeralChatStreamResponse(
     const latestMessage = messages[messages.length - 1]
     const latestMessageText = getTextFromParts(latestMessage?.parts)
     const containsUrl = /https?:\/\/\S+/i.test(latestMessageText)
+    // See create-chat-stream-response.ts: a URL or attachment the user
+    // supplied cancels ALWAYS_SEARCH's forced first search.
+    const userSuppliedSource = detectUserSuppliedSource(latestMessage?.parts)
     const classifyStart = performance.now()
     const classificationPromise = containsUrl
       ? Promise.resolve({
@@ -186,7 +190,8 @@ export async function createEphemeralChatStreamResponse(
           needsRecent: classification.needsRecent,
           needsSources: classification.needsSources,
           intent: classification.intent,
-          expandedQueriesPromise
+          expandedQueriesPromise,
+          userSuppliedSource
         })
 
         const result = await researchAgent.stream({

@@ -157,6 +157,9 @@ export class LatencyTracker {
     // web search (ALWAYS_SEARCH). Omitted fields serialize as null.
     turnMode?: string | null
     forcedSearch?: boolean | null
+    // Why an ALWAYS_SEARCH research turn was NOT forced: the user supplied
+    // the source ('url' | 'attachment-only' | 'attachment-reference').
+    forcedSkip?: string | null
   }): void {
     try {
       const total = Math.round(this.now() - this.startedAt)
@@ -308,7 +311,10 @@ export class LatencyTracker {
           // nothing), so the mode is logged directly, together with whether
           // the first step was a guaranteed search.
           turn_mode: extra.turnMode ?? null,
-          forced_search: extra.forcedSearch ?? null
+          forced_search: extra.forcedSearch ?? null,
+          // null whenever the first step was forced, or the turn was not an
+          // ALWAYS_SEARCH research turn at all.
+          forced_skip: extra.forcedSkip ?? null
         })}`
       )
     } catch {

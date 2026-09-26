@@ -545,5 +545,27 @@ describe('LatencyTracker.emit — turn plan', () => {
     const payload = JSON.parse(lines[0].replace('[latency] ', ''))
     expect(payload.turn_mode).toBeNull()
     expect(payload.forced_search).toBeNull()
+    expect(payload.forced_skip).toBeNull()
+  })
+
+  it('serializes forced_skip — why a research turn was not forced (the user supplied the source)', () => {
+    const lines: string[] = []
+    const t = new LatencyTracker(
+      { chatId: 'c5', mode: 'balanced' },
+      undefined,
+      (l: string) => lines.push(l)
+    )
+    t.emit({
+      skipSearch: null,
+      turnMode: 'research',
+      forcedSearch: false,
+      forcedSkip: 'url'
+    })
+    const payload = JSON.parse(lines[0].replace('[latency] ', ''))
+    expect(payload).toMatchObject({
+      turn_mode: 'research',
+      forced_search: false,
+      forced_skip: 'url'
+    })
   })
 })

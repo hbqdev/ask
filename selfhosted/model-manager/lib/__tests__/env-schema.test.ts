@@ -158,6 +158,7 @@ describe('Replicate image-generation env', () => {
 const APP_UNSET_BEHAVIOUR: Record<string, boolean> = {
   // `!== 'off'` / `=== 'off'` kill switches — unset = ON
   OLLAMA_SEARCH_ENABLED: true, // lib/tools/search.ts
+  ALWAYS_SEARCH: true, // lib/agents/always-search.ts isAlwaysSearchEnabled
   MEMORY_ENABLED: true, // lib/db/memory-actions.ts, create-chat-stream-response.ts
   RECALL_ENABLED: true, // lib/db/recall-actions.ts, create-chat-stream-response.ts
   // `=== 'false'` disables — unset = ON
@@ -198,7 +199,8 @@ describe('boolean flags show and write what Ask actually does', () => {
     for (const key of [
       'RECALL_ENABLED',
       'MEMORY_ENABLED',
-      'OLLAMA_SEARCH_ENABLED'
+      'OLLAMA_SEARCH_ENABLED',
+      'ALWAYS_SEARCH'
     ]) {
       const spec = specByKey(key)!
       expect(boolIsOn(spec, 'off')).toBe(false)
@@ -211,6 +213,20 @@ describe('boolean flags show and write what Ask actually does', () => {
       expect(spec.validate!('on')).toBeNull()
       expect(spec.validate!('false')).toMatch(/only on `off`/)
     }
+  })
+
+  it('ALWAYS_SEARCH is a search-category kill switch, on unless `off`', () => {
+    const spec = specByKey('ALWAYS_SEARCH')!
+    expect(spec.category).toBe('search')
+    expect(spec.type).toBe('bool')
+    expect(spec.boolSense).toBe('not-off')
+    expect(spec.default).toBe('on')
+    expect(boolIsOn(spec, '')).toBe(true)
+    expect(boolIsOn(spec, 'on')).toBe(true)
+    expect(boolIsOn(spec, 'off')).toBe(false)
+    expect(spec.help).toContain(
+      'Every question gets a web search; off restores the old stable-knowledge gate (D3)'
+    )
   })
 
   it('ENABLE_AUTH is off only for `false`; SSL/cloud flags only on for `true`', () => {
