@@ -83,21 +83,232 @@ export function resolveByUrlFragment(
   return matches.size === 1 ? [...matches.values()][0] : undefined
 }
 
+/**
+ * The ids the search-mode prompts use in their worked citation example
+ * (lib/agents/prompts/search-mode-prompts.ts). Defined here, not there, so the
+ * resolver can recognise a verbatim copy of one (see isPlaceholderAnchorId)
+ * without the client bundle importing the prompt module.
+ */
+export const PROMPT_EXAMPLE_SEARCH_ID = '3f2b8c1e-9a4d-4e67-b5c0-7d1e2a9f4c86'
+export const PROMPT_EXAMPLE_FETCH_ID = 'b71c05d9-2e8f-4a3b-9d6e-40f8a1c3e527'
+
+/**
+ * Anchor ids that are template tokens or instruction examples, not ids of any
+ * real call: the word itself (`toolCallId`), lettered labels (`id-A`), and
+ * every example id the prompts have ever shown (the pre-2026-08-02 ones were
+ * copied verbatim 125 times). Lower-cased; matched case-insensitively.
+ */
+const PLACEHOLDER_ANCHOR_IDS = new Set(
+  [
+    'toolCallId',
+    'tool_call_id',
+    'tool-call-id',
+    'id',
+    'search_id',
+    'fetch_id',
+    'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee',
+    'mK3pQr7sT9uV2wX4',
+    'I8NzFUKwrKX88107',
+    'aHvy9Vt17r3VSmnG',
+    'abc123',
+    'def456',
+    'ABC123xyz',
+    PROMPT_EXAMPLE_SEARCH_ID,
+    PROMPT_EXAMPLE_FETCH_ID
+  ].map(id => id.toLowerCase())
+)
+
+/**
+ * True for an anchor id copied from the instructions rather than from a tool
+ * result: an angle-bracketed template token (`<id-A>`, `<fetch-id>`,
+ * `<toolCallId>`), a lettered label (`id-A`), or a listed example id. A real id
+ * wrapped in template syntax (`<id-470411cd-…>`) is NOT a placeholder — it is
+ * unwrapped and looked up as that id instead (see unwrapTemplateId).
+ */
+export function isPlaceholderAnchorId(anchorId: string): boolean {
+  const id = anchorId.trim()
+  if (PLACEHOLDER_ANCHOR_IDS.has(id.toLowerCase())) return true
+  if (/^id[-_][a-z]$/i.test(id)) return true
+  const bracketed = /^<([^<>]+)>$/.exec(id)
+  if (!bracketed) return false
+  // `<id-UUID>` names one specific call: a wrong one if it is not this turn's
+  // (unwrapTemplateId already tried), so it must be dropped, not treated as a
+  // generic placeholder that may stand for the turn's only call.
+  const inner = bracketed[1].trim().replace(/^id[-_:]/i, '')
+  return PLACEHOLDER_ANCHOR_IDS.has(inner.toLowerCase()) || !UUID_RE.test(inner)
+}
+
+/**
+ * The real id inside template syntax: `<id-470411cd-…>` → `470411cd-…`,
+ * `<470411cd-…>` → `470411cd-…`. Measured on the lab (kimi-k2.6, 2026-09-26):
+ * the model copied the example's `<id-A>` shape around the correct id, so the
+ * whole answer's citations were dropped although every id was right. Returns
+ * undefined when there is nothing to unwrap.
+ */
+function unwrapTemplateId(anchorId: string): string | undefined {
+  let id = anchorId.trim()
+  const bracketed = /^<([^<>]+)>$/.exec(id)
+  if (bracketed) id = bracketed[1].trim()
+  id = id.replace(/^id[-_:]/i, '')
+  return id && id !== anchorId ? id : undefined
+}
+
+/**
+ * Tool type ('tool-search', 'tool-fetch', …) of each per-call citation map
+ * extractCitationMaps builds, keyed by the map object itself. It lets rendering
+ * apply the fetch-only out-of-range rule without changing the
+ * Record<toolCallId, Record<N, item>> shape every component passes around. A
+ * hand-built map has no entry, so the rule simply does not apply to it.
+ */
+const CITATION_MAP_TOOL_TYPE = new WeakMap<object, string>()
+
+/**
+ * A failed fetch still yields one result (fetch.ts: `Fetch failed: <url>`) so
+ * the agent can continue; it is not a page the answer was written from.
+ */
+const FAILED_FETCH_TITLE_RE = /^Fetch failed:/
+
+export type CitationRepair =
+  /** The id is a URL fragment of exactly one source (resolveByUrlFragment). */
+  | 'url-fragment'
+  /** A real id of this turn wrapped in template syntax, e.g. `<id-…>`. */
+  | 'wrapped-id'
+  /** A placeholder id in a turn with exactly one citable call. */
+  | 'placeholder'
+  /** A real single-page fetch id with a number past its one result. */
+  | 'fetch-out-of-range'
+
+export type CitationResolution =
+  | { status: 'own'; source: SearchResultItem }
+  | { status: 'recovered'; source: SearchResultItem; repair: CitationRepair }
+  | { status: 'unresolved' }
+
+const UNRESOLVED: CitationResolution = { status: 'unresolved' }
+
+function findCitationMap(
+  anchorId: string,
+  citationMaps: Record<string, Record<number, SearchResultItem>>
+): Record<number, SearchResultItem> | undefined {
+  // Prefer an exact match to avoid side effects, then fall back to
+  // prefix-normalized matching so ids the model prepended a prefix to (e.g.
+  // `toolu_<id>`) still resolve.
+  const exact = citationMaps[anchorId]
+  if (exact) return exact
+  const normalizedId = stripToolCallPrefix(anchorId)
+  return (
+    citationMaps[normalizedId] ??
+    citationMaps[
+      Object.keys(citationMaps).find(
+        key => stripToolCallPrefix(key) === normalizedId
+      ) ?? ''
+    ]
+  )
+}
+
+function resolveWithinCall(
+  num: number,
+  citationMap: Record<number, SearchResultItem>,
+  repair: CitationRepair | null
+): CitationResolution {
+  const hit = citationMap[num]
+  if (hit) {
+    if (!isValidUrl(hit.url)) return UNRESOLVED
+    return repair
+      ? { status: 'recovered', source: hit, repair }
+      : { status: 'own', source: hit }
+  }
+  // Out of range. A fetch of ONE page has one result, so its id alone names
+  // the source whatever number the model put on it (models that number
+  // sources as a running count across the answer write [3](#<fetchId>)). A
+  // search, or a fetch of several urls, has many results and a wrong number
+  // does not say which one was meant — dropped, never guessed.
+  if (CITATION_MAP_TOOL_TYPE.get(citationMap) !== 'tool-fetch') {
+    return UNRESOLVED
+  }
+  const results = Object.values(citationMap)
+  const only = results.length === 1 ? results[0] : undefined
+  if (
+    !only ||
+    !isValidUrl(only.url) ||
+    FAILED_FETCH_TITLE_RE.test(only.title ?? '')
+  ) {
+    return UNRESOLVED
+  }
+  return {
+    status: 'recovered',
+    source: only,
+    repair: repair ?? 'fetch-out-of-range'
+  }
+}
+
+/**
+ * THE resolution of one `[N](#id)` anchor against one message's citation
+ * maps. Rendering (processCitations), the telemetry audit (auditCitations) and
+ * the cited-URL list (extractCitedSourceUrls) all call this, so what the
+ * counter reports is exactly what the reader sees.
+ *
+ * N is the 1-based position of the result inside THAT tool call's `results`
+ * (extractCitationMaps). Repairs apply only where the intended source is
+ * unambiguous; everything else — another turn's id, an invented id, an
+ * ambiguous placeholder, a wrong number on a multi-result call — is dropped:
+ *
+ *   own                 the id is one of this message's calls, N in range
+ *   wrapped-id          `<id-UUID>` / `<UUID>` around one of this message's ids
+ *   placeholder         a template/example id, and the message made exactly ONE
+ *                       citable call (the same "exactly one thing it can mean"
+ *                       rule as the URL-fragment repair)
+ *   fetch-out-of-range  N past the end of a single-page fetch
+ *   url-fragment        the id is a fragment of exactly one source URL
+ */
+export function resolveCitationAnchor(
+  num: number,
+  anchorId: string,
+  citationMaps: Record<string, Record<number, SearchResultItem>>
+): CitationResolution {
+  if (!citationMaps || !anchorId) return UNRESOLVED
+  if (!Number.isInteger(num) || num < 1 || num > 100) return UNRESOLVED
+
+  const direct = findCitationMap(anchorId, citationMaps)
+  if (direct) return resolveWithinCall(num, direct, null)
+
+  const unwrapped = unwrapTemplateId(anchorId)
+  const wrapped = unwrapped && findCitationMap(unwrapped, citationMaps)
+  if (wrapped) return resolveWithinCall(num, wrapped, 'wrapped-id')
+
+  if (isPlaceholderAnchorId(anchorId)) {
+    const calls = Object.values(citationMaps)
+    return calls.length === 1
+      ? resolveWithinCall(num, calls[0], 'placeholder')
+      : UNRESOLVED
+  }
+
+  const byUrl = resolveByUrlFragment(anchorId, citationMaps)
+  return byUrl
+    ? { status: 'recovered', source: byUrl, repair: 'url-fragment' }
+    : UNRESOLVED
+}
+
 export interface CitationAudit {
   /** Anchors in this message that processCitations will try to resolve. */
   total: number
-  /** Anchors naming a toolCallId this same message actually made. */
+  /**
+   * Anchors naming a tool call this same message made, with a number that is
+   * one of that call's results — rendered as written.
+   */
   own: number
   /**
-   * Anchors that name no tool call but uniquely name one of this message's
-   * source URLs (see resolveByUrlFragment) — rendered, so not unresolved.
+   * Anchors rendered only through a repair (see resolveCitationAnchor): a URL
+   * fragment, a wrapped or placeholder id, or a number past a single-page
+   * fetch's one result.
    */
   recovered: number
   /**
-   * Anchors naming anything else — another turn's tool call, or an id that
-   * exists nowhere. Both are defects: the first renders a confidently wrong
-   * source today, the second is silently deleted. Neither is otherwise visible,
-   * which is how a ~19% failure rate went unnoticed across prod's history.
+   * Anchors that render as NOTHING — another turn's tool call, an id that
+   * exists nowhere, an ambiguous placeholder, or a real id with a number that
+   * is not one of its results. Until 2026-09-26 a real id with an
+   * out-of-range number was scored as resolved although it rendered nothing,
+   * so this counter under-reported; it now equals total - own - recovered by
+   * the same resolution rendering uses.
    */
   unresolved: number
 }
@@ -107,10 +318,9 @@ export interface CitationAudit {
  * that message itself made.
  *
  * Deliberately scoped to ONE message, because that is the only correct scope: a
- * citation can only be supported by a search this turn ran. Resolution today
- * uses a conversation-wide map (components/chat-messages.tsx), which is why an
- * anchor carried over from an earlier turn resolves cleanly to the wrong source
- * instead of failing.
+ * citation can only be supported by a search this turn ran. Rendering builds
+ * one map per message too (components/chat-messages.tsx), so an anchor carried
+ * over from an earlier turn is dropped, and counted here as unresolved.
  *
  * Pure and message-local so it can run server-side in onFinish, where the
  * assembled message is available but the render-time maps are not.
@@ -118,45 +328,24 @@ export interface CitationAudit {
 export function auditCitations(message: {
   parts?: unknown[] | null
 }): CitationAudit {
-  const ownIds = new Set<string>()
-  const texts: string[] = []
-
-  for (const raw of message?.parts ?? []) {
-    const part = raw as {
-      type?: string
-      text?: unknown
-      toolCallId?: unknown
-    } | null
-    if (!part) continue
-    // Only CITABLE tool parts count as resolvable. Counting every part with a
-    // toolCallId (calculate, get_weather, todoWrite) would score an anchor as
-    // resolved that extractCitationMaps never builds a map for, making the
-    // counter disagree with rendering.
-    if (
-      typeof part.toolCallId === 'string' &&
-      part.toolCallId &&
-      CITABLE_TOOL_PART_TYPES.has(part.type ?? '')
-    ) {
-      ownIds.add(stripToolCallPrefix(part.toolCallId))
-    }
-    if (part.type === 'text' && typeof part.text === 'string') {
-      texts.push(part.text)
-    }
-  }
-
   let total = 0
   let own = 0
   let recovered = 0
   let maps: Record<string, Record<number, SearchResultItem>> | null = null
-  for (const text of texts) {
-    for (const match of text.matchAll(CITATION_ANCHOR_RE)) {
+
+  for (const raw of message?.parts ?? []) {
+    const part = raw as { type?: string; text?: unknown } | null
+    if (part?.type !== 'text' || typeof part.text !== 'string') continue
+    for (const match of part.text.matchAll(CITATION_ANCHOR_RE)) {
       total++
-      if (ownIds.has(stripToolCallPrefix(match[2]))) {
-        own++
-        continue
-      }
       maps ??= extractCitationMaps(message as UIMessage)
-      if (resolveByUrlFragment(match[2], maps)) recovered++
+      const resolution = resolveCitationAnchor(
+        parseInt(match[1], 10),
+        match[2],
+        maps
+      )
+      if (resolution.status === 'own') own++
+      else if (resolution.status === 'recovered') recovered++
     }
   }
 
@@ -227,6 +416,7 @@ export function extractCitationMaps(
       if (citationMap && Object.keys(citationMap).length > 0) {
         // Store citation map with toolCallId as key
         citationMaps[part.toolCallId] = citationMap
+        CITATION_MAP_TOOL_TYPE.set(citationMap, part.type)
       }
     }
   })
@@ -236,19 +426,14 @@ export function extractCitationMaps(
 
 /**
  * The distinct source URLs an assistant message actually CITED — each
- * [N](#toolCallId) anchor resolved against THIS message's own tool calls
- * (out-of-turn anchors resolve to nothing and are dropped, the same per-message
- * scoping rendering uses). Keys are normalized with stripToolCallPrefix so
- * resolution agrees with auditCitations' resolved/unresolved counts. Used by the
- * shadow crop-position measurement to scope its number to cited (not merely
- * read) sources.
+ * [N](#toolCallId) anchor resolved against THIS message's own tool calls by
+ * resolveCitationAnchor, the same resolution rendering and auditCitations use
+ * (out-of-turn anchors resolve to nothing and are dropped). Used by the shadow
+ * crop-position measurement to scope its number to cited (not merely read)
+ * sources.
  */
 export function extractCitedSourceUrls(message: UIMessage): string[] {
-  const rawMaps = extractCitationMaps(message)
-  const byStripped: Record<string, Record<number, SearchResultItem>> = {}
-  for (const [id, map] of Object.entries(rawMaps)) {
-    byStripped[stripToolCallPrefix(id)] = map
-  }
+  const maps = extractCitationMaps(message)
   const urls = new Set<string>()
   for (const part of (message.parts ?? []) as Array<{
     type?: string
@@ -256,9 +441,8 @@ export function extractCitedSourceUrls(message: UIMessage): string[] {
   }>) {
     if (part.type !== 'text' || typeof part.text !== 'string') continue
     for (const m of part.text.matchAll(CITATION_ANCHOR_RE)) {
-      const map = byStripped[stripToolCallPrefix(m[2])]
-      const src = map ? map[Number(m[1])] : resolveByUrlFragment(m[2], rawMaps)
-      if (src?.url) urls.add(src.url)
+      const resolution = resolveCitationAnchor(parseInt(m[1], 10), m[2], maps)
+      if (resolution.status !== 'unresolved') urls.add(resolution.source.url)
     }
   }
   return [...urls]
@@ -304,53 +488,22 @@ export function processCitations(
     return content || ''
   }
 
-  // Replace [number](#toolCallId) with [domain](actual-url)
-  // Also handle cases with spaces: [ number ]
-  return content.replace(
-    /\[\s*(\d+)\s*\]\(#([^)]+)\)/g,
-    (_match, num, toolCallId) => {
-      const citationNum = parseInt(num, 10)
-
-      // Validate citation number bounds
-      if (isNaN(citationNum) || citationNum < 1 || citationNum > 100) {
-        return '' // Return empty string for invalid citation numbers
-      }
-
-      // Get the citation map for this toolCallId. Prefer an exact match to
-      // avoid side effects, then fall back to prefix-normalized matching so
-      // ids the model prepended a prefix to (e.g. `toolu_<id>`) still resolve.
-      let citationMap = citationMaps[toolCallId]
-      if (!citationMap) {
-        const normalizedId = stripToolCallPrefix(toolCallId)
-        citationMap =
-          citationMaps[normalizedId] ??
-          citationMaps[
-            Object.keys(citationMaps).find(
-              key => stripToolCallPrefix(key) === normalizedId
-            ) ?? ''
-          ]
-      }
-      if (!citationMap) {
-        // Not a tool call of this message. Resolve only when the "id" is a
-        // fragment of exactly one of this message's source URLs; anything
-        // else (another turn's id, an invented one) is dropped.
-        const byUrl = resolveByUrlFragment(toolCallId, citationMaps)
-        if (!byUrl) return ''
-        return `[${displayUrlName(byUrl.url)}](${encodeURI(byUrl.url)})`
-      }
-
-      const citation = citationMap[citationNum]
-      if (!citation || !isValidUrl(citation.url)) {
-        return '' // Return empty string for invalid citations
-      }
-
-      // Extract domain name from URL (removes TLD and subdomain)
-      const domainName = displayUrlName(citation.url)
-
-      // Encode URI to prevent injection attacks
-      return `[${domainName}](${encodeURI(citation.url)})`
-    }
-  )
+  // Replace [number](#toolCallId) with [domain](actual-url), resolved by
+  // resolveCitationAnchor (the same resolution auditCitations counts). An
+  // anchor that does not resolve — out-of-range number, another turn's id, an
+  // invented one — is dropped. Also handles spaces: [ number ].
+  return content.replace(CITATION_ANCHOR_RE, (_match, num, toolCallId) => {
+    const resolution = resolveCitationAnchor(
+      parseInt(num, 10),
+      toolCallId,
+      citationMaps
+    )
+    if (resolution.status === 'unresolved') return ''
+    const { url } = resolution.source
+    // Display the domain name (removes TLD and subdomain); encode the URI to
+    // prevent injection attacks.
+    return `[${displayUrlName(url)}](${encodeURI(url)})`
+  })
 }
 
 /**

@@ -9,8 +9,12 @@ import {
   extractCitationMaps,
   extractCitedSourceUrls,
   isCitationLabel,
+  isPlaceholderAnchorId,
   processCitations,
+  PROMPT_EXAMPLE_FETCH_ID,
+  PROMPT_EXAMPLE_SEARCH_ID,
   resolveByUrlFragment,
+  resolveCitationAnchor,
   stripIncompleteCitationTail
 } from '../citation'
 
@@ -365,11 +369,25 @@ describe('processCitations', () => {
 
 describe('auditCitations', () => {
   const msg = (parts: unknown[]) => ({ parts })
+  // A completed citable tool part with `n` results, the shape the audit and
+  // rendering both resolve against (extractCitationMaps).
+  const toolPart = (type: string, toolCallId: string, n = 3) => ({
+    type,
+    toolCallId,
+    state: 'output-available',
+    output: {
+      results: Array.from({ length: n }, (_, i) => ({
+        title: `${toolCallId} ${i + 1}`,
+        url: `https://${toolCallId.replace(/[^a-z0-9]/gi, '')}.example.com/${i + 1}`,
+        content: 'c'
+      }))
+    }
+  })
 
   it('counts an anchor naming this message own tool call as resolved', () => {
     const result = auditCitations(
       msg([
-        { type: 'tool-search', toolCallId: 'abc-123' },
+        toolPart('tool-search', 'abc-123'),
         { type: 'text', text: 'A fact [1](#abc-123).' }
       ])
     )
@@ -382,10 +400,7 @@ describe('auditCitations', () => {
     // it under the old rules, and composed `fetch_1`.
     const result = auditCitations(
       msg([
-        {
-          type: 'tool-fetch',
-          toolCallId: 'b55c29d0-2325-4dc9-a791-c62189549a0d'
-        },
+        toolPart('tool-fetch', 'b55c29d0-2325-4dc9-a791-c62189549a0d', 1),
         { type: 'text', text: 'Per the page [1](#fetch_1).' }
       ])
     )
@@ -399,7 +414,7 @@ describe('auditCitations', () => {
     // to the wrong source instead of failing.
     const result = auditCitations(
       msg([
-        { type: 'tool-search', toolCallId: 'this-turn' },
+        toolPart('tool-search', 'this-turn'),
         { type: 'text', text: 'GPU spec [1](#previous-turn).' }
       ])
     )
@@ -410,8 +425,8 @@ describe('auditCitations', () => {
   it('counts a fabricated anchor as unresolved', () => {
     const result = auditCitations(
       msg([
-        { type: 'tool-search', toolCallId: 'real-id' },
-        { type: 'text', text: 'Claim [1](#aHvy9Vt17r3VSmnG).' }
+        toolPart('tool-search', 'real-id'),
+        { type: 'text', text: 'Claim [1](#xR7vK2mN4pQw5sT8).' }
       ])
     )
 
@@ -424,7 +439,7 @@ describe('auditCitations', () => {
     // had a chance to resolve.
     const result = auditCitations(
       msg([
-        { type: 'tool-search', toolCallId: 'abc-123' },
+        toolPart('tool-search', 'abc-123'),
         { type: 'text', text: 'Loose reference (#abc-123) in prose.' }
       ])
     )
@@ -435,7 +450,7 @@ describe('auditCitations', () => {
   it('resolves through a provider prefix on either side', () => {
     const result = auditCitations(
       msg([
-        { type: 'tool-search', toolCallId: 'toolu_abc-123' },
+        toolPart('tool-search', 'toolu_abc-123'),
         { type: 'text', text: 'A [1](#abc-123) and B [2](#toolu_abc-123).' }
       ])
     )
@@ -446,8 +461,8 @@ describe('auditCitations', () => {
   it('tallies a mix across several text parts', () => {
     const result = auditCitations(
       msg([
-        { type: 'tool-search', toolCallId: 'own-1' },
-        { type: 'tool-search', toolCallId: 'own-2' },
+        toolPart('tool-search', 'own-1'),
+        toolPart('tool-search', 'own-2'),
         { type: 'text', text: 'One [1](#own-1) two [2](#stale).' },
         { type: 'text', text: 'Three [3](#own-2) four [4](#made-up).' }
       ])
@@ -462,7 +477,7 @@ describe('auditCitations', () => {
     // legitimate — not a fabrication.
     const result = auditCitations(
       msg([
-        { type: 'tool-fetch', toolCallId: 'fetch-abc' },
+        toolPart('tool-fetch', 'fetch-abc', 1),
         { type: 'text', text: 'From the page [1](#fetch-abc).' }
       ])
     )
@@ -481,6 +496,33 @@ describe('auditCitations', () => {
     )
 
     expect(result).toEqual({ total: 1, own: 0, recovered: 0, unresolved: 1 })
+  })
+
+  it('counts a real id whose call produced no results as unresolved', () => {
+    // It renders nothing (there is no map to resolve against), so scoring it
+    // as resolved — what the audit did before 2026-09-26 — overstated
+    // resolution.
+    const result = auditCitations(
+      msg([
+        { type: 'tool-search', toolCallId: 'no-output' },
+        { type: 'text', text: 'A [1](#no-output).' }
+      ])
+    )
+
+    expect(result).toEqual({ total: 1, own: 0, recovered: 0, unresolved: 1 })
+  })
+
+  it('counts an out-of-range number on a real search id as unresolved', () => {
+    // Renders as nothing, so it is not resolved — the counter used to score
+    // it as own because only the id was checked.
+    const result = auditCitations(
+      msg([
+        toolPart('tool-search', 'search-1', 3),
+        { type: 'text', text: 'A [3](#search-1). B [4](#search-1).' }
+      ])
+    )
+
+    expect(result).toEqual({ total: 2, own: 1, recovered: 0, unresolved: 1 })
   })
 
   it('returns zeros for a message with no parts', () => {
@@ -581,5 +623,254 @@ describe('URL-fragment anchors (resolveByUrlFragment)', () => {
       ]
     } as any)
     expect(urls).toEqual([zhihu])
+  })
+})
+
+// Repairs for anchors whose intended source is unambiguous, and nothing else
+// (2026-09-26). Measured on the lab A/B (kimi-k2.6) and prod history: models
+// copied the prompt's `<id-A>` placeholders, wrapped real ids in `<id-…>`, and
+// numbered sources as a running count so a one-page fetch was cited as [3].
+describe('resolveCitationAnchor repairs', () => {
+  const SEARCH_ID = '7affb9b0-204d-4420-a042-f23cdf01c9bf'
+  const SEARCH_2_ID = 'a12b697b-99e3-4e0c-9821-0d67052b5426'
+  const FETCH_ID = '35ad62db-aee5-4118-a848-d4b4f6dd0c03'
+  const MULTI_FETCH_ID = '89870bdd-cbfd-4748-840d-b15fa39d6c38'
+
+  const part = (type: string, toolCallId: string, urls: string[]) => ({
+    type,
+    toolCallId,
+    state: 'output-available',
+    output: {
+      results: urls.map((url, i) => ({ title: `t${i + 1}`, url, content: 'c' }))
+    }
+  })
+  const search = (id: string, n = 5) =>
+    part(
+      'tool-search',
+      id,
+      Array.from(
+        { length: n },
+        (_, i) => `https://s${id.slice(0, 4)}.com/${i + 1}`
+      )
+    )
+  const fetchOne = (id: string, url = 'https://spinedocs.org/back-pain') =>
+    part('tool-fetch', id, [url])
+  const message = (parts: unknown[]) =>
+    ({ id: 'm', role: 'assistant', parts }) as unknown as UIMessage
+  const mapsOf = (...parts: unknown[]) => extractCitationMaps(message(parts))
+
+  describe('placeholder ids', () => {
+    it('recognises template tokens, lettered labels and prompt example ids', () => {
+      for (const id of [
+        '<id-A>',
+        '<id-E>',
+        '<fetch-id>',
+        '<toolCallId>',
+        'toolCallId',
+        'id-B',
+        'aHvy9Vt17r3VSmnG',
+        PROMPT_EXAMPLE_SEARCH_ID,
+        PROMPT_EXAMPLE_FETCH_ID
+      ]) {
+        expect(isPlaceholderAnchorId(id)).toBe(true)
+      }
+      for (const id of [SEARCH_ID, 'fetch_1', 'search_1', 'raterelief']) {
+        expect(isPlaceholderAnchorId(id)).toBe(false)
+      }
+    })
+
+    it('resolves a placeholder when the turn made exactly ONE citable call', () => {
+      const maps = mapsOf(search(SEARCH_ID))
+      const r = resolveCitationAnchor(2, '<id-A>', maps)
+      expect(r).toMatchObject({ status: 'recovered', repair: 'placeholder' })
+      expect(processCitations('Fact. [2](#<id-A>)', maps)).toBe(
+        'Fact. [s7aff](https://s7aff.com/2)'
+      )
+    })
+
+    it('resolves a copied prompt example id the same way, only in a one-call turn', () => {
+      const one = mapsOf(search(SEARCH_ID))
+      expect(
+        resolveCitationAnchor(1, PROMPT_EXAMPLE_SEARCH_ID, one).status
+      ).toBe('recovered')
+      const two = mapsOf(search(SEARCH_ID), fetchOne(FETCH_ID))
+      expect(
+        resolveCitationAnchor(1, PROMPT_EXAMPLE_SEARCH_ID, two).status
+      ).toBe('unresolved')
+    })
+
+    it('drops a placeholder when the turn made two citable calls (ambiguous)', () => {
+      const maps = mapsOf(search(SEARCH_ID), search(SEARCH_2_ID))
+      expect(resolveCitationAnchor(1, '<id-A>', maps).status).toBe('unresolved')
+      expect(processCitations('Fact. [1](#<id-A>)', maps)).toBe('Fact. ')
+    })
+
+    it('never resolves a placeholder in a turn with no citable call', () => {
+      expect(
+        auditCitations({
+          parts: [{ type: 'text', text: 'Fact. [1](#<id-A>)' }]
+        })
+      ).toEqual({ total: 1, own: 0, recovered: 0, unresolved: 1 })
+    })
+
+    it('drops a placeholder whose number is out of range on the one search', () => {
+      const maps = mapsOf(search(SEARCH_ID, 3))
+      expect(resolveCitationAnchor(4, '<id-A>', maps).status).toBe('unresolved')
+    })
+  })
+
+  describe('real ids wrapped in template syntax', () => {
+    it('unwraps <id-UUID> and <UUID> to this turn own id, however many calls', () => {
+      const maps = mapsOf(
+        search(SEARCH_ID),
+        part('tool-fetch', MULTI_FETCH_ID, [
+          'https://a.example.com/1',
+          'https://b.example.com/2',
+          'https://c.example.com/3'
+        ])
+      )
+      expect(
+        resolveCitationAnchor(2, `<id-${MULTI_FETCH_ID}>`, maps)
+      ).toMatchObject({
+        status: 'recovered',
+        repair: 'wrapped-id',
+        source: { url: 'https://b.example.com/2' }
+      })
+      expect(resolveCitationAnchor(1, `<${SEARCH_ID}>`, maps).status).toBe(
+        'recovered'
+      )
+    })
+
+    it('drops a wrapped id that is not one of this turn calls', () => {
+      const maps = mapsOf(search(SEARCH_ID))
+      expect(
+        resolveCitationAnchor(
+          1,
+          '<id-80a47e63-d3c8-447a-a75f-50433119aebb>',
+          maps
+        ).status
+      ).toBe('unresolved')
+    })
+  })
+
+  describe('out-of-range numbers', () => {
+    it('resolves N past the end of a single-page fetch to that page', () => {
+      const maps = mapsOf(search(SEARCH_ID), fetchOne(FETCH_ID))
+      expect(resolveCitationAnchor(3, FETCH_ID, maps)).toMatchObject({
+        status: 'recovered',
+        repair: 'fetch-out-of-range',
+        source: { url: 'https://spinedocs.org/back-pain' }
+      })
+      expect(processCitations(`Fact. [3](#${FETCH_ID})`, maps)).toBe(
+        'Fact. [spinedocs](https://spinedocs.org/back-pain)'
+      )
+    })
+
+    it('drops N past the end of a search — which result was meant is unknown', () => {
+      const maps = mapsOf(search(SEARCH_ID, 3), fetchOne(FETCH_ID))
+      expect(resolveCitationAnchor(4, SEARCH_ID, maps).status).toBe(
+        'unresolved'
+      )
+      // Even a one-result search: the lab evidence was fetch-only, and a
+      // search number is a position the model claims to have read.
+      const single = mapsOf(search(SEARCH_2_ID, 1))
+      expect(resolveCitationAnchor(2, SEARCH_2_ID, single).status).toBe(
+        'unresolved'
+      )
+      expect(processCitations(`Fact. [4](#${SEARCH_ID})`, maps)).toBe('Fact. ')
+    })
+
+    it('drops N past the end of a fetch of several urls (ambiguous)', () => {
+      const maps = mapsOf(
+        part('tool-fetch', MULTI_FETCH_ID, [
+          'https://a.example.com/1',
+          'https://b.example.com/2'
+        ])
+      )
+      expect(resolveCitationAnchor(3, MULTI_FETCH_ID, maps).status).toBe(
+        'unresolved'
+      )
+    })
+
+    it('drops N past the end of a failed fetch — no page was read', () => {
+      const maps = mapsOf({
+        type: 'tool-fetch',
+        toolCallId: FETCH_ID,
+        state: 'output-available',
+        output: {
+          results: [
+            {
+              title: 'Fetch failed: https://dead.example.com',
+              url: 'https://dead.example.com',
+              content: 'Could not retrieve this page.'
+            }
+          ]
+        }
+      })
+      expect(resolveCitationAnchor(2, FETCH_ID, maps).status).toBe('unresolved')
+    })
+
+    it('does not apply the fetch rule to a hand-built map with no tool type', () => {
+      const maps = {
+        [FETCH_ID]: {
+          1: { title: 'p', url: 'https://p.example.com', content: '' }
+        }
+      }
+      expect(resolveCitationAnchor(2, FETCH_ID, maps).status).toBe('unresolved')
+    })
+
+    it('rejects numbers outside 1..100 before any repair', () => {
+      const maps = mapsOf(fetchOne(FETCH_ID))
+      expect(resolveCitationAnchor(0, FETCH_ID, maps).status).toBe('unresolved')
+      expect(resolveCitationAnchor(101, FETCH_ID, maps).status).toBe(
+        'unresolved'
+      )
+    })
+  })
+
+  describe('audit, rendering and cited URLs agree', () => {
+    // One message exercising every rule. The audit must count as rendered
+    // exactly the anchors processCitations turns into a link, and
+    // extractCitedSourceUrls must list exactly those links' URLs.
+    const parts = [
+      search(SEARCH_ID, 3),
+      fetchOne(FETCH_ID),
+      {
+        type: 'text',
+        text: [
+          `own [1](#${SEARCH_ID})`, // own
+          `fetch-oor [3](#${FETCH_ID})`, // recovered: fetch-out-of-range
+          `search-oor [4](#${SEARCH_ID})`, // unresolved
+          `wrapped [2](#<id-${SEARCH_ID}>)`, // recovered: wrapped-id
+          'placeholder [1](#<id-A>)', // unresolved: two citable calls
+          'invented [1](#80a47e63-d3c8-447a-a75f-50433119aebb)' // unresolved
+        ].join(' ')
+      }
+    ]
+
+    it('audit counts every anchor that renders nothing as unresolved', () => {
+      expect(auditCitations({ parts })).toEqual({
+        total: 6,
+        own: 1,
+        recovered: 2,
+        unresolved: 3
+      })
+    })
+
+    it('rendered links match the audit and the cited-URL list', () => {
+      const msg = message(parts)
+      const rendered = processCitations(
+        (parts[2] as { text: string }).text,
+        extractCitationMaps(msg)
+      )
+      const links = [...rendered.matchAll(/\]\((https?:[^)]+)\)/g)].map(
+        m => m[1]
+      )
+      const audit = auditCitations({ parts })
+      expect(links).toHaveLength(audit.own + audit.recovered)
+      expect(extractCitedSourceUrls(msg).sort()).toEqual(
+        [...new Set(links)].sort()
+      )
+    })
   })
 })
