@@ -4,6 +4,7 @@ import {
   createResearcher,
   getResearcherTools,
   getSourcesPromptAddendum,
+  resolveForcedFirstSearch,
   resolveTurnMode,
   sanitizeSourceTitle,
   wrapSearchToolForSources
@@ -286,22 +287,26 @@ describe('createResearcher — generateImage tool registration', () => {
   })
 })
 
-// The stable-knowledge gate. Ported from a flow-design experiment where a
-// blind pairwise judge, over 46 turns, found that on the 18 turns where this
-// architecture searched and a gated one did not, the gated one won 13-2 —
-// searching a settled question produces a worse answer, not just a slower one.
+// The stable-knowledge gate (decision D3). Ported from a flow-design
+// experiment where a blind pairwise judge, over 46 turns, found that on the 18
+// turns where this architecture searched and a gated one did not, the gated
+// one won 13-2. REVERSED by the owner on 2026-09-26 (ALWAYS_SEARCH, default
+// on); these cases pin the legacy behaviour that ALWAYS_SEARCH=off restores.
 //
 // Asserted through resolveTurnMode rather than createResearcher because the
 // agent keeps `instructions` and `activeTools` private, so the branch is
 // otherwise unobservable from a test.
-describe('resolveTurnMode', () => {
+describe('resolveTurnMode — ALWAYS_SEARCH off (legacy D3 gate)', () => {
+  const alwaysSearch = false
+
   it('routes a settled-knowledge question away from search', () => {
     // "explain closures in JavaScript" — the shape this gate exists for.
     expect(
       resolveTurnMode({
         skipSearch: false,
         needsSources: false,
-        needsRecent: false
+        needsRecent: false,
+        alwaysSearch
       })
     ).toBe('stable-knowledge')
   })
@@ -315,7 +320,8 @@ describe('resolveTurnMode', () => {
       resolveTurnMode({
         skipSearch: false,
         needsSources: false,
-        needsRecent: true
+        needsRecent: true,
+        alwaysSearch
       })
     ).toBe('research')
   })
@@ -323,7 +329,12 @@ describe('resolveTurnMode', () => {
   it('searches whenever sources are needed', () => {
     for (const needsRecent of [false, true]) {
       expect(
-        resolveTurnMode({ skipSearch: false, needsSources: true, needsRecent })
+        resolveTurnMode({
+          skipSearch: false,
+          needsSources: true,
+          needsRecent,
+          alwaysSearch
+        })
       ).toBe('research')
     }
   })
@@ -336,24 +347,141 @@ describe('resolveTurnMode', () => {
       resolveTurnMode({
         skipSearch: true,
         needsSources: false,
-        needsRecent: false
+        needsRecent: false,
+        alwaysSearch
       })
     ).toBe('direct')
     expect(
       resolveTurnMode({
         skipSearch: true,
         needsSources: true,
-        needsRecent: true
+        needsRecent: true,
+        alwaysSearch
       })
     ).toBe('direct')
   })
 
-  it('defaults to research when the caller passes nothing', () => {
+  it('defaults to research when the caller passes nothing but the flag', () => {
     // THE SAFETY PROPERTY. Every existing call site that does not know about
     // needsSources — and the classifier's own failure fallback — must keep
     // searching exactly as before. The gate may only engage where something
     // deliberately said false.
-    expect(resolveTurnMode({})).toBe('research')
-    expect(resolveTurnMode({ skipSearch: false })).toBe('research')
+    expect(resolveTurnMode({ alwaysSearch })).toBe('research')
+    expect(resolveTurnMode({ skipSearch: false, alwaysSearch })).toBe(
+      'research'
+    )
+  })
+})
+
+// ALWAYS_SEARCH (default): every question is a research turn; the only skip
+// left is the classifier's skipSearch, which it now sets for non-questions
+// only (greeting/thanks, pure transform, pure arithmetic, image request).
+describe('resolveTurnMode — ALWAYS_SEARCH on (default)', () => {
+  it('is the default when the flag is not passed', () => {
+    expect(
+      resolveTurnMode({
+        skipSearch: false,
+        needsSources: false,
+        needsRecent: false
+      })
+    ).toBe('research')
+  })
+
+  it('never routes to stable-knowledge, whatever needsSources/needsRecent say', () => {
+    for (const needsSources of [false, true]) {
+      for (const needsRecent of [false, true]) {
+        expect(
+          resolveTurnMode({
+            skipSearch: false,
+            needsSources,
+            needsRecent,
+            alwaysSearch: true
+          })
+        ).toBe('research')
+      }
+    }
+  })
+
+  it('still honours skipSearch (a non-question) as direct', () => {
+    expect(
+      resolveTurnMode({
+        skipSearch: true,
+        needsSources: true,
+        alwaysSearch: true
+      })
+    ).toBe('direct')
+    expect(
+      resolveTurnMode({
+        skipSearch: true,
+        needsSources: false,
+        alwaysSearch: true
+      })
+    ).toBe('direct')
+  })
+
+  it('classifier failure / timeout / URL / Retry / speed bypass (skipSearch=false, needsSources=true) is research', () => {
+    expect(
+      resolveTurnMode({
+        skipSearch: false,
+        needsSources: true,
+        needsRecent: false,
+        alwaysSearch: true
+      })
+    ).toBe('research')
+  })
+})
+
+describe('resolveForcedFirstSearch', () => {
+  it('forces the resolved standalone query on a research turn with the flag on', () => {
+    expect(
+      resolveForcedFirstSearch({
+        alwaysSearch: true,
+        turnMode: 'research',
+        standaloneQuery: 'Should a multiplayer game server use TCP or UDP?'
+      })
+    ).toBe('Should a multiplayer game server use TCP or UDP?')
+  })
+
+  it('never forces a direct (non-question) turn', () => {
+    expect(
+      resolveForcedFirstSearch({
+        alwaysSearch: true,
+        turnMode: 'direct',
+        standaloneQuery: 'Thanks, no search needed'
+      })
+    ).toBeNull()
+  })
+
+  it('never forces anything with the flag off (legacy: the model decides)', () => {
+    for (const turnMode of [
+      'research',
+      'stable-knowledge',
+      'direct'
+    ] as const) {
+      expect(
+        resolveForcedFirstSearch({
+          alwaysSearch: false,
+          turnMode,
+          standaloneQuery: 'anything'
+        })
+      ).toBeNull()
+    }
+  })
+
+  it('does not force when nothing searchable remains (URL-only / empty)', () => {
+    expect(
+      resolveForcedFirstSearch({
+        alwaysSearch: true,
+        turnMode: 'research',
+        standaloneQuery: 'https://example.com/x'
+      })
+    ).toBeNull()
+    expect(
+      resolveForcedFirstSearch({
+        alwaysSearch: true,
+        turnMode: 'research',
+        standaloneQuery: ''
+      })
+    ).toBeNull()
   })
 })

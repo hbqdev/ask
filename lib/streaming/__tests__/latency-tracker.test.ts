@@ -506,3 +506,44 @@ describe('LatencyTracker.emit — abort forensics', () => {
     expect(payload(lines).abort_silence_ms).toBe(5_000)
   })
 })
+
+// ALWAYS_SEARCH: needsSources no longer determines the mode on its own, so the
+// resolved turn mode and whether step 0 was a forced search are logged
+// directly. Asserted on the serialized line, for the same reason as above.
+describe('LatencyTracker.emit — turn plan', () => {
+  it('serializes turn_mode and forced_search next to the decision flags', () => {
+    const lines: string[] = []
+    const t = new LatencyTracker(
+      { chatId: 'c3', mode: 'balanced' },
+      undefined,
+      (l: string) => lines.push(l)
+    )
+    t.emit({
+      skipSearch: false,
+      needsRecent: false,
+      needsSources: false,
+      turnMode: 'research',
+      forcedSearch: true
+    })
+    const payload = JSON.parse(lines[0].replace('[latency] ', ''))
+    expect(payload).toMatchObject({
+      skipSearch: false,
+      needsSources: false,
+      turn_mode: 'research',
+      forced_search: true
+    })
+  })
+
+  it('records an absent turn plan as null (e.g. a turn that failed before the researcher was built)', () => {
+    const lines: string[] = []
+    const t = new LatencyTracker(
+      { chatId: 'c4', mode: 'balanced' },
+      undefined,
+      (l: string) => lines.push(l)
+    )
+    t.emit({ skipSearch: null })
+    const payload = JSON.parse(lines[0].replace('[latency] ', ''))
+    expect(payload.turn_mode).toBeNull()
+    expect(payload.forced_search).toBeNull()
+  })
+})
