@@ -100,10 +100,23 @@ the moment the tracker was created, which is right before `prepareMessages`.
 | `prompt_tokens` | Input tokens **summed across all steps** (cost) |
 | `last_prompt_tokens` | Input tokens of the **final** step, i.e. the answering prompt. **Use this to judge a change to prompt size** |
 | `completion_tokens` | Output tokens summed across steps, **including reasoning**. Use this to judge a change to reasoning or `ANSWER_THINK` |
-| `citations_total`, `citations_unresolved` | Citation anchors in the answer, and how many name a `toolCallId` this turn never produced. Those anchors were **invented** by the model and render as nothing. Only written when the answer has at least one citation. **Not counted:** an anchor with a real id but a number beyond that call's results (for example `[2]` on a `fetch`, which has one result). It is scored as resolved yet renders as nothing ([known issue](/history/known-issues#citation-placeholders-and-out-of-range-numbers)) |
-| `citations_recovered` | Since 2026-09-24. Anchors that named no tool call of this turn but named exactly one of its source URLs, and were therefore rendered by `resolveByUrlFragment` (`lib/utils/citation.ts:66`). Not counted in `citations_unresolved`. **Omitted when 0** (`lib/streaming/latency-tracker.ts:291-293`), so its absence is normal |
+| `citations_total`, `citations_unresolved` | Citation anchors (`[N](#id)`) in the answer, and how many of them **render as nothing**: an id from another turn, an invented id, an ambiguous placeholder, or a real id with a number that is not one of that call's results. Counted by `auditCitations` (`lib/utils/citation.ts:328-353`) with the resolver rendering uses (`resolveCitationAnchor`, `:263-289`), so it equals what the reader loses. Only written when the answer has at least one anchor. **Since 2026-09-26** out-of-range numbers are included; before that they were scored as resolved although they rendered nothing (see the warning below) |
+| `citations_recovered` | Anchors rendered only through a repair: since 2026-09-24 an id that is a fragment of exactly one of the turn's source URLs (`resolveByUrlFragment`, `lib/utils/citation.ts:66`); since 2026-09-26 also a real id of the turn wrapped in `<id-…>` / `<…>`, a placeholder id in a turn with exactly one citable call, and a too-high number on a fetch that returned one page. Not counted in `citations_unresolved`. **Omitted when 0** (`lib/streaming/latency-tracker.ts:292-294`), so its absence is normal. Anchors rendered as written ("own") are not logged: own = `citations_total` − `citations_recovered` − `citations_unresolved` |
 | `total_ms` | Wall time from tracker creation to `onFinish`. Always present |
 | `abort_silence_ms`, `blank_abort` | Only on aborted turns: how long the turn was silent before the abort, and whether any prose had been written. Silence ≥120s with no prose looks like a provider stall; a short silence is a user pressing Stop or a disconnect |
+
+::: warning `citations_unresolved` jumps on builds with the 2026-09-26 citation fix
+That build (lab `dbbbc376`, prod `0bd8f8cc`, staging `7af2beff`) changed what the counter
+counts, not how models cite. An anchor with a real id and an out-of-range number (for example
+`[12]` on a search that returned 10 results, written by a model counting its sources across the
+answer) used to be scored as resolved while rendering nothing; it is now unresolved. A replay
+of the last 60 days of stored answers put the audit in agreement with rendering on 374 of 374
+messages, against 333 before. Expect `citations_unresolved / citations_total` to be **higher** than on older lines for
+the same answers: that is the honest count, not a regression. Compare rates only between lines
+written by the same build. A too-high number on a one-page fetch is now rendered and counted in
+`citations_recovered` instead. Neither counter sees an in-range number that points at the wrong
+result ([known issue](/history/known-issues#running-count-citation-numbers-can-point-at-the-wrong-result)).
+:::
 
 Example (prod, balanced, a research turn; `chatId` omitted):
 
@@ -288,7 +301,9 @@ Observations from that sample worth watching:
   Most were traced to three pipeline causes, fixed 2026-09-24 (see
   [known issues › Unresolved citations](/history/known-issues#unresolved-citations)).
   After the port, compare `citations_unresolved / citations_total` on live turns
-  with this baseline.
+  with this baseline, but only on lines from builds before the 2026-09-26 citation fix: that
+  fix also counts out-of-range numbers as unresolved, so newer lines read higher for the same
+  answers (warning above).
 
 ## Diagnosing "slow answers", step by step
 
