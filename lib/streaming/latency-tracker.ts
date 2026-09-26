@@ -152,6 +152,11 @@ export class LatencyTracker {
     skipSearch?: boolean | null
     needsRecent?: boolean | null
     needsSources?: boolean | null
+    // The turn mode createResearcher actually resolved ('direct' |
+    // 'stable-knowledge' | 'research') and whether its step 0 was a forced
+    // web search (ALWAYS_SEARCH). Omitted fields serialize as null.
+    turnMode?: string | null
+    forcedSearch?: boolean | null
   }): void {
     try {
       const total = Math.round(this.now() - this.startedAt)
@@ -297,7 +302,13 @@ export class LatencyTracker {
           // apart from "searched and found nothing".
           skipSearch: extra.skipSearch ?? null,
           needsRecent: extra.needsRecent ?? null,
-          needsSources: extra.needsSources ?? null
+          needsSources: extra.needsSources ?? null,
+          // What those flags RESOLVED to. Under ALWAYS_SEARCH the flags no
+          // longer determine the mode on their own (needsSources gates
+          // nothing), so the mode is logged directly, together with whether
+          // the first step was a guaranteed search.
+          turn_mode: extra.turnMode ?? null,
+          forced_search: extra.forcedSearch ?? null
         })}`
       )
     } catch {

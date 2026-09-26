@@ -9,7 +9,12 @@ import {
   vi
 } from 'vitest'
 
-import { classifyQuery } from '../query-classifier'
+import {
+  CLASSIFIER_SYSTEM_PROMPT,
+  classifyQuery,
+  getClassifierSystemPrompt,
+  LEGACY_CLASSIFIER_SYSTEM_PROMPT
+} from '../query-classifier'
 
 // The classifier reads its result from a TOOL CALL, not Output.object.
 // Ollama's `format: <json schema>` constrains decoding only for LOCAL models
@@ -328,29 +333,31 @@ describe('classifyQuery soft budget', () => {
   it('caps the wait at CLASSIFIER_BUDGET_MS (4000) when the model is slow (9000ms), returning the graceful always-search fallback and outcome=budget', async () => {
     // The model would answer with a perfectly good classification — but not
     // until 9000ms, well past the 4000ms soft budget. The cap must win first.
-    mockGenerateText.mockImplementation((() =>
-      new Promise(resolve =>
-        setTimeout(
-          () =>
-            resolve({
-              toolCalls: [
-                {
-                  toolName: 'classify',
-                  input: {
-                    skipSearch: true,
-                    standaloneQuery: 'the slow model answer',
-                    needsRecent: false,
-                    needsSources: false,
-                    intent: 'general',
-                    expandedQueries: ['a', 'b']
+    mockGenerateText.mockImplementation(
+      (() =>
+        new Promise(resolve =>
+          setTimeout(
+            () =>
+              resolve({
+                toolCalls: [
+                  {
+                    toolName: 'classify',
+                    input: {
+                      skipSearch: true,
+                      standaloneQuery: 'the slow model answer',
+                      needsRecent: false,
+                      needsSources: false,
+                      intent: 'general',
+                      expandedQueries: ['a', 'b']
+                    }
                   }
-                }
-              ],
-              usage: { inputTokens: 100, outputTokens: 20 }
-            }),
-          9000
-        )
-      )) as any)
+                ],
+                usage: { inputTokens: 100, outputTokens: 20 }
+              }),
+            9000
+          )
+        )) as any
+    )
 
     let settled = false
     const promise = classifyQuery({
@@ -384,29 +391,31 @@ describe('classifyQuery soft budget', () => {
   })
 
   it('uses the model classification (outcome=ok) when it answers within budget', async () => {
-    mockGenerateText.mockImplementation((() =>
-      new Promise(resolve =>
-        setTimeout(
-          () =>
-            resolve({
-              toolCalls: [
-                {
-                  toolName: 'classify',
-                  input: {
-                    skipSearch: false,
-                    standaloneQuery: 'What is the capital of Germany?',
-                    needsRecent: false,
-                    needsSources: false,
-                    intent: 'general',
-                    expandedQueries: ['capital city Germany']
+    mockGenerateText.mockImplementation(
+      (() =>
+        new Promise(resolve =>
+          setTimeout(
+            () =>
+              resolve({
+                toolCalls: [
+                  {
+                    toolName: 'classify',
+                    input: {
+                      skipSearch: false,
+                      standaloneQuery: 'What is the capital of Germany?',
+                      needsRecent: false,
+                      needsSources: false,
+                      intent: 'general',
+                      expandedQueries: ['capital city Germany']
+                    }
                   }
-                }
-              ],
-              usage: { inputTokens: 100, outputTokens: 20 }
-            }),
-          1500
-        )
-      )) as any)
+                ],
+                usage: { inputTokens: 100, outputTokens: 20 }
+              }),
+            1500
+          )
+        )) as any
+    )
 
     const promise = classifyQuery({ messages: [userMsg('and Germany?')] })
     await vi.advanceTimersByTimeAsync(1600)
@@ -415,5 +424,92 @@ describe('classifyQuery soft budget', () => {
     expect(result.standaloneQuery).toBe('What is the capital of Germany?')
     expect(result.skipSearch).toBe(false)
     expect(parseClassifyLine()?.outcome).toBe('ok')
+  })
+})
+
+// ALWAYS_SEARCH picks the classifier prompt. On (default): skipSearch means a
+// NON-question only and needsSources no longer steers away from sources. Off:
+// the legacy prompt, verbatim, so the flag restores the old behaviour exactly.
+describe('classifier prompt selection (ALWAYS_SEARCH)', () => {
+  const originalOllamaUrl = process.env.OLLAMA_BASE_URL
+  const originalFlag = process.env.ALWAYS_SEARCH
+
+  beforeEach(() => {
+    vi.clearAllMocks()
+    process.env.OLLAMA_BASE_URL = 'http://localhost:11434'
+    mockGenerateText.mockResolvedValue({
+      toolCalls: [
+        {
+          toolName: 'classify',
+          input: {
+            skipSearch: false,
+            standaloneQuery: 'q',
+            needsRecent: false,
+            needsSources: true,
+            intent: 'general',
+            expandedQueries: []
+          }
+        }
+      ]
+    } as any)
+  })
+
+  afterEach(() => {
+    if (originalFlag === undefined) delete process.env.ALWAYS_SEARCH
+    else process.env.ALWAYS_SEARCH = originalFlag
+  })
+
+  afterAll(() => {
+    process.env.OLLAMA_BASE_URL = originalOllamaUrl
+  })
+
+  it('sends the always-search prompt by default (flag unset)', async () => {
+    delete process.env.ALWAYS_SEARCH
+    await classifyQuery({ messages: [userMsg('what is tcp')] })
+    const system = String(mockGenerateText.mock.calls[0][0].system)
+    expect(system.startsWith(CLASSIFIER_SYSTEM_PROMPT)).toBe(true)
+  })
+
+  it('sends the legacy prompt verbatim when ALWAYS_SEARCH=off', async () => {
+    process.env.ALWAYS_SEARCH = 'off'
+    await classifyQuery({ messages: [userMsg('what is tcp')] })
+    const system = String(mockGenerateText.mock.calls[0][0].system)
+    expect(system.startsWith(LEGACY_CLASSIFIER_SYSTEM_PROMPT)).toBe(true)
+  })
+
+  it('getClassifierSystemPrompt maps the flag to the two prompts', () => {
+    expect(getClassifierSystemPrompt(true)).toBe(CLASSIFIER_SYSTEM_PROMPT)
+    expect(getClassifierSystemPrompt(false)).toBe(
+      LEGACY_CLASSIFIER_SYSTEM_PROMPT
+    )
+  })
+
+  it('the always-search prompt limits skipSearch to the four non-question kinds', () => {
+    const p = CLASSIFIER_SYSTEM_PROMPT
+    expect(p).toContain('skipSearch — set true ONLY when')
+    for (const kind of [
+      'greeting, thanks',
+      'pure transform',
+      'Pure arithmetic',
+      'generate, draw or edit an image'
+    ]) {
+      expect(p).toContain(kind)
+    }
+    expect(p).toContain(
+      'A question that re-asks or confirms something already said is still a question.'
+    )
+    expect(p).toContain('If uncertain, skipSearch=false.')
+  })
+
+  it('the always-search prompt no longer tells the model to avoid sources', () => {
+    const p = CLASSIFIER_SYSTEM_PROMPT
+    expect(p).not.toContain('default to needsSources=false')
+    expect(p).not.toContain('padded with')
+    expect(p).not.toContain('ALREADY explicitly stated above')
+    expect(p).toContain('does NOT decide whether a search runs')
+    // The legacy prompt keeps them — the off path is unchanged.
+    expect(LEGACY_CLASSIFIER_SYSTEM_PROMPT).toContain(
+      'default to needsSources=false'
+    )
   })
 })
