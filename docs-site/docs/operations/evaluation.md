@@ -151,7 +151,11 @@ the flow harnesses on the lab.
 - *Objective*: mean tool calls / searches / fetches, mean latency, mean answer length,
   and **citation validity**: every `[N](#toolCallId)` anchor (`CITATION_PATTERN`,
   `run-eval.ts:404`) must refer to a tool call the message actually made. This catches
-  fabricated anchors. A run with zero citations scores `null`, not `0`.
+  fabricated anchors. A run with zero citations scores `null`, not `0`. It checks the **id
+  only** (`scoreCitations`, `:405-429`): it ignores N and applies none of the renderer's repairs
+  (`resolveCitationAnchor`), so an out-of-range or wrong-result number scores as valid and a
+  repaired placeholder scores as invalid. Its numbers are not comparable with
+  `citations_unresolved` ([known issue](/history/known-issues#running-count-citation-numbers-can-point-at-the-wrong-result)).
 - *Pairwise judge*: `EVAL_JUDGE_MODEL` (default `ollama:qwen3.5:397b:cloud`,
   `run-eval.ts:96`) built via the app's own `getModel()`. Answers are de-identified
   (`IDENTITY_TOKENS`, `run-eval.ts:698`), shown as "A"/"B", and judged **twice with the
@@ -435,10 +439,13 @@ reads back what each server recorded, keyed by chat id. Input `--pairs pairs.jso
 `ask-postgres-lab` / `ask-redis-lab` (`harvest-pairs.py:27-30`).
 
 It counts citations **two ways** and reports them separately: `[3](#anchor)` (the model
-anchored it) and a bare `[3]` (the renderer's `processCitations` resolves it when a turn
-has exactly one citation map). An earlier, uncommitted harness counted only the anchored
-form over the raw `text_text` column and so scored correctly-cited pipeline answers as
-uncited (`harvest-pairs.py:10-18`). Outputs: `--out` (default
+anchored it) and a bare `[3]`. Its docstring (`harvest-pairs.py:10-18`) describes the
+pipeline flow (branch `archive/231-flow-design-pipeline`), whose renderer turned a bare `[3]`
+into a link when a turn had exactly one citation map. The current `processCitations` acts only on `[N](#id)` anchors
+(`CITATION_ANCHOR_RE`, `lib/utils/citation.ts:36`) and leaves a bare `[3]` as literal text, so
+on current builds only the anchored count is a rendered citation. An earlier, uncommitted
+harness counted only the anchored form over the raw `text_text` column and so scored
+correctly-cited pipeline answers as uncited. Outputs: `--out` (default
 `scripts/eval/results/browser-pairs.jsonl`) and `--judge-out` (default
 `results/browser-judgeinput.jsonl`), the latter shaped for pairwise judging.
 
