@@ -37,6 +37,13 @@ import {
   UNTRUSTED_CONTENT_RULE
 } from './prompts/search-mode-prompts'
 import {
+  buildForcedSearchInput,
+  createForcedSearchModel,
+  FORCED_SEARCH_PROMPT_ADDENDUM,
+  isAlwaysSearchEnabled,
+  resolveForcedSearchQuery
+} from './always-search'
+import {
   ANSWER_DEADLINE_MS,
   applyAnswerDeadline,
   enforceAnswerDeadline
@@ -146,23 +153,60 @@ export type TurnMode = 'direct' | 'stable-knowledge' | 'research'
 export function resolveTurnMode({
   skipSearch = false,
   needsSources = true,
-  needsRecent = false
+  needsRecent = false,
+  // ALWAYS_SEARCH (lib/agents/always-search.ts). Defaults to the flag's own
+  // default, ON; createResearcher passes the live env value.
+  alwaysSearch = true
 }: {
   skipSearch?: boolean
   needsSources?: boolean
   needsRecent?: boolean
+  alwaysSearch?: boolean
 }): TurnMode {
   // FIRST, and deliberately: "the conversation already answers this" is a
   // stronger claim than "general knowledge answers this", and it comes with a
-  // prompt that reads the conversation rather than ignoring it.
+  // prompt that reads the conversation rather than ignoring it. Under
+  // ALWAYS_SEARCH the classifier sets skipSearch ONLY for non-questions
+  // (greeting/thanks, a pure transform of text already present, pure
+  // arithmetic, an image request), so this is the one remaining skip.
   if (skipSearch) return 'direct'
-  // BOTH flags. They are independent — freshness versus whether sources help
-  // at all — and needsRecent=true is an explicit statement that the answer
-  // decays with time, which parametric knowledge cannot serve however
-  // well-established the topic is.
+  // ALWAYS_SEARCH reverses decision D3 (owner, 2026-09-26): every question is
+  // a research turn, so needsSources no longer gates anything. Prod evidence:
+  // 47 of 164 turns over 60 days were routed here as sourceless and answered
+  // from memory — named products, company policies, home repair, health and
+  // safety — e.g. a melted-plastic answer that recommended acetone with no
+  // fire warning.
+  if (alwaysSearch) return 'research'
+  // Legacy D3 gate (ALWAYS_SEARCH=off). BOTH flags. They are independent —
+  // freshness versus whether sources help at all — and needsRecent=true is an
+  // explicit statement that the answer decays with time, which parametric
+  // knowledge cannot serve however well-established the topic is.
   if (!needsSources && !needsRecent) return 'stable-knowledge'
   return 'research'
 }
+
+/**
+ * The query this turn's first step is forced to search, or null when the turn
+ * is not forced. Forced only for a research turn with ALWAYS_SEARCH on and
+ * something searchable in the resolved query (see resolveForcedSearchQuery for
+ * the URL-only / attachment-only null). Pure and exported so the decision is
+ * testable apart from the agent, which keeps its prepareStep private.
+ */
+export function resolveForcedFirstSearch({
+  alwaysSearch,
+  turnMode,
+  standaloneQuery
+}: {
+  alwaysSearch: boolean
+  turnMode: TurnMode
+  standaloneQuery?: string
+}): string | null {
+  if (!alwaysSearch || turnMode !== 'research') return null
+  return resolveForcedSearchQuery(standaloneQuery)
+}
+
+/** What createResearcher decided for this turn, reported for telemetry. */
+export type TurnPlan = { turnMode: TurnMode; forcedSearch: boolean }
 
 /** Same query modulo case, surrounding space and internal run-length. */
 function normalizeQuery(q: string): string {
@@ -461,7 +505,12 @@ export async function createResearcher({
   // Folds each search/fetch call's stage timings into the per-turn [latency]
   // line (create-chat-stream-response owns the LatencyTracker). Additive
   // telemetry only; undefined (e.g. ephemeral turns) leaves the tools untimed.
-  onToolTiming
+  onToolTiming,
+  // ALWAYS_SEARCH override for tests; production reads the env flag.
+  alwaysSearch = isAlwaysSearchEnabled(),
+  // Reports the resolved turn mode and whether step 0 is a forced search, so
+  // the [latency] line can carry turn_mode / forced_search. Telemetry only.
+  onTurnPlan
 }: {
   model: string
   modelConfig?: Model
@@ -516,6 +565,8 @@ export async function createResearcher({
     kind: 'search' | 'fetch',
     stages: Record<string, number>
   ) => void
+  alwaysSearch?: boolean
+  onTurnPlan?: (plan: TurnPlan) => void
 }) {
   try {
     const currentDate = new Date().toLocaleString()
@@ -574,7 +625,25 @@ export async function createResearcher({
     let maxSteps: number
     let searchTool = originalSearchTool
 
-    const turnMode = resolveTurnMode({ skipSearch, needsSources, needsRecent })
+    const turnMode = resolveTurnMode({
+      skipSearch,
+      needsSources,
+      needsRecent,
+      alwaysSearch
+    })
+    // ALWAYS_SEARCH: step 0 of a research turn IS a web search, performed by
+    // a synthetic model that emits one `search` call (see
+    // createForcedSearchModel for why not toolChoice). null = not forced.
+    const forcedSearchQuery = resolveForcedFirstSearch({
+      alwaysSearch,
+      turnMode,
+      standaloneQuery
+    })
+    try {
+      onTurnPlan?.({ turnMode, forcedSearch: forcedSearchQuery !== null })
+    } catch {
+      // Telemetry must never break a turn.
+    }
 
     if (turnMode === 'direct') {
       systemPrompt = DIRECT_ANSWER_PROMPT
@@ -725,6 +794,13 @@ The conversation history is background context, not a to-do list. Any topic from
 - Your answer must address exactly one thing: the resolved query. If you catch yourself planning to cover two topics because the earlier one is still in the history, that is this rule being violated — drop the earlier one.`
     }
 
+    // Tell the answering model its first search already ran. Appended after
+    // the mode prompt so it supersedes that prompt's "clarifying your own
+    // prior answer — do NOT search" exception (later instructions win).
+    if (forcedSearchQuery !== null) {
+      systemPrompt = systemPrompt + FORCED_SEARCH_PROMPT_ADDENDUM
+    }
+
     // Append user's custom instructions at lower priority (per Vane pattern)
     if (systemInstructions?.trim()) {
       systemPrompt =
@@ -838,6 +914,24 @@ Treat each exactly like a \`search\` or \`fetch\` result from this turn: you MAY
       )
     }
 
+    // Built once per turn; handed to step 0 only (prepareStep below). Its
+    // call runs the real, fully wrapped `search` tool from `tools`.
+    const forcedSearchModel =
+      forcedSearchQuery !== null
+        ? createForcedSearchModel({
+            input: buildForcedSearchInput(forcedSearchQuery, firstSearchDepth)
+          })
+        : null
+    if (forcedSearchModel) {
+      console.log(
+        `[Researcher] always-search: step 0 forced to search "${forcedSearchQuery!.slice(0, 80)}" (turnMode=${turnMode}, mode=${searchMode})`
+      )
+    } else if (alwaysSearch && turnMode === 'research') {
+      console.log(
+        `[Researcher] always-search: nothing searchable in the resolved query (URL- or attachment-only) — first step not forced`
+      )
+    }
+
     // Create ToolLoopAgent with all configuration
     const agent = new ToolLoopAgent({
       // turnMode is forwarded so ANSWER_THINK=targeted can turn the answering
@@ -886,13 +980,21 @@ Treat each exactly like a \`search\` or \`fetch\` result from this turn: you MAY
         // A `system` override REPLACES the instructions for that step, so the
         // date has to be re-appended — whoever produced the override — or the
         // model silently loses it partway through a turn.
+        const withDate = o.system
+          ? {
+              ...o,
+              system: `${o.system}\nCurrent date and time: ${currentDate}`
+            }
+          : o
+        // ALWAYS_SEARCH: step 0 runs on the synthetic model, whose only
+        // output is the `search` call. The per-step `model` override is
+        // honoured by the SDK itself (streamText resolves
+        // prepareStepResult.model), unlike toolChoice, which the Ollama
+        // provider drops. From step 1 the real model runs as before.
         return (
-          o.system
-            ? {
-                ...o,
-                system: `${o.system}\nCurrent date and time: ${currentDate}`
-              }
-            : o
+          stepNumber === 0 && forcedSearchModel
+            ? { ...withDate, model: forcedSearchModel }
+            : withDate
         ) as never
       }) as never,
       // No toolChoice forcing by default and no dedicated "done" tool —
@@ -901,7 +1003,9 @@ Treat each exactly like a \`search\` or \`fetch\` result from this turn: you MAY
       // call on every step (as a prior version did) left weaker models with no
       // valid way to finish except an unfamiliar "stop" tool, so they looped
       // on search/fetch instead of ever answering. Variants that DO force a
-      // step do it for one specific step, never for all of them.
+      // step do it for one specific step, never for all of them — as does
+      // ALWAYS_SEARCH, which forces step 0 only (via a per-step model
+      // override in prepareStep above) and leaves every later step free.
       //
       // stepCountIs compares with strict equality, so a variant's extra
       // condition is listed alongside it rather than folded into it.

@@ -7,6 +7,7 @@ import { SEARCH_INTENTS } from '../tools/search/intent'
 import { createTimeoutFetch } from '../utils/fetch-with-timeout'
 import { getTextFromParts } from '../utils/message-utils'
 
+import { isAlwaysSearchEnabled } from './always-search'
 import { buildClassifierTelemetry } from './query-classifier-telemetry'
 
 // Dedicated, fixed model for this classification — deliberately NOT routed
@@ -87,7 +88,7 @@ const HISTORY_WINDOW = 20
 // thing being classified) never is.
 const MAX_HISTORY_CHARS_PER_MESSAGE = 2500
 
-const classifierSchema = z.object({
+export const classifierSchema = z.object({
   skipSearch: z.boolean(),
   standaloneQuery: z.string(),
   needsRecent: z.boolean(),
@@ -136,6 +137,11 @@ export interface QueryClassification {
    * `needsRecent` is about FRESHNESS; this is about whether sources would
    * IMPROVE the answer at all. They are independent: "what is TCP" is neither,
    * "current PostgreSQL version" is both.
+   *
+   * With ALWAYS_SEARCH on (the default, lib/agents/always-search.ts) this
+   * gates NOTHING — decision D3 was reversed on 2026-09-26 and every question
+   * searches. It is still produced and logged on the [latency] line; only
+   * ALWAYS_SEARCH=off restores the gate described above.
    */
   needsSources: boolean
   // The kind of sources most useful for this turn. Maps to ONE additive
@@ -145,6 +151,10 @@ export interface QueryClassification {
   intent: import('../tools/search/intent').SearchIntent
 }
 
+// LEGACY prompt — used only with ALWAYS_SEARCH=off, kept verbatim so that
+// flag restores the previous behaviour exactly (with the D3 stable-knowledge
+// gate in researcher.ts resolveTurnMode).
+//
 // Matches Anthropic's/OpenAI's own tool-calling guidance (let one model
 // decide inline) for the common case, but adds the one narrow, structural
 // carve-out that prose instructions inside the main research prompt kept
@@ -152,7 +162,7 @@ export interface QueryClassification {
 // OWN prior answer. Validated live at temperature 0 — see conversation
 // history for the test transcript this prompt is tuned against (new-entity
 // follow-ups, pure confirmations, and casual chit-chat).
-const CLASSIFIER_SYSTEM_PROMPT = `You decide whether a NEW web search is needed to answer the latest user message, given the conversation so far.
+export const LEGACY_CLASSIFIER_SYSTEM_PROMPT = `You decide whether a NEW web search is needed to answer the latest user message, given the conversation so far.
 
 Rule: if the latest message names a different subject/entity than what was already discussed, or asks for any fact not yet stated above, that is ALWAYS skipSearch=false - no exceptions, even if the question is short or looks like a follow-up — except a request only to generate, draw, or edit an image (covered by the skip-search rule below).
 
@@ -196,6 +206,87 @@ Examples:
 
 standaloneQuery is always a short plain string, never empty, never a meta-question back to the user.`
 
+// ALWAYS_SEARCH prompt (the default). The owner's 2026-09-26 decision: any
+// question must search; only a NON-question may skip. So skipSearch is
+// redefined to exactly four kinds of non-question, and everything else —
+// settled concepts, follow-ups that confirm/choose/apply the previous answer,
+// questions the conversation seems to answer already — is a question and
+// searches. needsSources no longer gates anything (it is logged only), so its
+// guidance no longer steers the model away from sources.
+//
+// Evidence behind the change: over 60 prod days, 69 of 164 turns used no
+// tools — 20 skipSearch turns and 47 routed to stable-knowledge — and many
+// were named products, company policies, home repair/cleaning, health/safety
+// and current fiction answered confidently from memory.
+//
+// The examples deliberately avoid the lab verification turns (TCP vs UDP, a
+// game-server follow-up, melted plastic, "Thanks, that's helpful!") so a
+// browser check measures generalisation rather than a memorised example.
+export const CLASSIFIER_SYSTEM_PROMPT = `You classify the latest user message, given the conversation so far. Every message that asks for information gets a web search. Your main job is to recognise the few messages that are NOT requests for information.
+
+skipSearch — set true ONLY when the latest message is one of these non-questions:
+- Social talk that asks for nothing: a greeting, thanks, an acknowledgement, chit-chat, or venting / a rhetorical remark ("hello", "ok cool, got it", "ugh, the power company again, am I right?").
+- A pure transform of text that is already present — text the user supplied, or the assistant's previous answer: rewrite, rephrase, shorten, translate, summarise, reformat, or turn it into a list/table/email ("rewrite that shorter", "summarise the plan you gave me as a numbered list", "translate this into Spanish: ..."). It must ask for NO new information. Asking for a recommendation, decision, verdict or reasoning is NOT a transform, even when phrased as "give me your final recommendation and the reasoning in short" — that asks for a judgement, so it is a question.
+- Pure arithmetic or a unit conversion on numbers given in the message ("what is 17% of 4500", "convert 12 miles to km").
+- A request only to generate, draw or edit an image ("draw me a picture of the Sydney Opera House").
+
+Everything else is skipSearch=false, including:
+- Any question at all, however simple, settled or widely known ("explain closures in JavaScript", "what is the capital of Germany").
+- A follow-up question about the previous answer, including one that asks you to choose, recommend, confirm, clarify, or apply it to the user's situation ("so which of those would you pick for my case?", "so you mean rotating my hips, not my knees?", "so you're saying to do both, right?"). A question that re-asks or confirms something already said is still a question.
+- A question the conversation already appears to answer.
+- A transform request that ALSO asks for anything new ("summarise that and add current prices").
+- Any request for advice, instructions, how-to, safety, health, cleaning or repair steps, product, company or policy information, opinions or recommendations.
+- A message that mixes social talk with a question ("thanks! does it also work on wool?").
+
+If uncertain, skipSearch=false.
+
+You also set needsRecent: true when a correct answer depends on current or recent information — news, current events, prices, exchange rates, product/software versions or releases, schedules, weather, "latest/newest/current X", anything that changes month to month. false for stable facts (history, geography, definitions, science, how-things-work) and for skipSearch=true turns.
+
+If uncertain about needsRecent, default to needsRecent=false.
+
+You also set intent — the kind of sources most useful for answering:
+- "code": programming, libraries, APIs, error messages, package/tooling questions, software how-to, technical documentation.
+- "discussion": opinions, recommendations, personal experiences, "what do people think about X", community consensus.
+- "news": current events, breaking news, recent happenings, "what happened with X".
+- "academic": research papers, scientific or medical evidence, scholarly citations, studies.
+- "general": everything else, or whenever you are not clearly in one of the above.
+
+Only leave "general" when the intent is clearly one of the others. If uncertain, use "general".
+
+You also set needsSources. It is recorded for analysis only and does NOT decide whether a search runs. true when the answer turns on specifics a careful reader would want a citation for — a version, price, date, statistic, schedule, a claim about a specific named product, company, person, paper or event — or on advice where a mistake could cause harm (health, safety, legal, money, home repair or cleaning chemicals). false for well-known concepts and for skipSearch=true turns. If uncertain, true.
+
+standaloneQuery is the latest message rewritten so it makes complete sense with no conversation history: resolve pronouns and references ("that", "which one", "it", "my case") against the conversation. For skipSearch=false it is used as the web search query for this turn, so it must name the actual subject. Always a short plain string, never empty, never a meta-question back to the user.
+
+Examples:
+1) Assistant said "Mount Fuji is the tallest mountain in Japan." User: "what about South Korea" -> a question -> skipSearch=false, needsRecent=false, needsSources=true, intent="general", standaloneQuery="What is the tallest mountain in South Korea?"
+2) Assistant compared PostgreSQL and MySQL for a small web app. User: "so which one would you pick for my case?" -> a follow-up question asking for a recommendation -> skipSearch=false, needsRecent=false, needsSources=true, intent="code", standaloneQuery="PostgreSQL or MySQL for a small web app: which to choose?"
+3) Assistant said "Option 1: X. Option 2: Y. Best practice: do both." User: "so you are saying to do both, right?" -> confirming the previous answer is still a question -> skipSearch=false, needsRecent=false, needsSources=true, intent="general", standaloneQuery="Should I do both X and Y?"
+4) User: "hey how is it going" -> greeting -> skipSearch=true, needsRecent=false, needsSources=false, intent="general", standaloneQuery="Greeting, no search needed"
+5) Assistant gave a detailed answer. User: "ok cool, thanks" -> acknowledgement, asks for nothing -> skipSearch=true, needsRecent=false, needsSources=false, intent="general", standaloneQuery="Thanks, no search needed"
+6) Assistant recommended a home-network setup. User: "summarise the setup you recommended as a numbered list" -> pure transform of the previous answer -> skipSearch=true, needsRecent=false, needsSources=false, intent="general", standaloneQuery="Summarise the recommended home-network setup as a numbered list"
+7) User: "what is 17% of 4500" -> pure arithmetic -> skipSearch=true, needsRecent=false, needsSources=false, intent="general", standaloneQuery="What is 17% of 4500?"
+8) User: "draw me a picture of the Sydney Opera House" -> image request only -> skipSearch=true, needsRecent=false, needsSources=false, intent="general", standaloneQuery="Generate an image of the Sydney Opera House"
+9) User: "explain closures in JavaScript" -> a question, even though the topic is settled -> skipSearch=false, needsRecent=false, needsSources=false, intent="code", standaloneQuery="How do closures work in JavaScript?"
+10) User: "I spilled bleach on my carpet, how do I fix it?" -> a how-to question with a safety angle -> skipSearch=false, needsRecent=false, needsSources=true, intent="general", standaloneQuery="How to fix a bleach stain on carpet safely"
+11) User: "what's the latest stable version of Node.js" -> version info changes constantly -> skipSearch=false, needsRecent=true, needsSources=true, intent="code", standaloneQuery="What is the latest stable version of Node.js?"
+12) User: "did anything major happen in AI this week" -> current events -> skipSearch=false, needsRecent=true, needsSources=true, intent="news", standaloneQuery="Major AI news this week"
+13) User: "what mechanical keyboard do people actually recommend" -> opinions/community consensus -> skipSearch=false, needsRecent=false, needsSources=true, intent="discussion", standaloneQuery="Recommended mechanical keyboards according to users"
+14) User: "does creatine actually improve muscle recovery, any studies" -> scientific evidence -> skipSearch=false, needsRecent=false, needsSources=true, intent="academic", standaloneQuery="Does creatine improve muscle recovery (research evidence)?"
+15) Assistant explained how to remove a wine stain from cotton. User: "thanks! does it also work on wool?" -> thanks plus a new question -> skipSearch=false, needsRecent=false, needsSources=true, intent="general", standaloneQuery="Does the wine stain removal method work on wool?"
+16) Assistant compared two ways to back up a home server. User: "give me your final recommendation and the reasoning in short" -> asks for a decision, not a restatement -> skipSearch=false, needsRecent=false, needsSources=true, intent="general", standaloneQuery="Best way to back up a home server: recommendation and reasoning"`
+
+/**
+ * The classifier system prompt for this turn: the ALWAYS_SEARCH prompt by
+ * default, the legacy prompt when ALWAYS_SEARCH=off.
+ */
+export function getClassifierSystemPrompt(
+  alwaysSearch: boolean = isAlwaysSearchEnabled()
+): string {
+  return alwaysSearch
+    ? CLASSIFIER_SYSTEM_PROMPT
+    : LEGACY_CLASSIFIER_SYSTEM_PROMPT
+}
+
 // Prior-turn text is clipped, never the latest message: the latest message
 // is the thing being classified and must survive intact.
 function clipHistoryText(text: string): string {
@@ -204,7 +295,7 @@ function clipHistoryText(text: string): string {
     : text
 }
 
-function buildConversationTranscript(messages: UIMessage[]): {
+export function buildConversationTranscript(messages: UIMessage[]): {
   history: string
   latestMessage: string
 } {
@@ -352,7 +443,7 @@ export async function classifyQuery({
         // The answering model has had this all along (researcher.ts appends
         // "Current date and time"). Only the classifier was blind, and it is
         // the one writing the queries.
-        system: `${CLASSIFIER_SYSTEM_PROMPT}\n\nCurrent date and time: ${new Date().toLocaleString()}`,
+        system: `${getClassifierSystemPrompt()}\n\nCurrent date and time: ${new Date().toLocaleString()}`,
         prompt: `Conversation so far:\n${history}\n\nLatest message: ${latestMessage}`,
         temperature: 0,
         abortSignal: combinedSignal,
@@ -387,10 +478,7 @@ export async function classifyQuery({
         budgetTimer = setTimeout(() => {
           // Cut the wasted in-flight call loose from the shared host.
           budgetController.abort(
-            new DOMException(
-              'classifier soft budget exceeded',
-              'TimeoutError'
-            )
+            new DOMException('classifier soft budget exceeded', 'TimeoutError')
           )
           resolve({ kind: 'budget' })
         }, CLASSIFIER_BUDGET_MS)
