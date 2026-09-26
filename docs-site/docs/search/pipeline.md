@@ -15,6 +15,20 @@ which turn mode is chosen) is covered in [Models & reasoning](/search/models-rea
 and [Chat turn](/request-lifecycle/chat-turn). To measure any of this, see
 [Telemetry](/operations/telemetry).
 
+::: tip Every question searches (since 2026-09-26)
+With `ALWAYS_SEARCH` on (the default), the first `search` call of every
+research turn is **forced**: it is issued at step 0 by a synthetic model on the
+classifier's `standaloneQuery`, not by the answering model. From the tool's point
+of view nothing differs, so everything on this page applies to it: it is the
+turn's first search, it takes the advanced slot on balanced/quality, it gets the
+expansion variants, and it counts as round 1. Only non-questions (greetings,
+thanks, pure transforms, arithmetic, image requests, explicit remember/forget
+instructions) skip search. A research turn is not forced when the user supplied
+the source: a pasted URL (read with `fetch` or the attached-source path), or an
+attachment the message only points at. See
+[D37](/history/decisions#d37-always-search-every-question).
+:::
+
 ::: tip Where the code lives
 | Concern | File |
 |---|---|
@@ -41,7 +55,7 @@ protocol (`QUALITY MODE — DEEP RESEARCH PROTOCOL` in
 | | **Speed** | **Balanced** (default) | **Quality** |
 |---|---|---|---|
 | UI hint (`search-modes.ts`) | "usually ~5–10s" | "usually ~15–30s" | "usually ~45s or more" |
-| Query classifier | **bypassed** (always searches the raw message) | runs (classify + fused query expansion) | runs |
+| Query classifier | **bypassed** (the forced first search runs on the raw message) | runs (classify + fused query expansion) | runs |
 | Past-conversation recall | **skipped** | runs, capped at `RECALL_BUDGET_MS` | runs, capped |
 | Query-expansion variants | none | up to 3, first search only | up to 3, first search only |
 | First search | basic depth → **Ollama-web fast path**, no crawl | **advanced** (`/api/advanced-search`) | **advanced** |
@@ -53,15 +67,27 @@ protocol (`QUALITY MODE — DEEP RESEARCH PROTOCOL` in
 | Agent `maxSteps` | 20 | 50 | 100 |
 | Prompt | `SPEED_MODE_PROMPT` | `getAdaptiveModePrompt()` | `getQualityModePrompt()` (≥15 searches, todo list, report) |
 
-These are the *research* configurations. If the classifier decides the turn
-needs no search (`direct`), or that it is stable knowledge (`stable-knowledge`),
-the mode's research configuration does not apply (see
+These are the *research* configurations. If the classifier decides the message
+is not a question (`skipSearch`, turn mode `direct`), the mode's research
+configuration does not apply. With `ALWAYS_SEARCH=off` a third mode,
+`stable-knowledge`, also skips it (see
 [Models & reasoning](/search/models-reasoning#turn-modes)).
 
-**Measured on prod** (`latency:log`, 46 turns on current code, mid-September
-2026, almost all balanced): research turns had a median total of **~19.5s**
-(time to first streamed part ~4.2s); stable-knowledge turns ~10.3s; direct
-turns ~6.8s. The one speed turn in that sample took 9.0s. A balanced advanced
+**Measured on prod** (`latency:log`, 46 turns on the code of mid-September
+2026, almost all balanced, **before** every question searched): research turns
+had a median total of **~19.5s** (time to first streamed part ~4.2s);
+stable-knowledge turns ~10.3s; direct turns ~6.8s. The one speed turn in that
+sample took 9.0s. Since 2026-09-26 the former stable-knowledge questions are
+research turns: on the lab their first prose arrives about 7–20s later than it
+did without a search (median ~3s → ~21s in the A/B that accompanied the change).
+
+::: warning `ttft_ms` on forced turns
+The forced step 0 emits its tool call instantly, so on a forced turn `ttft_ms`
+(and `first_step_ms`) measure only the pre-work, about 2s. They no longer include
+the model round trip that decided to search. Time to first prose is
+`stream["text-start"]` on the `[latency]` line; compare that across versions,
+not `ttft_ms`. See [Telemetry](/operations/telemetry#time-to-first-output-and-the-step-structure).
+::: A balanced advanced
 search (cache miss) took a median **~9.9s** inside the route: fan-out ~1.9s,
 crawl ~2.9s, rerank ~2.7s, with ~29 candidates and 10 returned. Quality mode
 had no recent prod traffic; lab measurements when the tiers were built
@@ -82,7 +108,7 @@ is tiered.
 
 ```mermaid
 flowchart TD
-  A[Model calls search tool] --> B{Round cap exceeded?<br/>SEARCH_ROUNDS_MAX}
+  A[search tool called:<br/>forced at step 0, then by the model] --> B{Round cap exceeded?<br/>SEARCH_ROUNDS_MAX}
   B -- yes --> B1[Return empty result +<br/>'answer now' notice<br/>kind:round-cap telemetry]
   B -- no --> C{Near-duplicate query<br/>this turn? cos ≥ 0.92}
   C -- yes --> C1[Return 'already searched' note]
@@ -171,9 +197,13 @@ sometimes got zero usable results. Sending whole Ollama bodies grew the prompt
 to 73–89k tokens. With passage selection, a lab turn went from 24.7s (broken)
 to ~6.9s, and the prompt from 89k to ~16k tokens. The remote cross-encoder was
 deliberately left out: it adds 5–7s, and Ollama's results are already ranked.
-Speed also **bypasses the classifier and recall** (`create-chat-stream-response.ts:275-317`),
+Speed also **bypasses the classifier and recall** (`create-chat-stream-response.ts:284-326`),
 because the researcher agent rewrites its own follow-up queries into
-standalone form, so the classifier's rewrite is redundant.
+standalone form, so the classifier's rewrite is redundant. One consequence since
+2026-09-26: the forced first search of a speed turn runs on the **raw** message,
+so a contextual follow-up ("which one should I pick?") is searched unresolved
+first. The model can then search again with a better query, which uses a round.
+A speed turn with a URL, or with an attachment it only points at, is not forced.
 
 ### 3. Expansion variants
 
@@ -195,7 +225,9 @@ tiering on (`SEARCH_DEPTH_TIERING !== 'off'`, the default) and
 (`advanced` for balanced/quality, `basic` for speed, skip, and academic- or
 social-only turns), and **every later search is basic**. Later searches are
 meant to deep-read specific pages with the `fetch` tool, not to run another
-crawl.
+crawl. The forced first search also writes `firstSearchDepth` into its own
+`search_depth` (`buildForcedSearchInput`, `lib/agents/always-search.ts:202-216`),
+so it is exactly the call the model would have made.
 
 `routeEmitsSearchTelemetry(searchAPI, depth)` (`lib/tools/search/basic-telemetry.ts`)
 is the **single predicate** that decides three things at once: whether the
@@ -476,6 +508,7 @@ inlined at build time and do need a rebuild.
 
 | Env var | Effect | Default (code) | Running value if different |
 |---|---|---|---|
+| `ALWAYS_SEARCH` | Every question gets a forced first search (not when the user supplied a URL or an attachment the text only points at); only the literal `off` restores the legacy classifier prompt and the `stable-knowledge` gate ([D37](/history/decisions#d37-always-search-every-question)). Editable in the Model Manager (Search tab) | on | unset (on) in all envs |
 | `SEARCH_API` | Provider for basic searches and the advanced route | `DEFAULT_PROVIDER` | `searxng` (all envs) |
 | `SEARCH_ROUNDS_MAX` | Max `search` calls per turn (speed/balanced) | 3 | |
 | `SEARCH_ROUNDS_MAX_QUALITY` | Same, quality | 5 | |

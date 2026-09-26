@@ -32,6 +32,7 @@ probe is unavoidable, send one query, reuse it, and tell the team first.
 | `[crop-pos]`, `[cite-urls]` | `lib/search/crop-position.ts`, `create-chat-stream-response.ts` | advanced search / turn (only when `SEARCH_CROP_POSITION_SHADOW=true`) | no |
 | `[stop] {outcome}` | `create-chat-stream-response.ts` | user-stopped turn (`partial_saved` / `nothing_to_save` / `stale_skipped`) | no |
 | `[stall-suspect]` | `LatencyTracker.emit` | aborted turn that produced no text after ≥120s of silence (the signature of a provider stall) | no |
+| `[Researcher] always-search: step 0 forced to search "<first 80 chars of the query>" (turnMode=…, mode=…)` / `…the user supplied the source (url \| attachment-only \| attachment-reference) — first step not forced…` / `…nothing searchable in the resolved query…` | `lib/agents/researcher.ts:957-969` | research turn with `ALWAYS_SEARCH` on (logged-in **and** guest) | no. Guest turns have no `[latency]` line, so this is their only record |
 | `[search-dedup]`, `[search-expansion]`, `[advanced-search] crawl4ai enriched X/Y…`, `[Researcher] <Mode> mode: maxSteps=…` | various | event | no |
 
 Read stdout with `docker logs <container>`. The containers are `ask` (prod),
@@ -52,7 +53,10 @@ the moment the tracker was created, which is right before `prepareMessages`.
 | `mode` | The search mode: `speed` / `balanced` / `quality`. Written as `balanced` when the turn had no mode |
 | `variant` | `FLOW_VARIANT` (lab control-flow arm). `baseline` everywhere else |
 | `modelId` | **The model that actually answered**, e.g. `ollama:deepseek-v4.1-flash:cloud`. Use this, not the picker. See [Models & reasoning](/search/models-reasoning#how-the-picker-chooses-a-model-and-why-a-saved-choice-beats-the-default) |
-| `skipSearch`, `needsRecent`, `needsSources` | The classifier's decision. Together they give the turn mode: `skipSearch` → direct; neither need → stable-knowledge; otherwise research |
+| `skipSearch`, `needsRecent`, `needsSources` | The classifier's output. Before 2026-09-26 they alone determined the turn mode (`skipSearch` → direct; neither need → stable-knowledge; otherwise research). With `ALWAYS_SEARCH` on, `needsSources` gates nothing and is kept for analysis; read `turn_mode` instead |
+| `turn_mode` | Since 2026-09-26. The mode `resolveTurnMode` actually chose: `direct`, `research`, or (only with `ALWAYS_SEARCH=off`) `stable-knowledge`. `null` if the turn failed before the researcher was built (`lib/streaming/latency-tracker.ts:313`) |
+| `forced_search` | Since 2026-09-26. `true` when step 0 was the guaranteed web search on the classifier's query ([D37](/history/decisions#d37-always-search-every-question)). `false` on `direct` turns, on research turns where the user supplied the source (see `forced_skip`) or nothing searchable was left, and on every turn with `ALWAYS_SEARCH=off` (`latency-tracker.ts:314`) |
+| `forced_skip` | Since 2026-09-26 (added with the user-supplied-source exception). Why a research turn was **not** forced: `url` (a URL in the text or a pasted link chip), `attachment-only` (an attachment with no typed text), `attachment-reference` (an attachment whose text only points at it, e.g. "what is this"). `null` on forced turns, `direct` turns and with `ALWAYS_SEARCH=off` (`latency-tracker.ts:317`) |
 
 ### Pre-work, before the agent starts
 
@@ -71,8 +75,8 @@ the moment the tracker was created, which is right before `prepareMessages`.
 
 | Field | Meaning |
 |---|---|
-| `ttft_ms` | First chunk of **any** type sent to the client. On a research turn this is usually the first step or tool call, **not** the first word of prose |
-| `first_step_ms` | Offset of the agent's first `start-step`. A good proxy for all pre-work (prepare, classify, recall, agent build) |
+| `ttft_ms` | First chunk of **any** type sent to the client. On a research turn this is usually the first step or tool call, **not** the first word of prose. On a **forced-search** turn (`forced_search:true`) step 0 is emitted instantly by a synthetic model, so `ttft_ms` is only the pre-work (about 2s) and no longer includes a model round trip. **Do not compare `ttft_ms` across the 2026-09-26 change; compare `stream["text-start"]`** |
+| `first_step_ms` | Offset of the agent's first `start-step`. A good proxy for all pre-work (prepare, classify, recall, agent build); on forced turns it equals the pre-work exactly |
 | `steps` | Number of `start-step` parts, i.e. model steps |
 | `tool_calls` | Number of `tool-input-available` parts (all tools, not only search) |
 | `stream` | Map from UI-message part type to the offset where it **first** appeared, e.g. `{"start-step":3978,"tool-output-available":3980,"text-start":14071,"text-end":19855,"finish":19857}`. `stream["text-start"]` is when the prose began |
@@ -96,8 +100,8 @@ the moment the tracker was created, which is right before `prepareMessages`.
 | `prompt_tokens` | Input tokens **summed across all steps** (cost) |
 | `last_prompt_tokens` | Input tokens of the **final** step, i.e. the answering prompt. **Use this to judge a change to prompt size** |
 | `completion_tokens` | Output tokens summed across steps, **including reasoning**. Use this to judge a change to reasoning or `ANSWER_THINK` |
-| `citations_total`, `citations_unresolved` | Citation anchors in the answer, and how many name a `toolCallId` this turn never produced. Those anchors were **invented** by the model and render as nothing or as the wrong source. Only written when the answer has at least one citation |
-| `citations_recovered` | Since 2026-09-24. Anchors that named no tool call of this turn but named exactly one of its source URLs, and were therefore rendered by `resolveByUrlFragment` (`lib/utils/citation.ts:66`). Not counted in `citations_unresolved`. **Omitted when 0** (`lib/streaming/latency-tracker.ts:283-285`), so its absence is normal |
+| `citations_total`, `citations_unresolved` | Citation anchors in the answer, and how many name a `toolCallId` this turn never produced. Those anchors were **invented** by the model and render as nothing. Only written when the answer has at least one citation. **Not counted:** an anchor with a real id but a number beyond that call's results (for example `[2]` on a `fetch`, which has one result). It is scored as resolved yet renders as nothing ([known issue](/history/known-issues#citation-placeholders-and-out-of-range-numbers)) |
+| `citations_recovered` | Since 2026-09-24. Anchors that named no tool call of this turn but named exactly one of its source URLs, and were therefore rendered by `resolveByUrlFragment` (`lib/utils/citation.ts:66`). Not counted in `citations_unresolved`. **Omitted when 0** (`lib/streaming/latency-tracker.ts:291-293`), so its absence is normal |
 | `total_ms` | Wall time from tracker creation to `onFinish`. Always present |
 | `abort_silence_ms`, `blank_abort` | Only on aborted turns: how long the turn was silent before the abort, and whether any prose had been written. Silence ≥120s with no prose looks like a provider stall; a short silence is a user pressing Stop or a disconnect |
 
@@ -115,6 +119,12 @@ Example (prod, balanced, a research turn; `chatId` omitted):
  "citations_total":24,"citations_unresolved":0,"total_ms":19859,
  "skipSearch":false,"needsRecent":true,"needsSources":true}
 ```
+
+This line predates 2026-09-26. Lines written since then end with more fields, for
+example `…,"needsSources":true,"turn_mode":"research","forced_search":true,"forced_skip":null}`. On such a
+forced turn `ttft_ms` and `first_step_ms` cover only the pre-work (prepare, classifier
+wait, recall wait, agent build), and the answering model's first round trip shows up only
+in `stream["text-start"]`.
 
 ::: warning What the turn line cannot show
 - **The model's reasoning between tool calls has no field of its own.**
@@ -219,6 +229,7 @@ field **only the new code writes**:
 | ≥ 2026-09-07 (round cap) | `kind:"round-cap"` exists at all |
 | ≥ 2026-09-08 (recall cap telemetry) | `recall_wait_ms` / `recall_budget_hit` on `[latency]` |
 | ≥ 2026-09-12 (doc budget) | `doc_inject_clipped` on `[latency]` |
+| ≥ 2026-09-26 (every question searches) | `turn_mode` / `forced_search` on `[latency]`; `forced_skip` once the user-supplied-source exception is deployed |
 
 For a change of your own, add a new field (or a new `kind`) so its lines can be
 picked out.
@@ -231,19 +242,27 @@ docker exec ask-redis redis-cli LRANGE latency:log 0 999 > /tmp/lat.txt
 python3 - <<'EOF'
 import json, statistics as st
 turns = [json.loads(l.split(' ', 1)[1]) for l in open('/tmp/lat.txt') if l.startswith('[latency] ')]
-cur = [t for t in turns if 'recall_wait_ms' in t]          # current-code filter
+cur = [t for t in turns if 'turn_mode' in t]               # lines since 2026-09-26
 def med(k, ts): v = [t[k] for t in ts if isinstance(t.get(k), (int, float))]; return round(st.median(v)) if v else None
-for name, ok in [('research', lambda t: not t['skipSearch'] and (t['needsSources'] or t['needsRecent'])),
-                 ('stable',   lambda t: not t['skipSearch'] and not t['needsSources'] and not t['needsRecent']),
-                 ('direct',   lambda t: t['skipSearch'])]:
-    ts = [t for t in cur if ok(t)]
-    print(name, len(ts), {k: med(k, ts) for k in ['total_ms', 'ttft_ms', 'last_prompt_tokens', 'completion_tokens']})
+def prose(t): return (t.get('stream') or {}).get('text-start')   # time to first prose
+for name in ['research', 'stable-knowledge', 'direct']:
+    for forced in [True, False]:
+        ts = [t for t in cur if t['turn_mode'] == name and bool(t.get('forced_search')) == forced]
+        if ts:
+            print(name, 'forced' if forced else 'not-forced', len(ts),
+                  {k: med(k, ts) for k in ['total_ms', 'first_step_ms', 'last_prompt_tokens', 'completion_tokens']},
+                  'first_prose_ms', round(st.median([p for p in map(prose, ts) if p is not None] or [0])))
 EOF
 ```
 
 ### Reference numbers (prod, mid-September 2026)
 
-46 turns on current code, 45 of them balanced. Answering models were
+These predate the 2026-09-26 change: they were measured while the `needsSources` gate
+still sent settled questions to `stable-knowledge`. Those questions are research turns
+now, so the research slice will look different on current lines. Older lines have no
+`turn_mode`; slice them by `skipSearch`/`needsSources`/`needsRecent`.
+
+46 turns, 45 of them balanced. Answering models were
 deepseek-v4.1-flash (24), deepseek-v4-flash (10), glm-5.3-flash (7),
 deepseek-v4-pro (3), and minimax-m3 (2).
 
@@ -276,10 +295,12 @@ Observations from that sample worth watching:
 1. **Find the turn.** Get the `chatId` from the URL (`/search/<id>`), then
    `docker logs ask 2>&1 | grep '<chatId>'`, or search `latency:log`. A chat
    has one `[latency]` line per turn, in order.
-2. **Establish the context.** Read `modelId`, `mode`, and the turn mode
-   (`skipSearch`/`needsSources`/`needsRecent`). Compare `total_ms` with the
+2. **Establish the context.** Read `modelId`, `mode`, `turn_mode` and
+   `forced_search` (on lines before 2026-09-26, derive the mode from
+   `skipSearch`/`needsSources`/`needsRecent`). Compare `total_ms` with the
    reference numbers for *that* slice. A 20s research turn is normal; a 20s direct
-   turn is not.
+   turn is not. A question that "used to be fast" and is now a forced research turn
+   pays for a search on purpose ([D37](/history/decisions#d37-always-search-every-question)).
 3. **Split `total_ms` into four buckets:**
    - **Pre-work** ≈ `first_step_ms`. It should be a few seconds.
      - `classify_ms` high → check `[latency:classify]`. A `budget` or `failed`

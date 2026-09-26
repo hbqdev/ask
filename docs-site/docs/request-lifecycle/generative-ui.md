@@ -65,8 +65,8 @@ impossible.
 
 Non-tool progress uses **data parts** written directly to the stream with
 `writer.write({ type: 'data-…' })` (for example `data-attachments` and
-`data-classifier`, `lib/streaming/create-chat-stream-response.ts:375`,
-`lib/streaming/create-chat-stream-response.ts:417`). Their payload types are declared in
+`data-classifier`, `lib/streaming/create-chat-stream-response.ts:387`,
+`lib/streaming/create-chat-stream-response.ts:429`). Their payload types are declared in
 `UIDataTypes` (`lib/types/ai.ts:28`).
 
 ### 2. The client sees parts with a lifecycle state
@@ -262,7 +262,7 @@ model is still typing the block.
 | Prompt | Included by |
 |---|---|
 | Image spec + related questions | Quick/speed mode (`lib/agents/prompts/search-mode-prompts.ts:230`, `:232`), adaptive/balanced mode (`:430`, `:432`); quality mode starts from the adaptive prompt (`lib/agents/prompts/search-mode-prompts.ts:436`) |
-| Related questions only | The direct-answer and stable-knowledge turn prompts (`lib/agents/researcher.ts:95`, `lib/agents/researcher.ts:132`) — no search ran, so there are no images to embed |
+| Related questions only | The direct-answer and stable-knowledge turn prompts (`lib/agents/researcher.ts:103`, `lib/agents/researcher.ts:140`) — no search ran, so there are no images to embed |
 
 The related-questions prompt is deliberately restrictive ("When in doubt, skip"):
 follow-ups are omitted for greetings, trivial lookups and refusals, and the three
@@ -335,7 +335,7 @@ removed wherever the text leaves the renderer:
 
 | Where | Why | Code |
 |---|---|---|
-| Before prior turns are sent back to the model | Old spec JSON would waste context on every subsequent turn | `stripSpecFromMessages` (`lib/streaming/helpers/strip-spec-from-messages.ts:11`), called at `lib/streaming/create-chat-stream-response.ts:357` and `lib/streaming/create-ephemeral-chat-stream-response.ts:121` |
+| Before prior turns are sent back to the model | Old spec JSON would waste context on every subsequent turn | `stripSpecFromMessages` (`lib/streaming/helpers/strip-spec-from-messages.ts:11`), called at `lib/streaming/create-chat-stream-response.ts:373` and `lib/streaming/create-ephemeral-chat-stream-response.ts:125` |
 | Copy / share from message actions | Users should not paste JSONL | `components/message-actions.tsx:119`, `components/message-actions.tsx:137` |
 | Copy shortcut in the chat | Same | `components/chat.tsx:677` |
 
