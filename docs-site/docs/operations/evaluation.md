@@ -103,8 +103,8 @@ The `package.json` aliases are `eval`, `eval:mine`, `chat`, `backfill:file-keys`
 | `scripts/eval/questions.json` | 64 (`q001`–`q064`) | `[{ id, text, tags? }]` | Real first messages from prod chats. Right for judging **answer quality**, since these are the questions users actually ask. Almost all of them warrant a search, so the set cannot test retrieval *decisions*. |
 | `scripts/eval/flow-probes.json` | 16 probes (9 `expectSearch: true`, 7 `false`) | `{ _comment, probes: [{ id, text, expectSearch, why, mustMention? }] }` | A **discriminating** set for control-flow arms: questions a competent assistant should answer from knowledge next to ones that need fresh sources. The `_comment` states that `expectSearch` is a judgement call, not ground truth, and is the weakest part of the harness. |
 | `scripts/eval/flow-probes-search.json` | 9 probes (`p07`…) | `{ probes: [...] }` | The must-search subset, used to rerun only the time-sensitive side via `--probes`. |
-| `scripts/eval/classifier-cases.ts` | 12 cases | `CASES: { name, messages: UIMessage[] }[]` | Standalone questions, contextual follow-ups, new-entity follow-ups, etc. Exercises the classifier's `skipSearch` / `standaloneQuery` / `needsRecent` / `intent` outputs. |
-| `scripts/eval/classifier-baseline.json` | 12 entries, one per case (complete) | `{ [caseName]: { skipSearch, standaloneQuery, needsRecent, intent } }` | The captured "known good" answers for `classifier-eval.ts --check`. |
+| `scripts/eval/classifier-cases.ts` | 15 cases | `CASES: { name, messages: UIMessage[] }[]` | Standalone questions, contextual follow-ups, new-entity follow-ups, greetings, an image request, and (since 2026-09-26) three explicit memory instructions (`memory-remember`, `memory-forget` skip; `memory-plus-question` searches). Exercises the classifier's `skipSearch` / `standaloneQuery` / `needsRecent` / `intent` outputs. |
+| `scripts/eval/classifier-baseline.json` | 15 entries, one per case (complete) | `{ [caseName]: { skipSearch, standaloneQuery, needsRecent, intent } }` | The captured "known good" answers for `classifier-eval.ts --check`. Re-captured 2026-09-26 on `deepseek-v4-pro:cloud` with the ALWAYS_SEARCH prompt. |
 | `CONVERSATIONS` in `scripts/eval/run-flow-conversations.py:53` | 4 threads (`c1-postgres`, `c2-espresso`, `c3-typescript`, `c4-current`) | turns tagged `fresh` / `followup` / `context` | Follow-ups and context accumulation only exist from turn 2 onward, so cold-start probes cannot exercise them. |
 | `CASES` in `scripts/eval/gate-stability.ts` | inline | `{ name, text, kind: concept \| operational \| research }` | Borderline and clear-cut questions for flip-rate measurement. |
 
@@ -207,10 +207,10 @@ The output is real user text from prod. Review it before committing.
 These measure **control-flow variants**, the registry in `lib/agents/flows/variants.ts`
 (`baseline`, `adaptive`, `react-gap`, `plan-execute`, `wide-once`, `router`;
 default `baseline`, `variants.ts:352`). The running variant is chosen by the
-`FLOW_VARIANT` env var (`lib/streaming/create-chat-stream-response.ts:824`), which the
+`FLOW_VARIANT` env var (`lib/streaming/create-chat-stream-response.ts:845`, `lib/agents/researcher.ts:934`), which the
 lab overlay exposes as `${FLOW_VARIANT:-baseline}` (`docker-compose.lab.yaml:24`), and
 it is written into every `[latency]` line as `variant`
-(`lib/streaming/latency-tracker.ts:236`). An unknown value degrades to `baseline`
+(`lib/streaming/latency-tracker.ts:257`). An unknown value degrades to `baseline`
 rather than erroring (`lib/agents/flows/__tests__/variants.test.ts:21`).
 
 **Why a separate runner from `run-eval.ts`:** the arms differ first in the retrieval
@@ -357,6 +357,27 @@ searches**, so they are the cheapest way to check a prompt or classifier-model c
 They use whatever classifier configuration the environment resolves (Bun auto-loads
 `.env`); see [Models & reasoning](/search/models-reasoning) for the classifier's role.
 
+::: warning Which classifier prompt they measure (since 2026-09-26)
+`classifyQuery` picks its prompt per call from `ALWAYS_SEARCH`
+(`getClassifierSystemPrompt`, `lib/agents/query-classifier.ts:296-302`). By default that
+is the new "every question searches" prompt, under which the `needsSources` gate no
+longer routes anything ([D37](/history/decisions#d37-always-search-every-question)).
+`gate-stability.ts` and `gate-rate-live.ts` still compute the gate from the flags, so
+by default they report what the old gate *would* have done under the new prompt. Prefix
+a run with `ALWAYS_SEARCH=off` to measure the legacy prompt and gate. The
+`classifier-baseline.json` below was re-captured on 2026-09-26 with the default
+(ALWAYS_SEARCH) prompt on `deepseek-v4-pro:cloud`, the classifier every env runs. The
+previous baseline (2026-07-24, legacy prompt, the granite-era classifier) drifted on 8 of 12
+cases: `confirm-restate` flipped to `skipSearch:false` as the new prompt intends, and the
+rest differed only in `standaloneQuery` wording or `intent` (`general` → `code`). Before the
+re-capture, all 15 decisions (`skipSearch`, `needsRecent`, `intent`) were checked to be
+identical under the prompt of the commit before the memory-instruction rule, so the rule
+changed no decision. Run it with `CLASSIFIER_MODEL_ID` and `CLASSIFIER_OLLAMA_BASE_URL` set to
+the env's values, and a `CLASSIFIER_BUDGET_MS` above the default 4000 so a slow call is not
+recorded as the fallback. To check the legacy prompt, compare like for like
+(`ALWAYS_SEARCH=off`) against a baseline captured that way.
+:::
+
 ### `classifier-eval.ts`: regression gate
 
 ```bash
@@ -370,6 +391,14 @@ baseline, and `standaloneQuery` matches **only when the turn searches** (on
 `classifier-eval.ts:52-60`). Exit codes: `0` all parity-clean, `1` one or more cases
 drifted ("DO NOT SHIP"), `2` bad usage. Run `--capture` only from a known-good commit;
 capturing from the change under test makes the check meaningless.
+
+::: warning The query check is noisy on a cloud classifier
+On `deepseek-v4-pro:cloud` the decisions are stable run to run, but the exact
+`standaloneQuery` wording is not, even at temperature 0: a `--check` straight after the
+2026-09-26 `--capture` failed 2 of 15 cases on wording alone ("Latest news about OpenAI this
+week" vs "Latest OpenAI news this week"). Read a FAIL line before acting on it: `decision=true
+query=false` is wording drift; `decision=false` is a real change.
+:::
 
 ### `gate-stability.ts`: can this question be A/B'd at all?
 
