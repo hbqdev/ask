@@ -18,8 +18,47 @@ behind the change. Lab-first work lives on `flow-design`. `git cherry-pick -x` l
 
 ## 2026-09 — September
 
-**Streaming lifecycle, mobile QA, the end of the latency campaign, and a fleet clean-up**
+**Streaming lifecycle, mobile QA, the end of the latency campaign, a fleet clean-up, and every
+question searches**
 
+- **09-26** — **Every question gets a web search** (`0ea17872`, lab `453bfba1`, staging
+  `3822f475`; owner decision, [D37](/history/decisions#d37-always-search-every-question),
+  reversing [D3](/history/decisions#d3-needssources-skip-retrieval-for-stable-knowledge)).
+  Over the previous 60 days 69 of 164 prod turns had used no tools, many of them product,
+  policy, repair and safety questions answered from memory (one recommended acetone for melted
+  plastic on an oven tray with no fire warning).
+  - New `ALWAYS_SEARCH` flag (`lib/agents/always-search.ts`), **default on**; only the literal
+    `off` disables it. `ALWAYS_SEARCH=off` plus a container recreate restores the old behaviour
+    without a rebuild.
+  - New classifier prompt: `skipSearch` only for non-questions (greetings/thanks/venting, pure
+    transforms of text already present, pure arithmetic, image requests). `needsSources` is
+    logged only; the old prompt is kept as `LEGACY_CLASSIFIER_SYSTEM_PROMPT` for the flag's off
+    state. A replay of the 164 prod turns: 145 search, 19 skip.
+  - Guaranteed first search: `prepareStep` gives step 0 of a research turn to a synthetic model
+    that emits one `search` call on the classifier's `standaloneQuery`, because `ai-sdk-ollama`
+    ignores `toolChoice`. The real `search` tool runs it; logged-in and guest turns alike.
+  - `[latency]` gains `turn_mode` and `forced_search`. On forced turns `ttft_ms` is only the
+    pre-work; use `stream["text-start"]` for first prose.
+  - Lab blind A/B on the 6 valid formerly unsearched pairs: 2W-1L-3T for searching. Cost: first
+    prose about 7–20 s later on those questions. Found along the way: an image plus "what is
+    this?" force-searches the words alone (fixed by the follow-up below), and models sometimes
+    cite the prompt's
+    `<id-A>` placeholders or out-of-range numbers
+    ([known issues](/history/known-issues#image-attachment-forces-a-generic-search)).
+  - Docs: the env reference generator now also finds reads through a name bound to
+    `process.env` (`env.ALWAYS_SEARCH`).
+  - **Follow-ups (lab, not yet ported):** a research turn is **not** forced when the user
+    supplied the source: a URL (inline or a link chip; such a turn is again exactly the
+    pre-D37 research turn, read with `fetch` or the attached-source path), an attachment with no
+    typed text, or an attachment whose text only points at it ("what is this", "summarise this
+    file"). `detectUserSuppliedSource` in `lib/agents/always-search.ts`; `[latency]` gains
+    `forced_skip`. An attachment with a real question is still forced. Explicit memory
+    instructions ("remember that …", "forget …", "update my …") are named in the classifier's
+    skip list with examples, so they stay `direct` turns and `remember` writes a confirmed
+    memory. The Model Manager gains an "Always search" switch (Search tab; `on`/`off`, rejects
+    `false`), and `ALWAYS_SEARCH` is in `.env.local.example`. The classifier eval gains three
+    memory cases and its baseline was re-captured on `deepseek-v4-pro:cloud` with the current
+    prompt ([evaluation](/operations/evaluation)).
 - **09-25** (UTC; the evening of 09-24 local time) — **Rendering, recall and Model Manager fixes**
   (built on the lab, then ported to staging and prod):
   - **No "[blocked]" flash for a half-streamed citation** (`a9ad0ce8`, lab `e658ef71`). A citation
@@ -294,7 +333,8 @@ behind the change. Lab-first work lives on `flow-design`. `git cherry-pick -x` l
 **Ask becomes its own product: retrieval quality, latency instrumentation, uploads, memory**
 
 - **07-30** — **`needsSources`**: stop searching for stable-knowledge questions (`74062395`;
-  [D3](/history/decisions#d3-needssources-skip-retrieval-for-stable-knowledge)). Chat titles are
+  [D3](/history/decisions#d3-needssources-skip-retrieval-for-stable-knowledge); reversed
+  2026-09-26 by [D37](/history/decisions#d37-always-search-every-question)). Chat titles are
   written by the local model, not the chat model (`2f48d181`).
 - **07-28 → 07-29** — The search loop no longer thrashes on its own deduplicated results
   (`ffcc19ec`). The research loop no longer runs out the clock and returns nothing (`a233355a`). A
