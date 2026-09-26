@@ -8,9 +8,11 @@ import { searchSchema, strictSearchSchema } from '@/lib/schema/search'
 import {
   buildForcedSearchInput,
   createForcedSearchModel,
+  detectUserSuppliedSource,
   FORCED_SEARCH_PROVIDER,
   FORCED_SEARCH_QUERY_MAX_CHARS,
   isAlwaysSearchEnabled,
+  isAttachmentReferenceOnly,
   resolveForcedSearchQuery
 } from '../always-search'
 
@@ -127,6 +129,165 @@ describe('resolveForcedSearchQuery', () => {
     const q = resolveForcedSearchQuery(long)!
     expect(q.length).toBeLessThanOrEqual(FORCED_SEARCH_QUERY_MAX_CHARS)
     expect(q.endsWith('word')).toBe(true)
+  })
+})
+
+// UI parts as the composer sends them (components/chat-panel.tsx).
+const text = (t: string) => ({ type: 'text', text: t })
+const image = {
+  type: 'file',
+  url: 'https://ask.example/uploads/photo.jpg',
+  mediaType: 'image/jpeg',
+  filename: 'photo.jpg'
+}
+const pdf = {
+  type: 'file',
+  url: 'https://ask.example/uploads/report.pdf',
+  mediaType: 'application/pdf',
+  filename: 'report.pdf'
+}
+const linkChip = (url: string) => ({ type: 'data-sourceUrl', data: { url } })
+const pastedCard = { type: 'data-pastedContent', data: { text: 'long text' } }
+const quotedPassage = {
+  type: 'data-quotedContext',
+  data: { text: 'a passage of the previous answer' }
+}
+
+describe('detectUserSuppliedSource', () => {
+  it('a URL typed or pasted inline in the text → url', () => {
+    expect(
+      detectUserSuppliedSource([
+        text(
+          'summarise this https://en.wikipedia.org/wiki/User_Datagram_Protocol'
+        )
+      ])
+    ).toBe('url')
+    expect(
+      detectUserSuppliedSource([text('is http://example.com/a legit?')])
+    ).toBe('url')
+  })
+
+  it('a pasted link chip (data-sourceUrl) → url, with or without text', () => {
+    expect(
+      detectUserSuppliedSource([
+        linkChip('https://example.com/post'),
+        text('summarise this')
+      ])
+    ).toBe('url')
+    expect(
+      detectUserSuppliedSource([linkChip('https://example.com/post')])
+    ).toBe('url')
+  })
+
+  it('an empty link chip is not a URL', () => {
+    expect(detectUserSuppliedSource([linkChip(''), text('hello')])).toBeNull()
+  })
+
+  it('a URL wins over an attachment', () => {
+    expect(
+      detectUserSuppliedSource([
+        image,
+        text('compare this with https://example.com/spec')
+      ])
+    ).toBe('url')
+  })
+
+  it('an attachment with no typed text → attachment-only (file, pasted card, quoted passage)', () => {
+    expect(detectUserSuppliedSource([image])).toBe('attachment-only')
+    expect(detectUserSuppliedSource([pdf, text('   ')])).toBe('attachment-only')
+    expect(detectUserSuppliedSource([pastedCard])).toBe('attachment-only')
+    expect(detectUserSuppliedSource([quotedPassage])).toBe('attachment-only')
+  })
+
+  it('an attachment whose text only points at it → attachment-reference', () => {
+    expect(detectUserSuppliedSource([image, text('what is this')])).toBe(
+      'attachment-reference'
+    )
+    expect(
+      detectUserSuppliedSource([image, text("What's in this picture?")])
+    ).toBe('attachment-reference')
+    expect(detectUserSuppliedSource([pdf, text('read this')])).toBe(
+      'attachment-reference'
+    )
+    expect(detectUserSuppliedSource([pdf, text('summarise this file')])).toBe(
+      'attachment-reference'
+    )
+    expect(
+      detectUserSuppliedSource([quotedPassage, text('explain this')])
+    ).toBe('attachment-reference')
+  })
+
+  it('an attachment with a real question → null (the forced search applies)', () => {
+    expect(
+      detectUserSuppliedSource([image, text('is this mushroom safe to eat?')])
+    ).toBeNull()
+    expect(
+      detectUserSuppliedSource([
+        pdf,
+        text('what is the current EU VAT rate for e-books?')
+      ])
+    ).toBeNull()
+  })
+
+  it('no attachment and no URL → null, whatever the text says', () => {
+    // "what is this" with no attachment refers to the conversation, which the
+    // classifier resolves into its standaloneQuery.
+    expect(detectUserSuppliedSource([text('what is this')])).toBeNull()
+    expect(
+      detectUserSuppliedSource([text('what is the capital of Germany')])
+    ).toBeNull()
+  })
+
+  it('tolerates missing or malformed parts', () => {
+    expect(detectUserSuppliedSource(undefined)).toBeNull()
+    expect(detectUserSuppliedSource(null)).toBeNull()
+    expect(detectUserSuppliedSource([])).toBeNull()
+    expect(
+      detectUserSuppliedSource([{ type: 'text', text: 42 }, { type: 'step' }])
+    ).toBeNull()
+  })
+})
+
+describe('isAttachmentReferenceOnly', () => {
+  it.each([
+    'what is this',
+    'What is this?',
+    "what's in this picture?",
+    'What’s this',
+    'who is this',
+    'read this',
+    'summarise this file',
+    'Summarize this PDF please',
+    'can you describe this image',
+    'what does it say',
+    'what does this mean?',
+    'explain',
+    'transcribe the text in this screenshot',
+    'tell me about this document',
+    "what's going on here",
+    'look at this',
+    '?',
+    ''
+  ])('%j only points at the attachment', t => {
+    expect(isAttachmentReferenceOnly(t)).toBe(true)
+  })
+
+  it.each([
+    // a subject word makes it a question in its own right
+    'what is this plant',
+    'is this mushroom safe to eat?',
+    'how much does this cost',
+    'who painted this',
+    'what year was this photo taken',
+    'is this true',
+    'translate this into Spanish',
+    'what is the capital of France',
+    // another language is not recognised, so it keeps its search
+    '¿qué es esto?',
+    // every word is a reference word, but too long to be a mere pointer
+    'can you please just read this file and tell me what is in it'
+  ])('%j is a question, not a mere pointer', t => {
+    expect(isAttachmentReferenceOnly(t)).toBe(false)
   })
 })
 

@@ -9,6 +9,7 @@ import {
 import { randomUUID } from 'crypto'
 import { Langfuse } from 'langfuse'
 
+import { detectUserSuppliedSource } from '@/lib/agents/always-search'
 import { resolveFlowVariant } from '@/lib/agents/flows/variants'
 import { researcher, type TurnPlan } from '@/lib/agents/researcher'
 import { modelSupportsVision } from '@/lib/config/model-vision'
@@ -272,6 +273,14 @@ export async function createChatStreamResponse(
     const latestMessageForModel = messagesToModel[messagesToModel.length - 1]
     const latestMessageText = getTextFromParts(latestMessageForModel?.parts)
     const containsUrl = /https?:\/\/\S+/i.test(latestMessageText)
+    // ALWAYS_SEARCH: a URL (inline or a pasted link chip) or an attachment the
+    // text only points at means the user supplied the turn's subject, so the
+    // researcher does not force a first search on it (see
+    // detectUserSuppliedSource). Read from the parts because the classifier
+    // sees text only and does not run on the bypass paths below.
+    const userSuppliedSource = detectUserSuppliedSource(
+      latestMessageForModel?.parts
+    )
     const isRegenerate = trigger?.startsWith('regenerate') ?? false
     const bypassClassifier =
       containsUrl || isRegenerate || searchMode === 'speed'
@@ -818,6 +827,7 @@ export async function createChatStreamResponse(
           // [latency] line. addToolTiming is itself guarded, so this can never
           // break a turn.
           onToolTiming: (kind, stages) => latency.addToolTiming(kind, stages),
+          userSuppliedSource,
           onTurnPlan: plan => {
             turnPlan = plan
           }
@@ -995,7 +1005,8 @@ export async function createChatStreamResponse(
             needsRecent: classification?.needsRecent ?? null,
             needsSources: classification?.needsSources ?? null,
             turnMode: turnPlan?.turnMode ?? null,
-            forcedSearch: turnPlan?.forcedSearch ?? null
+            forcedSearch: turnPlan?.forcedSearch ?? null,
+            forcedSkip: turnPlan?.forcedSkip ?? null
           })
           if (!responseMessage) return
           // An aborted turn is persisted ONLY when the user pressed Stop: the

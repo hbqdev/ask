@@ -460,6 +460,18 @@ export const REGISTRY: EnvVarSpec[] = [
     enumValues: ['searxng', 'tavily', 'exa', 'brave']
   },
   {
+    key: 'ALWAYS_SEARCH',
+    category: 'search',
+    label: 'Always search',
+    type: 'bool',
+    // lib/agents/always-search.ts isAlwaysSearchEnabled:
+    // `ALWAYS_SEARCH !== 'off'`, read per turn.
+    boolSense: 'not-off',
+    default: 'on',
+    validate: onOff,
+    help: 'Every question gets a web search; off restores the old stable-knowledge gate (D3). Only `off` disables it; unset (the default) = on.'
+  },
+  {
     key: 'SEARXNG_API_URL',
     category: 'search',
     group: 'SearXNG',
