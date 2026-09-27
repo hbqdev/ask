@@ -4,11 +4,13 @@
 // down — degraded (resets on restart, per-process) but never broken.
 
 import { Redis } from '@upstash/redis'
-import { createClient } from 'redis'
+
+import { createLocalRedisConnector } from '@/lib/redis/local-redis'
 
 type CounterClient = { incr(key: string): Promise<number> }
 
 let client: CounterClient | null = null
+const localRedis = createLocalRedisConnector('imagegen-rotation')
 let clientInitialized = false
 let clientOverridden = false
 const memoryCounters = new Map<string, number>()
@@ -23,16 +25,15 @@ async function getRotationClient(): Promise<CounterClient | null> {
     client = new Redis({ url, token })
     return client
   }
-  try {
-    const local = createClient({
-      url: process.env.LOCAL_REDIS_URL || 'redis://localhost:6379'
-    })
-    await local.connect()
-    client = local as unknown as CounterClient
-  } catch (error) {
-    console.warn('[imagegen] rotation: Redis unavailable, using memory:', error)
-    client = null
+  // Self-healing local client (lib/redis/local-redis.ts): its commands reject
+  // fast (and are time-bounded) while Redis is down instead of queueing
+  // forever, so a Redis restart lands in nextRotationIndex's catch — which
+  // abandons it for the memory path, exactly as for any other Redis failure.
+  const local = await localRedis.get()
+  if (!local) {
+    console.warn('[imagegen] rotation: Redis unavailable, using memory')
   }
+  client = local as unknown as CounterClient | null
   return client
 }
 

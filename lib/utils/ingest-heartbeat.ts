@@ -15,7 +15,11 @@
 // worker of being down on a cache outage.
 
 import { Redis } from '@upstash/redis'
-import { createClient } from 'redis'
+
+import {
+  createLocalRedisConnector,
+  type LocalRedisClient
+} from '@/lib/redis/local-redis'
 
 const HEARTBEAT_KEY = 'ingest:heartbeat'
 
@@ -29,29 +33,23 @@ function heartbeatTtlSeconds(): number {
   return Number.isFinite(n) && n > 0 ? Math.floor(n) : 0
 }
 
-let client: Redis | ReturnType<typeof createClient> | null | undefined
+let upstashClient: Redis | null = null
+// Self-healing local client (lib/redis/local-redis.ts): a Redis restart can no
+// longer wedge the claim/progress routes, and a failed first connect is no
+// longer cached as null for the life of the process.
+const localRedis = createLocalRedisConnector('ingest-heartbeat')
 
 // Same connection strategy as lib/search/basic-search-cache.ts (Upstash REST
 // when configured, otherwise a local redis:// connection); a null client makes
 // every call a silent no-op.
-async function getClient() {
-  if (client !== undefined) return client
+async function getClient(): Promise<Redis | LocalRedisClient | null> {
   const url = process.env.UPSTASH_REDIS_REST_URL
   const token = process.env.UPSTASH_REDIS_REST_TOKEN
   if (url && token) {
-    client = new Redis({ url, token })
-    return client
+    if (!upstashClient) upstashClient = new Redis({ url, token })
+    return upstashClient
   }
-  try {
-    const local = createClient({
-      url: process.env.LOCAL_REDIS_URL || 'redis://localhost:6379'
-    })
-    await local.connect()
-    client = local
-  } catch {
-    client = null
-  }
-  return client
+  return localRedis.get()
 }
 
 // Refresh the worker-alive key with a fresh TTL. Best-effort: called from the

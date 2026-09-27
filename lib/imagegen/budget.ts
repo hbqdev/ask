@@ -10,43 +10,39 @@
 // never fail a generation that already succeeded.
 
 import { Redis } from '@upstash/redis'
-import { createClient } from 'redis'
 
-let redisClient: Redis | ReturnType<typeof createClient> | null = null
+import {
+  createLocalRedisConnector,
+  type LocalRedisClient
+} from '@/lib/redis/local-redis'
 
-// Initialize Redis client based on environment variables. Copied from the
-// advanced-search route's pattern (Upstash REST when configured, otherwise a
-// local redis:// connection) rather than imported, to keep this guard free of
-// the route module's heavy transitive imports.
-async function initializeRedisClient() {
-  if (redisClient) return redisClient
+let upstashClient: Redis | null = null
+// Self-healing local client (lib/redis/local-redis.ts): reconnects after a
+// Redis restart instead of wedging, and returns null while Redis is down —
+// which checkImageBudget already maps to fail CLOSED when a budget is set.
+const localRedis = createLocalRedisConnector('imagegen-budget')
 
+// Initialize Redis client based on environment variables. Same strategy as the
+// advanced-search route (Upstash REST when configured, otherwise a local
+// redis:// connection) rather than imported, to keep this guard free of the
+// route module's heavy transitive imports.
+async function initializeRedisClient(): Promise<
+  Redis | LocalRedisClient | null
+> {
   const upstashRedisRestUrl = process.env.UPSTASH_REDIS_REST_URL
   const upstashRedisRestToken = process.env.UPSTASH_REDIS_REST_TOKEN
 
   if (upstashRedisRestUrl && upstashRedisRestToken) {
-    redisClient = new Redis({
-      url: upstashRedisRestUrl,
-      token: upstashRedisRestToken
-    })
-    return redisClient
+    if (!upstashClient) {
+      upstashClient = new Redis({
+        url: upstashRedisRestUrl,
+        token: upstashRedisRestToken
+      })
+    }
+    return upstashClient
   }
 
-  try {
-    const localRedisUrl =
-      process.env.LOCAL_REDIS_URL || 'redis://localhost:6379'
-    const client = createClient({ url: localRedisUrl })
-    await client.connect()
-    redisClient = client
-  } catch (error) {
-    console.warn(
-      'Failed to connect to local Redis. Image budget guard disabled.',
-      error
-    )
-    redisClient = null
-  }
-
-  return redisClient
+  return localRedis.get()
 }
 
 // Both Upstash and local `redis` expose get/incr/expire with compatible

@@ -24,7 +24,11 @@
 // because Brave bills and Replicate's guard is opt-in.
 
 import { Redis } from '@upstash/redis'
-import { createClient } from 'redis'
+
+import {
+  createLocalRedisConnector,
+  type LocalRedisClient
+} from '@/lib/redis/local-redis'
 
 /** Redis list of the minimal surface both dialects agree on. */
 export type BudgetClient = {
@@ -33,29 +37,21 @@ export type BudgetClient = {
   expire(key: string, seconds: number): Promise<unknown>
 }
 
-let redisClient: Redis | ReturnType<typeof createClient> | null = null
+let upstashClient: Redis | null = null
+// Self-healing local client: reconnects after a Redis restart, and while it is
+// down get() returns null — which checkBraveBudget already maps to fail CLOSED.
+const localRedis = createLocalRedisConnector('brave-budget')
 
-async function initializeRedisClient() {
-  if (redisClient) return redisClient
-
+async function initializeRedisClient(): Promise<
+  Redis | LocalRedisClient | null
+> {
   const url = process.env.UPSTASH_REDIS_REST_URL
   const token = process.env.UPSTASH_REDIS_REST_TOKEN
   if (url && token) {
-    redisClient = new Redis({ url, token })
-    return redisClient
+    if (!upstashClient) upstashClient = new Redis({ url, token })
+    return upstashClient
   }
-
-  try {
-    const client = createClient({
-      url: process.env.LOCAL_REDIS_URL || 'redis://localhost:6379'
-    })
-    await client.connect()
-    redisClient = client
-  } catch (error) {
-    console.warn('[brave] budget: Redis unavailable', error)
-    redisClient = null
-  }
-  return redisClient
+  return localRedis.get()
 }
 
 /** UTC-month counter key. Shared with the advanced-search merge path. */
