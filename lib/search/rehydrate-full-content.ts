@@ -41,7 +41,20 @@ export function rehydrateFullContent(
       }
       const full = fullByToolCall.get(p.toolCallId)
       if (!full) return part
-      return { ...p, output: { ...p.output, results: full } }
+      // Swap content in by URL, keeping the live results' order and length.
+      // Citations are [N](#toolCallId) resolved to the Nth *live* result;
+      // `full` can be a pre-dedup list (speed fast path), so persisting it
+      // wholesale shifted positions and a reloaded answer cited the wrong page.
+      const live = p.output.results
+      if (!Array.isArray(live)) {
+        return { ...p, output: { ...p.output, results: full } }
+      }
+      const fullByUrl = new Map(full.map(r => [r.url, r]))
+      const results = live.map(r => {
+        const url = (r as SearchResultItem | null)?.url
+        return (url && fullByUrl.get(url)) || r
+      })
+      return { ...p, output: { ...p.output, results } }
     } catch {
       // Persistence must never be broken by this.
       return part
