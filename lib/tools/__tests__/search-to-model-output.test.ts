@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import { createSearchTool } from '@/lib/tools/search'
 
@@ -81,5 +81,55 @@ describe('search tool toModelOutput', () => {
     })
 
     expect(modelOutput).toEqual({ type: 'json', value: null })
+  })
+})
+
+// CITATION_HANDLES: each result the model sees carries its ready-made
+// `cite` string, built from the toolCallId the SDK passes toModelOutput (the
+// id the UI part is stored under). Off = the previous model view exactly.
+describe('search tool toModelOutput — CITATION_HANDLES', () => {
+  const tool = createSearchTool('google:gemini-3-flash-preview')
+  const liveOutput = {
+    state: 'complete',
+    query: 'node 24',
+    number_of_results: 2,
+    results: [
+      { title: 'A', url: 'https://a.test/', content: 'alpha' },
+      { title: 'B', url: 'https://b.test/', content: 'beta' }
+    ],
+    images: [],
+    toolCallId: 'call_live'
+  }
+  const run = async () =>
+    (
+      (await tool.toModelOutput?.({
+        toolCallId: 'call_live',
+        input: {} as never,
+        output: liveOutput as never
+      })) as { type: 'json'; value: Record<string, any> }
+    ).value
+
+  afterEach(() => {
+    vi.unstubAllEnvs()
+  })
+
+  it('on (default): every result carries [N](#toolCallId) for its position', async () => {
+    vi.stubEnv('CITATION_HANDLES', '')
+    const value = await run()
+    expect(value.results.map((r: { cite: string }) => r.cite)).toEqual([
+      '[1](#call_live)',
+      '[2](#call_live)'
+    ])
+    // Only the cite is added; the rest of the view is unchanged.
+    expect(value).not.toHaveProperty('state')
+    expect(value.toolCallId).toBe('call_live')
+    expect(liveOutput.results[0]).not.toHaveProperty('cite')
+  })
+
+  it('off: the model view is exactly the pre-CITATION_HANDLES one', async () => {
+    vi.stubEnv('CITATION_HANDLES', 'off')
+    const value = await run()
+    const { state: _state, ...expected } = liveOutput
+    expect(JSON.stringify(value)).toBe(JSON.stringify(expected))
   })
 })

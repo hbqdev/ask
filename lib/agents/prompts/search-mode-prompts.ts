@@ -6,6 +6,7 @@ import {
   PROMPT_EXAMPLE_FETCH_ID,
   PROMPT_EXAMPLE_SEARCH_ID
 } from '@/lib/utils/citation'
+import { isCitationHandlesEnabled } from '@/lib/utils/citation-handles'
 import {
   getContentTypesGuidance,
   isGeneralSearchProviderAvailable
@@ -94,8 +95,22 @@ function getSourceDirectionGuidance(): string {
  *   with a running count across the answer wrote `[3](#<fetchId>)` for a fetch
  *   with one result (dropped) and `[5](#<searchId>)` meaning "my 5th source"
  *   (rendered as that search's 5th result — a different page).
+ *
+ * CITATION_HANDLES (default on) goes further: every citable result the model
+ * sees carries its finished citation in a `cite` field
+ * (lib/utils/citation-handles.ts), so the guidance is just "copy it". The
+ * within-call counting rule and its worked example below — still a counting
+ * task, and measured on the lab to keep failing (running-count numbers on
+ * 11 of 19 citations in one turn) — are only the flag-off text, kept byte for
+ * byte.
  */
 function getCitationFormatGuidance(): string {
+  if (isCitationHandlesEnabled()) {
+    return `[number](#toolCallId) - Always use this EXACT format
+- **To cite a result, copy its \`cite\` string exactly.** Every citable result — each search result, each fetched page, each attached-document excerpt — has a \`cite\` field holding its complete, ready-made citation.
+- Never compute, renumber or edit a citation yourself: do not count sources across your answer, and do not change the number or the id in a \`cite\` string. A result without a \`cite\` field cannot be cited.
+- The ids in this prompt's examples are illustrations only; they never appear in your tool results — never write them.`
+  }
   return `[number](#toolCallId) - Always use this EXACT format
 - **toolCallId**: copy it from the \`toolCallId\` field of the search or fetch result you are citing — a result of THIS turn. It is a 36-character UUID with four hyphens: copy it in FULL, character for character. Do NOT shorten it, do NOT add a prefix (such as "toolu_", "call_", or "search-"), and do NOT wrap it in < > or add "id-".
 - **number**: the position of the cited source in THAT call's \`results\` list — its first result is 1, its second is 2, and so on. It is NOT a running count across your answer: numbering starts again at 1 for every tool call, so each call has its own [1], and the same source is always cited with the same number.
@@ -256,6 +271,14 @@ ${getRelatedQuestionsSpecPrompt()}
 `
 }
 
+// The numbering sentence of the balanced/quality citation rule (point 5 of
+// getApproachStrategy). Flag off: the pre-CITATION_HANDLES text, byte for byte.
+function getCitationNumberingSentence(): string {
+  return isCitationHandlesEnabled()
+    ? 'Cite a result by copying its `cite` string exactly — never work out the number yourself; see Citation Format below.'
+    : 'The number is the position of the source in the `results` of the search or fetch call that returned it (numbering starts again at 1 for every call), and toolCallId is the id of that call — see Citation Format below.'
+}
+
 function getApproachStrategy(): string {
   return `APPROACH STRATEGY:
 1. **FIRST STEP - Assess query complexity:**
@@ -299,7 +322,7 @@ Rule precedence:
 
 4. **If the query is ambiguous, use ask_question tool for clarification**
 
-5. **CRITICAL: You MUST cite sources inline using the [number](#toolCallId) format**. **CITATION PLACEMENT**: Follow this pattern: sentence. [citation] - Write the complete sentence, add a period, then add citations after the period. Do NOT add period or punctuation after citations. If a sentence uses multiple sources, place ALL citations together after the period (e.g., "AI adoption has increased. [2](#${EX_SEARCH}) [1](#${EX_FETCH})"). The number is the position of the source in the \`results\` of the search or fetch call that returned it (numbering starts again at 1 for every call), and toolCallId is the id of that call — see Citation Format below. Every sentence with information from search results MUST have citations at its end.
+5. **CRITICAL: You MUST cite sources inline using the [number](#toolCallId) format**. **CITATION PLACEMENT**: Follow this pattern: sentence. [citation] - Write the complete sentence, add a period, then add citations after the period. Do NOT add period or punctuation after citations. If a sentence uses multiple sources, place ALL citations together after the period (e.g., "AI adoption has increased. [2](#${EX_SEARCH}) [1](#${EX_FETCH})"). ${getCitationNumberingSentence()} Every sentence with information from search results MUST have citations at its end.
 
 6. If results are not relevant or helpful, you may rely on your general knowledge ONLY AFTER at least one search attempt (do not add citations for general knowledge)
 

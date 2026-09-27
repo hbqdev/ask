@@ -1,4 +1,4 @@
-import { tool, UIToolInvocation } from 'ai'
+import { type JSONValue, tool, UIToolInvocation } from 'ai'
 import { execFile } from 'node:child_process'
 import { promises as fs } from 'node:fs'
 import os from 'node:os'
@@ -17,6 +17,10 @@ import {
   normalizeFetchUrls
 } from '@/lib/schema/fetch'
 import { SearchResults as SearchResultsType } from '@/lib/types'
+import {
+  addCitationHandles,
+  isCitationHandlesEnabled
+} from '@/lib/utils/citation-handles'
 import { crawl4aiScrapeOne, isCrawl4aiConfigured } from '@/lib/utils/crawl4ai'
 import {
   extractReadableContent,
@@ -743,6 +747,21 @@ export function createFetchTool(options?: FetchToolOptions) {
           // Telemetry must never break a fetch.
         }
       }
+    },
+    // With CITATION_HANDLES off this is exactly what the SDK sends for a tool
+    // without toModelOutput (createToolModelOutput: a string as text, anything
+    // else as json), so the model-facing output is unchanged. On (the default),
+    // each fetched page also carries its ready-made `cite` string
+    // (lib/utils/citation-handles.ts). The number is the page's position in the
+    // merged `results` above, from which failed urls are already left out — the
+    // same array extractCitationMaps indexes — and a `Fetch failed:`
+    // placeholder gets no handle.
+    toModelOutput: ({ toolCallId, output }) => {
+      if (typeof output === 'string') return { type: 'text', value: output }
+      const value = isCitationHandlesEnabled()
+        ? addCitationHandles(output, toolCallId)
+        : output
+      return { type: 'json', value: (value ?? null) as JSONValue }
     }
   })
 }

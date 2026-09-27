@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import {
   auditCitations,
@@ -197,92 +197,169 @@ describe('fetch guidance does not re-fetch already-returned sources', () => {
 // search" (balanced) — while the renderer implements only the second. Models
 // numbering as a running count cited a one-page fetch as [3] (dropped) and a
 // search's "5th source" as [5] (rendered as that search's 5th result).
-describe('citation examples match what the renderer resolves', () => {
-  const ANCHOR_RE = /\[\s*(\d+)\s*\]\(#([^)]+)\)/g
-  const HAS_ANCHOR_RE = /\[\s*\d+\s*\]\(#[^)]+\)/
-  const prompts = () => ({
-    speed: getQuickModePrompt(),
-    balanced: getAdaptiveModePrompt(),
-    quality: getQualityModePrompt()
-  })
+// Runs under both CITATION_HANDLES arms: the placement examples are shared, so
+// their anchors must render either way; only the numbering text differs.
+describe.each(['on', 'off'])(
+  'citation examples match what the renderer resolves (CITATION_HANDLES=%s)',
+  flag => {
+    beforeEach(() => {
+      vi.stubEnv('CITATION_HANDLES', flag)
+    })
+    afterEach(() => {
+      vi.unstubAllEnvs()
+    })
 
-  it('contains no copyable placeholder ids or retired example ids', () => {
-    for (const prompt of Object.values(prompts())) {
-      expect(prompt).not.toContain('<id-')
-      expect(prompt).not.toMatch(/\(#<[^)]*>\)/)
-      expect(prompt).not.toContain('aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee')
-      expect(prompt).not.toContain('mK3pQr7sT9uV2wX4')
-    }
-  })
+    const ANCHOR_RE = /\[\s*(\d+)\s*\]\(#([^)]+)\)/g
+    const HAS_ANCHOR_RE = /\[\s*\d+\s*\]\(#[^)]+\)/
+    const prompts = () => ({
+      speed: getQuickModePrompt(),
+      balanced: getAdaptiveModePrompt(),
+      quality: getQualityModePrompt()
+    })
 
-  it('uses only the two worked-example ids in citation examples', () => {
-    for (const prompt of Object.values(prompts())) {
-      const ids = new Set([...prompt.matchAll(ANCHOR_RE)].map(m => m[2]))
-      expect(ids.size).toBeGreaterThan(0)
-      for (const id of ids) {
-        expect([PROMPT_EXAMPLE_SEARCH_ID, PROMPT_EXAMPLE_FETCH_ID]).toContain(
-          id
-        )
+    it('contains no copyable placeholder ids or retired example ids', () => {
+      for (const prompt of Object.values(prompts())) {
+        expect(prompt).not.toContain('<id-')
+        expect(prompt).not.toMatch(/\(#<[^)]*>\)/)
+        expect(prompt).not.toContain('aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee')
+        expect(prompt).not.toContain('mK3pQr7sT9uV2wX4')
       }
+    })
+
+    it('uses only the two worked-example ids in citation examples', () => {
+      for (const prompt of Object.values(prompts())) {
+        const ids = new Set([...prompt.matchAll(ANCHOR_RE)].map(m => m[2]))
+        expect(ids.size).toBeGreaterThan(0)
+        for (const id of ids) {
+          expect([PROMPT_EXAMPLE_SEARCH_ID, PROMPT_EXAMPLE_FETCH_ID]).toContain(
+            id
+          )
+        }
+      }
+    })
+
+    // The flag-off (pre-CITATION_HANDLES) guidance: the model counts positions.
+    it.runIf(flag === 'off')(
+      'states one numbering scheme: position within that call, restarting at 1',
+      () => {
+        for (const prompt of Object.values(prompts())) {
+          expect(prompt).toMatch(/NOT a running count across your answer/)
+          expect(prompt).toMatch(/numbering starts again at 1 for every/i)
+          expect(prompt).toMatch(/always cited as \[1\]/)
+          expect(prompt).not.toMatch(/Each unique toolCallId gets ONE number/i)
+          expect(prompt).not.toMatch(/Assign numbers sequentially/i)
+        }
+      }
+    )
+
+    it('every non-WRONG example anchor renders under the worked example it describes', () => {
+      // The worked example: a search with 8 results and a fetch of one page.
+      // Every example the prompt presents as correct must resolve, as written,
+      // against exactly that turn — the renderer's own resolution, not a copy.
+      const turn = [
+        {
+          type: 'tool-search',
+          toolCallId: PROMPT_EXAMPLE_SEARCH_ID,
+          state: 'output-available',
+          output: {
+            results: Array.from({ length: 8 }, (_, i) => ({
+              title: `r${i + 1}`,
+              url: `https://example.com/${i + 1}`,
+              content: ''
+            }))
+          }
+        },
+        {
+          type: 'tool-fetch',
+          toolCallId: PROMPT_EXAMPLE_FETCH_ID,
+          state: 'output-available',
+          output: {
+            results: [{ title: 'p', url: 'https://example.org/p', content: '' }]
+          }
+        }
+      ]
+      for (const [mode, prompt] of Object.entries(prompts())) {
+        const correctLines = prompt
+          .split('\n')
+          .filter(line => !line.includes('✗') && HAS_ANCHOR_RE.test(line))
+        const audit = auditCitations({
+          parts: [...turn, { type: 'text', text: correctLines.join('\n') }]
+        })
+        expect({ mode, ...audit }).toEqual({
+          mode,
+          total: audit.total,
+          own: audit.total,
+          recovered: 0,
+          unresolved: 0
+        })
+        // A fetch of one page is only ever shown as [1] outside WRONG examples.
+        for (const line of correctLines) {
+          for (const m of line.matchAll(ANCHOR_RE)) {
+            if (m[2] === PROMPT_EXAMPLE_FETCH_ID) expect(m[1]).toBe('1')
+          }
+        }
+      }
+    })
+  }
+)
+
+// CITATION_HANDLES: every citable result carries its own `cite` string
+// (lib/utils/citation-handles.ts), so the guidance stops asking the model to
+// count. Flag on = copy the string; flag off = the within-call counting rule
+// and its worked example, exactly as before.
+describe('citation guidance under CITATION_HANDLES', () => {
+  afterEach(() => {
+    vi.unstubAllEnvs()
+  })
+  const prompts = () => [
+    getQuickModePrompt(),
+    getAdaptiveModePrompt(),
+    getQualityModePrompt()
+  ]
+
+  it('is on by default: copy the cite string, never compute a citation', () => {
+    vi.stubEnv('CITATION_HANDLES', '')
+    for (const prompt of prompts()) {
+      expect(prompt).toContain('copy its `cite` string exactly')
+      expect(prompt).toMatch(/Never compute, renumber or edit a citation/)
+      // The counting explanation and its worked example are gone.
+      expect(prompt).not.toMatch(/NOT a running count across your answer/)
+      expect(prompt).not.toMatch(/numbering starts again at 1/i)
+      expect(prompt).not.toMatch(/Worked example/)
+      expect(prompt).not.toMatch(/always cited as \[1\]/)
+      // Placement rules stay.
+      expect(prompt).toMatch(/Add citations AFTER the period/)
+    }
+    // balanced/quality point 5 no longer explains the numbering either.
+    for (const prompt of [getAdaptiveModePrompt(), getQualityModePrompt()]) {
+      expect(prompt).toContain(
+        'Cite a result by copying its `cite` string exactly'
+      )
+      expect(prompt).not.toMatch(/The number is the position of the source/)
     }
   })
 
-  it('states one numbering scheme: position within that call, restarting at 1', () => {
-    for (const prompt of Object.values(prompts())) {
+  it('is off only for the literal "off", restoring the counting guidance', () => {
+    vi.stubEnv('CITATION_HANDLES', 'off')
+    for (const prompt of prompts()) {
+      expect(prompt).not.toContain('`cite`')
       expect(prompt).toMatch(/NOT a running count across your answer/)
-      expect(prompt).toMatch(/numbering starts again at 1 for every/i)
-      expect(prompt).toMatch(/always cited as \[1\]/)
-      expect(prompt).not.toMatch(/Each unique toolCallId gets ONE number/i)
-      expect(prompt).not.toMatch(/Assign numbers sequentially/i)
+      expect(prompt).toMatch(/Worked example/)
+    }
+    for (const prompt of [getAdaptiveModePrompt(), getQualityModePrompt()]) {
+      expect(prompt).toMatch(/The number is the position of the source/)
+    }
+    for (const v of ['OFF', 'false', '0', 'on']) {
+      vi.stubEnv('CITATION_HANDLES', v)
+      expect(getAdaptiveModePrompt()).toContain('copy its `cite` string')
     }
   })
 
-  it('every non-WRONG example anchor renders under the worked example it describes', () => {
-    // The worked example: a search with 8 results and a fetch of one page.
-    // Every example the prompt presents as correct must resolve, as written,
-    // against exactly that turn — the renderer's own resolution, not a copy.
-    const turn = [
-      {
-        type: 'tool-search',
-        toolCallId: PROMPT_EXAMPLE_SEARCH_ID,
-        state: 'output-available',
-        output: {
-          results: Array.from({ length: 8 }, (_, i) => ({
-            title: `r${i + 1}`,
-            url: `https://example.com/${i + 1}`,
-            content: ''
-          }))
-        }
-      },
-      {
-        type: 'tool-fetch',
-        toolCallId: PROMPT_EXAMPLE_FETCH_ID,
-        state: 'output-available',
-        output: {
-          results: [{ title: 'p', url: 'https://example.org/p', content: '' }]
-        }
-      }
-    ]
-    for (const [mode, prompt] of Object.entries(prompts())) {
-      const correctLines = prompt
-        .split('\n')
-        .filter(line => !line.includes('✗') && HAS_ANCHOR_RE.test(line))
-      const audit = auditCitations({
-        parts: [...turn, { type: 'text', text: correctLines.join('\n') }]
-      })
-      expect({ mode, ...audit }).toEqual({
-        mode,
-        total: audit.total,
-        own: audit.total,
-        recovered: 0,
-        unresolved: 0
-      })
-      // A fetch of one page is only ever shown as [1] outside WRONG examples.
-      for (const line of correctLines) {
-        for (const m of line.matchAll(ANCHOR_RE)) {
-          if (m[2] === PROMPT_EXAMPLE_FETCH_ID) expect(m[1]).toBe('1')
-        }
-      }
-    }
+  it('the flag-on guidance is shorter than the counting guidance it replaces', () => {
+    vi.stubEnv('CITATION_HANDLES', 'on')
+    const on = getAdaptiveModePrompt().length
+    vi.stubEnv('CITATION_HANDLES', 'off')
+    const off = getAdaptiveModePrompt().length
+    expect(on).toBeLessThan(off)
   })
 })

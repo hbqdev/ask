@@ -153,6 +153,12 @@ services:
       # build: ANSWER_THINK=low docker compose ... up -d --force-recreate ask.
       # Unset falls back to the in-code default (ANSWER_THINK_DEFAULT).
       ANSWER_THINK: ${ANSWER_THINK:-}
+      # Ready-made citation strings on every citable tool result
+      # (lib/utils/citation-handles.ts). Unset/empty = on (the code default);
+      # only "off" disables. Shell-overridable so the support-rate A/B toggles
+      # arms against ONE build:
+      # CITATION_HANDLES=off docker compose ... up -d --force-recreate ask.
+      CITATION_HANDLES: ${CITATION_HANDLES:-}
       # Pin the image EDIT model (registry.ts pickPinnedModel) to one consistent,
       # strong editor instead of round-robining the whole pool — edits kept
       # drifting in style/identity/resolution turn-to-turn. Generation still

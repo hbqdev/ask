@@ -7,6 +7,8 @@ import type {
 } from '@ai-sdk/provider'
 import { randomUUID } from 'crypto'
 
+import { isCitationHandlesEnabled } from '@/lib/utils/citation-handles'
+
 /**
  * ALWAYS_SEARCH — the owner's 2026-09-26 decision: every question gets a web
  * search. Only a non-question (greeting/thanks/venting, a pure transform of
@@ -318,3 +320,19 @@ export const FORCED_SEARCH_PROMPT_ADDENDUM = `
 
 ## A first web search has already been run for this turn
 The \`search\` call at the start of this turn was run for you on the resolved query. Its results are real sources retrieved THIS turn: read them, ground your answer in them, and cite what you use exactly as the citation format above describes, with the real id that call returned. This holds for every message that reaches you this turn, including a follow-up about your own earlier answer — the "clarifying your own prior answer" exception above does not apply. Search again or fetch a page only if those results leave a specific gap you can name; if they turn out irrelevant, answer from what you know and do not cite them.`
+
+/**
+ * FORCED_SEARCH_PROMPT_ADDENDUM for this turn. With CITATION_HANDLES on (the
+ * default) the citing clause says to copy each result's `cite` string rather
+ * than pointing the model at "the real id that call returned" to assemble an
+ * anchor from; off returns the constant above unchanged.
+ */
+export function getForcedSearchPromptAddendum(
+  env: Record<string, string | undefined> = process.env
+): string {
+  if (!isCitationHandlesEnabled(env)) return FORCED_SEARCH_PROMPT_ADDENDUM
+  return FORCED_SEARCH_PROMPT_ADDENDUM.replace(
+    'cite what you use exactly as the citation format above describes, with the real id that call returned.',
+    "cite what you use by copying each result's `cite` string, as the citation format above describes."
+  )
+}
