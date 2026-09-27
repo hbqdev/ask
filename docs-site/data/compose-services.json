@@ -251,10 +251,6 @@
               "value": "(secret — not shown)"
             },
             {
-              "key": "CITATION_HANDLES",
-              "value": "${CITATION_HANDLES:-}"
-            },
-            {
               "key": "CLASSIFIER_MODEL_ID",
               "value": "glm-5.3-flash:cloud"
             },
