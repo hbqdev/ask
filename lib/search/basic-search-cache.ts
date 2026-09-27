@@ -14,7 +14,11 @@
 // same question every time.
 
 import { Redis } from '@upstash/redis'
-import { createClient } from 'redis'
+
+import {
+  createLocalRedisConnector,
+  type LocalRedisClient
+} from '@/lib/redis/local-redis'
 
 /** Matches the advanced cache so `--scan --pattern 'search:*'` clears both. */
 export function basicSearchCacheKey(
@@ -65,27 +69,21 @@ export async function withBasicSearchCache<T extends { results?: unknown[] }>(
 
 const CACHE_TTL = 3600
 
-let client: Redis | ReturnType<typeof createClient> | null | undefined
+let upstashClient: Redis | null = null
+// Self-healing local client (lib/redis/local-redis.ts). Previously a failed
+// first connect was cached as null for the life of the process, and a Redis
+// restart wedged a connected client forever; now an outage is just a miss.
+const localRedis = createLocalRedisConnector('basic-search-cache')
 
 /** Same connection strategy as advanced-search/route.ts. */
-async function getClient() {
-  if (client !== undefined) return client
+async function getClient(): Promise<Redis | LocalRedisClient | null> {
   const url = process.env.UPSTASH_REDIS_REST_URL
   const token = process.env.UPSTASH_REDIS_REST_TOKEN
   if (url && token) {
-    client = new Redis({ url, token })
-    return client
+    if (!upstashClient) upstashClient = new Redis({ url, token })
+    return upstashClient
   }
-  try {
-    const local = createClient({
-      url: process.env.LOCAL_REDIS_URL || 'redis://localhost:6379'
-    })
-    await local.connect()
-    client = local
-  } catch {
-    client = null
-  }
-  return client
+  return localRedis.get()
 }
 
 /** Redis-backed CacheIO; a null client makes every call a silent no-op. */
