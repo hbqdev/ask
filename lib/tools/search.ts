@@ -41,6 +41,11 @@ import { getBaseUrlString } from '@/lib/utils/url'
 import { logToolPayload } from '@/lib/utils/usage-logging'
 
 import {
+  advancedSearchHeadersTimeoutMs,
+  advancedSearchTimeoutMs,
+  createAdvancedSearchDeadline
+} from './search/advanced-search-deadline'
+import {
   countSearchPayload,
   routeEmitsSearchTelemetry
 } from './search/basic-telemetry'
@@ -807,12 +812,15 @@ export function createSearchTool(
       // [latency:search] line itself and the tool must not emit a second one.
       // Same value that decided the depth slot above — one expression drives
       // routing, slot consumption and telemetry, so none can drift apart.
-      const routeReportsTelemetry = usesAdvancedPipeline
+      // `let`: an advanced-search TIMEOUT hands this search to the basic
+      // SearXNG fallback, which the route never sees, so the tool then owns
+      // the [latency:search] line (see the fallback in the catch below).
+      let routeReportsTelemetry = usesAdvancedPipeline
 
       // Per-search timing for the paths the route never sees. Started here so
       // it brackets exactly what the "Using search API" -> "completed search"
       // log pair brackets, keeping the line and the logs mutually checkable.
-      const toolTimer = routeReportsTelemetry
+      let toolTimer: StageTimer | null = routeReportsTelemetry
         ? null
         : new StageTimer('latency:search', {
             ...buildSearchTelemetryTag({ chatId: toolOptions?.chatId }),
@@ -828,6 +836,73 @@ export function createSearchTool(
       const timeSearch = <T>(fn: () => Promise<T>): Promise<T> =>
         toolTimer ? toolTimer.time('search_ms', fn) : fn()
 
+      // The cached basic-depth SearXNG search. Shared by the normal basic
+      // branch below and by the advanced-search timeout fallback, so the
+      // fallback is exactly what a follow-up (tiered-down) search would do.
+      //
+      // Cached at basic depth: follow-up searches all tier down to basic and
+      // previously bypassed the cache entirely, which was the bulk of engine
+      // load. Domain filters are part of the key via the query string, and
+      // advanced never reaches here (it goes through /api/advanced-search,
+      // which has its own cache). Cache outcome is inferred from whether the
+      // inner function ran, rather than plumbed out of withBasicSearchCache:
+      // that helper only invokes it on a miss, so the flag IS the outcome and
+      // no signature change (or its test churn) is needed.
+      const runBasicSearxng = async (): Promise<SearchResults> => {
+        const searxngProvider = createSearchProvider('searxng')
+        let providerRan = false
+        let providerMs = 0
+        const result = await withBasicSearchCache(
+          basicSearchCacheKey(
+            // content_types belongs in the key: it is passed to the provider
+            // below and materially changes the request — driving
+            // extraCategories -> SearXNG `categories`, the
+            // wantsVideo/wantsNews degoog sub-fetches, and the `videos`
+            // field. Without it a ['web'] search and a ['video'] search
+            // for the same string collide: the second gets the first's
+            // cached body, with videos empty and the video-category
+            // engines never queried, so the model concludes no video
+            // sources exist. Sorted so ['web','video'] and
+            // ['video','web'] share one entry rather than two.
+            `${filledQuery}|${search_mode}|${include_domains.join(',')}|${exclude_domains.join(',')}|${toolOptions?.intent ?? ''}|${[...((content_types as string[] | undefined) ?? [])].sort().join(',')}`,
+            effectiveMaxResults,
+            toolOptions?.timeRange
+          ),
+          async () => {
+            providerRan = true
+            const startedAt = performance.now()
+            try {
+              return await searxngProvider.search(
+                filledQuery,
+                effectiveMaxResults,
+                // Always basic: the searxng provider only reaches this path at
+                // basic depth (advanced routes to /api/advanced-search), and
+                // the timeout fallback must not re-run the advanced pipeline.
+                'basic',
+                include_domains,
+                exclude_domains,
+                {
+                  searchMode: search_mode as SearchModeOption,
+                  content_types: content_types as SearchContentType[],
+                  time_range: toolOptions?.timeRange,
+                  intent: toolOptions?.intent,
+                  useOllama,
+                  ollamaMaxResults
+                }
+              )
+            } finally {
+              // In `finally` so a failing-and-slow fan-out is still
+              // visible in the numbers instead of vanishing.
+              providerMs = performance.now() - startedAt
+            }
+          },
+          redisCacheIO
+        )
+        toolTimer?.set('cache', providerRan ? 'miss' : 'hit')
+        if (providerRan) toolTimer?.mark('search_ms', providerMs)
+        return result
+      }
+
       try {
         if (routeReportsTelemetry) {
           // Get the base URL using the centralized utility function
@@ -838,84 +913,127 @@ export function createSearchTool(
             process.env.SEARCH_STREAM_PREVIEW !== 'false' &&
             typeof ReadableStream !== 'undefined'
 
-          const response = await fetch(`${baseUrl}/api/advanced-search`, {
-            method: 'POST',
-            headers: {
-              'Content-Type': 'application/json',
-              // Internal-service auth: advanced-search now rejects any caller
-              // without this token, closing the unauthenticated public reach.
-              ...(process.env.INGEST_API_TOKEN && {
-                authorization: `Bearer ${process.env.INGEST_API_TOKEN}`
-              })
-            },
-            body: JSON.stringify({
-              query: filledQuery,
-              maxResults: effectiveMaxResults,
-              searchDepth: effectiveSearchDepthForAPI,
-              // Tier signal. balanced and quality both send searchDepth
-              // 'advanced'; this is what lets the route drop SearXNG + degoog
-              // (and their crawl) for balanced while keeping them for quality.
-              searchMode: toolOptions?.searchMode,
-              includeDomains: include_domains,
-              excludeDomains: exclude_domains,
-              timeRange: toolOptions?.timeRange,
-              intent: toolOptions?.intent,
-              chatId: toolOptions?.chatId,
-              useOllama,
-              ollamaMaxResults,
-              // NDJSON: a preview line as soon as the fan-out resolves (~2s),
-              // then the crawled+reranked line (~15-20s). Sources render on
-              // the preview instead of the user watching nothing until the
-              // end. Off => today's single JSON response.
-              stream: streamPreview
-            })
+          // Bounded: this call had no timeout, and a route that never sends
+          // headers (2026-09-27: wedged Redis client) hung the turn until
+          // undici's 300s headers timeout. See advanced-search-deadline.ts.
+          const deadline = createAdvancedSearchDeadline({
+            turnSignal: context?.abortSignal,
+            totalMs: advancedSearchTimeoutMs(),
+            // Only stream mode sends headers before the work is done.
+            headersMs: streamPreview ? advancedSearchHeadersTimeoutMs() : 0
           })
-          if (!response.ok) {
-            throw new Error(
-              `Advanced search API error: ${response.status} ${response.statusText}`
-            )
-          }
+          try {
+            const response = await fetch(`${baseUrl}/api/advanced-search`, {
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/json',
+                // Internal-service auth: advanced-search now rejects any caller
+                // without this token, closing the unauthenticated public reach.
+                ...(process.env.INGEST_API_TOKEN && {
+                  authorization: `Bearer ${process.env.INGEST_API_TOKEN}`
+                })
+              },
+              body: JSON.stringify({
+                query: filledQuery,
+                maxResults: effectiveMaxResults,
+                searchDepth: effectiveSearchDepthForAPI,
+                // Tier signal. balanced and quality both send searchDepth
+                // 'advanced'; this is what lets the route drop SearXNG + degoog
+                // (and their crawl) for balanced while keeping them for quality.
+                searchMode: toolOptions?.searchMode,
+                includeDomains: include_domains,
+                excludeDomains: exclude_domains,
+                timeRange: toolOptions?.timeRange,
+                intent: toolOptions?.intent,
+                chatId: toolOptions?.chatId,
+                useOllama,
+                ollamaMaxResults,
+                // NDJSON: a preview line as soon as the fan-out resolves (~2s),
+                // then the crawled+reranked line (~15-20s). Sources render on
+                // the preview instead of the user watching nothing until the
+                // end. Off => today's single JSON response.
+                stream: streamPreview
+              }),
+              signal: deadline.signal
+            })
+            deadline.headersReceived()
+            if (!response.ok) {
+              throw new Error(
+                `Advanced search API error: ${response.status} ${response.statusText}`
+              )
+            }
 
-          if (streamPreview && response.body) {
-            let finalResult: SearchResults | undefined
-            let finalFull: SearchResultItem[] | undefined
-            for await (const line of readNdjson(response.body)) {
-              const msg = line as { type?: string } & Partial<SearchResults>
-              if (msg?.type === 'preview') {
-                // Intermediate yields are UI-only — the model receives the
-                // FINAL yield — so showing preliminary sources here cannot
-                // put un-crawled content in front of the model.
-                yield {
-                  state: 'complete' as const,
-                  results: msg.results ?? [],
-                  images: [],
-                  query: filledQuery,
-                  number_of_results: msg.number_of_results ?? 0
-                }
-              } else if (msg?.type === 'final') {
-                finalFull = (msg as { fullResults?: SearchResultItem[] })
-                  .fullResults
-                advancedTimings = (msg as { timings?: Record<string, number> })
-                  .timings
-                finalResult = {
-                  results: msg.results ?? [],
-                  query: msg.query ?? filledQuery,
-                  images: msg.images ?? [],
-                  number_of_results: msg.number_of_results ?? 0
+            if (streamPreview && response.body) {
+              let finalResult: SearchResults | undefined
+              let finalFull: SearchResultItem[] | undefined
+              for await (const line of readNdjson(response.body)) {
+                const msg = line as { type?: string } & Partial<SearchResults>
+                if (msg?.type === 'preview') {
+                  // Intermediate yields are UI-only — the model receives the
+                  // FINAL yield — so showing preliminary sources here cannot
+                  // put un-crawled content in front of the model.
+                  yield {
+                    state: 'complete' as const,
+                    results: msg.results ?? [],
+                    images: [],
+                    query: filledQuery,
+                    number_of_results: msg.number_of_results ?? 0
+                  }
+                } else if (msg?.type === 'final') {
+                  finalFull = (msg as { fullResults?: SearchResultItem[] })
+                    .fullResults
+                  advancedTimings = (
+                    msg as { timings?: Record<string, number> }
+                  ).timings
+                  finalResult = {
+                    results: msg.results ?? [],
+                    query: msg.query ?? filledQuery,
+                    images: msg.images ?? [],
+                    number_of_results: msg.number_of_results ?? 0
+                  }
                 }
               }
+              if (!finalResult) {
+                throw new Error(
+                  'Advanced search stream ended with no final line'
+                )
+              }
+              searchResult = finalResult
+              recordFull(finalFull)
+            } else {
+              const body = await response.json()
+              searchResult = body
+              advancedTimings = (body as { timings?: Record<string, number> })
+                ?.timings
+              recordFull(body?.fullResults)
             }
-            if (!finalResult) {
-              throw new Error('Advanced search stream ended with no final line')
-            }
-            searchResult = finalResult
-            recordFull(finalFull)
-          } else {
-            const body = await response.json()
-            searchResult = body
-            advancedTimings = (body as { timings?: Record<string, number> })
-              ?.timings
-            recordFull(body?.fullResults)
+          } catch (error) {
+            const timeout = deadline.timedOut()
+            // Anything that is not OUR timeout (HTTP error, bad stream, the
+            // turn's own abort) keeps today's behaviour: rethrow to the
+            // outer catch, which surfaces it as a tool error.
+            if (!timeout) throw error
+            // Fall back to the cached basic SearXNG search so the turn still
+            // gets sources, instead of a tool error after a long silence.
+            // The route never reports this search, so the tool now owns its
+            // [latency:search] line (kind=advanced-fallback).
+            console.warn(
+              `[search] advanced-search timed out (phase=${timeout.phase}, limit=${timeout.limitMs}ms, waited=${timeout.elapsedMs}ms, mode=${toolOptions?.searchMode ?? 'default'}) — falling back to basic SearXNG for "${filledQuery}"`
+            )
+            routeReportsTelemetry = false
+            advancedTimings = undefined
+            toolTimer = new StageTimer('latency:search', {
+              ...buildSearchTelemetryTag({ chatId: toolOptions?.chatId }),
+              depth: 'basic',
+              intent: toolOptions?.intent ?? 'general',
+              provider: searchAPI,
+              kind: 'advanced-fallback'
+            })
+            toolTimer.set('advanced_timeout', timeout.phase)
+            toolTimer.mark('advanced_wait_ms', timeout.elapsedMs)
+            searchResult = await runBasicSearxng()
+          } finally {
+            deadline.clear()
           }
         } else {
           // Use the provider factory to get the appropriate search provider
@@ -998,62 +1116,7 @@ export function createSearchTool(
               filledQuery
             )
           } else if (searchAPI === 'searxng') {
-            // Cached at basic depth: follow-up searches all tier down to
-            // basic and previously bypassed the cache entirely, which was the
-            // bulk of engine load. Domain filters are part of the key via the
-            // query string, and advanced never reaches here (it goes through
-            // /api/advanced-search, which has its own cache).
-            // Cache outcome is inferred from whether the inner function ran,
-            // rather than plumbed out of withBasicSearchCache: that helper
-            // only invokes it on a miss, so the flag IS the outcome and no
-            // signature change (or its test churn) is needed.
-            let providerRan = false
-            let providerMs = 0
-            searchResult = await withBasicSearchCache(
-              basicSearchCacheKey(
-                // content_types belongs in the key: it is passed to the provider
-                // below and materially changes the request — driving
-                // extraCategories -> SearXNG `categories`, the
-                // wantsVideo/wantsNews degoog sub-fetches, and the `videos`
-                // field. Without it a ['web'] search and a ['video'] search
-                // for the same string collide: the second gets the first's
-                // cached body, with videos empty and the video-category
-                // engines never queried, so the model concludes no video
-                // sources exist. Sorted so ['web','video'] and
-                // ['video','web'] share one entry rather than two.
-                `${filledQuery}|${search_mode}|${include_domains.join(',')}|${exclude_domains.join(',')}|${toolOptions?.intent ?? ''}|${[...((content_types as string[] | undefined) ?? [])].sort().join(',')}`,
-                effectiveMaxResults,
-                toolOptions?.timeRange
-              ),
-              async () => {
-                providerRan = true
-                const startedAt = performance.now()
-                try {
-                  return await searchProvider.search(
-                    filledQuery,
-                    effectiveMaxResults,
-                    effectiveSearchDepthForAPI,
-                    include_domains,
-                    exclude_domains,
-                    {
-                      searchMode: search_mode as SearchModeOption,
-                      content_types: content_types as SearchContentType[],
-                      time_range: toolOptions?.timeRange,
-                      intent: toolOptions?.intent,
-                      useOllama,
-                      ollamaMaxResults
-                    }
-                  )
-                } finally {
-                  // In `finally` so a failing-and-slow fan-out is still
-                  // visible in the numbers instead of vanishing.
-                  providerMs = performance.now() - startedAt
-                }
-              },
-              redisCacheIO
-            )
-            toolTimer?.set('cache', providerRan ? 'miss' : 'hit')
-            if (providerRan) toolTimer?.mark('search_ms', providerMs)
+            searchResult = await runBasicSearxng()
           } else {
             searchResult = await timeSearch(() =>
               searchProvider.search(

@@ -12,7 +12,10 @@
 # Ask's own image, which is built from source, not pulled), recreates via the
 # gluetun VPN overlay, then health-checks the app + verifies the tunnel egress
 # is the VPN and not the residential IP. So this only ever refreshes
-# postgres/redis/searxng/gluetun/kokoro — never the app build.
+# postgres/redis/searxng/gluetun/kokoro — never the app build. When a sidecar
+# was recreated it DOES `docker restart` the app container (same image, same
+# networks) and probes the search path's Redis — a recreated redis under a
+# running app hung every first search on 2026-09-27 (see update-images.sh).
 #
 # Lab goes first as a canary: a sidecar image that breaks shows up on the
 # experimentation stack in the log before prod/staging's results. (A failure
