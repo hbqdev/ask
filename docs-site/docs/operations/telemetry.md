@@ -28,11 +28,11 @@ probe is unavoidable, send one query, reuse it, and tell the team first.
 | `[latency]` | `LatencyTracker.emit` (`lib/streaming/latency-tracker.ts`), called from `onFinish` in `lib/streaming/create-chat-stream-response.ts` | chat turn | yes |
 | `[latency:search]` | `StageTimer` (`lib/telemetry/stage-timer.ts`) in `app/api/advanced-search/route.ts` **or** in `lib/tools/search.ts` | search call | yes |
 | `[latency:classify]` | `lib/agents/query-classifier-telemetry.ts` | classifier call | yes |
-| `[search] round cap reached (N > B, mode=…)` | `lib/tools/search.ts:398` | capped search | no (stdout only). The matching `[latency:search] kind:"round-cap"` line is stored |
+| `[search] round cap reached (N > B, mode=…)` | `lib/tools/search.ts:405` | capped search | no (stdout only). The matching `[latency:search] kind:"round-cap"` line is stored |
 | `[crop-pos]`, `[cite-urls]` | `lib/search/crop-position.ts`, `create-chat-stream-response.ts` | advanced search / turn (only when `SEARCH_CROP_POSITION_SHADOW=true`) | no |
 | `[stop] {outcome}` | `create-chat-stream-response.ts` | user-stopped turn (`partial_saved` / `nothing_to_save` / `stale_skipped`) | no |
 | `[stall-suspect]` | `LatencyTracker.emit` | aborted turn that produced no text after ≥120s of silence (the signature of a provider stall) | no |
-| `[Researcher] always-search: step 0 forced to search "<first 80 chars of the query>" (turnMode=…, mode=…)` / `…the user supplied the source (url \| attachment-only \| attachment-reference) — first step not forced…` / `…nothing searchable in the resolved query…` | `lib/agents/researcher.ts:957-969` | research turn with `ALWAYS_SEARCH` on (logged-in **and** guest) | no. Guest turns have no `[latency]` line, so this is their only record |
+| `[Researcher] always-search: step 0 forced to search "<first 80 chars of the query>" (turnMode=…, mode=…)` / `…the user supplied the source (url \| attachment-only \| attachment-reference) — first step not forced…` / `…nothing searchable in the resolved query…` | `lib/agents/researcher.ts:965-977` | research turn with `ALWAYS_SEARCH` on (logged-in **and** guest) | no. Guest turns have no `[latency]` line, so this is their only record |
 | `[search-dedup]`, `[search-expansion]`, `[advanced-search] crawl4ai enriched X/Y…`, `[Researcher] <Mode> mode: maxSteps=…` | various | event | no |
 
 Read stdout with `docker logs <container>`. The containers are `ask` (prod),
@@ -100,7 +100,7 @@ the moment the tracker was created, which is right before `prepareMessages`.
 | `prompt_tokens` | Input tokens **summed across all steps** (cost) |
 | `last_prompt_tokens` | Input tokens of the **final** step, i.e. the answering prompt. **Use this to judge a change to prompt size** |
 | `completion_tokens` | Output tokens summed across steps, **including reasoning**. Use this to judge a change to reasoning or `ANSWER_THINK` |
-| `citations_total`, `citations_unresolved` | Citation anchors (`[N](#id)`) in the answer, and how many of them **render as nothing**: an id from another turn, an invented id, an ambiguous placeholder, or a real id with a number that is not one of that call's results. Counted by `auditCitations` (`lib/utils/citation.ts:328-353`) with the resolver rendering uses (`resolveCitationAnchor`, `:263-289`), so it equals what the reader loses. Only written when the answer has at least one anchor. **Since 2026-09-26** out-of-range numbers are included; before that they were scored as resolved although they rendered nothing (see the warning below) |
+| `citations_total`, `citations_unresolved` | Citation anchors (`[N](#id)`) in the answer, and how many of them **render as nothing**: an id from another turn, an invented id, an ambiguous placeholder, or a real id with a number that is not one of that call's results. Counted by `auditCitations` (`lib/utils/citation.ts:346-371`) with the resolver rendering uses (`resolveCitationAnchor`, `:279-307`), so it equals what the reader loses. Only written when the answer has at least one anchor. **Since 2026-09-26** out-of-range numbers are included; before that they were scored as resolved although they rendered nothing (see the warning below) |
 | `citations_recovered` | Anchors rendered only through a repair: since 2026-09-24 an id that is a fragment of exactly one of the turn's source URLs (`resolveByUrlFragment`, `lib/utils/citation.ts:66`); since 2026-09-26 also a real id of the turn wrapped in `<id-…>` / `<…>`, a placeholder id in a turn with exactly one citable call, and a too-high number on a fetch that returned one page. Not counted in `citations_unresolved`. **Omitted when 0** (`lib/streaming/latency-tracker.ts:292-294`), so its absence is normal. Anchors rendered as written ("own") are not logged: own = `citations_total` − `citations_recovered` − `citations_unresolved` |
 | `total_ms` | Wall time from tracker creation to `onFinish`. Always present |
 | `abort_silence_ms`, `blank_abort` | Only on aborted turns: how long the turn was silent before the abort, and whether any prose had been written. Silence ≥120s with no prose looks like a provider stall; a short silence is a user pressing Stop or a disconnect |
@@ -116,6 +116,34 @@ the same answers: that is the honest count, not a regression. Compare rates only
 written by the same build. A too-high number on a one-page fetch is now rendered and counted in
 `citations_recovered` instead. Neither counter sees an in-range number that points at the wrong
 result ([known issue](/history/known-issues#running-count-citation-numbers-can-point-at-the-wrong-result)).
+:::
+
+::: tip Citation handles (2026-09-27) change the answers, not the counters
+With `CITATION_HANDLES` on (the default since prod `8878a42d`), the model copies a ready-made
+`cite` string from each result instead of working out N
+([D38](/history/decisions#d38-ready-made-citation-handles)). `citations_total`,
+`citations_unresolved` and `citations_recovered` are computed exactly as before. What to expect
+and watch on lines from that build:
+
+- **`citations_unresolved` should fall.** A copied handle always resolves, so the out-of-range
+  numbers of running-count models largely disappear. What still counts as unresolved is mostly
+  an id copied with a character missing (seen with kimi-k2.6: the resolver has no typo repair)
+  or an invented id. A share that stays near the older level is worth a look: it would mean
+  models are not copying the handles.
+- **`citations_recovered` should be rare**, since a copied handle needs no repair.
+- **The main effect is invisible here.** The change cuts citations that resolve to the
+  **wrong page** (lab A/B: deepseek-v4.1-flash 64.0 % → 11.0 % unsupported, kimi-k2.6
+  47.8 % → 18.7 %). A wrong-page anchor is well-formed, so no counter sees it, before or after.
+  To check it on prod, judge whether each cited page supports its sentence on a sample of
+  answers ([D4](/history/decisions#d4-judge-answers-not-source-counts)); do not read it off the
+  counters.
+- **Fetches and latency (open question).** In the A/B, deepseek-v4.1-flash fetched a page on 4 of
+  4 turns with handles on and 0 of 4 with them off, about +30 s per turn, confounded with recall.
+  Compare, per `modelId`, `tool_calls`, the share of turns that have a `fetch_ms` field (it is
+  written only when a fetch ran), `fetch_ms` itself and `total_ms` before and after the build.
+- **Prompt size.** Expect `last_prompt_tokens` about +370 on a balanced call with a 27-result
+  search (handles +783, shorter citation guidance about −400).
+- **Revert** with `CITATION_HANDLES=off` and a container recreate; no rebuild.
 :::
 
 Example (prod, balanced, a research turn; `chatId` omitted):

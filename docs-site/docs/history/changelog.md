@@ -18,9 +18,34 @@ behind the change. Lab-first work lives on `flow-design`. `git cherry-pick -x` l
 
 ## 2026-09 — September
 
-**Streaming lifecycle, mobile QA, the end of the latency campaign, a fleet clean-up, and every
-question searches**
+**Streaming lifecycle, mobile QA, the end of the latency campaign, a fleet clean-up, every
+question searches, and citations the model copies instead of counting**
 
+- **09-27** — **Citations: ready-made citation handles; reloaded citations keep their page**
+  (`8878a42d`, `0ca166fe`, `337dbee7`; lab `48cc3938`, `8a67e3cd`, `1194ae0f`; staging
+  `696bd454`, `3402bc5d`, `2c41c22c`; [D38](/history/decisions#d38-ready-made-citation-handles)).
+  - Every search result, fetched page and attached-document excerpt the answering model sees
+    carries `"cite":"[N](#<real toolCallId>)"`, with N exactly what the renderer resolves
+    (search numbered after the per-turn URL dedup; fetch with failed URLs left out; documents
+    by excerpt). The prompts say to copy it and never compute, renumber or edit a citation; the
+    counting rule and its worked example are gone. Added only in `toModelOutput` (search, a new
+    one for fetch) and the `documentRetrieval` model message, never in stored parts.
+  - New `CITATION_HANDLES` flag (`lib/utils/citation-handles.ts`), **default on**; only the
+    literal `off` disables it, read per call. Off is byte-identical to the 09-26 behaviour, and a
+    container recreate applies it without a rebuild. Model Manager: "Ready-made citation handles"
+    switch in the Search tab.
+  - Lab A/B (blind support judge, 4 questions × 2 models per arm): unsupported citations
+    deepseek-v4.1-flash 64.0 % → 11.0 %, kimi-k2.6 47.8 % → 18.7 %, lower in all 8 pairs; every
+    on-arm citation an exact handle copy; answer quality 4 wins, 2 losses, 2 ties. Cost about
+    +370 prompt tokens per balanced call. Open: deepseek fetched on 4 of 4 turns with handles
+    (0 of 4 without, about +30 s), confounded with recall; kimi dropped 3 citations by copying
+    the id with one character missing.
+    → [known issues](/history/known-issues#running-count-citation-numbers-can-point-at-the-wrong-result),
+    [telemetry](/operations/telemetry#tokens-citations-and-totals)
+  - `rehydrateFullContent` swaps saved full text in by URL, keeping the live results' order and
+    length. It used to replace the list wholesale; on the speed fast path that list predates the
+    per-turn URL dedup, so a reloaded answer's citation could resolve to a different page.
+    → [known issues](/history/known-issues#reloaded-speed-mode-answers-cited-a-different-page)
 - **09-26** — **Citations: one numbering scheme, no copyable placeholders, an honest audit**
   (lab `dbbbc376`; cherry-picked to `dev` as `0bd8f8cc` and to staging as `7af2beff`).
   - One resolver, `resolveCitationAnchor` (`lib/utils/citation.ts`), now decides every anchor
@@ -42,7 +67,8 @@ question searches**
   - Replay of 60 days of stored answers: visible citations prod 1,460 → 1,470, lab 3,880 →
     3,925; 0 lost, 0 rendered links changed; audit matches rendering on 374 of 374 messages
     (was 333). Still open: in-range running-count numbers that render the wrong result of the
-    right search (prompt-mitigated, unmeasured on live turns).
+    right search (prompt-mitigated, unmeasured on live turns; fixed 09-27 by citation handles,
+    above).
     → [known issues](/history/known-issues#running-count-citation-numbers-can-point-at-the-wrong-result),
     [D36 addendum](/history/decisions#d36-strip-historical-citation-anchors-resolve-citations-per-turn-only)
 - **09-26** — **Every question gets a web search** (`0ea17872`, lab `453bfba1`, staging

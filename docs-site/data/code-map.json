@@ -3,19 +3,19 @@
     "ask": "ask-flow",
     "ingestor": "ingestor"
   },
-  "count": 652,
+  "count": 653,
   "coverage": {
-    "files": 652,
-    "withPurpose": 652,
+    "files": 653,
+    "withPurpose": 653,
     "header": 167,
     "jsdoc": 36,
     "derived": 59,
-    "override": 390,
-    "documented": 357
+    "override": 391,
+    "documented": 358
   },
   "kinds": {
     "dockerfile": 3,
-    "lib-module": 245,
+    "lib-module": 246,
     "route-handler": 37,
     "page": 13,
     "stylesheet": 2,
@@ -8723,7 +8723,8 @@
         "buildForcedSearchInput",
         "FORCED_SEARCH_PROVIDER",
         "createForcedSearchModel",
-        "FORCED_SEARCH_PROMPT_ADDENDUM"
+        "FORCED_SEARCH_PROMPT_ADDENDUM",
+        "getForcedSearchPromptAddendum"
       ],
       "methods": [],
       "route": null,
@@ -8753,8 +8754,8 @@
         {
           "page": "/history/decisions",
           "title": "Decisions",
-          "section": "D37. Always search every question",
-          "anchor": "d37-always-search-every-question"
+          "section": "D38. Ready-made citation handles",
+          "anchor": "d38-ready-made-citation-handles"
         },
         {
           "page": "/history/glossary",
@@ -9357,6 +9358,7 @@
         "lib/streaming/create-ephemeral-chat-stream-response.ts"
       ],
       "tests": [
+        "lib/agents/__tests__/citation-handles-e2e.test.ts",
         "lib/agents/__tests__/researcher-always-search.test.ts",
         "lib/agents/__tests__/researcher.test.ts"
       ],
@@ -12394,6 +12396,7 @@
         "lib/agents/researcher.ts"
       ],
       "tests": [
+        "lib/agents/__tests__/citation-handles-e2e.test.ts",
         "lib/agents/__tests__/researcher-always-search.test.ts",
         "lib/agents/__tests__/researcher.test.ts",
         "lib/memory/__tests__/inject.test.ts"
@@ -13520,6 +13523,7 @@
       ],
       "tests": [
         "lib/agents/__tests__/always-search.test.ts",
+        "lib/agents/__tests__/citation-handles-e2e.test.ts",
         "lib/agents/__tests__/researcher-always-search.test.ts",
         "lib/schema/__tests__/search.test.ts"
       ],
@@ -13880,10 +13884,28 @@
           "anchor": "lib"
         },
         {
+          "page": "/history/decisions",
+          "title": "Decisions",
+          "section": "D38. Ready-made citation handles",
+          "anchor": "d38-ready-made-citation-handles"
+        },
+        {
+          "page": "/history/known-issues",
+          "title": "Known issues",
+          "section": "Reloaded speed-mode answers cited a different page",
+          "anchor": "reloaded-speed-mode-answers-cited-a-different-page"
+        },
+        {
           "page": "/request-lifecycle/streaming",
           "title": "Streaming",
           "section": "Persistence",
           "anchor": "persistence"
+        },
+        {
+          "page": "/search/pipeline",
+          "title": "Search pipeline",
+          "section": "14. Return",
+          "anchor": "return"
         }
       ]
     },
@@ -14404,11 +14426,18 @@
         "lib/streaming/helpers/transform-file-parts.ts"
       ],
       "tests": [
+        "lib/agents/__tests__/citation-handles-e2e.test.ts",
         "lib/streaming/helpers/__tests__/budget-document-sources.test.ts",
         "lib/streaming/helpers/__tests__/document-retrieval-part.test.ts",
         "lib/streaming/helpers/__tests__/transform-file-parts.test.ts"
       ],
       "docs": [
+        {
+          "page": "/history/decisions",
+          "title": "Decisions",
+          "section": "D38. Ready-made citation handles",
+          "anchor": "d38-ready-made-citation-handles"
+        },
         {
           "page": "/knowledge/rag-uploads",
           "title": "RAG & uploads",
@@ -14655,6 +14684,7 @@
         "lib/streaming/create-ephemeral-chat-stream-response.ts"
       ],
       "tests": [
+        "lib/agents/__tests__/citation-handles-e2e.test.ts",
         "lib/streaming/helpers/__tests__/strip-citation-anchors-from-history.test.ts"
       ],
       "docs": [
@@ -15461,6 +15491,7 @@
       ],
       "tests": [
         "lib/embeddings/__tests__/url-rag.test.ts",
+        "lib/tools/__tests__/fetch-citation-handles.test.ts",
         "lib/tools/__tests__/fetch-retry-policy.test.ts",
         "lib/tools/__tests__/fetch-tool-call-id.test.ts",
         "lib/tools/__tests__/fetch.test.ts"
@@ -15471,6 +15502,12 @@
           "title": "Repo tour",
           "section": "lib/",
           "anchor": "lib"
+        },
+        {
+          "page": "/history/decisions",
+          "title": "Decisions",
+          "section": "D38. Ready-made citation handles",
+          "anchor": "d38-ready-made-citation-handles"
         },
         {
           "page": "/history/known-issues",
@@ -15659,6 +15696,7 @@
         "lib/types/ai.ts"
       ],
       "tests": [
+        "lib/agents/__tests__/citation-handles-e2e.test.ts",
         "lib/agents/__tests__/researcher-always-search.test.ts",
         "lib/render/__tests__/llm-image-output.e2e.test.ts",
         "lib/tools/__tests__/search-dedup.test.ts",
@@ -16271,6 +16309,8 @@
         "lib/db/__tests__/rls-policies.integration.test.ts",
         "lib/streaming/helpers/__tests__/document-retrieval-part.test.ts",
         "lib/streaming/helpers/__tests__/prepare-messages.test.ts",
+        "lib/tools/__tests__/fetch-citation-handles.test.ts",
+        "lib/utils/__tests__/citation-handles.test.ts",
         "lib/utils/__tests__/citation.test.ts",
         "lib/utils/citation.test.ts"
       ],
@@ -16568,6 +16608,71 @@
       "docs": []
     },
     {
+      "path": "lib/utils/citation-handles.ts",
+      "dir": "lib/utils",
+      "area": "lib",
+      "project": "ask",
+      "kind": "lib-module",
+      "purpose": "CITATION_HANDLES (on unless `off`): puts a ready-made `cite` string, [N](#toolCallId), on each citable search/fetch/documentRetrieval result the model sees, N exactly as the resolver maps it.",
+      "purposeSource": "override",
+      "exports": [
+        "isCitationHandlesEnabled",
+        "formatCitationHandle",
+        "addCitationHandles"
+      ],
+      "methods": [],
+      "route": null,
+      "usedBy": [
+        "lib/agents/always-search.ts",
+        "lib/agents/prompts/search-mode-prompts.ts",
+        "lib/agents/researcher.ts",
+        "lib/streaming/helpers/document-retrieval-part.ts",
+        "lib/tools/fetch.ts",
+        "lib/tools/search.ts"
+      ],
+      "tests": [
+        "lib/utils/__tests__/citation-handles.test.ts"
+      ],
+      "docs": [
+        {
+          "page": "/getting-started/repo-tour",
+          "title": "Repo tour",
+          "section": "lib/",
+          "anchor": "lib"
+        },
+        {
+          "page": "/history/changelog",
+          "title": "Changelog",
+          "section": "2026-09 — September",
+          "anchor": "_2026-09-—-september"
+        },
+        {
+          "page": "/history/decisions",
+          "title": "Decisions",
+          "section": "D38. Ready-made citation handles",
+          "anchor": "d38-ready-made-citation-handles"
+        },
+        {
+          "page": "/history/glossary",
+          "title": "Glossary",
+          "section": "Search",
+          "anchor": "search"
+        },
+        {
+          "page": "/infrastructure/model-manager",
+          "title": "Model Manager",
+          "section": "Boolean switches",
+          "anchor": "boolean-switches"
+        },
+        {
+          "page": "/request-lifecycle/frontend",
+          "title": "Frontend",
+          "section": "Citations",
+          "anchor": "citations"
+        }
+      ]
+    },
+    {
       "path": "lib/utils/citation.ts",
       "dir": "lib/utils",
       "area": "lib",
@@ -16581,6 +16686,8 @@
         "PROMPT_EXAMPLE_SEARCH_ID",
         "PROMPT_EXAMPLE_FETCH_ID",
         "isPlaceholderAnchorId",
+        "MAX_CITATION_NUMBER",
+        "isCitableResult",
         "CitationRepair",
         "CitationResolution",
         "resolveCitationAnchor",
@@ -16602,12 +16709,16 @@
         "components/message-actions.tsx",
         "components/message.tsx",
         "lib/agents/prompts/search-mode-prompts.ts",
-        "lib/streaming/create-chat-stream-response.ts"
+        "lib/streaming/create-chat-stream-response.ts",
+        "lib/utils/citation-handles.ts"
       ],
       "tests": [
+        "lib/agents/__tests__/citation-handles-e2e.test.ts",
         "lib/agents/prompts/__tests__/search-mode-prompts.test.ts",
         "lib/streaming/helpers/__tests__/document-retrieval-part.test.ts",
+        "lib/tools/__tests__/fetch-citation-handles.test.ts",
         "lib/utils/__tests__/citation-cited-urls.test.ts",
+        "lib/utils/__tests__/citation-handles.test.ts",
         "lib/utils/__tests__/citation.test.ts",
         "lib/utils/citation.test.ts"
       ],
@@ -16617,6 +16728,12 @@
           "title": "Recipes",
           "section": "Change a prompt safely",
           "anchor": "change-a-prompt-safely"
+        },
+        {
+          "page": "/getting-started/repo-tour",
+          "title": "Repo tour",
+          "section": "lib/",
+          "anchor": "lib"
         },
         {
           "page": "/history/changelog",
@@ -17756,6 +17873,7 @@
         "scripts/eval/run-eval.ts"
       ],
       "tests": [
+        "lib/agents/__tests__/citation-handles-e2e.test.ts",
         "lib/agents/__tests__/researcher-always-search.test.ts",
         "lib/agents/__tests__/title-generator.test.ts",
         "lib/model-selector/__tests__/get-model-selector-data.test.ts",
@@ -18069,6 +18187,8 @@
         "lib/utils/legacy-fetch-html.ts"
       ],
       "tests": [
+        "lib/agents/__tests__/citation-handles-e2e.test.ts",
+        "lib/tools/__tests__/fetch-citation-handles.test.ts",
         "lib/tools/__tests__/fetch-tool-call-id.test.ts",
         "lib/utils/__tests__/legacy-fetch-html.test.ts",
         "lib/utils/__tests__/ssrf-guard.test.ts"
@@ -18209,6 +18329,8 @@
         "lib/tools/search.ts"
       ],
       "tests": [
+        "lib/agents/__tests__/citation-handles-e2e.test.ts",
+        "lib/tools/__tests__/fetch-citation-handles.test.ts",
         "lib/tools/__tests__/fetch-tool-call-id.test.ts",
         "lib/tools/__tests__/fetch.test.ts"
       ],

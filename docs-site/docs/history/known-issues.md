@@ -5,7 +5,7 @@ title: Known issues
 # Known issues and gotchas
 
 Open problems, pending operator actions and traps a maintainer needs to know about, as of
-**2026-09-26**. Each entry gives the **symptom**, its **impact**, a **workaround** and a **fix
+**2026-09-27**. Each entry gives the **symptom**, its **impact**, a **workaround** and a **fix
 sketch**. Resolved history lives in the [changelog](/history/changelog). Rationale for deliberate
 trade-offs lives in [decisions](/history/decisions).
 
@@ -31,7 +31,8 @@ thing.
 | [Other open audit items](#other-open-audit-items) | security | Low | decision (H2 decided 2026-09-23) |
 | [Image attachment forces a generic search](#image-attachment-forces-a-generic-search) | search | Low (URL, attachment-only and "what is this" shapes fixed 2026-09-26 on lab) | code (remaining shapes) |
 | [Citation placeholders and out-of-range numbers](#citation-placeholders-and-out-of-range-numbers) | chat | ~~Low–Med~~ fixed 2026-09-26 | watch `citations_unresolved` (now counts out-of-range numbers) |
-| [Running-count citation numbers can point at the wrong result](#running-count-citation-numbers-can-point-at-the-wrong-result) | chat | Med | code (prompt-mitigated; tool-output numbering needs a lab A/B) |
+| [Running-count citation numbers can point at the wrong result](#running-count-citation-numbers-can-point-at-the-wrong-result) | chat | ~~Med~~ fixed 2026-09-27 (lab, staging, prod; ready-made citation handles) | watch (near-miss id copies; deepseek fetch latency) |
+| [Reloaded speed-mode answers cited a different page](#reloaded-speed-mode-answers-cited-a-different-page) | chat | ~~Low–Med~~ fixed 2026-09-27 (lab, staging, prod) | done (older saved answers unchanged) |
 | [Stopped label not rendered](#stopped-label-not-rendered) | UI | ~~Low~~ fixed 2026-09-24 | done |
 | [Chain-of-thought flash in the live stream](#chain-of-thought-flash-in-the-live-stream) | UI | Low | accepted |
 | [Old answers with leaked reasoning stay leaked](#old-answers-with-leaked-reasoning-stay-leaked) | data | Low | manual |
@@ -174,7 +175,7 @@ On NightFuryX (.17) these container names do not resolve, so each silently degra
   `[deadline] refused <tool> call`. The note now says further calls are refused. Tests drive the real
   SDK with a mock model calling `fetch` under `activeTools: []`
   (`lib/agents/__tests__/answer-deadline.test.ts`). The deadline clock now starts when the
-  researcher is built for the turn (`turnStartedAt`, `lib/agents/researcher.ts:889`), not at the
+  researcher is built for the turn (`turnStartedAt`, `lib/agents/researcher.ts:897`), not at the
   first step.
 
 
@@ -237,7 +238,7 @@ On NightFuryX (.17) these container names do not resolve, so each silently degra
   3. **URL-shaped ids.** Without a visible id, models often wrote a piece of the page's own URL
      as the "id" (`[1](#example.com/some-page)`, a YouTube video id): 83 of 655.
 - **Status: fixed 2026-09-24.**
-  1. `lib/tools/fetch.ts:667,715` echoes the call's `toolCallId` in a successful fetch result
+  1. `lib/tools/fetch.ts:671,719` echoes the call's `toolCallId` in a successful fetch result
      (a failed fetch has nothing to cite and gets none).
   2. `stripCitationAnchorsFromHistory` (`lib/streaming/helpers/strip-citation-anchors-from-history.ts`)
      removes anchors from **prior** assistant turns before they reach the model. It runs in
@@ -563,10 +564,10 @@ These are decisions still pending, not bugs:
   results. The image is still read by a vision model or the ingestor, and a URL is still read by
   `fetch` or the attached-source path. No wrong answer has been traced to it.
 - **Status: URL, attachment-only and attachment-reference shapes fixed 2026-09-26 (lab).**
-  `detectUserSuppliedSource` (`lib/agents/always-search.ts:116-135`) reads the latest message's
+  `detectUserSuppliedSource` (`lib/agents/always-search.ts:118-137`) reads the latest message's
   parts and cancels the forced search when it carries a URL (inline or a link chip), an
   attachment with no typed text, or an attachment whose text only points at it
-  (`isAttachmentReferenceOnly`, `:181-191`: a closed English word list, at most 10 words). The
+  (`isAttachmentReferenceOnly`, `:183-193`: a closed English word list, at most 10 words). The
   turn stays `research` with search available; `[latency]` logs `forced_search:false` and
   `forced_skip` with the reason. Lab browser check: "summarise this
   https://en.wikipedia.org/wiki/User_Datagram_Protocol" → `forced_skip:"url"`, one `fetch`, no
@@ -611,25 +612,29 @@ These are decisions still pending, not bugs:
   - The audit agreed with rendering in 333 of 374 messages before the fix, 374 of 374 after.
 - **Status: fixed 2026-09-26** (lab `dbbbc376`; cherry-picked to `dev` as `0bd8f8cc` and to
   `admin-feature` as `7af2beff`).
-  1. **One resolver.** `resolveCitationAnchor` (`lib/utils/citation.ts:263-289`) decides every
-     anchor, and `processCitations` (rendering, `:483-507`), `auditCitations` (telemetry,
-     `:328-353`) and `extractCitedSourceUrls` (`[cite-urls]`, `:435-449`) all call it, so the
+  1. **One resolver.** `resolveCitationAnchor` (`lib/utils/citation.ts:279-307`) decides every
+     anchor, and `processCitations` (rendering, `:501-525`), `auditCitations` (telemetry,
+     `:346-371`) and `extractCitedSourceUrls` (`[cite-urls]`, `:453-467`) all call it, so the
      counter reports exactly what the reader sees. It repairs an anchor only when the intended
      source is unambiguous: a real id of this message wrapped in `<id-…>` / `<…>` is unwrapped
      (`unwrapTemplateId`, `:148-154`); a placeholder resolves only when the message made exactly
      **one** citable call (`isPlaceholderAnchorId`, `:128-139`); a number past the end of a fetch
      whose output holds exactly one page, and is not a `Fetch failed:` result, resolves to that
-     page (`resolveWithinCall`, `:208-242`). Everything else is still dropped, and nothing is
+     page (`resolveWithinCall`, `:224-258`). Everything else is still dropped, and nothing is
      resolved across turns
      ([D36](/history/decisions#d36-strip-historical-citation-anchors-resolve-citations-per-turn-only)).
   2. **One numbering rule in every prompt.** `getCitationFormatGuidance()`
-     (`lib/agents/prompts/search-mode-prompts.ts:98-108`) is shared by the speed prompt (`:193`)
-     and the balanced prompt (`:380`), which quality mode extends: N is the 1-based position of
+     (`lib/agents/prompts/search-mode-prompts.ts:107-124`) is shared by the speed prompt (`:208`)
+     and the balanced prompt (`:403`), which quality mode extends: N is the 1-based position of
      the source in **that call's** `results`, restarting at 1 for every call, and a one-page
      fetch is always `[1]`. The worked example uses two realistic ids and says they must never
      be written. All `<id-*>` placeholders are gone from the prompts. The forced-search addendum
-     (`FORCED_SEARCH_PROMPT_ADDENDUM`, `lib/agents/always-search.ts:317-320`) no longer shows a
+     (`FORCED_SEARCH_PROMPT_ADDENDUM`, `lib/agents/always-search.ts:319-322`) no longer shows a
      `[n](#toolCallId)` example; it points at the citation format above it.
+     **Since 2026-09-27 this counting guidance is the `CITATION_HANDLES=off` text only.** With
+     the flag on (the default) the model no longer works N out: every result it sees carries a
+     ready-made `cite` string to copy
+     ([D38](/history/decisions#d38-ready-made-citation-handles)).
   3. **Honest audit.** `citations_unresolved` now counts every anchor that renders nothing,
      including out-of-range numbers, and `citations_recovered` covers every repair. Expect
      `citations_unresolved` to be higher than on older builds for the same behaviour
@@ -640,8 +645,9 @@ These are decisions still pending, not bugs:
   placeholders on prod and none of the lab's 21 lettered ones was recovered; they stay dropped
   (a placeholder resolves only in a turn with one citable call, because with several, which call
   was meant is unknown).
-- **Not repaired.** A number that is **in range** but means "my Nth source" renders a real,
-  different result of that search. That is the larger remaining problem:
+- **Not repaired by the resolver.** A number that is **in range** but means "my Nth source"
+  renders a real, different result of that search. That was the larger remaining problem, fixed
+  at the source on 2026-09-27:
   [Running-count citation numbers can point at the wrong result](#running-count-citation-numbers-can-point-at-the-wrong-result).
 - Tests: `lib/utils/__tests__/citation.test.ts` ("resolveCitationAnchor repairs", "audit,
   rendering and cited URLs agree") and `lib/agents/prompts/__tests__/search-mode-prompts.test.ts`
@@ -655,36 +661,100 @@ These are decisions still pending, not bugs:
 - **Cause.** The same running-count numbering as above. A model that numbers its sources 1, 2, 3
   … across the whole answer and writes `[5](#<search id>)` meaning "my fifth source" gets that
   search's **fifth result**, which is a valid anchor for a different page. A too-high number is
-  dropped; an in-range one renders the wrong source.
-- **Impact** *(heuristic estimate, not a judged sample)*. On the 60-day replay, 22 of 88 prod
-  answers and 38 of 286 lab answers show the running-count pattern, and about 459 prod anchors
-  likely point at the wrong page. This is the failure D36 calls worse than a missing citation:
-  it is confidently wrong and invisible.
+  dropped; an in-range one renders the wrong source. The model had to count: each call's results
+  reached it as a bare JSON array, and the renderer reads N as a position in that array.
+- **Impact before the fix** *(heuristic estimate, not a judged sample)*. On the 60-day replay, 22
+  of 88 prod answers and 38 of 286 lab answers show the running-count pattern, and about 459 prod
+  anchors likely point at the wrong page. This is the failure D36 calls worse than a missing
+  citation: it is confidently wrong and invisible.
 - **Why the renderer cannot fix it.** An in-range `[N](#id)` is a well-formed anchor for result
   N. Nothing in it says the model meant something else, so any rewrite would be a guess.
-- **Status: open, prompt-mitigated (2026-09-26), not yet measured on live turns.** The unified
-  citation guidance states the within-call rule explicitly and shows a running count as WRONG
-  (`search-mode-prompts.ts:101-106`). No counter sees this failure: `citations_unresolved`
-  cannot, because the anchor resolves. Measure it by judging whether each cited page supports
-  its sentence ([D4](/history/decisions#d4-judge-answers-not-source-counts)), on the lab first.
+- **Status: fixed 2026-09-27** (prod `8878a42d`, lab `48cc3938`, staging `696bd454`). The
+  2026-09-26 prompt rule alone did not hold: on the lab it still failed on 11 of 19 citations in
+  one turn. Every search result, fetched page and attached-document excerpt the answering model
+  sees now carries its finished citation, `"cite":"[N](#<toolCallId>)"`, with N exactly what the
+  renderer resolves, and the prompts say to copy it and never compute, renumber or edit a
+  citation. Flag `CITATION_HANDLES`, default on; only the literal `off` disables it, per call, so
+  a container recreate reverts it without a rebuild. Mechanism, cost and revert:
+  [D38](/history/decisions#d38-ready-made-citation-handles).
+- **Measured** (lab A/B, same image, arms switched by env; 4 multi-source first-turn questions ×
+  2 models per arm; a blind support judge, `deepseek-v4-pro:cloud`, read the claim, the sentence
+  before it and the stored source text; 16+ judgements checked by hand). Unsupported citations
+  (the cited page does not back the claim):
+
+  | Model | Handles off | Handles on |
+  |---|---|---|
+  | deepseek-v4.1-flash | 64.0 % | 11.0 % |
+  | kimi-k2.6 | 47.8 % | 18.7 % |
+
+  On was lower in all 8 question × model pairs (one-sided sign test p ≈ 0.004). Every citation in
+  the on arm was an exact copy of a handle (0 out of range). Most unsupported citations in the off
+  arm had their specifics on **another** result of the same turn (deepseek 62 of 80, kimi 28 of
+  32), which is the wrong-page failure this entry describes. The unsupported citations left in
+  the on arm are mostly wrong attribution or the model's own knowledge. A pairwise answer judge
+  (both orderings) found no quality regression: on 4 wins, off 2, 2 ties, and both off wins came
+  from content errors, not citations.
+- **Caveats.** Recall was on, so off-arm turns could recall on-arm answers. Excluding
+  near-copied claims, the gap holds (deepseek 11.1 % vs 67.6 %, kimi 17.4 % vs 56.8 %), and so
+  does a comparison restricted to search results (deepseek 18.8 % vs 64 %, kimi 19.1 % vs
+  46.3 %). No counter sees this failure, before or after: `citations_unresolved` cannot, because
+  a wrong-page anchor resolves. Keep judging support rates
+  ([D4](/history/decisions#d4-judge-answers-not-source-counts)).
 - **Follow-ups.**
-  1. Put an explicit per-result number, or a ready-made anchor, into the tool output the model
-     sees, so the number does not have to be counted. This addresses the cause at the source.
-     It changes every search and fetch result, so it needs a lab A/B.
-  2. 12 anchors in 2 replayed messages use a UUID within 1–2 characters of one of the turn's
-     ids. A typo repair is not implemented.
-  3. 6 anchors use a too-high number on a search that returned **one** result. The fetch-only
-     rule does not cover them (`resolveWithinCall` checks the tool type).
-  4. The attached-sources clause (`lib/agents/researcher.ts:873`) still shows
-     `[1](#<toolCallId>)`, `<first-id>` and `<second-id>`. A verbatim copy is recognised as a
-     placeholder, so it renders only when the turn made exactly one citable call.
-  5. `scripts/eval/run-eval.ts` scores citation validity by id only (`scoreCitations`,
+  1. **Near-miss id copies.** kimi-k2.6 lost 3 citations in the on arm by copying the 36-character
+     id with one character missing. The resolver has no typo repair, so a near-miss renders as
+     nothing and counts in `citations_unresolved`. The 60-day replay showed the same shape before
+     handles: 12 anchors in 2 messages within 1–2 characters of a real id. Possible fix:
+     shorter ids in the handles (needs a lab A/B).
+  2. **deepseek fetch latency (open).** In the A/B, deepseek-v4.1-flash fetched a page on 4 of 4
+     turns with handles on and 0 of 4 with them off, about +30 s per turn. This is confounded
+     with recall and not explained. Watch prod `tool_calls` and the share of turns with
+     `fetch_ms` for that model ([telemetry](/operations/telemetry#tokens-citations-and-totals)).
+  3. `scripts/eval/run-eval.ts` scores citation validity by id only (`scoreCitations`,
      `:405-429`): it ignores N and applies none of the renderer's repairs, so it cannot see
-     this issue ([evaluation](/operations/evaluation)).
-  6. The `FLOW_VARIANT` experiment prompts replace the mode prompt and carry their own
-     `CITATION_RULES` (`lib/agents/flows/variants.ts:52-59`), which do not state the numbering
-     rule. No env sets `FLOW_VARIANT`, so every env runs `baseline` (the mode prompts); this
-     matters only if a variant is revived.
+     this issue ([evaluation](/operations/evaluation)). The A/B above used a separate
+     support judge; it is not in `scripts/eval/`.
+  4. The `FLOW_VARIANT` experiment prompts replace the mode prompt and carry their own
+     `CITATION_RULES` (`lib/agents/flows/variants.ts:52-59`), which neither state the numbering
+     rule nor mention the `cite` field (the tool outputs still carry it). No env sets
+     `FLOW_VARIANT`, so every env runs `baseline` (the mode prompts); this matters only if a
+     variant is revived.
+  5. With `CITATION_HANDLES=off` everything above returns: the counting prompt, the attached-sources
+     clause with `[1](#<toolCallId>)`, `<first-id>` and `<second-id>` (a verbatim copy renders
+     only when the turn made exactly one citable call), and too-high numbers on a one-result
+     **search** (6 anchors in the replay; the resolver's out-of-range rule covers fetches only).
+- Tests: `lib/utils/__tests__/citation-handles.test.ts` (every handle of a 27-result search
+  resolves to its own result; positions survive results without a handle),
+  `lib/tools/__tests__/search-to-model-output.test.ts`,
+  `lib/tools/__tests__/fetch-citation-handles.test.ts`,
+  `lib/streaming/helpers/__tests__/document-retrieval-part.test.ts` (each also pins the
+  flag-off output), `lib/agents/prompts/__tests__/search-mode-prompts.test.ts` ("citation
+  guidance under CITATION_HANDLES") and `lib/agents/__tests__/citation-handles-e2e.test.ts`
+  (copied handles render their own result; nothing stored carries a `cite`).
+
+### Reloaded speed-mode answers cited a different page
+
+- **Symptom.** A citation that pointed at the right page while the answer streamed pointed at a
+  different page of the same search after a reload.
+- **Cause.** Before saving, `rehydrateFullContent` (`lib/search/rehydrate-full-content.ts`)
+  swaps the full page text back into search outputs whose live results the model saw as
+  excerpts. It replaced the whole `results` list with the recorded full list. In practice only
+  the speed fast path records one (the advanced route's `fullResults` needs
+  `SEARCH_EXCERPTS_ENABLED`, off everywhere), and it records the list **before** the researcher's
+  per-turn URL dedup (`wrapSearchToolWithDedup`, `lib/agents/researcher.ts:257-354`) removed
+  results an earlier search of the turn had already returned. So on a speed turn with more than
+  one search, a later search's saved list could contain the removed duplicates again, every
+  position after them shifted, and a stored `[N](#id)` resolved to a different result.
+- **Status: fixed 2026-09-27** (prod `0ca166fe`, lab `8a67e3cd`, staging `3402bc5d`). Full
+  content is now swapped in **by URL**, keeping the live results' order and length
+  (`lib/search/rehydrate-full-content.ts:44-57`); a live result with no recorded full text keeps
+  its excerpt. Answers saved before the fix keep the list they were saved with; nothing rewrites
+  stored messages.
+- **Why it matters beyond speed mode.** The order of a call's `results` is part of the citation
+  contract ([pipeline › Return](/search/pipeline#return)): anything that rewrites a tool
+  output between the model and the database must keep positions.
+- Test: `lib/search/__tests__/rehydrate-full-content.test.ts` ("keeps the live order and length
+  when the full list is pre-dedup").
 
 ### Stopped label not rendered
 

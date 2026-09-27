@@ -195,9 +195,9 @@ mid-anchor went through the same repair on every load.
 
 **Fix.** Two independent parts:
 
-- `stripIncompleteCitationTail()` (`lib/utils/citation.ts:533`) removes an unfinished
+- `stripIncompleteCitationTail()` (`lib/utils/citation.ts:551`) removes an unfinished
   citation anchor from the very end of the text before anything else runs. Its pattern
-  (`INCOMPLETE_CITATION_TAIL_RE`, `:515-516`) matches `[`, `[1`, `[1](`, `[1](#` and
+  (`INCOMPLETE_CITATION_TAIL_RE`, `:533-534`) matches `[`, `[1`, `[1](`, `[1](#` and
   `[1](#<partial id>` at the end of the string (up to three digits). A complete bracket with
   no link part (`[1]`) is left alone, because a finished answer may legitimately end with it;
   so are a named link (`[Python docs`) and an external one (`[1](https://…`), which the
@@ -223,27 +223,37 @@ blocked) and `lib/utils/__tests__/citation.test.ts` (`stripIncompleteCitationTai
 
 ## Citations {#citations}
 
-Pipeline: the researcher cites `[N](#<toolCallId>)` → `ChatMessages` builds **per-message**
+Pipeline: the researcher cites `[N](#<toolCallId>)`, since 2026-09-27 by copying the ready-made
+`cite` string each result carries in its tool output → `ChatMessages` builds **per-message**
 citation maps (`extractCitationMaps`: `toolCallId → {N → result}` from that message's
 `tool-search` / `tool-fetch` / `tool-documentRetrieval` outputs) → `processCitations`
 rewrites each anchor to its real URL → `Citing` resolves the URL back to its result for the
 preview.
 
 **What N means.** N is the 1-based position of the cited result in **that tool call's**
-`results`: `extractCitationMaps` maps N to `results[N-1]` (`lib/utils/citation.ts:409-414`).
+`results`: `extractCitationMaps` maps N to `results[N-1]` (`lib/utils/citation.ts:427-432`).
 Numbering restarts at 1 for every call, so each call has its own `[1]`, and a fetch of one page
-is always `[1]`. It is **not** a running count across the answer. Since 2026-09-26 every mode
-prompt states this one rule through the shared `getCitationFormatGuidance()`
-(`lib/agents/prompts/search-mode-prompts.ts:98-108`); before that the speed prompt taught
-"one number per toolCallId, assigned sequentially", and models that counted sources across
-the answer produced numbers that were either out of range (dropped) or in range but pointing at
-a different result of the same search
+is always `[1]`. It is **not** a running count across the answer.
+
+**The model copies N; it does not compute it** (since 2026-09-27, `CITATION_HANDLES`, default
+on). Every search result, fetched page and attached-document excerpt in the model-facing tool
+output carries `"cite":"[N](#<toolCallId>)"`, built by `addCitationHandles`
+(`lib/utils/citation-handles.ts:62-90`) from the same `results` array `extractCitationMaps`
+indexes, so a copied handle always resolves to the result it was attached to. The shared
+`getCitationFormatGuidance()` (`lib/agents/prompts/search-mode-prompts.ts:107-124`) tells the
+model to copy it exactly and never compute, renumber or edit a citation. The handles exist only
+in what the model is shown: stored parts, the browser and history carry none
+([D38](/history/decisions#d38-ready-made-citation-handles)). Before that, models counted: the
+speed prompt first taught "one number per toolCallId, assigned sequentially", and even the
+unified within-call rule of 2026-09-26 (now the `CITATION_HANDLES=off` text) kept failing. Models
+that counted sources across the answer produced numbers that were either out of range (dropped)
+or in range but pointing at a different result of the same search
 ([known issue](/history/known-issues#running-count-citation-numbers-can-point-at-the-wrong-result)).
 
-**One resolver.** `resolveCitationAnchor(N, id, maps)` (`lib/utils/citation.ts:263-289`)
-decides every anchor. Rendering (`processCitations`, `citation.ts:483-507`), the telemetry
-audit (`auditCitations`, `citation.ts:328-353`) and the cited-URL list
-(`extractCitedSourceUrls`, `citation.ts:435-449`) all call it, so `citations_unresolved`
+**One resolver.** `resolveCitationAnchor(N, id, maps)` (`lib/utils/citation.ts:279-307`)
+decides every anchor. Rendering (`processCitations`, `citation.ts:501-525`), the telemetry
+audit (`auditCitations`, `citation.ts:346-371`) and the cited-URL list
+(`extractCitedSourceUrls`, `citation.ts:453-467`) all call it, so `citations_unresolved`
 counts exactly the anchors a reader loses. The copy and save-note text of an answer goes
 through `processCitations` too (`components/message-actions.tsx:103-110`). The result is `own`,
 `recovered` (with the repair used) or `unresolved`:
@@ -262,7 +272,11 @@ through `processCitations` too (`components/message-actions.tsx:103-110`). The r
 A dropped anchor renders as nothing and `collapseCitationArtifacts` tidies the spacing it
 leaves. Repairs apply only where the intended source is unambiguous; a wrong number on a
 multi-result call is never guessed. An **in-range** wrong number cannot be detected at all: it
-is a well-formed anchor for another result.
+is a well-formed anchor for another result. That is why the fix sits upstream, in the handles the
+model copies, and why the order of a call's `results` must never change after the model has
+seen it, including at save time
+([known issue](/history/known-issues#reloaded-speed-mode-answers-cited-a-different-page)).
+An id copied with a character missing (seen with kimi-k2.6) has no repair and is dropped.
 
 - **Per-message scope is load-bearing.** A conversation-wide map let an anchor carried
   over from an earlier turn resolve cleanly to the wrong source (measured: 120 of 2,975
@@ -272,7 +286,7 @@ is a well-formed anchor for another result.
   ([D36](/history/decisions#d36-strip-historical-citation-anchors-resolve-citations-per-turn-only)).
 - **The fetch rule needs the map object itself.** `extractCitationMaps` records each map's tool
   type in a `WeakMap` keyed by the map (`CITATION_MAP_TOOL_TYPE`, `citation.ts:163`, set at
-  `:419`), so
+  `:437`), so
   the map shape did not change. `ChatMessages` builds the maps once per message in a `useMemo`
   (`components/chat-messages.tsx:131-140`) and components pass them through by reference. A
   cloned or hand-built map (`{ ...map }`) has no tool type, and the one-page-fetch repair then
@@ -290,8 +304,10 @@ is a well-formed anchor for another result.
   is not UUID-shaped, and is contained in **exactly one** distinct source URL of this message.
   Otherwise it is dropped: an invented citation is never guessed.
 - **Where valid ids come from.** Search results always echoed their `toolCallId`. Fetch results
-  do too since 2026-09-24 (`lib/tools/fetch.ts:715`); before that a fetched page could not be
-  cited correctly. Earlier answers' anchors are removed from the history sent to the model
+  do too since 2026-09-24 (`lib/tools/fetch.ts:719`); before that a fetched page could not be
+  cited correctly. Since 2026-09-27 each citable result also carries the whole anchor in `cite`,
+  built from the `toolCallId` the AI SDK passes to `toModelOutput`. Earlier answers' anchors are
+  removed from the history sent to the model
   (`stripCitationAnchorsFromHistory`), because their tool calls are pruned from that history
   and the model copied the dead ids. The stored and displayed text is unchanged. See
   [known issues › Unresolved citations](/history/known-issues#unresolved-citations).

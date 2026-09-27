@@ -65,7 +65,7 @@ protocol (`QUALITY MODE — DEEP RESEARCH PROTOCOL` in
 | Follow-up searches in the turn | basic | basic (SearXNG basic) | basic (SearXNG basic) |
 | Search-round cap | `SEARCH_ROUNDS_MAX` (3) | `SEARCH_ROUNDS_MAX` (3) | `SEARCH_ROUNDS_MAX_QUALITY` (5) |
 | Agent `maxSteps` | 20 | 50 | 100 |
-| Prompt | `SPEED_MODE_PROMPT` | `getAdaptiveModePrompt()` | `getQualityModePrompt()` (≥15 searches, todo list, report) |
+| Prompt | `getQuickModePrompt()` | `getAdaptiveModePrompt()` | `getQualityModePrompt()` (≥15 searches, todo list, report) |
 
 These are the *research* configurations. If the classifier decides the message
 is not a question (`skipSearch`, turn mode `direct`), the mode's research
@@ -146,10 +146,10 @@ flowchart TD
 
 ### 1. The `search` tool entry: round cap and dedup
 
-`createSearchTool` (`lib/tools/search.ts:325`) is built **once per turn** by
+`createSearchTool` (`lib/tools/search.ts:332`) is built **once per turn** by
 `createResearcher`, so the counters in its closure are per-turn state.
 
-- **Round cap** (`lib/tools/search.ts:381-412`). Every executing search
+- **Round cap** (`lib/tools/search.ts:388-419`). Every executing search
   increments `searchRounds`. When it exceeds `resolveSearchRoundsBudget(searchMode)`
   (3, or 5 for quality), the tool returns a *valid, non-error* result with
   `results: []`, `searchLimitReached: true`, and a `notice` telling the model
@@ -166,7 +166,7 @@ flowchart TD
   reasoning between calls). On the lab, capping a looping turn cut
   `prompt_tokens` 93k→53k (−43%) and held the answer. The legacy module-level
   `searchTool` singleton (url-rag) passes no `toolOptions` and is exempt.
-- **Query dedup** (`:446-501`). Each query is embedded. A later query in the
+- **Query dedup** (`:453-508`). Each query is embedded. A later query in the
   same turn and same `search_mode` whose cosine similarity with an earlier one is
   ≥ `SEARCH_DEDUP_THRESHOLD` (0.92) returns a short "already searched" note
   instead of searching. A query is recorded only after its search *succeeds*,
@@ -179,7 +179,7 @@ flowchart TD
 
 When `shouldUseOllamaWebSpeed` holds (`searchMode === 'speed'`, an
 `OLLAMA_SEARCH_API_KEY` is configured, and `OLLAMA_SEARCH_ENABLED !== 'off'`),
-the tool (`:528-678`):
+the tool (`:535-688`):
 
 1. Calls Ollama's web-search API for ≤10 results (the API clamps at 10;
    `OLLAMA_SEARCH_MAX_RESULTS` can only lower it). Each result is a **full page
@@ -187,7 +187,11 @@ the tool (`:528-678`):
 2. Runs **local bi-encoder passage selection** (`rerankByEmbedding` with
    all-MiniLM-L6-v2, in-process) and replaces each body with its top passages
    (`buildExcerptContent`). It keeps every source, so each one stays citable.
-   The full bodies are stored for conversation history (`fullContentSink`).
+   The full bodies are stored for conversation history (`fullContentSink`). Since 2026-09-27
+   they are swapped into the saved message **by URL**, keeping the live order: the recorded
+   list predates the per-turn URL dedup, and swapping it in whole shifted citation positions
+   after a reload
+   ([known issue](/history/known-issues#reloaded-speed-mode-answers-cited-a-different-page)).
 3. Returns directly. No SearXNG, no crawl, no remote cross-encoder.
 
 If Ollama returns nothing or throws, the tool falls through to the basic SearXNG path.
@@ -219,14 +223,14 @@ Telemetry: `[latency:search] {kind:"expansion", variants, cache_misses, failed, 
 
 ### 4. Depth tiering: one advanced search per turn
 
-`resolveEffectiveDepth` (`:126`) decides the depth for each search. With
+`resolveEffectiveDepth` (`:133`) decides the depth for each search. With
 tiering on (`SEARCH_DEPTH_TIERING !== 'off'`, the default) and
 `SEARCH_API=searxng`, the first search uses the researcher's `firstSearchDepth`
 (`advanced` for balanced/quality, `basic` for speed, skip, and academic- or
 social-only turns), and **every later search is basic**. Later searches are
 meant to deep-read specific pages with the `fetch` tool, not to run another
 crawl. The forced first search also writes `firstSearchDepth` into its own
-`search_depth` (`buildForcedSearchInput`, `lib/agents/always-search.ts:202-216`),
+`search_depth` (`buildForcedSearchInput`, `lib/agents/always-search.ts:204-218`),
 so it is exactly the call the model would have made.
 
 `routeEmitsSearchTelemetry(searchAPI, depth)` (`lib/tools/search/basic-telemetry.ts`)
@@ -445,17 +449,32 @@ top passages (`buildExcerptContent`) and the full page stored separately
 citations appeared without supporting text on 2 of 2 probed turns, and turns
 took +142% more steps. With it off, the model reads the full cropped page text.
 
-### 14. Return
+### 14. Return {#return}
 
 The pool is sliced to `maxResults`, cached (if non-empty), and returned with a
 `timings` object. The search tool adds those timings to the turn's
 `[latency]` line. The tool output keeps `toolCallId` and `images`, and drops
-`state`/`citationMap` before the result is shown to the model (`toModelOutput`). The model
-cites result N of this call as `[N](#toolCallId)`, where N is the result's 1-based position in
-this output's `results`, restarting at 1 for every call. The renderer reads it the same way
-([frontend › Citations](/request-lifecycle/frontend#citations)), so the order of `results` is
-part of the citation contract: reordering results after the model has seen them would make
-every in-range citation point at a different page.
+`state`/`citationMap` before the result is shown to the model (`toModelOutput`,
+`lib/tools/search.ts:1213-1226`).
+
+**The citation contract.** A citation `[N](#toolCallId)` means result N of this call, where N is
+the result's 1-based position in this output's `results`, restarting at 1 for every call. The
+renderer reads it that way ([frontend › Citations](/request-lifecycle/frontend#citations)).
+Since 2026-09-27 the model does not apply that rule itself: with `CITATION_HANDLES` on (the
+default), `toModelOutput` puts the finished citation on each result as its first key,
+`"cite":"[N](#<toolCallId>)"`, and the prompts say to copy it exactly
+([D38](/history/decisions#d38-ready-made-citation-handles)). The numbering therefore lives in
+the handles, computed from the same array the renderer indexes. The results it numbers are the
+ones the model actually receives, after the researcher's per-turn URL dedup removed pages an
+earlier search of the turn already returned. Handles are never stored. Two consequences:
+
+- The order of `results` is part of the contract. Reordering or re-inserting results after the
+  model has seen them makes every in-range citation point at a different page; the save-time
+  full-content swap therefore works by URL and keeps the live order
+  (`lib/search/rehydrate-full-content.ts:44-57`).
+- A handle costs about 52 characters (about 29 tokens) per result, about +783 tokens on a
+  27-result search; the shorter citation guidance saves about 400, so a balanced call nets about
+  +370 tokens. `CITATION_HANDLES=off` restores the old model-facing output byte for byte.
 
 ## The `fetch` tool and the SSRF guard
 
@@ -466,10 +485,16 @@ chain as well), fetches transcripts for YouTube URLs, and has an overall caller
 deadline of `FETCH_TOTAL_DEADLINE_MS` (40s). Its wall time is reported as
 `fetch_ms` on the turn line.
 
-A successful fetch result carries the call's `toolCallId` (`fetch.ts:667,715`), like a search
+A successful fetch result carries the call's `toolCallId` (`fetch.ts:671,719`), like a search
 result does, because the model cites `[N](#toolCallId)` and can only copy an id it can see.
 A fetch of one URL returns one result, so it is always cited as `[1]`; a fetch of several URLs
-numbers its pages in the order of its `results`. Since 2026-09-26 a too-high number on a fetch
+numbers its pages in the order of its `results`. Since 2026-09-27 the fetch tool has its own
+`toModelOutput` (`fetch.ts:759-765`) that puts that ready-made citation on each fetched page
+(`cite`, [D38](/history/decisions#d38-ready-made-citation-handles)). Pages are numbered by
+their position in the merged `results`, from which URLs that failed in a multi-URL fetch are
+already left out; a `Fetch failed:` placeholder gets no handle. With `CITATION_HANDLES=off` the
+fetch output the model sees is exactly what the SDK sent before. Since 2026-09-26 a too-high
+number on a fetch
 whose output holds exactly one page resolves to that page, because the id alone names it.
 The Ollama wire format carries no tool-call id on a tool result, so before 2026-09-24 a fetched
 page was structurally uncitable: no anchor in prod history ever named a fetch call, and models
@@ -477,7 +502,7 @@ invented ids for fetched pages instead. A failed fetch gets no id, since it has 
 See [frontend › Citations](/request-lifecycle/frontend#citations).
 
 Before any request, `assertUrlAllowed` (`lib/utils/ssrf-guard.ts`, called at
-`fetch.ts:607`) rejects non-http(s) schemes, literal loopback, private,
+`fetch.ts:611`) rejects non-http(s) schemes, literal loopback, private,
 link-local, and reserved IPs (v4, v6, and v4-mapped), the `localhost` family,
 and cloud metadata hostnames. Where DNS resolves, it also rejects public names
 that resolve to private addresses. **Documented gaps:** redirect-based SSRF
@@ -517,6 +542,7 @@ inlined at build time and do need a rebuild.
 | Env var | Effect | Default (code) | Running value if different |
 |---|---|---|---|
 | `ALWAYS_SEARCH` | Every question gets a forced first search (not when the user supplied a URL or an attachment the text only points at); only the literal `off` restores the legacy classifier prompt and the `stable-knowledge` gate ([D37](/history/decisions#d37-always-search-every-question)). Editable in the Model Manager (Search tab) | on | unset (on) in all envs |
+| `CITATION_HANDLES` | Each citable search result, fetched page and attached-document excerpt the model sees carries a ready-made `cite` string, and the prompts say to copy it; only the literal `off` restores model-computed numbers ([D38](/history/decisions#d38-ready-made-citation-handles)). Editable in the Model Manager (Search tab) | on | unset (on) in all envs |
 | `SEARCH_API` | Provider for basic searches and the advanced route | `DEFAULT_PROVIDER` | `searxng` (all envs) |
 | `SEARCH_ROUNDS_MAX` | Max `search` calls per turn (speed/balanced) | 3 | |
 | `SEARCH_ROUNDS_MAX_QUALITY` | Same, quality | 5 | |
