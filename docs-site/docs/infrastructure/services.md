@@ -99,6 +99,10 @@ compose project, Postgres, Redis, SearXNG and gluetun.
   tab switch, though the answer is still persisted. Telemetry goes to stdout only. The ingest
   heartbeat reads `null`, which counts as "unknown", not "down". Budget reads that fail skip the
   metered provider (**fail closed on spend**).
+- **Restart under a running app:** the clients reconnect on their own since 2026-09-27
+  (`lib/redis/local-redis.ts`, log `[redis:<label>] reconnected`). Before that, a recreated
+  Redis wedged them and every balanced/quality search hung
+  ([runbook](/operations/runbooks#search-hangs-after-a-redis-restart)).
 - Key families and TTLs: [Data layer → Redis](/infrastructure/data-layer#redis).
 
 ## Ollama

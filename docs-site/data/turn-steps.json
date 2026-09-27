@@ -147,10 +147,11 @@
     "id": "tool-loop",
     "title": "Tool loop: search / fetch / calculate / …",
     "actor": "search",
-    "description": "The `ToolLoopAgent` streams: after the forced step 0, each step either calls tools or emits the final text (no `toolChoice`; the loop ends on plain text). The forced search is round 1. `search` fans out to providers, crawls and reranks (see Search pipeline); after `SEARCH_ROUNDS_MAX` rounds (3; quality 5) it returns an empty result telling the model to answer. The answer deadline (200 s from the start of the turn) is applied twice: `prepareStep` stops advertising tools and tells the model to answer now, and `enforceAnswerDeadline` wraps every tool's `execute` so a call the model emits anyway is refused with an \"answer now\" result (`[deadline] refused <tool> call`). The 300 s ceiling therefore never produces a blank turn.",
+    "description": "The `ToolLoopAgent` streams: after the forced step 0, each step either calls tools or emits the final text (no `toolChoice`; the loop ends on plain text). The forced search is round 1. `search` fans out to providers, crawls and reranks (see Search pipeline); after `SEARCH_ROUNDS_MAX` rounds (3; quality 5) it returns an empty result telling the model to answer. Its call to `/api/advanced-search` is bounded (20 s to response headers, 180 s in total) and falls back to a basic SearXNG search on timeout, so a stuck route costs a turn about 20 s instead of the whole 300 s. The answer deadline (200 s from the start of the turn) is applied twice: `prepareStep` stops advertising tools and tells the model to answer now, and `enforceAnswerDeadline` wraps every tool's `execute` so a call the model emits anyway is refused with an \"answer now\" result (`[deadline] refused <tool> call`). The 300 s ceiling therefore never produces a blank turn.",
     "code": [
-      "lib/tools/search.ts:306",
-      "lib/tools/search.ts:381",
+      "lib/tools/search.ts:321",
+      "lib/tools/search.ts:393",
+      "lib/tools/search/advanced-search-deadline.ts:93",
       "lib/agents/researcher.ts:996",
       "lib/agents/answer-deadline.ts:40",
       "lib/agents/answer-deadline.ts:173"

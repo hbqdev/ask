@@ -28,10 +28,12 @@ probe is unavoidable, send one query, reuse it, and tell the team first.
 | `[latency]` | `LatencyTracker.emit` (`lib/streaming/latency-tracker.ts`), called from `onFinish` in `lib/streaming/create-chat-stream-response.ts` | chat turn | yes |
 | `[latency:search]` | `StageTimer` (`lib/telemetry/stage-timer.ts`) in `app/api/advanced-search/route.ts` **or** in `lib/tools/search.ts` | search call | yes |
 | `[latency:classify]` | `lib/agents/query-classifier-telemetry.ts` | classifier call | yes |
-| `[search] round cap reached (N > B, mode=…)` | `lib/tools/search.ts:405` | capped search | no (stdout only). The matching `[latency:search] kind:"round-cap"` line is stored |
+| `[search] round cap reached (N > B, mode=…)` | `lib/tools/search.ts:410-412` | capped search | no (stdout only). The matching `[latency:search] kind:"round-cap"` line is stored |
 | `[crop-pos]`, `[cite-urls]` | `lib/search/crop-position.ts`, `create-chat-stream-response.ts` | advanced search / turn (only when `SEARCH_CROP_POSITION_SHADOW=true`) | no |
 | `[stop] {outcome}` | `create-chat-stream-response.ts` | user-stopped turn (`partial_saved` / `nothing_to_save` / `stale_skipped`) | no |
-| `[stall-suspect]` | `LatencyTracker.emit` | aborted turn that produced no text after ≥120s of silence (the signature of a provider stall) | no |
+| `[stall-suspect]` | `LatencyTracker.emit` | aborted turn that produced no text after ≥120s of silence (the signature of a provider stall, **or of a tool that never returned**: see [aborted turns](#aborted-turns-provider-stall-or-hung-tool)) | no |
+| `[search] advanced-search timed out (phase=…, limit=…, waited=…, mode=…) — falling back to basic SearXNG for "<query>"` | `lib/tools/search.ts:1020-1022` | first search whose call to `/api/advanced-search` hit its headers or total deadline (since 2026-09-27) | no (stdout only). The matching `[latency:search] kind:"advanced-fallback"` line is stored |
+| `[redis:<label>] <error> — commands fail fast until it reconnects` / `[redis:<label>] reconnected` / `[redis:<label>] dropping client (<reason>); will rebuild` | `lib/redis/local-redis.ts:122-128`, `:239` | a local Redis client losing, regaining or discarding its connection; logged once per change, not per retry (since 2026-09-27). Labels: `advanced-search`, `basic-search-cache`, `brave-budget`, `ingest-heartbeat`, `imagegen-budget`, `imagegen-retry`, `imagegen-rotation` | no |
 | `[Researcher] always-search: step 0 forced to search "<first 80 chars of the query>" (turnMode=…, mode=…)` / `…the user supplied the source (url \| attachment-only \| attachment-reference) — first step not forced…` / `…nothing searchable in the resolved query…` | `lib/agents/researcher.ts:965-977` | research turn with `ALWAYS_SEARCH` on (logged-in **and** guest) | no. Guest turns have no `[latency]` line, so this is their only record |
 | `[search-dedup]`, `[search-expansion]`, `[advanced-search] crawl4ai enriched X/Y…`, `[Researcher] <Mode> mode: maxSteps=…` | various | event | no |
 
@@ -182,7 +184,7 @@ in `stream["text-start"]`.
 ## `[latency:search]`: the per-search line
 
 Two different code paths emit this tag. **If the line has a `provider` field,
-the search tool emitted it** (a basic, speed, expansion, or round-cap search).
+the search tool emitted it** (a basic, speed, expansion, round-cap or advanced-fallback search).
 **If it has no `provider` field, `/api/advanced-search` emitted it.**
 
 ### Emitted by the advanced route
@@ -213,9 +215,18 @@ the search tool emitted it** (a basic, speed, expansion, or round-cap search).
 | `expansion` | the classifier's variants, first search only | `variants`, `search_ms` (the slowest variant; they run concurrently), `cache_misses`, `failed`, `returned` |
 | `speed-ollama` | speed-mode fast path | `provider:"ollama-web"`, `search_ms`, `rerank_ms`, `passages`, `returned`, `fallthrough` (`empty`/`error` when it fell back to SearXNG), `rerank_error` |
 | `round-cap` | a search call that went over the per-turn budget | `search_round`, `search_round_budget`, `search_round_capped:true`, `total_ms:0` |
+| `advanced-fallback` | since 2026-09-27: the first search's call to `/api/advanced-search` timed out and the tool ran a basic SearXNG search instead ([pipeline](/search/pipeline#advanced-search-deadline-and-fallback)) | `depth:"basic"`, `provider`, `advanced_timeout` (`headers` = no response headers within `ADVANCED_SEARCH_HEADERS_TIMEOUT_MS`, 20 s; `total` = not finished within `ADVANCED_SEARCH_TIMEOUT_MS`, 180 s), `advanced_wait_ms` (how long it waited), then the usual `cache`, `search_ms`, `returned`, `images`, `variant_*` |
 
 Round-cap example: `[latency:search] {"chatId":"…","provider":"none","kind":"round-cap","search_round":4,"search_round_budget":3,"search_round_capped":true,"total_ms":0}`,
 with the stdout line `[search] round cap reached (4 > 3, mode=balanced) — instructing model to answer from gathered sources`.
+
+For an `advanced-fallback` search the turn's `[latency]` line takes its stages from the tool,
+not the route: its `search_ms` is the fallback's basic search (nothing on a cache hit), and
+`crawl_ms` / `rerank_ms` are absent for it. The wait before the fallback is in no stage total;
+read it from `advanced_wait_ms`. A route that finishes after a `total` timeout may still write
+its own `[latency:search]` line later; a stuck one writes none. One fallback can be a slow
+crawl; a run of them means the route is stuck
+([runbook](/operations/runbooks#search-hangs-after-a-redis-restart)).
 
 ## `[latency:classify]`
 
@@ -271,6 +282,7 @@ field **only the new code writes**:
 | ≥ 2026-09-08 (recall cap telemetry) | `recall_wait_ms` / `recall_budget_hit` on `[latency]` |
 | ≥ 2026-09-12 (doc budget) | `doc_inject_clipped` on `[latency]` |
 | ≥ 2026-09-26 (every question searches) | `turn_mode` / `forced_search` on `[latency]`; `forced_skip` once the user-supplied-source exception is deployed |
+| ≥ 2026-09-27 (advanced-search deadline) | `kind:"advanced-fallback"` exists at all. The forced-search rewording (prod `facc98f3`) adds no field; split research turns by deploy time (`docker logs -t`) instead |
 
 For a change of your own, add a new field (or a new `kind`) so its lines can be
 picked out.
@@ -383,9 +395,17 @@ Observations from that sample worth watching:
      (should be off) and the narration strippers ([Models & reasoning](/search/models-reasoning)).
    - **The rest** (see the formula above) = the model reasoning between tool
      calls. It grows with `steps` and `tool_calls`.
-4. **Aborted turns:** `abort_silence_ms` ≥ 120000 with `blank_abort:true` →
-   a provider stall (look for `[stall-suspect]`). A short silence → the user
-   pressed Stop or disconnected.
+4. <span id="aborted-turns-provider-stall-or-hung-tool"></span>**Aborted turns:**
+   `abort_silence_ms` ≥ 120000 with `blank_abort:true` → a stall (look for
+   `[stall-suspect]`). A short silence → the user pressed Stop or disconnected.
+   `[stall-suspect]` always says "provider stall", but check **where** the turn stopped: a
+   `stream` map that ends at `tool-input-available` / `tool-output-available` with no
+   `finish-step`, and `steps:1`, `tool_calls:1`, means a **tool** never returned, not the
+   model. The 2026-09-27 turns looked exactly like that (`abort_silence_ms` 300 636 and
+   301 002): the first search waited on a wedged Redis client
+   ([runbook](/operations/runbooks#search-hangs-after-a-redis-restart)). Since that fix a
+   stuck advanced search falls back after 20 s instead, and shows up as an
+   `advanced-fallback` line rather than an abort.
 5. **Decide what to change.** If the time is in pipeline stages, tune the
    pipeline ([knobs](/search/pipeline#knobs)). If it is mostly the model's own
    reasoning and looping, say so in your write-up, and remember that switching

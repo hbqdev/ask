@@ -366,7 +366,7 @@ Limits to know about:
 - **Cleaning applies only to new answers.** A message that was saved with a
   leak stays that way until the user regenerates it.
 - The round-cap notice itself tells the model not to restate the limit or
-  describe its sources, and to start with the heading (`lib/tools/search.ts:415`).
+  describe its sources, and to start with the heading (`lib/tools/search.ts:420`).
 
 ## Follow-up re-search prompt nudge
 

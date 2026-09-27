@@ -1,21 +1,21 @@
 {
   "generatedFrom": {
-    "ask": "ask-prod",
+    "ask": "ask-flow",
     "ingestor": "ingestor"
   },
-  "count": 651,
+  "count": 655,
   "coverage": {
-    "files": 651,
-    "withPurpose": 651,
-    "header": 166,
-    "jsdoc": 36,
+    "files": 655,
+    "withPurpose": 655,
+    "header": 169,
+    "jsdoc": 37,
     "derived": 59,
     "override": 390,
-    "documented": 356
+    "documented": 359
   },
   "kinds": {
     "dockerfile": 3,
-    "lib-module": 245,
+    "lib-module": 248,
     "route-handler": 37,
     "page": 13,
     "stylesheet": 2,
@@ -37,7 +37,7 @@
     "server-action": 8,
     "types": 8,
     "middleware": 2,
-    "script": 17
+    "script": 18
   },
   "files": [
     {
@@ -145,17 +145,20 @@
       "area": "app",
       "project": "ask",
       "kind": "route-handler",
-      "purpose": "Internal bearer-authenticated search endpoint that merges SearXNG, degoog, Tavily, Brave, LangSearch and Ollama results, crawls pages via crawl4ai, reranks and builds excerpts.",
-      "purposeSource": "override",
+      "purpose": "Internal Redis health probe, for fleet verification after a sidecar is recreated (fleet-boot/update-images.sh).",
+      "purposeSource": "jsdoc",
       "exports": [
+        "GET",
         "POST"
       ],
       "methods": [
+        "GET",
         "POST"
       ],
       "route": "/api/advanced-search",
       "usedBy": [],
       "tests": [
+        "app/api/advanced-search/__tests__/redis-resilience.test.ts",
         "app/api/advanced-search/__tests__/searxng-failure.test.ts"
       ],
       "docs": [
@@ -180,8 +183,14 @@
         {
           "page": "/infrastructure/data-layer",
           "title": "Data layer",
-          "section": "Key families",
-          "anchor": "key-families"
+          "section": "Redis clients",
+          "anchor": "redis-clients"
+        },
+        {
+          "page": "/operations/runbooks",
+          "title": "Runbooks",
+          "section": "Search hangs after a Redis restart",
+          "anchor": "search-hangs-after-a-redis-restart"
         },
         {
           "page": "/operations/telemetry",
@@ -735,8 +744,8 @@
         {
           "page": "/infrastructure/data-layer",
           "title": "Data layer",
-          "section": "Key families",
-          "anchor": "key-families"
+          "section": "Redis clients",
+          "anchor": "redis-clients"
         },
         {
           "page": "/operations/analytics",
@@ -6861,14 +6870,7 @@
       "route": null,
       "usedBy": [],
       "tests": [],
-      "docs": [
-        {
-          "page": "/operations/fleet-scripts",
-          "title": "Fleet scripts",
-          "section": null,
-          "anchor": null
-        }
-      ]
+      "docs": []
     },
     {
       "path": "fleet-boot/fleet-update-ask.timer",
@@ -6895,8 +6897,8 @@
         {
           "page": "/operations/fleet-scripts",
           "title": "Fleet scripts",
-          "section": null,
-          "anchor": null
+          "section": "Nightly / weekly schedule",
+          "anchor": "nightly-weekly-schedule"
         },
         {
           "page": "/operations/runbooks",
@@ -7459,6 +7461,7 @@
       "methods": [],
       "route": null,
       "usedBy": [
+        "app/api/advanced-search/route.ts",
         "fleet-boot/deploy.sh",
         "fleet-boot/update-ask.sh",
         "fleet-boot/update-public-search.sh"
@@ -7478,6 +7481,30 @@
           "anchor": "_2026-09-—-september"
         },
         {
+          "page": "/history/decisions",
+          "title": "Decisions",
+          "section": "D39. Every local Redis client goes through local-redis.ts",
+          "anchor": "d39-every-local-redis-client-goes-through-local-redis-ts"
+        },
+        {
+          "page": "/history/glossary",
+          "title": "Glossary",
+          "section": "Data and security",
+          "anchor": "data-and-security"
+        },
+        {
+          "page": "/history/known-issues",
+          "title": "Known issues",
+          "section": "Summary",
+          "anchor": "summary"
+        },
+        {
+          "page": "/infrastructure/security",
+          "title": "Security",
+          "section": "Token-gated internal routes",
+          "anchor": "token-gated-internal-routes"
+        },
+        {
           "page": "/operations/deploy",
           "title": "Deploy",
           "section": "Automated image updates (not app code)",
@@ -7488,6 +7515,18 @@
           "title": "Fleet scripts",
           "section": null,
           "anchor": null
+        },
+        {
+          "page": "/operations/runbooks",
+          "title": "Runbooks",
+          "section": "Search hangs after a Redis restart",
+          "anchor": "search-hangs-after-a-redis-restart"
+        },
+        {
+          "page": "/search/pipeline",
+          "title": "Search pipeline",
+          "section": "5. /api/advanced-search: auth and cache",
+          "anchor": "_5-api-advanced-search-auth-and-cache"
         }
       ]
     },
@@ -11590,14 +11629,15 @@
       ],
       "tests": [
         "lib/imagegen/__tests__/budget.test.ts",
+        "lib/redis/__tests__/caller-outage-semantics.test.ts",
         "lib/tools/__tests__/generate-image.test.ts"
       ],
       "docs": [
         {
           "page": "/infrastructure/data-layer",
           "title": "Data layer",
-          "section": "Key families",
-          "anchor": "key-families"
+          "section": "Redis clients",
+          "anchor": "redis-clients"
         },
         {
           "page": "/knowledge/media",
@@ -12262,14 +12302,15 @@
       ],
       "tests": [
         "lib/imagegen/__tests__/retry-tracker.test.ts",
+        "lib/redis/__tests__/caller-outage-semantics.test.ts",
         "lib/tools/__tests__/generate-image.test.ts"
       ],
       "docs": [
         {
           "page": "/infrastructure/data-layer",
           "title": "Data layer",
-          "section": "Key families",
-          "anchor": "key-families"
+          "section": "Redis clients",
+          "anchor": "redis-clients"
         }
       ]
     },
@@ -12293,14 +12334,21 @@
       ],
       "tests": [
         "lib/imagegen/__tests__/rotation.test.ts",
+        "lib/redis/__tests__/caller-outage-semantics.test.ts",
         "lib/tools/__tests__/generate-image.test.ts"
       ],
       "docs": [
         {
+          "page": "/getting-started/recipes",
+          "title": "Recipes",
+          "section": "Add a Redis-backed feature",
+          "anchor": "add-a-redis-backed-feature"
+        },
+        {
           "page": "/infrastructure/data-layer",
           "title": "Data layer",
-          "section": "Key families",
-          "anchor": "key-families"
+          "section": "Redis clients",
+          "anchor": "redis-clients"
         }
       ]
     },
@@ -13042,6 +13090,112 @@
       ]
     },
     {
+      "path": "lib/redis/local-redis.ts",
+      "dir": "lib/redis",
+      "area": "lib",
+      "project": "ask",
+      "kind": "lib-module",
+      "purpose": "Resilient node-redis clients for the app's LOCAL Redis (LOCAL_REDIS_URL).",
+      "purposeSource": "header",
+      "exports": [
+        "LocalRedisClient",
+        "LOCAL_REDIS_CONNECT_TIMEOUT_MS",
+        "LOCAL_REDIS_COMMAND_TIMEOUT_MS",
+        "LOCAL_REDIS_TIMEOUTS_BEFORE_REBUILD",
+        "localRedisUrl",
+        "localRedisCommandTimeoutMs",
+        "localRedisReconnectDelayMs",
+        "RedisCommandTimeoutError",
+        "withRedisTimeout",
+        "createResilientRedisClient",
+        "LocalRedisConnector",
+        "LocalRedisConnectorOptions",
+        "createLocalRedisConnector"
+      ],
+      "methods": [],
+      "route": null,
+      "usedBy": [
+        "app/api/advanced-search/route.ts",
+        "lib/imagegen/budget.ts",
+        "lib/imagegen/retry-tracker.ts",
+        "lib/imagegen/rotation.ts",
+        "lib/search/basic-search-cache.ts",
+        "lib/search/brave-budget.ts",
+        "lib/utils/ingest-heartbeat.ts"
+      ],
+      "tests": [
+        "lib/redis/__tests__/local-redis.test.ts"
+      ],
+      "docs": [
+        {
+          "page": "/getting-started/repo-tour",
+          "title": "Repo tour",
+          "section": "lib/",
+          "anchor": "lib"
+        },
+        {
+          "page": "/history/changelog",
+          "title": "Changelog",
+          "section": "2026-09 — September",
+          "anchor": "_2026-09-—-september"
+        },
+        {
+          "page": "/history/decisions",
+          "title": "Decisions",
+          "section": "Index",
+          "anchor": "index"
+        },
+        {
+          "page": "/history/glossary",
+          "title": "Glossary",
+          "section": "Data and security",
+          "anchor": "data-and-security"
+        },
+        {
+          "page": "/history/known-issues",
+          "title": "Known issues",
+          "section": "Search hung after the weekly Redis update",
+          "anchor": "search-hung-after-the-weekly-redis-update"
+        },
+        {
+          "page": "/infrastructure/data-layer",
+          "title": "Data layer",
+          "section": "Redis",
+          "anchor": "redis"
+        },
+        {
+          "page": "/infrastructure/services",
+          "title": "Services",
+          "section": "Redis",
+          "anchor": "redis"
+        },
+        {
+          "page": "/operations/runbooks",
+          "title": "Runbooks",
+          "section": "Search hangs after a Redis restart",
+          "anchor": "search-hangs-after-a-redis-restart"
+        },
+        {
+          "page": "/operations/telemetry",
+          "title": "Telemetry",
+          "section": "The lines",
+          "anchor": "the-lines"
+        },
+        {
+          "page": "/operations/testing-qa",
+          "title": "Testing & QA",
+          "section": "Pre-existing failures",
+          "anchor": "pre-existing-failures"
+        },
+        {
+          "page": "/search/pipeline",
+          "title": "Search pipeline",
+          "section": "Caching summary",
+          "anchor": "caching-summary"
+        }
+      ]
+    },
+    {
       "path": "lib/render/catalog.ts",
       "dir": "lib/render",
       "area": "lib",
@@ -13588,9 +13742,17 @@
         "lib/tools/search.ts"
       ],
       "tests": [
-        "lib/search/__tests__/basic-search-cache.test.ts"
+        "lib/redis/__tests__/caller-outage-semantics.test.ts",
+        "lib/search/__tests__/basic-search-cache.test.ts",
+        "lib/tools/__tests__/search-advanced-timeout.test.ts"
       ],
       "docs": [
+        {
+          "page": "/getting-started/recipes",
+          "title": "Recipes",
+          "section": "Add a Redis-backed feature",
+          "anchor": "add-a-redis-backed-feature"
+        },
         {
           "page": "/getting-started/repo-tour",
           "title": "Repo tour",
@@ -13600,8 +13762,8 @@
         {
           "page": "/infrastructure/data-layer",
           "title": "Data layer",
-          "section": "Key families",
-          "anchor": "key-families"
+          "section": "Redis clients",
+          "anchor": "redis-clients"
         },
         {
           "page": "/operations/testing-qa",
@@ -13639,9 +13801,16 @@
         "lib/tools/search/providers/brave.ts"
       ],
       "tests": [
+        "lib/redis/__tests__/caller-outage-semantics.test.ts",
         "lib/search/__tests__/brave-budget.test.ts"
       ],
       "docs": [
+        {
+          "page": "/getting-started/recipes",
+          "title": "Recipes",
+          "section": "Add a Redis-backed feature",
+          "anchor": "add-a-redis-backed-feature"
+        },
         {
           "page": "/getting-started/repo-tour",
           "title": "Repo tour",
@@ -13651,8 +13820,8 @@
         {
           "page": "/infrastructure/data-layer",
           "title": "Data layer",
-          "section": "Key families",
-          "anchor": "key-families"
+          "section": "Redis clients",
+          "anchor": "redis-clients"
         },
         {
           "page": "/operations/testing-qa",
@@ -15015,16 +15184,28 @@
       "tests": [],
       "docs": [
         {
+          "page": "/getting-started/recipes",
+          "title": "Recipes",
+          "section": "Add a Redis-backed feature",
+          "anchor": "add-a-redis-backed-feature"
+        },
+        {
           "page": "/getting-started/repo-tour",
           "title": "Repo tour",
           "section": "lib/",
           "anchor": "lib"
         },
         {
+          "page": "/history/decisions",
+          "title": "Decisions",
+          "section": "D39. Every local Redis client goes through local-redis.ts",
+          "anchor": "d39-every-local-redis-client-goes-through-local-redis-ts"
+        },
+        {
           "page": "/infrastructure/data-layer",
           "title": "Data layer",
-          "section": "Key families",
-          "anchor": "key-families"
+          "section": "Redis clients",
+          "anchor": "redis-clients"
         },
         {
           "page": "/operations/runbooks",
@@ -15338,10 +15519,16 @@
           "anchor": "lib"
         },
         {
+          "page": "/history/decisions",
+          "title": "Decisions",
+          "section": "D39. Every local Redis client goes through local-redis.ts",
+          "anchor": "d39-every-local-redis-client-goes-through-local-redis-ts"
+        },
+        {
           "page": "/infrastructure/data-layer",
           "title": "Data layer",
-          "section": "Key families",
-          "anchor": "key-families"
+          "section": "Redis clients",
+          "anchor": "redis-clients"
         },
         {
           "page": "/operations/telemetry",
@@ -15699,6 +15886,7 @@
         "lib/agents/__tests__/citation-handles-e2e.test.ts",
         "lib/agents/__tests__/researcher-always-search.test.ts",
         "lib/render/__tests__/llm-image-output.e2e.test.ts",
+        "lib/tools/__tests__/search-advanced-timeout.test.ts",
         "lib/tools/__tests__/search-dedup.test.ts",
         "lib/tools/__tests__/search-depth-tiering.test.ts",
         "lib/tools/__tests__/search-round-cap.test.ts",
@@ -15759,6 +15947,53 @@
           "title": "Search pipeline",
           "section": null,
           "anchor": null
+        }
+      ]
+    },
+    {
+      "path": "lib/tools/search/advanced-search-deadline.ts",
+      "dir": "lib/tools/search",
+      "area": "lib",
+      "project": "ask",
+      "kind": "lib-module",
+      "purpose": "Time bound for the search tool's internal POST to /api/advanced-search.",
+      "purposeSource": "header",
+      "exports": [
+        "DEFAULT_ADVANCED_SEARCH_TIMEOUT_MS",
+        "DEFAULT_ADVANCED_SEARCH_HEADERS_TIMEOUT_MS",
+        "advancedSearchTimeoutMs",
+        "advancedSearchHeadersTimeoutMs",
+        "AdvancedSearchTimeoutPhase",
+        "AdvancedSearchTimeoutError",
+        "AdvancedSearchDeadline",
+        "createAdvancedSearchDeadline"
+      ],
+      "methods": [],
+      "route": null,
+      "usedBy": [
+        "lib/tools/search.ts"
+      ],
+      "tests": [
+        "lib/tools/search/__tests__/advanced-search-deadline.test.ts"
+      ],
+      "docs": [
+        {
+          "page": "/getting-started/repo-tour",
+          "title": "Repo tour",
+          "section": "lib/",
+          "anchor": "lib"
+        },
+        {
+          "page": "/request-lifecycle/chat-turn",
+          "title": "Chat turn",
+          "section": "10. The tool loop and its caps",
+          "anchor": "_10-the-tool-loop-and-its-caps"
+        },
+        {
+          "page": "/search/pipeline",
+          "title": "Search pipeline",
+          "section": "Caller-side deadline and basic fallback",
+          "anchor": "advanced-search-deadline-and-fallback"
         }
       ]
     },
@@ -15955,7 +16190,9 @@
         "lib/tools/search.ts",
         "lib/tools/search/basic-telemetry.ts"
       ],
-      "tests": [],
+      "tests": [
+        "lib/tools/__tests__/search-advanced-timeout.test.ts"
+      ],
       "docs": [
         {
           "page": "/getting-started/recipes",
@@ -17024,6 +17261,7 @@
         "lib/tools/search/providers/searxng.ts"
       ],
       "tests": [
+        "app/api/advanced-search/__tests__/redis-resilience.test.ts",
         "app/api/advanced-search/__tests__/searxng-failure.test.ts",
         "lib/utils/__tests__/degoog-client.test.ts"
       ],
@@ -17132,7 +17370,8 @@
         "lib/agents/query-classifier.ts",
         "lib/agents/query-expander.ts",
         "lib/agents/title-generator.ts",
-        "lib/utils/registry.ts"
+        "lib/utils/registry.ts",
+        "lib/voice/spoken-gist.ts"
       ],
       "tests": [
         "lib/agents/__tests__/memory-extractor.test.ts",
@@ -17297,6 +17536,7 @@
         "app/api/maintenance/expire-uploads/route.ts"
       ],
       "tests": [
+        "app/api/advanced-search/__tests__/redis-resilience.test.ts",
         "app/api/advanced-search/__tests__/searxng-failure.test.ts"
       ],
       "docs": [
@@ -17359,9 +17599,16 @@
       ],
       "tests": [
         "app/api/ingest/__tests__/routes.test.ts",
+        "lib/redis/__tests__/caller-outage-semantics.test.ts",
         "lib/streaming/helpers/__tests__/transform-file-parts.test.ts"
       ],
       "docs": [
+        {
+          "page": "/getting-started/recipes",
+          "title": "Recipes",
+          "section": "Add a Redis-backed feature",
+          "anchor": "add-a-redis-backed-feature"
+        },
         {
           "page": "/getting-started/repo-tour",
           "title": "Repo tour",
@@ -17371,8 +17618,8 @@
         {
           "page": "/infrastructure/data-layer",
           "title": "Data layer",
-          "section": "Key families",
-          "anchor": "key-families"
+          "section": "Redis clients",
+          "anchor": "redis-clients"
         },
         {
           "page": "/knowledge/ingestor",
@@ -17488,7 +17735,8 @@
       "usedBy": [
         "lib/agents/memory-extractor.ts",
         "lib/agents/query-expander.ts",
-        "lib/agents/title-generator.ts"
+        "lib/agents/title-generator.ts",
+        "lib/voice/spoken-gist.ts"
       ],
       "tests": [],
       "docs": [
@@ -17713,7 +17961,9 @@
         "lib/tools/search/providers/searxng.ts"
       ],
       "tests": [
+        "app/api/advanced-search/__tests__/redis-resilience.test.ts",
         "app/api/advanced-search/__tests__/searxng-failure.test.ts",
+        "lib/tools/__tests__/search-advanced-timeout.test.ts",
         "lib/tools/__tests__/search-speed-ollama-web.test.ts",
         "lib/utils/__tests__/ollama-search-client.test.ts"
       ],
@@ -17729,6 +17979,7 @@
       "purposeSource": "header",
       "exports": [
         "AnswerThink",
+        "AnswerTurnMode",
         "ANSWER_THINK_DEFAULT",
         "resolveAnswerThink",
         "thinkEnabledForOllama"
@@ -18130,6 +18381,7 @@
         "lib/tools/search/providers/searxng.ts"
       ],
       "tests": [
+        "app/api/advanced-search/__tests__/redis-resilience.test.ts",
         "app/api/advanced-search/__tests__/searxng-failure.test.ts",
         "lib/utils/__tests__/searxng-client.test.ts"
       ],
@@ -18301,7 +18553,9 @@
         "app/auth/oauth/route.ts",
         "lib/tools/search.ts"
       ],
-      "tests": [],
+      "tests": [
+        "lib/tools/__tests__/search-advanced-timeout.test.ts"
+      ],
       "docs": []
     },
     {
@@ -18329,7 +18583,8 @@
         "lib/agents/__tests__/citation-handles-e2e.test.ts",
         "lib/tools/__tests__/fetch-citation-handles.test.ts",
         "lib/tools/__tests__/fetch-tool-call-id.test.ts",
-        "lib/tools/__tests__/fetch.test.ts"
+        "lib/tools/__tests__/fetch.test.ts",
+        "lib/tools/__tests__/search-advanced-timeout.test.ts"
       ],
       "docs": []
     },
@@ -18378,6 +18633,7 @@
         "app/api/voice/speak/route.ts",
         "app/api/voice/transcribe/route.ts",
         "lib/streaming/create-chat-stream-response.ts",
+        "lib/voice/spoken-gist.ts",
         "lib/voice/stt-client.ts",
         "lib/voice/tts-client.ts"
       ],
@@ -18464,6 +18720,39 @@
       ]
     },
     {
+      "path": "lib/voice/spoken-gist.ts",
+      "dir": "lib/voice",
+      "area": "lib",
+      "project": "ask",
+      "kind": "lib-module",
+      "purpose": "Condenses a finished answer into a 2-3 sentence read-aloud gist using a local Ollama model with a timeout, for voice read-aloud.",
+      "purposeSource": "override",
+      "exports": [
+        "buildGistPrompt",
+        "condenseForSpeech"
+      ],
+      "methods": [],
+      "route": null,
+      "usedBy": [],
+      "tests": [
+        "lib/voice/__tests__/spoken-gist.test.ts"
+      ],
+      "docs": [
+        {
+          "page": "/history/known-issues",
+          "title": "Known issues",
+          "section": "Other stale comments and docs",
+          "anchor": "other-stale-comments-and-docs"
+        },
+        {
+          "page": "/knowledge/media",
+          "title": "Media, voice, weather & Discover",
+          "section": "Read-aloud (Kokoro TTS)",
+          "anchor": "read-aloud-kokoro-tts"
+        }
+      ]
+    },
+    {
       "path": "lib/voice/strip-for-speech.ts",
       "dir": "lib/voice",
       "area": "lib",
@@ -18478,7 +18767,8 @@
       "methods": [],
       "route": null,
       "usedBy": [
-        "lib/voice/emit-spoken-gist.ts"
+        "lib/voice/emit-spoken-gist.ts",
+        "lib/voice/spoken-gist.ts"
       ],
       "tests": [
         "lib/voice/__tests__/strip-for-speech.test.ts"
@@ -19303,6 +19593,35 @@
       ]
     },
     {
+      "path": "scripts/eval/harvest-pairs.py",
+      "dir": "scripts/eval",
+      "area": "scripts",
+      "project": "ask",
+      "kind": "script",
+      "purpose": "Harvest per-turn telemetry and answers for browser-driven staging/lab chats.",
+      "purposeSource": "header",
+      "exports": [
+        "sh",
+        "psql",
+        "turns",
+        "latency",
+        "summarise",
+        "main"
+      ],
+      "methods": [],
+      "route": null,
+      "usedBy": [],
+      "tests": [],
+      "docs": [
+        {
+          "page": "/operations/evaluation",
+          "title": "Evaluation harnesses & scripts",
+          "section": "Map of the harnesses",
+          "anchor": "map-of-the-harnesses"
+        }
+      ]
+    },
+    {
       "path": "scripts/eval/judge-flow-arms.py",
       "dir": "scripts/eval",
       "area": "scripts",
@@ -19317,7 +19636,8 @@
       "methods": [],
       "route": null,
       "usedBy": [
-        "scripts/eval/analyze-flow-arms.py"
+        "scripts/eval/analyze-flow-arms.py",
+        "scripts/eval/harvest-pairs.py"
       ],
       "tests": [],
       "docs": [
