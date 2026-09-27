@@ -38,6 +38,47 @@ describe('rehydrateFullContent', () => {
     expect(part.output.results[0].content).toBe('FULL TEXT')
   })
 
+  it('keeps the live order and length when the full list is pre-dedup, so citation positions survive', () => {
+    // Speed fast path: the model saw [A, C] (B was deduped away) and cited
+    // [2](#call-1) = C. The recorded full list is [A, B, C]; persisting it
+    // wholesale made [2] resolve to B after a reload.
+    const fullList = [
+      { title: 'A', url: 'https://a.test', content: 'A FULL' },
+      { title: 'B', url: 'https://b.test', content: 'B FULL' },
+      { title: 'C', url: 'https://c.test', content: 'C FULL' }
+    ]
+    const out = rehydrateFullContent(
+      msg([
+        {
+          type: 'tool-search',
+          toolCallId: 'call-1',
+          output: {
+            state: 'complete',
+            results: [
+              { title: 'A', url: 'https://a.test', content: 'a excerpt' },
+              { title: 'C', url: 'https://c.test', content: 'c excerpt' },
+              { title: 'D', url: 'https://d.test', content: 'd only live' }
+            ]
+          }
+        }
+      ]),
+      new Map([['call-1', fullList]])
+    )
+    const part = (out.parts as never[])[0] as {
+      output: { results: { url: string; content: string }[] }
+    }
+    expect(part.output.results.map(r => r.url)).toEqual([
+      'https://a.test',
+      'https://c.test',
+      'https://d.test'
+    ])
+    expect(part.output.results.map(r => r.content)).toEqual([
+      'A FULL',
+      'C FULL',
+      'd only live'
+    ])
+  })
+
   it('leaves a part alone when nothing was recorded for its call id', () => {
     // Degradation path: a miss must persist today's bytes, not empty them.
     const parts = [
@@ -100,12 +141,12 @@ describe('rehydrateFullContent', () => {
         {
           type: 'tool-search',
           toolCallId: 'c1',
-          output: { results: [{ content: 'e1' }] }
+          output: { results: [{ url: 'https://a.test', content: 'e1' }] }
         },
         {
           type: 'tool-search',
           toolCallId: 'c2',
-          output: { results: [{ content: 'e2' }] }
+          output: { results: [{ url: 'https://b.test', content: 'e2' }] }
         }
       ]),
       new Map([
