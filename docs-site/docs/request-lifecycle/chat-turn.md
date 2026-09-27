@@ -193,7 +193,7 @@ are forced on the raw message with its URLs removed, unless the message carries 
 it only points at. The guest path bypasses only for a URL.
 
 **User-supplied source.** Next to the bypass check, `detectUserSuppliedSource`
-(`lib/agents/always-search.ts:116-135`, called at `create-chat-stream-response.ts:281-283`)
+(`lib/agents/always-search.ts:118-137`, called at `create-chat-stream-response.ts:281-283`)
 reads the latest message's **parts**: a URL in the text or a pasted link chip (`url`), an
 attachment with no typed text (`attachment-only`), or an attachment whose text only points at
 it (`attachment-reference`, e.g. "what is this", "summarise this file"). It is read from the
@@ -284,15 +284,17 @@ disables the clip.
 Each surviving source becomes a synthetic `documentRetrieval` tool call: two UI
 chunks streamed to the browser (so the client can build citation maps) and an
 assistant tool-call + tool-result pair appended to the model messages **after**
-prune/truncate (so they cannot be pruned). The researcher prompt then lists the
-toolCallIds and permits citing them as `[1](#<id>)`. `documentRetrieval` is not a
+prune/truncate (so they cannot be pruned). Each excerpt in that tool result carries a
+ready-made `cite` handle (`CITATION_HANDLES`, default on). The researcher prompt then lists the
+toolCallIds and permits citing them by copying an excerpt's handle (with the flag off: as
+`[1](#<id>)`). `documentRetrieval` is not a
 tool the model can call — it only ever appears this way. Details:
 [RAG & uploads](/knowledge/rag-uploads).
 
 ## 9. Turn mode and tools {#_9-turn-mode-and-tools}
 
 `researcher()` = `createResearcher` (`lib/agents/researcher.ts`) builds a
-`ToolLoopAgent` (`researcher.ts:972`). `resolveTurnMode` (`researcher.ts:154-188`):
+`ToolLoopAgent` (`researcher.ts:980`). `resolveTurnMode` (`researcher.ts:155-189`):
 
 | Turn mode | When | Prompt | Advertised tools (`activeTools`) | maxSteps |
 |---|---|---|---|---|
@@ -308,27 +310,28 @@ there is a user id. `askQuestion` is in the tools map but never advertised.
 **Forced first search (`ALWAYS_SEARCH`, default on).** On a `research` turn, step 0 is a
 web search that the answering model does not choose:
 
-1. `resolveForcedFirstSearch` (`researcher.ts:199-216`) returns null (not forced) when the
+1. `resolveForcedFirstSearch` (`researcher.ts:200-217`) returns null (not forced) when the
    user supplied the source (`userSuppliedSource`, above): the turn keeps its mode prompt
    and tools, so a URL is read with `fetch` or the injected attached source, and the model
    may still search. Otherwise it takes `standaloneQuery`, removes URLs and clips it to 400
    characters; if nothing is left, the turn is not forced either.
-2. The system prompt gets `FORCED_SEARCH_PROMPT_ADDENDUM` (`researcher.ts:832-834`): the
-   first search already ran; ground and cite; the "clarifying your own prior answer"
-   exception does not apply.
-3. `prepareStep` returns `model: forcedSearchModel` for step 0 (`researcher.ts:1031-1033`).
-   That synthetic model (`lib/agents/always-search.ts:262`) emits one `search` call and
+2. The system prompt gets the forced-search addendum (`getForcedSearchPromptAddendum()`,
+   appended at `researcher.ts:833-835`): the first search already ran; ground and cite (with
+   `CITATION_HANDLES` on, by copying each result's `cite` string); the "clarifying your own
+   prior answer" exception does not apply.
+3. `prepareStep` returns `model: forcedSearchModel` for step 0 (`researcher.ts:1039-1041`).
+   That synthetic model (`lib/agents/always-search.ts:264`) emits one `search` call and
    nothing else; the SDK executes it through the full `search` wrapper chain below. The
    answering model runs from step 1 with the results in context.
 4. `onTurnPlan` reports `{turnMode, forcedSearch, forcedSkip}` for the `[latency]` line
-   (`researcher.ts:671-675`); `forcedSkip` names the user-supplied source when a research
+   (`researcher.ts:672-676`); `forcedSkip` names the user-supplied source when a research
    turn was not forced.
 
 `toolChoice` cannot do this job because the Ollama provider ignores it; the step's model
 override is resolved by the AI SDK itself. Details, evidence and the revert switch:
 [D37](/history/decisions#d37-always-search-every-question).
 
-The tools map (`researcher.ts:894`) always contains **every** tool:
+The tools map (`researcher.ts:902`) always contains **every** tool:
 `search, fetch, askQuestion, calculate, get_weather, remember, recall,
 [generateImage], todoWrite`.
 
@@ -348,7 +351,7 @@ Other per-turn wiring:
   instructions), the resolved `standaloneQuery` as the **entire scope of the turn**,
   image-tool guidance, and the current date/time.
 - `remember` writes are candidate-only on research turns (a retrieved page could have
-  induced them) and immediate on direct/stable-knowledge turns (`researcher.ts:900-909`).
+  induced them) and immediate on direct/stable-knowledge turns (`researcher.ts:908-917`).
   An explicit "remember that …" / "forget …" instruction is a classifier skip, so it is a
   `direct` turn and its memory is **confirmed**; a `remember` call the model makes on its own
   during a research turn is a candidate (see
@@ -372,7 +375,7 @@ keep it bounded:
 | Cap | Where | Default | Effect |
 |---|---|---|---|
 | Step cap | `stopWhen: stepCountIs(maxSteps)` | 10 / 20 / 50 / 100 | hard stop (can end on a tool step — rarely reached in practice) |
-| Search-round cap | `lib/tools/search.ts:306` | `SEARCH_ROUNDS_MAX`=3, `SEARCH_ROUNDS_MAX_QUALITY`=5 | further `search` calls return an empty result with a notice "answer now, begin with the `## ` heading"; dedup short-circuits don't count |
+| Search-round cap | `lib/tools/search.ts:313` | `SEARCH_ROUNDS_MAX`=3, `SEARCH_ROUNDS_MAX_QUALITY`=5 | further `search` calls return an empty result with a notice "answer now, begin with the `## ` heading"; dedup short-circuits don't count |
 | Answer deadline | `prepareStep` → `applyAnswerDeadline` (`lib/agents/answer-deadline.ts:40`) | 200s | tools no longer advertised + a "TIME TO ANSWER" note appended to the system prompt, and every tool's `execute` refuses with an "answer now" result (`enforceAnswerDeadline`), so the model writes before the 300s abort (which would persist nothing) |
 | Generation timeout | `route.ts:36` | 300s | aborts the turn; nothing persisted |
 
@@ -407,7 +410,8 @@ is detailed in [Streaming](/request-lifecycle/streaming).
 3. Abort handling: aborted and not a user Stop → **discard**. User Stop → sanitize +
    newer-turn guard (see [Streaming → Stop](/request-lifecycle/streaming#stop)).
 4. `stripNarrationFromMessage` → `rehydrateFullContent` (swap excerpts back to full
-   crawled text so the next turn can answer follow-ups from history) → `persistStreamResults`.
+   crawled text so the next turn can answer follow-ups from history; by URL, keeping the live
+   result order so stored citations keep pointing at the same pages) → `persistStreamResults`.
 5. **Memory extraction** (async, `MEMORY_ENABLED!=='off'` and the user's memory
    setting on): `extractMemories` on the user text + standalone query →
    `saveCandidates`. One `[memory]` log line per turn with outcome

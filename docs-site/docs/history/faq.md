@@ -196,20 +196,36 @@ uncited. Check `citations_unresolved` (and `citations_recovered`) on the turn's 
 Three pipeline causes were fixed on 2026-09-24, and copied placeholders and too-high numbers on
 2026-09-26. Builds with the 09-26 fix also count out-of-range numbers as unresolved, so their
 rate reads higher than older lines for the same answers
-([telemetry](/operations/telemetry#tokens-citations-and-totals)). A rate that stays high on
-live turns of one build is worth a look.
+([telemetry](/operations/telemetry#tokens-citations-and-totals)). Since 2026-09-27 models copy a
+ready-made citation from each result, so out-of-range numbers should be rare; the typical
+leftover is an id copied with one character missing, which is dropped. A rate that stays high
+on live turns of one build is worth a look.
 → [Known issues › Unresolved citations](/history/known-issues#unresolved-citations),
 [Citation placeholders and out-of-range numbers](/history/known-issues#citation-placeholders-and-out-of-range-numbers)
 
 ### A citation links to the wrong page of the right search
 
 The chip opens a real source from the turn's search, but not the one the sentence came from.
-The usual cause is a model numbering its sources as a running count across the answer:
-`[5](#<search id>)` meaning "my fifth source" renders that search's **fifth result**. The anchor
-is valid, so no counter sees it (`citations_unresolved` stays 0 for it). The prompts state the
-within-call rule since 2026-09-26; the problem is open and not yet measured on live turns.
-Diagnose by reading the stored answer text next to the search's `results` order.
-→ [Known issues › Running-count citation numbers](/history/known-issues#running-count-citation-numbers-can-point-at-the-wrong-result)
+The anchor is valid, so no counter sees it (`citations_unresolved` stays 0 for it). Diagnose by
+reading the stored answer text next to that call's stored `results` order: `[N](#id)` renders
+result N of call `id`.
+
+**What changed on 2026-09-27** (prod `8878a42d`, `0ca166fe`):
+
+- **Models no longer count.** The usual cause was a model numbering its sources as a running
+  count across the answer: `[5](#<search id>)` meaning "my fifth source" rendered that search's
+  **fifth result**. Every result the model sees now carries its finished citation (`cite`), and
+  the prompts say to copy it. On the lab A/B this cut unsupported citations from 64.0 % to
+  11.0 % (deepseek-v4.1-flash) and from 47.8 % to 18.7 % (kimi-k2.6). The ones left are mostly a
+  real result cited for a claim it does not make, or the model's own knowledge given a citation.
+  Check the container: `docker exec <container> printenv CITATION_HANDLES` must not print `off`.
+- **Reloads no longer shift positions.** A speed-mode answer could cite correctly live and a
+  different page after a reload, because the saved search list was the pre-dedup one. Answers
+  saved before that fix keep their shifted list; nothing rewrites stored messages.
+
+→ [Known issues › Running-count citation numbers](/history/known-issues#running-count-citation-numbers-can-point-at-the-wrong-result),
+[Reloaded speed-mode answers cited a different page](/history/known-issues#reloaded-speed-mode-answers-cited-a-different-page),
+[D38](/history/decisions#d38-ready-made-citation-handles)
 
 ## Titles, memory and recall
 
