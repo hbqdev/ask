@@ -168,6 +168,22 @@ const CITATION_MAP_TOOL_TYPE = new WeakMap<object, string>()
  */
 const FAILED_FETCH_TITLE_RE = /^Fetch failed:/
 
+/** The highest citation number resolveCitationAnchor will resolve. */
+export const MAX_CITATION_NUMBER = 100
+
+/**
+ * Whether a tool result may be handed a ready-made citation string
+ * (lib/utils/citation-handles.ts): citing it renders — a valid URL, the check
+ * resolveWithinCall applies — and it is a page the answer can be written from,
+ * not a failed-fetch placeholder.
+ */
+export function isCitableResult(item: unknown): boolean {
+  if (!item || typeof item !== 'object') return false
+  const { url, title } = item as { url?: unknown; title?: unknown }
+  if (typeof url !== 'string' || !isValidUrl(url)) return false
+  return !(typeof title === 'string' && FAILED_FETCH_TITLE_RE.test(title))
+}
+
 export type CitationRepair =
   /** The id is a URL fragment of exactly one source (resolveByUrlFragment). */
   | 'url-fragment'
@@ -266,7 +282,9 @@ export function resolveCitationAnchor(
   citationMaps: Record<string, Record<number, SearchResultItem>>
 ): CitationResolution {
   if (!citationMaps || !anchorId) return UNRESOLVED
-  if (!Number.isInteger(num) || num < 1 || num > 100) return UNRESOLVED
+  if (!Number.isInteger(num) || num < 1 || num > MAX_CITATION_NUMBER) {
+    return UNRESOLVED
+  }
 
   const direct = findCitationMap(anchorId, citationMaps)
   if (direct) return resolveWithinCall(num, direct, null)

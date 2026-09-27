@@ -1,7 +1,11 @@
-import { describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import type { UIMessage } from '@/lib/types/ai'
-import { extractCitationMaps, processCitations } from '@/lib/utils/citation'
+import {
+  extractCitationMaps,
+  processCitations,
+  resolveCitationAnchor
+} from '@/lib/utils/citation'
 
 import {
   buildDocumentResults,
@@ -243,5 +247,70 @@ describe('buildDocumentRetrievalArtifacts', () => {
     // The anchor survived (rewritten to a source link), not stripped.
     expect(out).not.toContain(`#${sourceId})`)
     expect(out).toContain(`${BASE_URL}#chunk-1`)
+  })
+})
+
+// CITATION_HANDLES: the injected model pair never passes through a tool's
+// toModelOutput, so the builder adds each excerpt's `cite` itself. It must
+// resolve, through the real renderer path, to that excerpt of the UI part
+// built from the same input; off must be the previous model output exactly.
+describe('documentRetrieval model output — CITATION_HANDLES', () => {
+  const sourceId = documentSourceId('doc', 'file-123')
+  const input = {
+    sourceId,
+    title: 'notes.txt',
+    url: BASE_URL,
+    chunks: ['revenue 4.2M', 'headcount 37', 'founded 2019'],
+    query: 'q'
+  }
+  const modelValue = (
+    artifacts: ReturnType<typeof buildDocumentRetrievalArtifacts>
+  ) => (artifacts!.modelMessages[1].content as any[])[0].output.value
+
+  afterEach(() => {
+    vi.unstubAllEnvs()
+  })
+
+  it('on (default): excerpt k carries [k](#sourceId), resolving to that excerpt', () => {
+    vi.stubEnv('CITATION_HANDLES', '')
+    const artifacts = buildDocumentRetrievalArtifacts(input)!
+    const results = modelValue(artifacts).results as Array<{
+      cite: string
+      url: string
+      content: string
+    }>
+    expect(results.map(r => r.cite)).toEqual([
+      `[1](#${sourceId})`,
+      `[2](#${sourceId})`,
+      `[3](#${sourceId})`
+    ])
+    const maps = extractCitationMaps({
+      id: 'm',
+      role: 'assistant',
+      parts: [artifacts.part]
+    } as unknown as UIMessage)
+    for (const r of results) {
+      const [, n, id] = /^\[(\d+)\]\(#(.+)\)$/.exec(r.cite)!
+      const res = resolveCitationAnchor(Number(n), id, maps)
+      expect(res.status).toBe('own')
+      expect(res.status !== 'unresolved' && res.source).toEqual({
+        title: 'notes.txt',
+        url: r.url,
+        content: r.content
+      })
+    }
+    // The UI part (what is streamed and persisted) carries no cite.
+    expect(JSON.stringify(artifacts.part)).not.toContain('"cite"')
+  })
+
+  it('off: the model output is exactly { state, results } as before', () => {
+    vi.stubEnv('CITATION_HANDLES', 'off')
+    const artifacts = buildDocumentRetrievalArtifacts(input)!
+    expect(JSON.stringify(modelValue(artifacts))).toBe(
+      JSON.stringify({
+        state: 'complete',
+        results: buildDocumentResults(input.title, input.url, input.chunks)
+      })
+    )
   })
 })
