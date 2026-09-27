@@ -24,11 +24,12 @@ branch checked out in `ask-prod`. The remote hosts run *deployed copies*
 development worktree.
 :::
 
-::: info Lab copy ahead of prod (2026-09-24)
-`update-ask.sh`, `fleet-update-ask.service` and `fleet-update-ask.timer` were first committed on
-`dev` (`b23e22f2`) and are now on `flow-design` too. The `flow-design` copies of `update-ask.sh`
-and `update-images.sh` add the lab stack, and `memory-consolidate-nightly.sh` is new there. The
-schedule runs the `ask-prod` copies, so these changes take effect once they are ported to `dev`.
+::: info All three copies match (checked 2026-09-27)
+`update-ask.sh`, `update-images.sh`, `memory-consolidate-nightly.sh` and `README.md` are
+identical in `ask-prod`, `ask` and `ask-flow`. The lab stack reached `dev`'s `update-ask.sh` and
+`update-images.sh` in `8976a6fb` (2026-09-24 UTC), and the 2026-09-27 app restart and Redis probe in
+`2f5eac13`. Check with
+`diff -q /home/nightfury/selfhosted/{ask-flow,ask-prod}/fleet-boot/update-images.sh`.
 :::
 
 ## Summary
@@ -44,7 +45,7 @@ schedule runs the `ask-prod` copies, so these changes take effect once they are 
 | `expire-uploads-daily.sh` | .17 | cron `15 4 * * *` | Drive the upload TTL sweep on all three app stacks |
 | `rotate-daily.sh` | .17 and .231 | cron `0 5 * * *` | Nightly Mullvad exit-IP rotation via `rotate-mullvad.sh` |
 | `rotate-mullvad.sh` | .17 / .231 | manual; called by `rotate-daily.sh` | Inspect / rotate / repin gluetun exits; clear engine health |
-| `update-images.sh` | .17 / .231 | called by `update-ask.sh` / `update-public-search.sh`; manual | Pull sidecar images, recreate with VPN overlay, verify, reclaim |
+| `update-images.sh` | .17 / .231 | called by `update-ask.sh` / `update-public-search.sh`; manual | Pull sidecar images, recreate with VPN overlay, restart the Ask app if a sidecar changed under it, verify (incl. the search-path Redis probe), reclaim |
 | `update-ask.sh` + `fleet-update-ask.{service,timer}` | .17 | systemd timer, Sun 04:30 | Weekly sidecar image update for lab (canary), prod, staging |
 | `update-public-search.sh` + `fleet-update-public-search.{service,timer}` | .231 (`~/fleet-boot`) | systemd timer, Sun 04:00 | Weekly update of public SearXNG + degoog |
 | `check-crawl4ai-version.sh` | .231 (`~/fleet-boot`) | second `ExecStart` of the public-search service | Notify-only check for a newer crawl4ai release |
@@ -329,39 +330,71 @@ hostname is not in Mullvad's list; `0` otherwise.
 ## `update-images.sh`
 
 **Purpose.** Pull newer images for the *sidecars* of a stack, recreate with the VPN overlay,
-verify, then reclaim. `--ignore-buildable` skips Ask's own image (built from source), so
-this never updates the app code (`fleet-boot/update-images.sh:368-369`).
+restart the Ask app if a sidecar changed under it, verify, then reclaim. `--ignore-buildable`
+skips Ask's own image (built from source), so this never updates the app code
+(`fleet-boot/update-images.sh:145-154`).
 
 **Args.** `./update-images.sh [--dry-run] [ask-prod|ask-staging|ask-lab|degoog|public-searxng|all]`.
 The `ask-lab` entry (added 2026-09-24, `fleet-boot/update-images.sh:52,64,74`) recreates the lab
 from its own `ask-flow` worktree with project `ask-stack-lab` and the lab VPN overlay. It exists
 so that lab experiments run on the same sidecar versions they will later be ported onto.
 
-**Verification** (`:346-408`): after `up -d` and a 20 s wait, each stack's URLs must return
-200 (prod `:3738` + its SearXNG UI `:3741`; staging `:3739` + `:3740`; lab `:3742` + `:3743`; degoog `:4444` +
-`nogoog.hbqnexus.win`; public SearXNG `:8127` + `search.hbqnexus.win`), and if the stack has
-a gluetun its egress must not be the residential IP.
+**App restart after a sidecar recreate** (since 2026-09-27, `:81-132`, `:156-187`). `up -d`
+recreates any sidecar whose image changed (redis, postgres, searxng, gluetun, kokoro) but leaves
+the running `ask` container alone, and the app keeps long-lived connections to those sidecars.
+On 2026-09-27 a recreated redis wedged the app's Redis clients and every balanced/quality first
+search hung for hours while this script reported success
+([runbook](/operations/runbooks#search-hangs-after-a-redis-restart)). So for an Ask stack the
+script records every non-app container's id and start time before `up -d` and compares after:
 
-**Exit codes.** `0` all verified (or dry run); `1` any `nodir` / `up` / URL / `tunnel`
-failure, listed as `FAILED: …`.
+- a sidecar changed and the app was not itself restarted → `docker restart <app>`, then wait up
+  to 180 s for `healthy` (`-- sidecars changed under the running app; restarting ask`,
+  `ok   ask healthy after restart`);
+- the app was (re)started by `up -d` too → nothing more (`… no restart needed`);
+- nothing changed → `-- no sidecar changed; ask left running`.
+
+It uses `docker restart`, never a recreate: restart keeps the container and its network
+attachments, while a recreate is what can strand prod off `ask-stack_default`
+([runbook](/operations/runbooks#host-reboot-strands-prod-on-the-wrong-network)). The restart
+drops any in-flight turn, which at 04:30 on a Sunday is acceptable. Postgres is a sidecar too,
+so a new `pgvector` image also restarts the app.
+
+**Verification** (`:189-233`): after a 20 s wait, each stack's URLs must return 200 (prod
+`:3738` + its SearXNG UI `:3741`; staging `:3739` + `:3740`; lab `:3742` + `:3743`; degoog
+`:4444` + `nogoog.hbqnexus.win`; public SearXNG `:8127` + `search.hbqnexus.win`). For an Ask
+stack it then runs the **search-path Redis probe**: `docker exec <app> node -e …` fetches
+`GET http://127.0.0.1:3000/api/advanced-search` with the bearer read from the container's own
+`INGEST_API_TOKEN` (`PROBE_JS`, `:127-132`), so the token never leaves the container or appears
+in the log. It tries up to 3 times, 5 s apart, because the route's client connects lazily:
+`200` → `ok   search redis probe …`; `405` (an app build older than the probe) → `WARN … not
+verified`; anything else → `FAIL` and `<stack>:search-redis`. Finally, if the stack has a
+gluetun, its egress must not be the residential IP. The homepage alone proves nothing about
+search: on 2026-09-27 it answered 200 while every first search hung.
+
+**Exit codes.** `0` all verified (or dry run); `1` any `nodir` / `up` / `app-restart` /
+`app-health` / URL / `search-redis` / `tunnel` failure, listed as `FAILED: …`. A failed
+**pull** is not detected: the pull's exit status is never checked (`:154`), so the stack is
+recreated from the images it already has and can still report success
+([known issue](/history/known-issues#image-pull-failures-are-swallowed-by-update-images-sh)).
 
 **Does updating lose settings?** No — everything authored is on a bind mount or named
 volume; only anonymous volumes holding regenerated config/cache are discarded
-(`:291-311`).
+(`:5-27`).
 
 **Gotcha.** `ask-prod` must be recreated from the `ask-prod` directory and `ask-staging` from
 `ask`. The base compose is `name: ask-stack`, so running prod from the staging worktree
 would bring prod up on **staging's `.env`** while still passing the :3738 health check
-(`:323-328`).
+(`:39-44`).
 
 ## `update-ask.sh` + `fleet-update-ask.{service,timer}`
 
 Weekly wrapper that runs `update-images.sh` for **`ask-lab`, then `ask-prod`, then
-`ask-staging`** (`fleet-boot/update-ask.sh:29-31`), logging to
+`ask-staging`** (`fleet-boot/update-ask.sh:32-34`), logging to
 `/home/nightfury/selfhosted/logs/update-ask.log`. Driven on .17 by `fleet-update-ask.timer`
 (`OnCalendar=Sun *-*-* 04:30:00`, `Persistent=true`, `RandomizedDelaySec=300`), whose service
 `ExecStart`s `/home/nightfury/selfhosted/ask-prod/fleet-boot/update-ask.sh`. It refreshes
-postgres/redis/searxng/gluetun/kokoro images only, never the app. Accepts `--dry-run`.
+postgres/redis/searxng/gluetun/kokoro images only, never the app build; since 2026-09-27 it
+restarts the app container when one of those changed under it (see above). Accepts `--dry-run`.
 
 - **Lab first, as a canary.** A sidecar image that breaks shows up on the experimentation stack,
   earlier in the log than prod's result.
@@ -370,8 +403,10 @@ postgres/redis/searxng/gluetun/kokoro images only, never the app. Accepts `--dry
 - **The weekly lab recreate drops any `FLOW_VARIANT` set from a shell** for an experiment. Re-set
   it after Sunday 04:30 if an A/B spans the weekend (see [evaluation](/operations/evaluation)).
 - `update-images.sh` runs a local `docker compose`, which is why each host has its own wrapper.
-- The lab entry was added on `flow-design` on 2026-09-24. Until it reaches `dev`, the timer runs
-  prod's copy, which updates prod and staging only.
+- **Read the log after each run.** Per stack, expect `ok` for both URLs, for
+  `search redis probe` and for the tunnel, and either `restarting ask…` + `healthy after
+  restart` or `no sidecar changed`. Also look under `-- pulling` for errors such as
+  `failed commit on ref` (2026-09-27, lab): a failed pull is not flagged.
 
 ## `update-public-search.sh` + `fleet-update-public-search.{service,timer}`
 

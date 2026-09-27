@@ -183,7 +183,13 @@ curl -s -o /dev/null -w '%{http_code}\n' http://localhost:3738/     # 200
 curl -s -o /dev/null -w '%{http_code}\n' https://ask.hbqnexus.win/  # prod only
 docker logs --since 5m ask 2>&1 | tail -50                          # migrations ran, no errors
 docker exec ask printenv SOME_FLAG                                   # if the change is flag-gated
+# search-path Redis probe (PING through /api/advanced-search, no search; token stays in the container)
+docker exec ask node -e "fetch('http://127.0.0.1:3000/api/advanced-search',{headers:{authorization:'Bearer '+(process.env.INGEST_API_TOKEN||'')}}).then(async r=>console.log(r.status,await r.text()))"   # 200 {"redis":"ok",…}
 ```
+
+The homepage returning 200 does not prove search works: on 2026-09-27 it did while every
+balanced/quality search hung on a wedged Redis client
+([runbook](/operations/runbooks#search-hangs-after-a-redis-restart)).
 
 Then exercise the change in a browser (prod/staging with the test account). Keep live
 test searches to a minimum — see [Testing & QA](/operations/testing-qa#no-live-search-probing).
@@ -302,7 +308,8 @@ boots.
 `fleet-update-ask.timer` (Sundays 04:30, on .17) runs `fleet-boot/update-ask.sh`, which
 pulls and recreates the **sidecar** images (postgres, redis, searxng, gluetun, kokoro) of
 the lab (as a canary), then prod, then staging, through `update-images.sh` with the VPN
-overlays, then health-checks. It never rebuilds the Ask app image. Since 2026-09-24 the unit
-files and `update-ask.sh` are on `flow-design` as well; the lab step exists in the
-`flow-design` copy and runs once ported to `dev`, since the timer runs the `ask-prod` copy. See
+overlays, then health-checks. It never rebuilds the Ask app image, but since 2026-09-27 it
+`docker restart`s the app when a sidecar was recreated under it and then runs the search-path
+Redis probe. The timer runs the `ask-prod` copy, which has matched `flow-design` since the lab
+step reached `dev` (2026-09-24). See
 [fleet scripts](/operations/fleet-scripts#update-ask-sh-fleet-update-ask-service-timer).
