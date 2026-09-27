@@ -130,7 +130,7 @@ generated [Env flags reference](/reference/env-flags).
 - `NEXT_PUBLIC_*` values are inlined into the client bundle by `next build`. Changing
   one in `.env` does nothing until the image is **rebuilt** (`rebuild-ask.sh`). Setting
   one in a compose `environment:` block is too late for the bundle (see the comment in
-  `docker-compose.lab.yaml:180-185`).
+  `docker-compose.lab.yaml:186-191`).
 - Server-side variables are read at container start. After editing `.env`, recreate
   the container: `docker compose … up -d --force-recreate ask` (or use the Model Manager
   for prod — see [Deploy](/operations/deploy#env-only-changes)).

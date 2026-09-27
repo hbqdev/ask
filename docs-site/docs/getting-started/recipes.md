@@ -101,7 +101,7 @@ overlay line `docker-compose.lab.yaml:101` on the lab). The code fallback is `ki
 ::: warning Other model roles are separate settings
 The query classifier (`CLASSIFIER_MODEL_ID`), expander, title and memory-extractor models are
 **not** in `OLLAMA_MODELS`. `CLASSIFIER_MODEL_ID` is set in prod's `.env` but **hardcoded in the
-staging and lab overlays** (`docker-compose.admin-feature.yaml:54`, `docker-compose.lab.yaml:164`),
+staging and lab overlays** (`docker-compose.admin-feature.yaml:54`, `docker-compose.lab.yaml:170`),
 which win over `.env`. Changing it fleet-wide is a `.env` edit plus an overlay commit per branch.
 `EMBEDDING_MODEL` must never change without a re-embed migration (it is read-only in the Model
 Manager, `selfhosted/model-manager/lib/env-schema.ts:250-262`).
@@ -120,13 +120,13 @@ The research agent is a `ToolLoopAgent` built in `createResearcher`
    values (`{ success: false, error }`), don't throw, and bound any untrusted input.
 2. **Type it** in `ResearcherTools` (`lib/types/agent.ts:20-32`). Make it optional (`?`) if it
    is only registered under a condition, as `generateImage` is.
-3. **Register it in the tools map** `rawTools` (`lib/agents/researcher.ts:894`). Everything in
-   this map is wrapped by `enforceAnswerDeadline` (`researcher.ts:925`,
+3. **Register it in the tools map** `rawTools` (`lib/agents/researcher.ts:902`). Everything in
+   this map is wrapped by `enforceAnswerDeadline` (`researcher.ts:933`,
    `lib/agents/answer-deadline.ts:173`), which refuses late calls.
 4. **Advertise it** by adding its name to `activeToolsList` in each turn mode that should offer
-   it (`researcher.ts:686` direct, `:711` stable-knowledge, `:725` speed, `:746` quality,
-   `:768` balanced). If it is conditional, gate the `activeToolsList.push` and the map entry
-   **identically** (compare `researcher.ts:804` with `:914-918`).
+   it (`researcher.ts:687` direct, `:712` stable-knowledge, `:726` speed, `:747` quality,
+   `:769` balanced). If it is conditional, gate the `activeToolsList.push` and the map entry
+   **identically** (compare `researcher.ts:805` with `:922-926`).
 5. **Prompt it if needed.** A mode prompt that should steer usage lives in
    `lib/agents/prompts/search-mode-prompts.ts`. Only append guidance when the tool is actually
    registered: guidance for an absent tool makes models hallucinate calls to it (see the
@@ -143,11 +143,11 @@ The research agent is a `ToolLoopAgent` built in `createResearcher`
 8. **Test** in `lib/tools/__tests__/<name>.test.ts`, then try it on the lab.
 
 ::: danger `activeTools` is advertising, not enforcement
-`activeTools: activeToolsList` (`researcher.ts:980`) only controls which tools are **described
+`activeTools: activeToolsList` (`researcher.ts:988`) only controls which tools are **described
 to the model**. The AI SDK (v6) executes any tool call against the full `tools` map, so a model
 that names a non-advertised tool still runs it. The stable-knowledge mode relies on this on
 purpose: `search` is not advertised but stays in the map as an escape hatch
-(`researcher.ts:123-126`, `:706-712`; that mode is only reachable with `ALWAYS_SEARCH=off`). **To actually block a tool, leave it out of the map**
+(`researcher.ts:124-127`, `:707-713`; that mode is only reachable with `ALWAYS_SEARCH=off`). **To actually block a tool, leave it out of the map**
 (or wrap its `execute`, as the answer deadline does). Never rely on `activeTools` for a
 security or budget boundary.
 :::
@@ -332,10 +332,10 @@ Where prompts live:
 
 | Prompt | Location |
 |---|---|
-| Speed / balanced / quality mode prompts | `lib/agents/prompts/search-mode-prompts.ts` (`getQuickModePrompt` `:70`, `getAdaptiveModePrompt` `:286`, `getQualityModePrompt` `:436`) |
-| Direct and stable-knowledge turn prompts | `lib/agents/researcher.ts:90` (`DIRECT_ANSWER_PROMPT`), `:127` (`STABLE_KNOWLEDGE_PROMPT`) |
-| Forced-search addendum (appended when step 0 is a forced search) | `FORCED_SEARCH_PROMPT_ADDENDUM`, `lib/agents/always-search.ts:317` |
-| Prompt-injection rule appended to every turn | `UNTRUSTED_CONTENT_RULE`, `search-mode-prompts.ts:516` |
+| Speed / balanced / quality mode prompts | `lib/agents/prompts/search-mode-prompts.ts` (`getQuickModePrompt` `:125`, `getAdaptiveModePrompt` `:332`, `getQualityModePrompt` `:476`) |
+| Direct and stable-knowledge turn prompts | `lib/agents/researcher.ts:91` (`DIRECT_ANSWER_PROMPT`), `:128` (`STABLE_KNOWLEDGE_PROMPT`) |
+| Forced-search addendum (appended when step 0 is a forced search) | `FORCED_SEARCH_PROMPT_ADDENDUM`, `lib/agents/always-search.ts:319`, appended through `getForcedSearchPromptAddendum()` (`:330-338`, rewrites the citing sentence while `CITATION_HANDLES` is on) |
+| Prompt-injection rule appended to every turn | `UNTRUSTED_CONTENT_RULE`, `search-mode-prompts.ts:556` |
 | Image tool guidance | `lib/agents/prompts/image-tool-guidance.ts` |
 | Query classifier | `CLASSIFIER_SYSTEM_PROMPT`, `lib/agents/query-classifier.ts:234` (default); `LEGACY_CLASSIFIER_SYSTEM_PROMPT`, `:165` (`ALWAYS_SEARCH=off`) |
 | Title, memory extraction, expansion | `lib/agents/title-generator.ts`, `memory-extractor.ts`, `query-expander.ts` |
@@ -348,15 +348,21 @@ Procedure:
 2. **Keep the regression tests green**, and add one for the new rule.
    `lib/agents/prompts/__tests__/search-mode-prompts.test.ts` asserts the wording that fixed
    past issues (for example "Default to NO emojis"). Citation wording lives in one place,
-   `getCitationFormatGuidance()`; its tests fail if a prompt shows a copyable placeholder or a
-   retired example id, states a second numbering scheme, or has an example anchor that would
-   not render. Example ids belong in `lib/utils/citation.ts` (`PROMPT_EXAMPLE_*_ID`,
-   `PLACEHOLDER_ANCHOR_IDS`), not in the prompt text
+   `getCitationFormatGuidance()`, plus three sentences that follow the same switch: the
+   balanced/quality numbering sentence (`getCitationNumberingSentence`), the forced-search
+   addendum (`getForcedSearchPromptAddendum`) and the attached-sources clause in
+   `researcher.ts`. Each has two texts: `CITATION_HANDLES` on ("copy the result's `cite`
+   string") and off (the older counting rule), read per call. The tests check both; keep the
+   off text byte-identical to the pre-handles text so the flag stays a clean revert
+   ([D38](/history/decisions#d38-ready-made-citation-handles)). The tests also fail if a prompt
+   shows a copyable placeholder or a retired example id, states a second numbering scheme, or
+   has an example anchor that would not render. Example ids belong in `lib/utils/citation.ts`
+   (`PROMPT_EXAMPLE_*_ID`, `PLACEHOLDER_ANCHOR_IDS`), not in the prompt text
    ([D36 addendum](/history/decisions#d36-strip-historical-citation-anchors-resolve-citations-per-turn-only)).
 3. **Remember what gets appended.** The final system prompt is the mode prompt plus sources
    addendum, `UNTRUSTED_CONTENT_RULE`, scope-of-turn block, the forced-search addendum (only
    when step 0 is a forced search), user instructions, memories, recall, attached-source
-   citation rules and image guidance, in that order (`researcher.ts:787-882`). Later text overrides earlier text, so a rule in the mode prompt can
+   citation rules and image guidance, in that order (`researcher.ts:788-890`). Later text overrides earlier text, so a rule in the mode prompt can
    be contradicted by an addendum.
 4. **Answering-model prompts must be model-agnostic.** The answering model is whatever the user
    picked, so do not tune wording for one model

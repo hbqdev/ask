@@ -50,7 +50,7 @@ Four ideas explain most of the code:
    web search: since 2026-09-26 the first `search` call is forced at step 0
    ([D37](/history/decisions#d37-always-search-every-question)), except when the user
    supplied the source (a pasted URL, or an attachment the message only points at). Then a `ToolLoopAgent`
-   (`lib/agents/researcher.ts:488`) calls tools (`search`, `fetch`, `recall`, …) until it
+   (`lib/agents/researcher.ts:489`) calls tools (`search`, `fetch`, `recall`, …) until it
    writes plain text. The heavy lifting of search happens server-side in
    `/api/advanced-search`, not in the model.
 3. **Everything degrades rather than fails.** Rerank tiers, the snippet gate, metered
@@ -90,8 +90,8 @@ The same flow in prose, with file anchors:
 | 1 | Request arrives; user resolved (Supabase or anonymous); search mode read from the `searchMode` cookie; model chosen (saved preference outranks the default) | `app/api/chat/route.ts:38`, `lib/utils/model-selection.ts` |
 | 2 | Authed turns register an abort controller so Stop works; guests get an ephemeral, unpersisted stream | `app/api/chat/route.ts:223-237`, `lib/streaming/active-generations.ts` |
 | 3 | Turn orchestration: prepare messages, classify (fused query expansion), recall, title generation, build agent | `lib/streaming/create-chat-stream-response.ts:142`, `:308` |
-| 4 | Agent picks a turn mode (`direct` for non-questions, otherwise `research`; `stable-knowledge` only with `ALWAYS_SEARCH=off`) and step budget (speed 20 / balanced 50 / quality 100); step 0 of a research turn is a forced web search, unless the user supplied the source (a URL, or an attachment the text only points at) | `lib/agents/researcher.ts:154`, `:651-781`, `:1031` |
-| 5 | `search` tool → advanced pipeline (fan-out → crawl → filter → rerank) | `lib/tools/search.ts:325`, `app/api/advanced-search/route.ts:532` |
+| 4 | Agent picks a turn mode (`direct` for non-questions, otherwise `research`; `stable-knowledge` only with `ALWAYS_SEARCH=off`) and step budget (speed 20 / balanced 50 / quality 100); step 0 of a research turn is a forced web search, unless the user supplied the source (a URL, or an attachment the text only points at) | `lib/agents/researcher.ts:155`, `:652-782`, `:1039` |
+| 5 | `search` tool → advanced pipeline (fan-out → crawl → filter → rerank) | `lib/tools/search.ts:332`, `app/api/advanced-search/route.ts:532` |
 | 6 | Model streams the answer; narration stripped; client throttles rendering | `lib/streaming/helpers/smooth-and-strip-narration.ts`, `components/chat.tsx` |
 | 7 | `onFinish`: persist (with retry), memory extraction, recall indexing — all under RLS | `lib/streaming/create-chat-stream-response.ts:962`, `lib/db/with-rls.ts:39` |
 

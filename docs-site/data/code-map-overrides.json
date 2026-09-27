@@ -294,6 +294,7 @@
     "lib/types/model-selector.ts": "Defines the ModelSelectorData interface (enabled flag, models grouped by provider, selected key) for the model selector.",
     "lib/types/models.ts": "Defines the Model interface (id, name, provider, providerId, providerOptions, vision flag).",
     "lib/types/search.ts": "Defines SearchMode (speed/balanced/quality) and source-mode (web/academic/social) types.",
+    "lib/utils/citation-handles.ts": "CITATION_HANDLES (on unless `off`): puts a ready-made `cite` string, [N](#toolCallId), on each citable search/fetch/documentRetrieval result the model sees, N exactly as the resolver maps it.",
     "lib/utils/citation.ts": "Citation utilities: builds per-message citation maps from search/fetch/documentRetrieval outputs (N = result position within that call) and resolves every [N](#toolCallId) anchor through one resolver (resolveCitationAnchor) shared by rendering, the citation audit and the cited-URL list, repairing only unambiguous anchors.",
     "lib/utils/context-window.ts": "Per-model context window table plus tiktoken-based token estimation and message truncation to keep prompts within the model's budget.",
     "lib/utils/cookies.ts": "Browser cookie helpers (set/get/delete) that dispatch an ask-cookie-change event and allow subscribing to cookie changes.",
