@@ -19,6 +19,8 @@ thing.
 
 | Issue | Area | Severity | Owner action |
 |---|---|---|---|
+| [Search hung after the weekly Redis update](#search-hung-after-the-weekly-redis-update) | search / fleet | ~~High~~ fixed 2026-09-27 (lab, staging, prod) | watch the Sunday update log |
+| [Image pull failures are swallowed by `update-images.sh`](#image-pull-failures-are-swallowed-by-update-images-sh) | fleet | Low | code (fleet script) |
 | [Pre-existing test failures](#pre-existing-test-failures) | tests | ~~Low~~ fixed 2026-09-23 (all branches) | done |
 | [Prod `.env` left `root:root 0644`](#prod-env-left-root-root-0644) | security | Med | ops (one-off `chown` + `chmod`) |
 | [RLS guard ignores an unset `ENABLE_AUTH`](#rls-guard-ignores-an-unset-enable-auth) | security | Low | code |
@@ -485,14 +487,16 @@ values in it). Details: [security](/infrastructure/security).
 
 ### Ingest and advanced-search share one token
 
-- **Symptom.** `/api/advanced-search` authenticates with `checkIngestAuth`
-  (`app/api/advanced-search/route.ts:540`), i.e. the same `INGEST_API_TOKEN` as the ingest worker
-  endpoints.
+- **Symptom.** `/api/advanced-search` authenticates with `checkIngestAuth` (POST
+  `app/api/advanced-search/route.ts:586`; the Redis probe `GET`, added 2026-09-27, at `:543`),
+  i.e. the same `INGEST_API_TOKEN` as the ingest worker endpoints.
 - **Impact.** Anyone who can call search can also call the RLS-bypassing ingest file endpoints, and
   the reverse.
 - **Fix sketch.** A small code change: a separate `ADVANCED_SEARCH_API_TOKEN` read by a sibling
   of `lib/utils/ingest-auth.ts`, passed by `lib/tools/search.ts`. Ship it together with the per-env
-  secret split. It was flagged as awaiting the owner's go-ahead.
+  secret split. It was flagged as awaiting the owner's go-ahead. The probe in
+  `fleet-boot/update-images.sh` (`PROBE_JS`) reads `INGEST_API_TOKEN` from the app container's
+  environment, so it would have to read the new name too.
 
 ### Signed upload URLs not enabled
 
@@ -806,6 +810,73 @@ These are decisions still pending, not bugs:
 ---
 
 ## Fleet and operations
+
+### Search hung after the weekly Redis update
+
+- **Symptom (2026-09-27, about 11:30 → 20:03 UTC).** On prod and staging, balanced and quality
+  questions never got an answer: the first search spun and the turn ended after about 300 s
+  with nothing written. Speed-mode and no-search turns worked, the containers stayed healthy and
+  the homepage answered 200. Prod's `latency:log` holds two such turns (`blank_abort:true`,
+  `abort_silence_ms` 300 636 and 301 002, `steps:1`, `tool_calls:1`); guest turns write no
+  `[latency]` line, so the count is a floor.
+- **Cause.** The weekly `fleet-update-ask` run (04:30 PDT) pulled a new `redis:alpine` and
+  recreated `ask-redis`, `ask-gluetun` and `ask-searxng` (prod, 11:30:37–39 UTC) and their
+  `-admin-feature` twins (staging, 11:31:14–15 UTC). It never touches the app, which kept its
+  connections. Seven modules held a module-level node-redis client with no `'error'` listener;
+  on the disconnect node-redis 4.7.1 re-emitted the socket error, the emit threw
+  (`uncaughtException: Socket closed unexpectedly`, 11:30:38 UTC) before the reconnect was
+  scheduled, and the client stayed open-but-never-ready with its default offline queue holding
+  every later command. `/api/advanced-search` awaits a cache `GET` first, so it never sent
+  headers, and the search tool's call to it had no timeout: each turn waited out undici's
+  300 s headers timeout. Mechanism in detail:
+  [runbook](/operations/runbooks#search-hangs-after-a-redis-restart).
+- **Why no check caught it.** The update verified the app homepage, the SearXNG UI (both 200) and
+  the VPN egress, and printed `All stacks updated and verified.` for every stack
+  (`/home/nightfury/selfhosted/logs/update-ask.log`). None of those touch the search route's
+  Redis client.
+- **Why the lab was unaffected.** Its image pull failed that morning (next entry), so nothing on
+  the lab was recreated.
+- **Mitigation.** `docker restart ask ask-admin-feature` at about 20:03 UTC.
+- **Status: fixed 2026-09-27** (lab `a9c5914a`, prod `2f5eac13`, staging `c0df517f`, deployed
+  to prod and staging about 20:45 UTC):
+  - `lib/redis/local-redis.ts` is the one way to get a local Redis client: an `'error'`
+    listener that logs once per state change, `disableOfflineQueue`, bounded connect and
+    reconnect backoff, a 1 s bound on every command, and dead clients rebuilt. All seven
+    modules use it; each caller's outage behaviour is unchanged
+    ([data layer](/infrastructure/data-layer#redis-clients),
+    [D39](/history/decisions#d39-every-local-redis-client-goes-through-local-redis-ts)).
+  - The search tool bounds its call to `/api/advanced-search` (20 s to response headers, 180 s
+    in total) and falls back to a basic SearXNG search on timeout
+    ([pipeline](/search/pipeline#advanced-search-deadline-and-fallback)).
+  - `GET /api/advanced-search` is a token-gated Redis probe; `update-images.sh` restarts the
+    app when a sidecar changed under it, then runs the probe
+    ([fleet scripts](/operations/fleet-scripts#update-images-sh)).
+  - Verified on the lab by recreating `ask-redis-lab` under the running `ask-lab` (20:33 UTC):
+    `[redis:advanced-search] reconnected`, no uncaught exception, and a balanced question
+    answered normally. The probe returned 200 on prod and staging after the deploy.
+- **Watch.** The first Sunday run with the new script (2026-10-04): its log should show
+  `sidecars changed under the running app; restarting …` (or `no sidecar changed`) and
+  `ok   search redis probe   200 …` for each Ask stack.
+- **Evidence note.** The pre-fix container logs were discarded when the fixed images were
+  deployed (the app containers were recreated at 20:41 and 20:45 UTC). What survives: the
+  update log, the `[latency]` lines in `latency:log`, and the container creation times
+  (`docker inspect`).
+
+### Image pull failures are swallowed by `update-images.sh`
+
+- **Symptom.** On 2026-09-27 the lab step of the weekly update failed to pull (`failed commit
+  on ref "manifest-sha256:…": … no such file or directory`, a Docker Desktop containerd store
+  error). The script went on to `up -d`, which recreated nothing, and reported the lab
+  `All stacks updated and verified.`
+- **Cause.** The pull runs as `docker compose … pull … | grep … | sed …`
+  (`fleet-boot/update-images.sh:154`) and its exit status is never checked, unlike `up -d` on
+  the next lines.
+- **Impact.** Low. The stack keeps running on its old images, so nothing breaks; but the lab
+  silently stops being a canary for new sidecar images, and a prod or staging pull failure
+  would look like "no update available".
+- **Fix sketch.** Check the pull's status and add `<stack>:pull` to `failed` (a non-zero exit
+  and a `FAILED:` line), then continue to `up -d` as today. Until then, grep the Sunday log
+  for `failed commit`, `error` or `denied` under `-- pulling`.
 
 ### Serenity (.171) Ollama intermittently unreachable
 

@@ -12,6 +12,7 @@
     {
       "path": "/api/advanced-search",
       "methods": [
+        "GET",
         "POST"
       ],
       "auth": [

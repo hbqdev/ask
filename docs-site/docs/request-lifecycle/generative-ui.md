@@ -55,12 +55,12 @@ flowchart TD
 Tools are AI SDK tools defined under `lib/tools/`. A tool's `execute` may be an async
 generator; each `yield` is streamed to the client as a new output for the same
 `toolCallId`. The search tool uses this to show progress: it first yields
-`{ state: 'searching' }` (`lib/tools/search.ts:437`) and later
-`{ state: 'complete', …results }` (`lib/tools/search.ts:408`, `lib/tools/search.ts:476`).
+`{ state: 'searching' }` (`lib/tools/search.ts:442`) and later
+`{ state: 'complete', …results }` (`lib/tools/search.ts:413`, `lib/tools/search.ts:481`).
 
 Separately from the UI, `toModelOutput` trims what the *model* sees. The `images` array
 must survive that trim because the image-spec prompt tells the model to copy image URLs
-verbatim from it (`lib/tools/search.ts:1203`); removing it once made inline images
+verbatim from it (`lib/tools/search.ts:1267`); removing it once made inline images
 impossible.
 
 Non-tool progress uses **data parts** written directly to the stream with
