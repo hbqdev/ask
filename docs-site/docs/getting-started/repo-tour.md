@@ -121,7 +121,7 @@ The generated [API routes reference](/reference/api-routes) lists methods and au
 | `memory/` | Long-term memory and conversation recall | `recall-index.ts`, `recall-search.ts`, `recall-inject.ts`, `inject.ts`, `write.ts` |
 | `db/` | Drizzle schema, RLS, queries | `schema.ts`, `with-rls.ts`, `index.ts`, `migrate.ts`, `actions.ts`, `file-actions.ts`, `keyword-search.ts` |
 | `actions/` | Server actions (chat, memory, notes, recall, model preference, account) | `chat.ts` (`loadChat`/`loadChatUncached`) |
-| `utils/` | Service clients and shared utilities | `registry.ts` (model providers), `model-selection.ts`, `ollama-think.ts`, `searxng-client.ts`, `crawl4ai.ts`, `cross-encoder.ts`, `degoog-client.ts`, `brave/tavily/langsearch/ollama-search-client.ts`, `flaresolverr.ts`, `ssrf-guard.ts`, `safe-url.ts`, `safe-redirect.ts`, `ingest-auth.ts`, `ingest-heartbeat.ts`, `local-llm-host.ts` |
+| `utils/` | Service clients and shared utilities | `registry.ts` (model providers), `model-selection.ts`, `ollama-think.ts`, `searxng-client.ts`, `crawl4ai.ts`, `cross-encoder.ts`, `degoog-client.ts`, `brave/tavily/langsearch/ollama-search-client.ts`, `flaresolverr.ts`, `ssrf-guard.ts`, `safe-url.ts`, `safe-redirect.ts`, `ingest-auth.ts`, `ingest-heartbeat.ts`, `local-llm-host.ts`, `citation.ts` (citation resolver), `citation-handles.ts` (ready-made `cite` strings for the model) |
 | `config/` | Model and mode configuration | `default-model.ts`, `search-modes.ts`, `source-modes.ts`, `upload-allowlist.ts`, `ollama-validator.ts` |
 | `auth/` | Current-user resolution, cron auth | `get-current-user.ts` |
 | `supabase/` | Supabase clients and session middleware | |

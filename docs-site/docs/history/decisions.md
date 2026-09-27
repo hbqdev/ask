@@ -66,6 +66,7 @@ names the lab original. See [deploy](/operations/deploy) for the flow.
 | [D35](#d35-retire-and-remove-the-231-ask-stacks) | Retire and remove the .231 Ask stacks | adopted | 2026-08-27 → 09-24 |
 | [D36](#d36-strip-historical-citation-anchors-resolve-citations-per-turn-only) | Strip historical citation anchors; resolve citations per turn only (one resolver, N = position within that call, since 09-26) | adopted | 2026-09-24 / 09-26 |
 | [D37](#d37-always-search-every-question) | Always search every question (forced first search) | adopted | 2026-09-26 |
+| [D38](#d38-ready-made-citation-handles) | Ready-made citation handles in the model-facing tool output (`CITATION_HANDLES`) | adopted | 2026-09-27 |
 
 ---
 
@@ -151,14 +152,14 @@ names the lab original. See [deploy](/operations/deploy) for the flow.
 - **Reversal (2026-09-26, owner decision).** The prod record over the 60 days before the change
   showed what the gate was withholding: of 164 turns, 69 used no tools, 20 of them `skipSearch`
   turns and 47 `stable-knowledge` turns (`lib/agents/query-classifier.ts:217-221`,
-  `lib/agents/researcher.ts:175-180`). Many asked about named products, company policies, home
+  `lib/agents/researcher.ts:176-181`). Many asked about named products, company policies, home
   repair and cleaning, health and safety, or current fiction, and were answered confidently from
   memory. One answer about melted plastic on an oven tray recommended acetone with no fire
   warning. D3's evaluation judged answer style on settled concepts; it did not cover these
   questions. The owner ruled that correctness and safety on such questions outweigh the padding
   D3 avoided, so every question now searches ([D37](#d37-always-search-every-question)).
   - **What still exists.** `resolveTurnMode` keeps the gate after the flag check
-    (`lib/agents/researcher.ts:186`), `STABLE_KNOWLEDGE_PROMPT` is unchanged, and the old
+    (`lib/agents/researcher.ts:187`), `STABLE_KNOWLEDGE_PROMPT` is unchanged, and the old
     classifier prompt is kept verbatim as `LEGACY_CLASSIFIER_SYSTEM_PROMPT`
     (`lib/agents/query-classifier.ts:165`). The classifier still emits `needsSources`; with the
     flag on it is logged and gates nothing.
@@ -283,7 +284,7 @@ names the lab original. See [deploy](/operations/deploy) for the flow.
 - **Context.** After D5–D8, real balanced turns still looped up to **7** `search` calls (~15 s
   fan-outs plus ~57 s of inter-call model reasoning).
 - **Decision.** `SEARCH_ROUNDS_MAX` (default 3) and `SEARCH_ROUNDS_MAX_QUALITY` (default 5). The
-  cap is enforced **inside the search tool's `execute`** (`lib/tools/search.ts:304-389`) with a
+  cap is enforced **inside the search tool's `execute`** (`lib/tools/search.ts:311-396`) with a
   per-turn counter in the `createSearchTool` closure. Past the budget it returns a non-error
   "answer from what you have" result (no fan-out, no crawl) and logs `kind:'round-cap'`.
 - **Why inside the tool.** In AI SDK v6, `activeTools` only filters which tool **definitions** are
@@ -919,7 +920,7 @@ turn-based loop (`git revert b0ff56ad`) brings back the same latency.
     prompts also taught two numbering schemes (the speed prompt: one number per toolCallId,
     assigned sequentially; the balanced prompt: result order within each search) and used
     `<id-A>`-style placeholders that models copied verbatim.
-  - **Decision 1: a single resolver.** `resolveCitationAnchor` (`lib/utils/citation.ts:263-289`)
+  - **Decision 1: a single resolver.** `resolveCitationAnchor` (`lib/utils/citation.ts:279-307`)
     is the only place an anchor is resolved, and all three callers use it, so the counter
     reports exactly what the reader sees. It returns `own`, `recovered` (with the repair used)
     or `unresolved`. Lookup order: the id as written (after the `toolu_`/`call_`/`search-`
@@ -928,13 +929,15 @@ turn-based loop (`git revert b0ff56ad`) brings back the same latency.
     resolved only when the message made exactly one citable call; the URL-fragment rule from
     2026-09-24. Within a call, an in-range N is that result; an out-of-range N resolves only on
     a fetch whose output holds exactly one page that is not a `Fetch failed:` result
-    (`resolveWithinCall`, `:208-242`).
+    (`resolveWithinCall`, `:224-258`).
   - **Decision 2: N is the 1-based position of the result within that tool call's `results`,
     restarting at 1 for every call.** It is what `extractCitationMaps` always built
-    (`results[N-1]`, `lib/utils/citation.ts:409-414`), so the prompts were changed to match the
+    (`results[N-1]`, `lib/utils/citation.ts:427-432`), so the prompts were changed to match the
     renderer, not the other way round. One shared `getCitationFormatGuidance()`
-    (`lib/agents/prompts/search-mode-prompts.ts:98-108`) states it for speed and balanced (and
+    (`lib/agents/prompts/search-mode-prompts.ts:107-124`) states it for speed and balanced (and
     so quality), including "a one-page fetch is always [1]" and a running count shown as WRONG.
+    Since 2026-09-27 that counting text is used only with `CITATION_HANDLES=off`; by default the
+    model copies a ready-made citation instead ([D38](#d38-ready-made-citation-handles)).
   - **Decision 3: the worked-example ids live in `citation.ts`.** `PROMPT_EXAMPLE_SEARCH_ID` and
     `PROMPT_EXAMPLE_FETCH_ID` (`lib/utils/citation.ts:92-93`) are defined next to the resolver
     and imported by the prompt module, and `PLACEHOLDER_ANCHOR_IDS` (`:101-119`) lists every
@@ -951,7 +954,7 @@ turn-based loop (`git revert b0ff56ad`) brings back the same latency.
     another message's calls.
   - **How the fetch rule knows the tool type.** `extractCitationMaps` records each map's part
     type in a module-level `WeakMap` keyed by the map object (`CITATION_MAP_TOOL_TYPE`,
-    `lib/utils/citation.ts:163`, set at `:419`), so the `Record<toolCallId, Record<N, item>>`
+    `lib/utils/citation.ts:163`, set at `:437`), so the `Record<toolCallId, Record<N, item>>`
     shape every component passes around did not change. A map that is copied or built by hand
     has no entry, and the fetch rule silently does not apply to it: pass the maps through by
     reference.
@@ -967,7 +970,121 @@ turn-based loop (`git revert b0ff56ad`) brings back the same latency.
     example anchor that would not render.
   - **Revisit if** judged live answers still show running-count numbers after the unified
     prompt; the next lever is numbering results explicitly in the tool output the model sees
-    (needs a lab A/B).
+    (needs a lab A/B). **Done 2026-09-27:** the prompt rule alone kept failing on the lab, and
+    every citable result now carries its finished citation
+    ([D38](#d38-ready-made-citation-handles)). The within-call rule above is still what the
+    resolver does; it is no longer something the model has to apply.
+
+### D38. Ready-made citation handles
+
+- **Status:** adopted · **Date:** 2026-09-27 (lab, staging and prod the same day) ·
+  **Commits:** `8878a42d` (lab `48cc3938`, staging `696bd454`); the reload fix below `0ca166fe`
+  (lab `8a67e3cd`, staging `3402bc5d`); the Model Manager switch `337dbee7` (lab `1194ae0f`,
+  staging `2c41c22c`).
+- **Context.** Since the D36 addendum the renderer and the prompts agree that `[N](#id)` means
+  result N (1-based) of tool call `id`. The model still had to work N out: each call's results
+  reached it as a bare JSON array, and many models numbered sources as a running count across
+  the answer instead. An in-range running-count number renders a real, different page, and no
+  counter can see it. The unified prompt rule of 2026-09-26, with its worked example, was still
+  a counting task and kept failing on the lab (11 of 19 citations in one turn). On a 60-day
+  replay, 22 of 88 prod answers showed the pattern and about 459 prod anchors likely pointed at
+  the wrong page
+  ([known issue](/history/known-issues#running-count-citation-numbers-can-point-at-the-wrong-result)).
+- **Decision.** Hand the model the finished citation and tell it to copy it.
+  1. **The handle.** `addCitationHandles` (`lib/utils/citation-handles.ts:62-90`) returns a copy
+     of a tool output in which each result carries `cite: "[N](#<toolCallId>)"` as its first key.
+     N is the result's 1-based position in **that output's** `results`, the same array
+     `extractCitationMaps` indexes, so a copied handle resolves to the result it sits on.
+     Positions count every result, including ones that get no handle. No handle is given to a
+     result that would not render when cited (invalid URL, position above
+     `MAX_CITATION_NUMBER` = 100) or to a `Fetch failed:` placeholder (`isCitableResult`,
+     `lib/utils/citation.ts:180-185`), nor when the id contains whitespace or parentheses and so
+     would not survive the anchor regexes (`ANCHOR_SAFE_ID_RE`, `citation-handles.ts:42`). A
+     legacy output with a `citationMap` is left alone, and the input is never mutated.
+  2. **Where it is added: only in model-facing output.** The `search` tool's `toModelOutput`
+     (`lib/tools/search.ts:1213-1226`) numbers the results **after** the researcher's per-turn
+     URL dedup, because the dedup wrapper yields the trimmed list and keeps the tool's
+     `toModelOutput` (`lib/agents/researcher.ts:257-354`). `fetch` gained a `toModelOutput`
+     (`lib/tools/fetch.ts:759-765`) that numbers the merged `results`, from which failed URLs
+     are already left out; with the flag off it returns exactly what the SDK sends for a tool
+     without one. Attached-document and pasted-URL excerpts never pass through a tool, so
+     `buildDocumentRetrievalModelMessages` adds the handles itself
+     (`lib/streaming/helpers/document-retrieval-part.ts:226-231`): excerpt k gets
+     `[k](#<sourceId>)`, which resolves to the part's `#chunk-k` result. AI SDK 6 passes
+     `{ toolCallId, input, output }` to `toModelOutput`
+     (`node_modules/@ai-sdk/provider-utils/dist/index.d.ts:1134-1147`), and that `toolCallId`
+     is the id the UI part and persistence store, including for the forced step-0 search.
+  3. **Never stored, so it cannot leak across turns.** The UI part, the database and the
+     browser get the raw output. Chat history is converted without `tools`
+     (`convertToModelMessages`, `lib/streaming/create-chat-stream-response.ts:442-444`), so
+     `toModelOutput` does not run on replayed tool results and an earlier turn's results carry
+     no handle. Earlier answers' anchors are still stripped from history (D36).
+  4. **Prompts: copy, never compute.** With the flag on, `getCitationFormatGuidance()`
+     (`lib/agents/prompts/search-mode-prompts.ts:107-124`) says to copy a result's `cite` string
+     exactly, never to compute, renumber or edit a citation, and that a result without `cite`
+     cannot be cited. The counting rule and the worked example are gone from the on text. The
+     same switch rewrites the numbering sentence of the balanced/quality citation rule
+     (`getCitationNumberingSentence`, `:276-280`), the forced-search addendum's citing sentence
+     (`getForcedSearchPromptAddendum`, `lib/agents/always-search.ts:330-338`) and the
+     attached-sources clause (`lib/agents/researcher.ts:871-881`). The speed prompt is now built
+     per turn (`getQuickModePrompt()`, `researcher.ts:725`) instead of from the module-level
+     `SPEED_MODE_PROMPT` constant, so the flag is honoured there too.
+  5. **The flag.** `CITATION_HANDLES`, read per call by `isCitationHandlesEnabled`
+     (`citation-handles.ts:24-28`). Default on; only the literal `off` disables it (the
+     `ALWAYS_SEARCH` / `RECALL_ENABLED` convention). Off restores the previous model-facing tool
+     output and prompt text byte for byte. The tool-output tests below pin the off output
+     exactly; the prompt tests check the key sentences of both texts.
+- **Cost.** A handle adds about 52 characters (about 29 tokens) per result: about +783 tokens on
+  a 27-result search. The on prompt is shorter (1,065 characters less for balanced and quality,
+  965 for speed; about 400 tokens), so a balanced call nets about +370 tokens.
+- **Evidence (lab A/B, 2026-09-27).** One build (the same image), arms switched by env
+  (`docker-compose.lab.yaml` passes `CITATION_HANDLES` through from the shell). 4 multi-source
+  first-turn questions × 2 models per arm. A blind support judge (`deepseek-v4-pro:cloud`) read
+  each claim, the sentence before it and the stored source text; 16+ judgements were checked by
+  hand; a pairwise answer judge ran both orderings ([D4](#d4-judge-answers-not-source-counts)
+  method). The harness is not committed to `scripts/eval/`.
+  - Unsupported (wrong-page) citations: deepseek-v4.1-flash **64.0 % → 11.0 %**, kimi-k2.6
+    **47.8 % → 18.7 %**. Handles were lower in all 8 question × model pairs (one-sided sign test
+    p ≈ 0.004).
+  - Every citation in the on arm was an exact copy of a handle (0 out of range).
+  - Most unsupported citations in the off arm had their specifics on **another** result of the
+    same turn (deepseek 62 of 80, kimi 28 of 32): the wrong-page failure that handles address. What
+    remains in the on arm is mostly wrong attribution or the model's own knowledge.
+  - Answer quality: on 4 wins, off 2, 2 ties. Both off wins came from content errors, not
+    citations. No regression.
+- **Caveats.**
+  - Recall was on, so off-arm turns could recall on-arm answers. Excluding near-copied claims
+    the gap holds (deepseek 11.1 % vs 67.6 %, kimi 17.4 % vs 56.8 %), and so does a comparison
+    restricted to search results (deepseek 18.8 % vs 64 %, kimi 19.1 % vs 46.3 %).
+  - kimi-k2.6 lost 3 citations by copying the 36-character id with one character missing. The
+    resolver has no typo repair, so they render as nothing. Shorter ids are a possible follow-up.
+  - **Open question:** with handles on, deepseek-v4.1-flash fetched a page on 4 of 4 turns, 0 of
+    4 off (about +30 s per turn). Confounded with recall; not explained. Watch prod
+    `tool_calls` and `fetch_ms` ([telemetry](/operations/telemetry#tokens-citations-and-totals)).
+  - Small sample: 16 turns in total. The counters (`citations_unresolved`) cannot confirm the
+    effect on prod, because a wrong-page anchor resolves; judge a sample of prod answers.
+- **Related fix: reloaded speed-mode citations.** Before saving, `rehydrateFullContent`
+  replaced a search's `results` wholesale with the recorded full list. On the speed fast path
+  that list predates the per-turn URL dedup, so a reloaded answer's `[N](#id)` could resolve to
+  a different page than it did live. Full content is now swapped in by URL, keeping the live
+  order and length (`lib/search/rehydrate-full-content.ts:44-57`)
+  ([known issue](/history/known-issues#reloaded-speed-mode-answers-cited-a-different-page)).
+- **Revert.** Set `CITATION_HANDLES=off` in that env's `.env` (prod: the Model Manager's Search
+  tab has a "Ready-made citation handles" switch that writes `on`/`off`) and force-recreate
+  `ask`; no rebuild. On the lab the overlay takes the value from the shell:
+  `CITATION_HANDLES=off docker compose … up -d --force-recreate ask`. Check with
+  `docker exec <container> printenv CITATION_HANDLES` (empty or unset means on). The reload fix
+  has no switch.
+- **Tests.** `lib/utils/__tests__/citation-handles.test.ts`,
+  `lib/tools/__tests__/search-to-model-output.test.ts`,
+  `lib/tools/__tests__/fetch-citation-handles.test.ts`,
+  `lib/streaming/helpers/__tests__/document-retrieval-part.test.ts`,
+  `lib/agents/prompts/__tests__/search-mode-prompts.test.ts` ("citation guidance under
+  CITATION_HANDLES") and `lib/agents/__tests__/citation-handles-e2e.test.ts` (a stubbed model
+  copies every handle it is shown; each renders its own result; nothing stored carries `cite`).
+- **Revisit if** judged prod answers show the support rate slipping back, near-miss id copies
+  become common (then shorten the ids, with a lab A/B), or the extra deepseek fetches are
+  confirmed on prod and cost more latency than the citations are worth.
 
 ## Retrieval policy
 
@@ -1003,24 +1120,27 @@ turn-based loop (`git revert b0ff56ad`) brings back the same latency.
      previous answer, and questions the conversation already seems to answer. If the classifier
      is unsure, it searches. `needsSources` is still produced, but only for analysis: it gates
      nothing.
-  2. **Turn mode.** `resolveTurnMode` (`lib/agents/researcher.ts:154-188`): `skipSearch` →
+  2. **Turn mode.** `resolveTurnMode` (`lib/agents/researcher.ts:155-189`): `skipSearch` →
      `direct`; everything else → `research`. `stable-knowledge` cannot be reached while the flag
      is on.
   3. **A guaranteed first search.** On a `research` turn, `prepareStep` gives step 0 to a
-     synthetic model instead of the user's model (`researcher.ts:1031-1033`).
-     `createForcedSearchModel` (`lib/agents/always-search.ts:262`) is a `LanguageModelV3` whose
+     synthetic model instead of the user's model (`researcher.ts:1039-1041`).
+     `createForcedSearchModel` (`lib/agents/always-search.ts:264`) is a `LanguageModelV3` whose
      only output is **one `search` tool call**. Its query is the classifier's `standaloneQuery`
      with URLs removed, clipped at a word boundary to 400 characters (`resolveForcedSearchQuery`,
-     `always-search.ts:59-71`). The call spells out every schema field and carries the turn's
-     `firstSearchDepth` (`buildForcedSearchInput`, `:202-216`). The AI SDK validates and runs it
+     `always-search.ts:61-73`). The call spells out every schema field and carries the turn's
+     `firstSearchDepth` (`buildForcedSearchInput`, `:204-218`). The AI SDK validates and runs it
      exactly like a call the model made. It goes through the real, wrapped `search` tool, so
      source forcing, dedup, the answer deadline, the round cap, expansion fan-out, advanced depth
      and telemetry all apply. The result streams to the browser, is persisted, and is citable by
      its toolCallId. The user's model answers from step 1 with those results in context.
-  4. **The prompt is told.** `FORCED_SEARCH_PROMPT_ADDENDUM` (`always-search.ts:317`, appended at
-     `researcher.ts:832-834`) says the first search has already run, asks for the answer to be
+  4. **The prompt is told.** `FORCED_SEARCH_PROMPT_ADDENDUM` (`always-search.ts:319`, appended at
+     `researcher.ts:833-835`) says the first search has already run, asks for the answer to be
      grounded and cited, and cancels the mode prompts' "clarifying your own prior answer, do not
-     search" exception. It is appended after the mode prompt, so it wins.
+     search" exception. It is appended after the mode prompt, so it wins. Since 2026-09-27 it is
+     appended through `getForcedSearchPromptAddendum()` (`always-search.ts:330-338`), which
+     swaps the citing sentence for "copy each result's `cite` string" while `CITATION_HANDLES`
+     is on ([D38](#d38-ready-made-citation-handles)).
 - **Why not `toolChoice`.** The obvious lever is `prepareStep` returning
   `toolChoice: { type: 'tool', toolName: 'search' }`. But `ai-sdk-ollama` 3.8.4, the provider for
   every answering model, never reads `toolChoice`: its `getCallOptions` takes the prompt, sampling
@@ -1036,16 +1156,16 @@ turn-based loop (`git revert b0ff56ad`) brings back the same latency.
   behave the same.
   - **Forced:** every `research` turn where the user did not supply the source and the resolved
     query still has text after URLs are removed (`resolveForcedFirstSearch`,
-    `researcher.ts:199-216`).
+    `researcher.ts:200-217`).
   - **Research but not forced: the user supplied the source** (follow-up the same day,
-    `detectUserSuppliedSource`, `lib/agents/always-search.ts:116-135`, read from the latest
+    `detectUserSuppliedSource`, `lib/agents/always-search.ts:118-137`, read from the latest
     message's parts). A URL in the text or a pasted link chip: the first version searched the
     text around the URL ("summarise this https://…" searched "summarise this"), overriding the
     mode prompts' "a URL: fetch it, do not search first" rule; a URL turn is now exactly the
     research turn it was before D37 (same prompt, same tools, no addendum). An attachment with
     no typed text: the classifier sees text only, so it classified an empty message and
     invented a query. An attachment whose text only points at it ("what is this", "summarise
-    this file"; `isAttachmentReferenceOnly`, `always-search.ts:181-191`, a closed word list, at
+    this file"; `isAttachmentReferenceOnly`, `always-search.ts:183-193`, a closed word list, at
     most 10 words): the attachment is the subject, which the model sees. An attachment with a
     real question is still forced. The log says `always-search: the user supplied the source
     (<reason>)`; a query with nothing left after URLs are removed logs `nothing searchable in the
@@ -1097,7 +1217,7 @@ turn-based loop (`git revert b0ff56ad`) brings back the same latency.
     real question is still searched on its words alone
     ([known issue](/history/known-issues#image-attachment-forces-a-generic-search)).
   - **`remember` writes**: `remember` is candidate-only on research turns
-    (`researcher.ts:900-909`), so a "remember that …" message must stay `direct` to be confirmed.
+    (`researcher.ts:908-917`), so a "remember that …" message must stay `direct` to be confirmed.
     Checked on the lab classifier (`deepseek-v4-pro:cloud`, single message and as a second turn):
     "remember that I'm vegetarian", "remember I prefer metric units" and "forget my address"
     were already `skipSearch:true` under both the legacy and the first ALWAYS_SEARCH prompt, so no
@@ -1112,7 +1232,7 @@ turn-based loop (`git revert b0ff56ad`) brings back the same latency.
 - **Revert.** Set `ALWAYS_SEARCH=off` in that env's `.env` (the Model Manager's Search tab has an
   "Always search" switch; it writes `on`/`off` and rejects `false`) and force-recreate `ask`; no
   rebuild. Only the literal `off` disables it; unset, empty or any
-  other value leaves it on (`isAlwaysSearchEnabled`, `always-search.ts:30-34`). The flag is read
+  other value leaves it on (`isAlwaysSearchEnabled`, `always-search.ts:32-36`). The flag is read
   per call, so the recreate is only needed to change the container's environment. Off restores
   the legacy classifier prompt (`getClassifierSystemPrompt`, `query-classifier.ts:296-302`) and
   the D3 gate exactly. Check with `docker exec <container> printenv ALWAYS_SEARCH`.

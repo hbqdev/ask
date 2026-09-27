@@ -297,9 +297,17 @@ stripNarrationFromMessage → rehydrateFullContent → persistStreamResults
 **`rehydrateFullContent`** (`lib/search/rehydrate-full-content.ts`): search tool calls
 showed the model *excerpts*; the full crawled text collected in `fullContentSink` is
 swapped back into the `tool-search` outputs before saving, so history is deep enough to
-answer follow-ups without re-searching while the live prompt stayed small. Consequence:
-**the persisted message is not byte-identical to what the model saw** (toolCallIds and
-URLs are unchanged, so citations still resolve).
+answer follow-ups without re-searching while the live prompt stayed small. In practice only the
+speed fast path records full text (the advanced route's `fullResults` needs
+`SEARCH_EXCERPTS_ENABLED`, off everywhere). Consequence: **the persisted message is not
+byte-identical to what the model saw.** Its toolCallIds, URLs and result **order** are
+unchanged, so citations still resolve to the same pages. The order matters because a citation
+is a position: since 2026-09-27 the text is swapped in by URL, keeping the live results' order
+and length (`:44-57`). Before that the recorded list replaced `results` whole; on the speed path
+it predates the per-turn URL dedup, so a reloaded answer could cite a different page
+([known issue](/history/known-issues#reloaded-speed-mode-answers-cited-a-different-page)).
+The model-only `cite` handles ([D38](/history/decisions#d38-ready-made-citation-handles)) are
+never part of the saved output.
 
 **`persistStreamResults`** (`helpers/persist-stream-results.ts:14`) is the single write
 path for assistant answers:

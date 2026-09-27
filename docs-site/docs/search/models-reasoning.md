@@ -139,9 +139,9 @@ first advanced search already runs without waiting on the variants.
 
 ### Turn modes
 
-`resolveTurnMode` (`lib/agents/researcher.ts:154-188`) maps the classifier's
+`resolveTurnMode` (`lib/agents/researcher.ts:155-189`) maps the classifier's
 output to one of three configurations. Which ones are reachable depends on
-`ALWAYS_SEARCH` (`lib/agents/always-search.ts:30-34`; default on, only the literal
+`ALWAYS_SEARCH` (`lib/agents/always-search.ts:32-36`; default on, only the literal
 `off` disables it, read per call):
 
 | Turn mode | Condition | Prompt | Tools advertised | `maxSteps` |
@@ -152,7 +152,7 @@ output to one of three configurations. Which ones are reachable depends on
 
 **Every question searches (since 2026-09-26).** With `ALWAYS_SEARCH` on, step 0
 of a `research` turn is a **forced web search**: `prepareStep` hands that step to
-a synthetic model (`createForcedSearchModel`, `lib/agents/always-search.ts:262`)
+a synthetic model (`createForcedSearchModel`, `lib/agents/always-search.ts:264`)
 whose only output is one `search` call on `standaloneQuery` (URLs removed, at most
 400 characters). The real `search` tool runs it with every wrapper, and the
 user's model answers from step 1. `toolChoice` could not do this: the Ollama
@@ -162,13 +162,13 @@ provider ignores it. The mechanism, evidence and cost are in
 forced when the latest message carries a URL (typed inline or pasted as a link
 chip), an attachment with no typed text, or an attachment whose text only points
 at it ("what is this", "summarise this file"). `detectUserSuppliedSource`
-(`lib/agents/always-search.ts:116-135`) decides this from the message's parts,
+(`lib/agents/always-search.ts:118-137`) decides this from the message's parts,
 because the classifier sees text only and does not run on the bypass paths. The
 turn keeps its mode prompt and advertised tools, so the model reads the page with
 `fetch` (or the injected attached source) and may still search; it just is not
 made to search first. A URL turn is therefore exactly what it was before
 2026-09-26. The attachment check (`isAttachmentReferenceOnly`,
-`always-search.ts:181-191`) is deliberately conservative: a closed English word
+`always-search.ts:183-193`) is deliberately conservative: a closed English word
 list of question frames, pronouns, verbs that act on the attachment ("read",
 "describe", "summarise") and medium nouns ("picture", "file", "pdf"), capped at 10
 words. Any subject word ("what is this **plant**", "is this **mushroom** safe")
@@ -366,7 +366,7 @@ Limits to know about:
 - **Cleaning applies only to new answers.** A message that was saved with a
   leak stays that way until the user regenerates it.
 - The round-cap notice itself tells the model not to restate the limit or
-  describe its sources, and to start with the heading (`lib/tools/search.ts:408`).
+  describe its sources, and to start with the heading (`lib/tools/search.ts:415`).
 
 ## Follow-up re-search prompt nudge
 
@@ -374,7 +374,7 @@ Every research prompt has an exception, "clarifying your own prior answer",
 under which the model answers from context without searching. On 2026-09-19 a
 clause was added after it, in the speed prompt and in `getApproachStrategy`
 (which balanced and quality inherit)
-(`lib/agents/prompts/search-mode-prompts.ts:135,258`):
+(`lib/agents/prompts/search-mode-prompts.ts:150,273`):
 
 > A follow-up that needs a NEW fact is not clarification: if answering the
 > follow-up requires any current fact, entity, number, date, or detail NOT
@@ -411,7 +411,7 @@ How Ask handles this:
 - **To force a tool call, override the step's model, not `toolChoice`.** The
   forced first search (`ALWAYS_SEARCH`) returns `model: <synthetic model>` from
   `prepareStep` for step 0; the AI SDK resolves that itself, so the Ollama
-  provider cannot drop it (`lib/agents/researcher.ts:1031-1033`).
+  provider cannot drop it (`lib/agents/researcher.ts:1039-1041`).
 - `applyAnswerDeadline` (`lib/agents/answer-deadline.ts`) returns
   `activeTools: []` after 200s together with a "TIME TO ANSWER" note. Because of
   the behavior above, that alone only stops *advertising* tools, so the deadline
