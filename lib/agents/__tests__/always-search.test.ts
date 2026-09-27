@@ -9,6 +9,7 @@ import {
   buildForcedSearchInput,
   createForcedSearchModel,
   detectUserSuppliedSource,
+  FORCED_SEARCH_PROMPT_ADDENDUM,
   FORCED_SEARCH_PROVIDER,
   FORCED_SEARCH_QUERY_MAX_CHARS,
   isAlwaysSearchEnabled,
@@ -84,6 +85,25 @@ async function readStream(stream: ReadableStream<unknown>) {
     parts.push(value)
   }
 }
+
+describe('FORCED_SEARCH_PROMPT_ADDENDUM', () => {
+  // Prod 2026-09-27: the old wording ("search again only if those results leave
+  // a specific gap you can name") cut research turns from a median of 3
+  // searches/fetches to 1 — models stopped after the forced search, and it
+  // overrode quality mode's own multi-search protocol.
+  it('frames the forced search as the first search, not the only one', () => {
+    expect(FORCED_SEARCH_PROMPT_ADDENDUM).toContain(
+      'FIRST search, not your only one'
+    )
+    expect(FORCED_SEARCH_PROMPT_ADDENDUM).toContain(
+      'search again with different queries'
+    )
+    expect(FORCED_SEARCH_PROMPT_ADDENDUM).not.toMatch(/only if those results/i)
+    expect(FORCED_SEARCH_PROMPT_ADDENDUM).not.toMatch(
+      /answer from what you know/i
+    )
+  })
+})
 
 describe('isAlwaysSearchEnabled', () => {
   it('is ON when unset or empty — the default', () => {
