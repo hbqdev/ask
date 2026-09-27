@@ -318,7 +318,10 @@ web search that the answering model does not choose:
 2. The system prompt gets the forced-search addendum (`getForcedSearchPromptAddendum()`,
    appended at `researcher.ts:833-835`): the first search already ran; ground and cite (with
    `CITATION_HANDLES` on, by copying each result's `cite` string); the "clarifying your own
-   prior answer" exception does not apply.
+   prior answer" exception does not apply; and (since 2026-09-27) it is the **first** search,
+   not the only one: keep researching as the mode's protocol says, and search again if the
+   results are irrelevant
+   ([D37 addendum](/history/decisions#addendum-2026-09-27-the-forced-search-is-the-first-search)).
 3. `prepareStep` returns `model: forcedSearchModel` for step 0 (`researcher.ts:1039-1041`).
    That synthetic model (`lib/agents/always-search.ts:264`) emits one `search` call and
    nothing else; the SDK executes it through the full `search` wrapper chain below. The
@@ -369,14 +372,15 @@ Other per-turn wiring:
 `researchAgent.stream(...)` (`create-chat-stream-response.ts:889`). No `toolChoice`
 and no "done" tool: apart from the forced step 0 of a research turn (above), every
 step is the model's own choice, and the loop ends when the model replies with plain
-text. The forced search is round 1 of the search-round cap. Three independent limits
+text. The forced search is round 1 of the search-round cap. These independent limits
 keep it bounded:
 
 | Cap | Where | Default | Effect |
 |---|---|---|---|
 | Step cap | `stopWhen: stepCountIs(maxSteps)` | 10 / 20 / 50 / 100 | hard stop (can end on a tool step — rarely reached in practice) |
-| Search-round cap | `lib/tools/search.ts:313` | `SEARCH_ROUNDS_MAX`=3, `SEARCH_ROUNDS_MAX_QUALITY`=5 | further `search` calls return an empty result with a notice "answer now, begin with the `## ` heading"; dedup short-circuits don't count |
+| Search-round cap | `lib/tools/search.ts:318` | `SEARCH_ROUNDS_MAX`=3, `SEARCH_ROUNDS_MAX_QUALITY`=5 | further `search` calls return an empty result with a notice "answer now, begin with the `## ` heading"; dedup short-circuits don't count |
 | Answer deadline | `prepareStep` → `applyAnswerDeadline` (`lib/agents/answer-deadline.ts:40`) | 200s | tools no longer advertised + a "TIME TO ANSWER" note appended to the system prompt, and every tool's `execute` refuses with an "answer now" result (`enforceAnswerDeadline`), so the model writes before the 300s abort (which would persist nothing) |
+| Advanced-search call (since 2026-09-27) | `createAdvancedSearchDeadline` (`lib/tools/search/advanced-search-deadline.ts:93`) | 20s to response headers, 180s total (`ADVANCED_SEARCH_HEADERS_TIMEOUT_MS`, `ADVANCED_SEARCH_TIMEOUT_MS`) | the first search falls back to a basic SearXNG search instead of hanging ([pipeline](/search/pipeline#advanced-search-deadline-and-fallback)) |
 | Generation timeout | `route.ts:36` | 300s | aborts the turn; nothing persisted |
 
 What a search call does (providers, crawl, rerank, excerpting, prefetch vs crawl per

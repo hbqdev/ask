@@ -130,7 +130,7 @@ the secret isn't configured.
 | Route(s) | Secret | Check | Callers |
 |---|---|---|---|
 | `/api/ingest/{claim,progress,complete}`, `GET /api/ingest/file/[id]` | `INGEST_API_TOKEN` | `checkIngestAuth` (`lib/utils/ingest-auth.ts`): length check + `crypto.timingSafeEqual` | Ingestor workers |
-| `POST /api/advanced-search` | **same** `INGEST_API_TOKEN` | `checkIngestAuth` | The app's own `search` tool (loopback) |
+| `POST /api/advanced-search`; `GET /api/advanced-search` (Redis probe, since 2026-09-27: PING only, no search) | **same** `INGEST_API_TOKEN` | `checkIngestAuth` | POST: the app's own `search` tool (loopback). GET: `fleet-boot/update-images.sh` and operators, from inside the app container |
 | `POST /api/maintenance/expire-uploads` | `INGEST_API_TOKEN` | `checkIngestAuth` | Daily cron `fleet-boot/expire-uploads-daily.sh` |
 | `POST /api/memory/consolidate`, `POST /api/memory/recall-backfill` | `MEMORY_CRON_SECRET` | `requireCronSecret` (`lib/auth/cron-auth.ts`): SHA-256 both sides, then `timingSafeEqual` | Operator / cron |
 

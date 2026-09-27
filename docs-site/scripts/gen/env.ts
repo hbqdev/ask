@@ -32,6 +32,9 @@ type EnvVar = {
 }
 
 const CATEGORIES: [string, RegExp][] = [
+  // Before 'stream': LOCAL_REDIS_COMMAND_TIMEOUT_MS is a Redis knob, not a
+  // streaming one, whatever its TIMEOUT suffix says.
+  ['infra', /REDIS|UPSTASH/],
   ['auth', /AUTH|SUPABASE|ANONYMOUS|GUEST|CRON_SECRET|ADMIN|SESSION|LOGIN/],
   ['voice', /VOICE|TTS|WHISPER|STT|KOKORO|SPEAK/],
   ['imagegen', /REPLICATE|IMAGE|IMAGEGEN/],
@@ -170,6 +173,42 @@ function collectReads(vars: Map<string, EnvVar>) {
         }
       }
     })
+    collectHelperReads(vars, file, src)
+  }
+}
+
+// Env-reader helpers: a function whose first parameter is the variable NAME
+// and whose body reads `process.env[<that parameter>]`, called with a literal
+// name, e.g. (lib/tools/search/advanced-search-deadline.ts)
+//   function positiveIntEnv(name: string, fallback: number) {
+//     const n = Number(process.env[name]) …
+//   positiveIntEnv('ADVANCED_SEARCH_TIMEOUT_MS', DEFAULT_ADVANCED_SEARCH_TIMEOUT_MS)
+// The call's second argument, when a literal or a const, is the code default.
+// Same-file helpers only; the direct-access scan cannot see these names.
+function collectHelperReads(vars: Map<string, EnvVar>, file: string, src: string) {
+  const decl = /function\s+([A-Za-z_$][\w$]*)\s*\(\s*([A-Za-z_$][\w$]*)\s*(?::\s*string)?\s*[,)]/g
+  for (const dm of src.matchAll(decl)) {
+    const [, fn, param] = dm
+    // The body: up to the first line that closes a top-level block.
+    const start = (dm.index ?? 0) + dm[0].length
+    const end = src.indexOf('\n}', start)
+    const body = src.slice(start, end === -1 ? undefined : end)
+    if (!new RegExp(`process\\.env\\[\\s*${param}\\s*\\]`).test(body)) continue
+    const call = new RegExp(
+      `(?<![\\w$.])${fn}\\(\\s*['"]([A-Z_][A-Z0-9_]*)['"]\\s*(?:,\\s*(?:${LITERAL}))?`,
+      'g'
+    )
+    for (const cm of src.matchAll(call)) {
+      const name = cm[1]
+      const at = (cm.index ?? 0) + cm[0].indexOf(name)
+      const v = ensure(vars, name)
+      const r: Read = { file, line: src.slice(0, at).split('\n').length }
+      if (!v.secret) r.snippet = `${cm[0].replace(/\s+/g, ' ').replace(/\( /, '(')})`.slice(0, 180)
+      v.reads.push(r)
+      let def = literalValue(cm, 2)
+      if (def === undefined && cm[7]) def = resolveConst(src, cm[7]) ?? cm[7]
+      if (def !== undefined && !v.codeDefaults.includes(def)) v.codeDefaults.push(def)
+    }
   }
 }
 

@@ -36,7 +36,7 @@ Knowing what self-heals tells you what *should* have happened before you interve
 | `docker-maintenance.sh` | .17 cron `30 4 * * *` | daily | Dangling-image prune, 7-day build-cache prune, disk warning ≥ 85 %, btree `amcheck`. Log: `~/logs/docker-maintenance.log`. |
 | `rotate-daily.sh` | .17 cron `0 5 * * *` (`ask-prod ask-staging ask-lab`); .231 cron `0 5 * * *` runs `~/fleet-boot/rotate-daily.sh public-searxng degoog` (a copy synced by `deploy.sh`) | daily | Rotates the named stacks' Mullvad exits and clears Ask's per-engine health suspensions. Log: `~/.local/state/fleet-boot/rotate-daily.log`. |
 | `update-ollama-fleet.sh` | .17 cron `30 3 * * 0` | weekly | Upgrades native Ollama on all four hosts and re-pins resident models. Log: `~/.local/state/fleet-boot/update-ollama.log`. |
-| `fleet-update-ask.timer` → `update-ask.sh` | .17 systemd | Sun 04:30 | Pulls + recreates **sidecar** images (never the app) for lab (canary), then prod, then staging; a failed stack does not stop the next. The lab recreate drops any shell-set `FLOW_VARIANT`. Log: `/home/nightfury/selfhosted/logs/update-ask.log`. (The lab step is on `flow-design` since 2026-09-24 and runs once ported to `dev`.) |
+| `fleet-update-ask.timer` → `update-ask.sh` | .17 systemd | Sun 04:30 | Pulls + recreates **sidecar** images (never the app build) for lab (canary), then prod, then staging; a failed stack does not stop the next. Since 2026-09-27, when a sidecar was recreated under the running app it `docker restart`s the app and runs the search-path Redis probe ([below](#search-hangs-after-a-redis-restart)). The lab recreate drops any shell-set `FLOW_VARIANT`. Log: `/home/nightfury/selfhosted/logs/update-ask.log`. |
 | `fleet-update-public-search.timer` | .231 systemd (installed by `deploy.sh`) | Sun 04:00 | Runs `~/fleet-boot/update-public-search.sh` (pull + recreate the public SearXNG and degoog stacks) and `check-crawl4ai-version.sh` (reports a newer crawl4ai release; the pin is not changed automatically). |
 | `memory-watchdog.sh` | .231 cron `*/15` | every 15 min | Restarts `crawl4ai` above 80 % of its 8 GiB cgroup limit. Log: `~/logs/crawl4ai-watchdog.log` on .231. |
 | `lan_automation` fleet-boot/sentinel | .17 systemd (outside this repo) | boot + every 15 min | Monitors all stacks; for Ask it defers recovery to `ask-fleet-boot.service`. |
@@ -66,6 +66,7 @@ sudo systemctl start ask-fleet-boot.service     # or: ~/ask-fleet-boot.sh
 | Follow live | `docker logs -f --tail 100 ask` |
 | Per-turn latency lines | `docker logs --since 1h ask 2>&1 \| grep '\[latency'` — see [Telemetry](/operations/telemetry) |
 | Stop / abort events | `docker logs --since 1h ask 2>&1 \| grep '\[stop\]'` |
+| Redis client state, advanced-search timeouts | `docker logs --since 2h ask 2>&1 \| grep -E '\[redis:\|advanced-search timed out'` — see [Search hangs after a Redis restart](#search-hangs-after-a-redis-restart) |
 | SearXNG engine errors | `docker logs --since 1h ask-searxng 2>&1 \| tail -50` |
 | VPN tunnel | `docker logs --since 1h ask-gluetun 2>&1 \| tail -50` |
 | Container state | `docker ps -a --format '{{.Names}}\t{{.Status}}' \| grep -E '^ask'` |
@@ -173,6 +174,111 @@ in to Windows (`AutoAdminLogon=1`) so Docker Desktop (`AutoStart: true`) can sta
 either setting is changed, a reboot waits at the login screen with every container
 down. Log in and Docker Desktop will start everything; then run
 `sudo systemctl start ask-fleet-boot.service`.
+
+---
+
+## Search hangs after a Redis restart
+
+This took prod and staging search down for about 8.5 hours on 2026-09-27
+([known issues](/history/known-issues#search-hung-after-the-weekly-redis-update)). Builds from
+prod `2f5eac13` / staging `c0df517f` / lab `a9c5914a` onward recover by themselves; this
+runbook is for confirming that, and for an older build.
+
+**Symptoms**
+- Balanced and quality questions never get an answer: the first search spins, and about five
+  minutes later the turn ends with nothing written. Speed-mode turns (Ollama web search, no
+  Redis) and no-search turns still answer.
+- Everything a health check looks at is green: the container is `healthy` (`/api/health` does
+  not touch Redis), the homepage and the SearXNG UI return 200, the VPN egress is correct. On
+  2026-09-27 the weekly update logged `All stacks updated and verified.` for both stacks.
+- The turn's `[latency]` line has `blank_abort:true`, `abort_silence_ms` ≈ 300 000, `steps:1`,
+  `tool_calls:1` and no `finish-step` in `stream`. The log has
+  `[stall-suspect] chat=<id> silent 301s before abort with no prose — provider stall, not a client disconnect`.
+  That wording blames the model provider; here the stall was the search tool.
+- The env's Redis started after the app did:
+  `docker inspect -f '{{.Name}} {{.State.StartedAt}}' ask ask-redis`. The usual trigger is
+  the weekly `fleet-update-ask` run (Sundays 04:30 PDT = 11:30 UTC) pulling a new
+  `redis:alpine`.
+
+**Diagnosis**
+
+The probe is `GET /api/advanced-search`: it PINGs Redis through the search route's own client
+and fires no search, so it is safe to run on prod. Run it **inside** the app container, which
+reads the bearer token from its own environment. Never echo the token or put it on a command
+line.
+
+```bash
+docker exec ask node -e "fetch('http://127.0.0.1:3000/api/advanced-search',{headers:{authorization:'Bearer '+(process.env.INGEST_API_TOKEN||'')}}).then(async r=>console.log(r.status,await r.text())).catch(e=>console.log('ERR',e.message))"
+# staging: ask-admin-feature · lab: ask-lab
+docker logs --since 2h ask 2>&1 | grep -E '\[redis:|uncaughtException|advanced-search timed out'
+```
+
+| Probe answer | Meaning |
+|---|---|
+| `200 {"redis":"ok","backend":"local","ms":1}` | The route's Redis client answers. Search is not blocked on Redis. |
+| `503 {"redis":"unavailable",…}` | The client is not connected yet (Redis down or reconnecting). A fixed build keeps searching without the cache meanwhile. |
+| `503 {"redis":"error","error":"…"}` | PING failed or hit the 1 s command bound. |
+| `503`, empty body | `INGEST_API_TOKEN` is unset in the container (the gate fails closed). |
+| `401` | Wrong token. Run the probe inside the container it tests. |
+| `405` | The build predates the probe, so it also has the old Redis clients. Assume it is wedged if Redis restarted under it. |
+
+The route answers the probe within a few seconds even when Redis is down: the first connect
+waits at most ~2.5 s and every command is bounded at 1 s (`app/api/advanced-search/route.ts:542-577`).
+
+**Why it happened (builds before the fix)**
+
+The app's module-level node-redis clients (seven modules, the search route's among them) were
+built with a bare `createClient({ url }) + connect()` and no `'error'` listener. When Redis
+went away, node-redis 4.7.1 marked the socket not-ready and re-emitted the socket error on the
+client (`node_modules/@redis/client/dist/lib/client/socket.js:216-224`,
+`client/index.js:421-422`). With no listener, that emit **throws**. Next.js catches it, logs
+`uncaughtException: Socket closed unexpectedly` and keeps the process running
+(`node_modules/next/dist/server/lib/router-server.js:597-601`; logged at 11:30:38 UTC on
+2026-09-27), so the container stays up and healthy. The throw happens **before** the reconnect
+is scheduled, so the client stays `isOpen:true, isReady:false` forever, and the default offline
+queue accepts every later command and holds it for a reconnect that never comes. The route's first `await` is the cache `GET`, so it never sent response headers;
+the search tool's call to it had no timeout, so the turn sat silent until undici's 300 s
+`UND_ERR_HEADERS_TIMEOUT`, which coincides with the 300 s generation budget.
+
+**What a fixed build does instead**
+- Every local client comes from `createLocalRedisConnector` (`lib/redis/local-redis.ts:213`),
+  which logs `[redis:<label>] <error> — commands fail fast until it reconnects` once per state
+  change, reconnects on its own, and logs `[redis:<label>] reconnected`. On the lab the
+  sequence after a recreate was `Socket closed unexpectedly` → `connect ECONNREFUSED …` →
+  `Connection timeout` → `reconnected`, with no uncaught exception, and a balanced question
+  right after answered normally.
+- While Redis is away, commands reject immediately: caches miss, the Brave/Tavily/LangSearch
+  budgets fail closed (those providers are skipped for that search), the ingest heartbeat reads
+  "unknown". A client that is closed, or times out 3 commands in a row, is logged as
+  `[redis:<label>] dropping client (…); will rebuild` and rebuilt on next use.
+- If `/api/advanced-search` itself stalls for any reason, the search tool gives up after 20 s
+  without response headers (or 180 s in total) and falls back to a basic SearXNG search:
+  `[search] advanced-search timed out (phase=headers, …) — falling back to basic SearXNG for "<query>"`
+  ([pipeline](/search/pipeline#advanced-search-deadline-and-fallback)). Repeated fallback lines
+  mean the route is sick; read its log and the probe.
+
+**Fix**
+- **Fixed build:** nothing to do. Confirm with the probe (200) and the `reconnected` lines.
+- **Older build (probe `405`), or a probe that fails and does not recover within a minute:**
+  restart the app. `restart` keeps the container and its network attachments, so it cannot
+  strand prod off `ask-stack_default` the way a recreate can
+  ([above](#host-reboot-strands-prod-on-the-wrong-network)). It drops in-flight turns.
+
+  ```bash
+  docker restart ask            # staging: ask-admin-feature · lab: ask-lab
+  docker inspect -f '{{.State.Health.Status}}' ask   # wait for healthy (checks every 30 s)
+  ```
+- The weekly update now does this itself: when any sidecar was recreated and the app was not,
+  `update-images.sh` restarts the app, waits for `healthy`, then runs the same probe and marks
+  the stack `FAIL … search-redis` unless it answers 200 (`405` is logged as `WARN`)
+  ([fleet scripts](/operations/fleet-scripts#update-images-sh)). Read
+  `/home/nightfury/selfhosted/logs/update-ask.log` on Sunday mornings.
+
+::: warning Restarting Redis by hand
+Anything that restarts or recreates an env's Redis while its app keeps running
+(`docker restart ask-redis`, a compose `up -d` that picks up a new `redis` image) has the same
+effect. On a build from before the fix, restart the app afterwards.
+:::
 
 ---
 
