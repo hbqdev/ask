@@ -2,13 +2,16 @@ import { after, NextResponse } from 'next/server'
 
 import { Redis } from '@upstash/redis'
 import { JSDOM, VirtualConsole } from 'jsdom'
-import { createClient } from 'redis'
 
 import type { RankedPassage } from '@/lib/embeddings/rerank'
 import {
   rerankByCrossEncoder,
   rerankByEmbedding
 } from '@/lib/embeddings/rerank'
+import {
+  createLocalRedisConnector,
+  type LocalRedisClient
+} from '@/lib/redis/local-redis'
 import { buildExcerptContent } from '@/lib/search/build-excerpt'
 import { measureCropPositions } from '@/lib/search/crop-position'
 import { isQualityContent } from '@/lib/search/quality-content'
@@ -174,44 +177,40 @@ const DEGOOG_ENABLED = process.env.DEGOOG_ENABLED !== 'false'
 const CACHE_TTL = 3600 // Cache time-to-live in seconds (1 hour)
 const CACHE_EXPIRATION_CHECK_INTERVAL = 3600000 // 1 hour in milliseconds
 
-let redisClient: Redis | ReturnType<typeof createClient> | null = null
+// Upstash client (cached for the process) or the self-healing local client.
+// The local connector is what keeps a Redis sidecar restart from wedging this
+// route: before it, a bare createClient() with no 'error' listener never
+// reconnected and its offline queue held the cache GET below forever, so the
+// route never sent headers (2026-09-27). See lib/redis/local-redis.ts.
+let upstashClient: Redis | null = null
+const localRedis = createLocalRedisConnector('advanced-search')
 
 // Results assembled while a provider that normally contributes (SearXNG) had
 // failed. Returned to the caller, but never cached. See finish() in POST.
 const degradedResults = new WeakSet<object>()
 
-// Initialize Redis client based on environment variables
-async function initializeRedisClient() {
-  if (redisClient) return redisClient
-
+// Redis client based on environment variables: Upstash when configured,
+// otherwise local Redis (null while it is unreachable — every caller treats
+// that as "Redis unavailable": cache miss, no-op, or fail-closed budget).
+async function initializeRedisClient(): Promise<
+  Redis | LocalRedisClient | null
+> {
   const upstashRedisRestUrl = process.env.UPSTASH_REDIS_REST_URL
   const upstashRedisRestToken = process.env.UPSTASH_REDIS_REST_TOKEN
 
   // Use Upstash Redis if credentials are provided
   if (upstashRedisRestUrl && upstashRedisRestToken) {
-    redisClient = new Redis({
-      url: upstashRedisRestUrl,
-      token: upstashRedisRestToken
-    })
-    return redisClient
+    if (!upstashClient) {
+      upstashClient = new Redis({
+        url: upstashRedisRestUrl,
+        token: upstashRedisRestToken
+      })
+    }
+    return upstashClient
   }
 
-  // Otherwise, try to use local Redis (for Docker/SearXNG usage)
-  try {
-    const localRedisUrl =
-      process.env.LOCAL_REDIS_URL || 'redis://localhost:6379'
-    const client = createClient({ url: localRedisUrl })
-    await client.connect()
-    redisClient = client
-  } catch (error) {
-    console.warn(
-      'Failed to connect to local Redis. Advanced search caching disabled.',
-      error
-    )
-    redisClient = null
-  }
-
-  return redisClient
+  // Otherwise, local Redis (for Docker/SearXNG usage)
+  return localRedis.get()
 }
 
 // Function to get cached results
@@ -527,6 +526,53 @@ function applyDomainFilter<T extends { url: string }>(
         !excludeDomains.some(d => domain.includes(d)))
     )
   })
+}
+
+/**
+ * Internal Redis health probe, for fleet verification after a sidecar is
+ * recreated (fleet-boot/update-images.sh). Same bearer gate as POST. It PINGs
+ * through THIS route's own Redis client — the exact client that wedged on
+ * 2026-09-27 and hung every first search — and never fires a search, so it
+ * proves the search path's Redis dependency without spending engine quota.
+ *
+ * 200 {redis:'ok'} | 503 {redis:'unavailable'|'error'}. The local client's
+ * commands are time-bounded, so this answers within a few seconds even when
+ * Redis is down.
+ */
+export async function GET(request: Request) {
+  const auth = checkIngestAuth(request.headers.get('authorization'))
+  if (!auth.ok) {
+    return new NextResponse(null, { status: auth.status })
+  }
+
+  const startedAt = performance.now()
+  let redis: 'ok' | 'unavailable' | 'error' = 'unavailable'
+  let error: string | undefined
+  let backend: 'upstash' | 'local' = 'local'
+  try {
+    const client = await initializeRedisClient()
+    if (client instanceof Redis) backend = 'upstash'
+    if (client) {
+      const pong =
+        client instanceof Redis ? await client.ping() : await client.ping()
+      redis = pong === 'PONG' ? 'ok' : 'error'
+    }
+  } catch (e) {
+    redis = 'error'
+    error = e instanceof Error ? e.message : String(e)
+  }
+  return NextResponse.json(
+    {
+      redis,
+      backend,
+      ms: Math.round(performance.now() - startedAt),
+      ...(error && { error })
+    },
+    {
+      status: redis === 'ok' ? 200 : 503,
+      headers: { 'Cache-Control': 'no-store' }
+    }
+  )
 }
 
 export async function POST(request: Request) {

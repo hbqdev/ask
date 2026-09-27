@@ -12,8 +12,14 @@ import {
 const redisSet = vi.fn(async () => 'OK')
 
 vi.mock('redis', () => ({
+  // Shape the resilient connector (lib/redis/local-redis.ts) relies on:
+  // event registration plus the open/ready state it checks before use.
   createClient: () => ({
+    on: () => {},
+    isOpen: true,
+    isReady: true,
     connect: async () => {},
+    disconnect: async () => {},
     get: async () => null,
     set: redisSet,
     keys: async () => [],
