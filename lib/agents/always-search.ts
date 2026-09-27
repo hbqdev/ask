@@ -319,7 +319,7 @@ export function createForcedSearchModel({
 export const FORCED_SEARCH_PROMPT_ADDENDUM = `
 
 ## A first web search has already been run for this turn
-The \`search\` call at the start of this turn was run for you on the resolved query. Its results are real sources retrieved THIS turn: read them, ground your answer in them, and cite what you use exactly as the citation format above describes, with the real id that call returned. This holds for every message that reaches you this turn, including a follow-up about your own earlier answer — the "clarifying your own prior answer" exception above does not apply. Search again or fetch a page only if those results leave a specific gap you can name; if they turn out irrelevant, answer from what you know and do not cite them.`
+The \`search\` call at the start of this turn was run for you on the resolved query. Its results are real sources retrieved THIS turn: read them, ground your answer in them, and cite what you use exactly as the citation format above describes, with the real id that call returned. This holds for every message that reaches you this turn, including a follow-up about your own earlier answer — the "clarifying your own prior answer" exception above does not apply. Treat it as your FIRST search, not your only one: continue your research exactly as the protocol above describes — search again with different queries (never repeat this one) and fetch pages for anything the question needs that these results do not already settle: other angles, specific figures, verification, a follow-up hop. If these results turn out irrelevant, search again with a better query instead of answering from memory.`
 
 /**
  * FORCED_SEARCH_PROMPT_ADDENDUM for this turn. With CITATION_HANDLES on (the
