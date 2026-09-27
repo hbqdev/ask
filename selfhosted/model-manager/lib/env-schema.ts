@@ -472,6 +472,18 @@ export const REGISTRY: EnvVarSpec[] = [
     help: 'Every question gets a web search; off restores the old stable-knowledge gate (D3). Only `off` disables it; unset (the default) = on.'
   },
   {
+    key: 'CITATION_HANDLES',
+    category: 'search',
+    label: 'Ready-made citation handles',
+    type: 'bool',
+    // lib/utils/citation-handles.ts isCitationHandlesEnabled:
+    // `CITATION_HANDLES !== 'off'`, read per call.
+    boolSense: 'not-off',
+    default: 'on',
+    validate: onOff,
+    help: 'Each search result / fetched page the model sees carries a ready-made [N](#id) citation to copy, so citations point at the right page. Only `off` disables it (restores model-computed numbers); unset (the default) = on.'
+  },
+  {
     key: 'SEARXNG_API_URL',
     category: 'search',
     group: 'SearXNG',
