@@ -23,6 +23,10 @@ import { StageTimer } from '@/lib/telemetry/stage-timer'
 import { normalizeUrl } from '@/lib/tools/search/providers/merge-degoog'
 import { SearchResultItem, SearchResults } from '@/lib/types'
 import type { SearchMode } from '@/lib/types/search'
+import {
+  addCitationHandles,
+  isCitationHandlesEnabled
+} from '@/lib/utils/citation-handles'
 import { readNdjson } from '@/lib/utils/ndjson'
 import {
   fetchOllamaSearch,
@@ -94,7 +98,10 @@ export type SearchToolOptions = {
   // Advanced-pipeline timings ride back in the route's NDJSON `timings` field;
   // basic-path timings come from this tool's own StageTimer. Additive and
   // fully guarded — a telemetry failure must never affect the search.
-  onToolTiming?: (kind: 'search' | 'fetch', stages: Record<string, number>) => void
+  onToolTiming?: (
+    kind: 'search' | 'fetch',
+    stages: Record<string, number>
+  ) => void
 }
 
 // Ollama's web-search API clamps max_results to 10 server-side (verified by
@@ -667,7 +674,10 @@ export function createSearchTool(
           // Never let an Ollama-web failure break the turn: emit the attempt so
           // a slow/failing call is still measured, then fall through to basic
           // SearXNG exactly as if Ollama-web were unconfigured.
-          speedTimer.set('error', error instanceof Error ? error.name : 'unknown')
+          speedTimer.set(
+            'error',
+            error instanceof Error ? error.name : 'unknown'
+          )
           speedTimer.set('fallthrough', 'error')
           speedTimer.emit()
           console.warn(
@@ -885,9 +895,8 @@ export function createSearchTool(
               } else if (msg?.type === 'final') {
                 finalFull = (msg as { fullResults?: SearchResultItem[] })
                   .fullResults
-                advancedTimings = (
-                  msg as { timings?: Record<string, number> }
-                ).timings
+                advancedTimings = (msg as { timings?: Record<string, number> })
+                  .timings
                 finalResult = {
                   results: msg.results ?? [],
                   query: msg.query ?? filledQuery,
@@ -1146,7 +1155,12 @@ export function createSearchTool(
             : toolTimer?.timings()
           if (stages) {
             const picked: Record<string, number> = {}
-            for (const k of ['search_ms', 'crawl_ms', 'enrich_ms', 'rerank_ms']) {
+            for (const k of [
+              'search_ms',
+              'crawl_ms',
+              'enrich_ms',
+              'rerank_ms'
+            ]) {
               const v = stages[k]
               if (typeof v === 'number' && Number.isFinite(v)) picked[k] = v
             }
@@ -1191,12 +1205,20 @@ export function createSearchTool(
     // from this array, so stripping them made inline images impossible.
     // toolCallId MUST stay: the prompt cites as [number](#toolCallId), so the
     // model reads the id from here.
-    toModelOutput: ({ output }) => {
+    // CITATION_HANDLES (default on): each result also carries its ready-made
+    // `cite` string, so the model copies the citation instead of counting
+    // positions (lib/utils/citation-handles.ts). The SDK passes the real
+    // toolCallId here — the id the UI part and persistence store — including
+    // for the forced step-0 search (always-search.ts).
+    toModelOutput: ({ toolCallId, output }) => {
       if (!output || typeof output !== 'object') {
         return { type: 'json', value: (output ?? null) as JSONValue }
       }
-      const modelView: Record<string, unknown> = {
+      let modelView: Record<string, unknown> = {
         ...(output as Record<string, unknown>)
+      }
+      if (isCitationHandlesEnabled()) {
+        modelView = addCitationHandles(modelView, toolCallId)
       }
       delete modelView.citationMap
       delete modelView.state

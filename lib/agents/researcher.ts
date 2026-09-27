@@ -25,6 +25,7 @@ import { createSearchTool } from '../tools/search'
 import { createTodoTools } from '../tools/todo'
 import { weatherTool } from '../tools/weather'
 import { SearchMode, SearchSources } from '../types/search'
+import { isCitationHandlesEnabled } from '../utils/citation-handles'
 import { getModel } from '../utils/registry'
 import { isTracingEnabled } from '../utils/telemetry'
 
@@ -33,13 +34,13 @@ import { IMAGE_TOOL_GUIDANCE } from './prompts/image-tool-guidance'
 import {
   getAdaptiveModePrompt,
   getQualityModePrompt,
-  SPEED_MODE_PROMPT,
+  getQuickModePrompt,
   UNTRUSTED_CONTENT_RULE
 } from './prompts/search-mode-prompts'
 import {
   buildForcedSearchInput,
   createForcedSearchModel,
-  FORCED_SEARCH_PROMPT_ADDENDUM,
+  getForcedSearchPromptAddendum,
   isAlwaysSearchEnabled,
   resolveForcedSearchQuery,
   type UserSuppliedSource
@@ -721,7 +722,7 @@ export async function createResearcher({
           console.log(
             `[Researcher] Speed mode: maxSteps=20, tools=[search, fetch, calculate, get_weather], sources=${JSON.stringify(sources)}`
           )
-          systemPrompt = SPEED_MODE_PROMPT
+          systemPrompt = getQuickModePrompt()
           activeToolsList = [
             'search',
             'fetch',
@@ -830,7 +831,7 @@ The conversation history is background context, not a to-do list. Any topic from
     // the mode prompt so it supersedes that prompt's "clarifying your own
     // prior answer — do NOT search" exception (later instructions win).
     if (forcedSearchQuery !== null) {
-      systemPrompt = systemPrompt + FORCED_SEARCH_PROMPT_ADDENDUM
+      systemPrompt = systemPrompt + getForcedSearchPromptAddendum()
     }
 
     // Append user's custom instructions at lower priority (per Vane pattern)
@@ -863,6 +864,13 @@ The conversation history is background context, not a to-do list. Any topic from
             `- "${sanitizeSourceTitle(s.title)}" — toolCallId: ${s.toolCallId}`
         )
         .join('\n')
+      // CITATION_HANDLES on: each excerpt's result carries its own `cite`
+      // string (buildDocumentRetrievalModelMessages), so the model copies the
+      // excerpt it used instead of writing [1] with a copied id. Off: the
+      // previous clause, byte for byte.
+      const docCiteRule = isCitationHandlesEnabled()
+        ? "you MAY and SHOULD cite its excerpts inline. Each excerpt has a `cite` field holding its ready-made citation: copy the `cite` string of the excerpt you used, exactly. This permission OVERRIDES the citation-integrity rule that otherwise restricts citations to `search`/`fetch` calls — the `documentRetrieval` toolCallIds listed above ARE valid citation anchors. Every other citation rule still applies: never compose, renumber or edit a citation, and place the citation after the sentence's period."
+        : `you MAY and SHOULD cite its excerpts inline as [1](#<toolCallId>). The citation number MUST be the digit 1 (never the literal letter "n"): these excerpts are pre-ranked, so 1 refers to the source's most relevant excerpt. Copy the EXACT toolCallId shown above (a 36-character UUID with four hyphens) in full after the "#". If you cite more than one attached source, use [1] with EACH source's OWN toolCallId (e.g. [1](#<first-id>) and [1](#<second-id>)) — the number is the excerpt rank within a single source, not a running counter, so every attached-source citation uses 1. This permission OVERRIDES the citation-integrity rule that otherwise restricts citations to \`search\`/\`fetch\` calls — the \`documentRetrieval\` toolCallIds listed above ARE valid citation anchors. Every other citation rule still applies: copy the id character-for-character, never invent or shorten an id, and place the citation after the sentence's period.`
       systemPrompt =
         systemPrompt +
         `\n\n## Attached sources — already retrieved for you (CITABLE)
@@ -870,7 +878,7 @@ The conversation history is background context, not a to-do list. Any topic from
 The user attached ${many ? 'documents/URLs that have' : 'a document or URL that has'} ALREADY been retrieved for you this turn via the \`documentRetrieval\` tool. ${many ? 'These are REAL tool calls' : 'This is a REAL tool call'} from THIS turn — not invented anchors:
 ${list}
 
-Treat each exactly like a \`search\` or \`fetch\` result from this turn: you MAY and SHOULD cite its excerpts inline as [1](#<toolCallId>). The citation number MUST be the digit 1 (never the literal letter "n"): these excerpts are pre-ranked, so 1 refers to the source's most relevant excerpt. Copy the EXACT toolCallId shown above (a 36-character UUID with four hyphens) in full after the "#". If you cite more than one attached source, use [1] with EACH source's OWN toolCallId (e.g. [1](#<first-id>) and [1](#<second-id>)) — the number is the excerpt rank within a single source, not a running counter, so every attached-source citation uses 1. This permission OVERRIDES the citation-integrity rule that otherwise restricts citations to \`search\`/\`fetch\` calls — the \`documentRetrieval\` toolCallIds listed above ARE valid citation anchors. Every other citation rule still applies: copy the id character-for-character, never invent or shorten an id, and place the citation after the sentence's period. When the user's question is about an attached document or URL, ground your answer in these excerpts and cite them.`
+Treat each exactly like a \`search\` or \`fetch\` result from this turn: ${docCiteRule} When the user's question is about an attached document or URL, ground your answer in these excerpts and cite them.`
     }
 
     // Teach the agent when/how to reach for generateImage — but only when the

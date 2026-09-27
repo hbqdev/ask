@@ -2,6 +2,10 @@ import type { AssistantModelMessage, ToolModelMessage } from 'ai'
 import { createHash } from 'node:crypto'
 
 import type { SearchResultImage, SearchResultItem } from '@/lib/types'
+import {
+  addCitationHandles,
+  isCitationHandlesEnabled
+} from '@/lib/utils/citation-handles'
 
 /**
  * Pure, side-effect-free builders that shape a set of ranked document/URL
@@ -188,12 +192,18 @@ export function buildDocumentRetrievalStreamChunks(
  * `ModelMessage` shapes) appended to `modelMessages` AFTER prune/truncate so the
  * MODEL sees the citable id. Same `toolCallId` on both, `output` as a `json`
  * tool result carrying `{ state: 'complete', results }`.
+ *
+ * This pair never passes through a tool's toModelOutput, so the
+ * CITATION_HANDLES `cite` strings are added here: excerpt k gets
+ * `[k](#<sourceId>)`, resolving to the k-th result of the UI part built from
+ * the same input (its `#chunk-k` url).
  */
 export function buildDocumentRetrievalModelMessages(
   input: DocumentRetrievalInput
 ): [AssistantModelMessage, ToolModelMessage] {
   const query = normalizeQuery(input.query)
   const results = buildDocumentResults(input.title, input.url, input.chunks)
+  const value = { state: 'complete' as const, results }
   return [
     {
       role: 'assistant',
@@ -213,7 +223,12 @@ export function buildDocumentRetrievalModelMessages(
           type: 'tool-result',
           toolCallId: input.sourceId,
           toolName: DOCUMENT_RETRIEVAL_TOOL_NAME,
-          output: { type: 'json', value: { state: 'complete', results } }
+          output: {
+            type: 'json',
+            value: isCitationHandlesEnabled()
+              ? addCitationHandles(value, input.sourceId)
+              : value
+          }
         }
       ]
     }
