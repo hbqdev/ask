@@ -91,7 +91,8 @@ use your browser's find to jump around. Where a term maps to code, the main file
 |---|---|
 | **Search mode** | The UI's **Speed / Balanced / Quality** (the `searchMode` cookie, default balanced). There is no `deep-research` mode; **quality is the deep-research protocol**. → [search pipeline](/search/pipeline) |
 | **Source tier** | Which providers a mode fans out to. Speed: Ollama web only, no crawl. Balanced: Ollama web + Tavily + Brave + LangSearch. Quality: balanced + SearXNG + degoog, plus crawl. |
-| **Fan-out** | The parallel provider calls in `/api/advanced-search` (`Promise.allSettled`). Fails open per provider; only SearXNG failing in quality mode throws. |
+| **Fan-out** | The parallel provider calls in `/api/advanced-search` (`Promise.allSettled`). Fails open per provider; since 2026-09-23 that includes SearXNG (before, a SearXNG failure in quality mode threw and emptied the search). |
+| **Advanced-search fallback** | Since 2026-09-27: when the search tool's call to `/api/advanced-search` gets no response headers within 20 s, or does not finish within 180 s, it runs a basic SearXNG search instead and logs `kind:"advanced-fallback"`. → [pipeline](/search/pipeline#advanced-search-deadline-and-fallback) |
 | **Depth: advanced / basic** | The first search of a balanced or quality turn is `advanced` (full fan-out, crawl, rerank, via `/api/advanced-search`). Later searches are `basic` (lighter). |
 | **Advanced slot** | Only one advanced search per turn. After it, follow-ups are basic, and the model reads specific pages with `fetch`. |
 | **Round cap** | `SEARCH_ROUNDS_MAX` (3) / `SEARCH_ROUNDS_MAX_QUALITY` (5): the maximum number of `search` calls per turn, enforced inside the tool. Past it, the tool returns an "answer from what you have" result. Logged as `kind:'round-cap'`. → [D9](/history/decisions#d9-search-round-cap-enforced-inside-the-tool) |
@@ -131,7 +132,9 @@ use your browser's find to jump around. Where a term maps to code, the main file
 | **`dbAdmin`** | The owner (RLS-bypassing) Drizzle client, used only for system and cross-user work: ingest endpoints, file actions, maintenance. Any route using it must be token-gated. |
 | **Owner role / `DATABASE_URL`** | The superuser connection used by migrations (`bun run migrate` at container boot, fail-hard). |
 | **Anonymous mode** | `ENABLE_AUTH=false`: everyone shares one `ANONYMOUS_USER_ID`. Lab only. |
-| **`INGEST_API_TOKEN`** | The bearer token for the ingest worker endpoints **and** (currently) `/api/advanced-search`. |
+| **`INGEST_API_TOKEN`** | The bearer token for the ingest worker endpoints **and** (currently) `/api/advanced-search`, including its Redis probe. |
+| **Local Redis connector** | `createLocalRedisConnector` (`lib/redis/local-redis.ts`), the only way app code gets a local Redis client: it reconnects by itself, rejects commands fast while disconnected and bounds each at 1 s. → [D39](/history/decisions#d39-every-local-redis-client-goes-through-local-redis-ts) |
+| **Redis probe** | `GET /api/advanced-search` with the internal bearer: PINGs Redis through the search route's client and fires no search. Run inside the app container by `update-images.sh` after every sidecar update. → [runbook](/operations/runbooks#search-hangs-after-a-redis-restart) |
 | **Signed upload URL** | An HMAC-signed, expiring `/uploads/…?exp=…&sig=…` link. Shipped but dormant until `UPLOADS_URL_SECRET` is set. → [D25](/history/decisions#d25-signed-upload-urls-shipped-dormant) |
 | **Fast path / worker path** | Upload processing. Text and PDF up to 20 MB are chunked in the app at upload time (fast path). Everything else goes to the external ingestor (worker path). |
 | **`.chunks.json`** | The on-disk sidecar holding an upload's chunks and embeddings, next to the file. Upload RAG does not use pgvector. |

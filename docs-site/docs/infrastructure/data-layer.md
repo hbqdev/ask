@@ -252,12 +252,66 @@ question again" and a vanished first answer. See [Streaming](/request-lifecycle/
   `--appendonly yes --maxmemory 256mb --maxmemory-policy noeviction`. **`noeviction`** matters
   because budget counters must never be silently evicted. The trade-off is that writes fail once
   the store is full, and every writer treats that as best-effort.
-- Client: node-redis via `LOCAL_REDIS_URL=redis://redis:6379`. Most helpers switch to Upstash
+- Client: node-redis 4.7.1 via `LOCAL_REDIS_URL=redis://redis:6379`, through the resilient
+  factory in `lib/redis/local-redis.ts` ([below](#redis-clients)). Most helpers switch to Upstash
   REST when `UPSTASH_REDIS_REST_URL`/`_TOKEN` are set, which the fleet doesn't use. Resumable
   streams need **real pub/sub**, so they require `LOCAL_REDIS_URL` and degrade on Upstash.
 - Nothing in Redis is authoritative. Losing it loses caches, the telemetry history and this
   month's budget counts. The counts restart from zero, which allows extra spend up to one more
   budget.
+- Redis can be **recreated under the running app**: the weekly `fleet-update-ask` run does it
+  whenever `redis:alpine` changes. Every client must survive that (next section).
+
+### Redis clients
+
+Since 2026-09-27 every module that talks to the local Redis gets its client from
+`createLocalRedisConnector('<label>')` (`lib/redis/local-redis.ts:213`), one lazily built,
+self-healing client per module
+([D39](/history/decisions#d39-every-local-redis-client-goes-through-local-redis-ts)). Before
+that, each built a bare `createClient({ url }) + connect()`. When the weekly update recreated
+Redis, those clients threw inside node-redis before reconnecting and then queued every command
+forever, and search hung for about 8.5 hours
+([known issue](/history/known-issues#search-hung-after-the-weekly-redis-update)).
+
+| Property | Value | Where | Why |
+|---|---|---|---|
+| `'error'` listener | logs `[redis:<label>] <message> — commands fail fast until it reconnects` once per change of error; `[redis:<label>] reconnected` on the next `ready` | `local-redis.ts:112-130` | Without a listener node-redis's error re-emit throws before the reconnect is scheduled |
+| `disableOfflineQueue` | `true` | `:103-110` | A command issued while disconnected rejects immediately instead of waiting for a reconnect |
+| Connect timeout | 2000 ms per attempt (`LOCAL_REDIS_CONNECT_TIMEOUT_MS`) | `:37` | Bounds one TCP + handshake attempt |
+| Reconnect backoff | `min(retries × 200, 2000)` ms: 0, 200, 400 … then every 2 s | `:53-56` | Comes back within ~2 s of Redis returning, without a tight loop |
+| Command bound | every command rejects after `LOCAL_REDIS_COMMAND_TIMEOUT_MS` (default 1000 ms) with `RedisCommandTimeoutError` | `:47-51`, `:142-180` | A half-open socket answers nothing, and node-redis takes minutes to notice. Local Redis answers in about 1 ms |
+| First use | `get()` waits at most `connectWaitMs` (connect timeout + 500 = ~2.5 s), then returns `null`; the client keeps reconnecting in the background | `:218-219`, `:264-284` | A Redis outage at boot costs one short wait, not a hang |
+| Later calls | `get()` returns the client only when `isReady`, otherwise `null` at once | `:288-298` | A reconnecting client costs callers nothing but a miss |
+| Rebuild | a closed client, a failed `connect()`, or 3 consecutive command timeouts drops the client (`[redis:<label>] dropping client (<reason>); will rebuild`); the next `get()` builds a new one | `:232-245`, `:250-263` | Nothing is cached dead for the life of the process |
+
+`get()` never throws. Callers keep their own outage semantics, which is what makes the factory
+safe to share:
+
+| Label | Module | Redis unavailable → |
+|---|---|---|
+| `advanced-search` | `app/api/advanced-search/route.ts:186` (result cache, hourly sweep, Tavily/Brave/LangSearch budgets, the `GET` probe) | cache miss; metered providers skipped (**fail closed**); probe 503 |
+| `basic-search-cache` | `lib/search/basic-search-cache.ts:76` (basic and expansion-variant cache; also the engine-health store) | miss; engine health reads as healthy (fail open) |
+| `brave-budget` | `lib/search/brave-budget.ts:43` | Brave general-search provider skipped (**fail closed**) |
+| `ingest-heartbeat` | `lib/utils/ingest-heartbeat.ts:40` | heartbeat not recorded; liveness reads `null` = unknown, never "down" |
+| `imagegen-budget` | `lib/imagegen/budget.ts:23` | with a budget set, generation denied (**fail closed**) |
+| `imagegen-retry` | `lib/imagegen/retry-tracker.ts:21` | retry streak counted in memory, for the rest of the process |
+| `imagegen-rotation` | `lib/imagegen/rotation.ts:13` | round-robin in memory, for the rest of the process |
+
+`basic-search-cache` and `ingest-heartbeat` used to cache a failed first connect as `null` for
+the life of the process; they now retry on the next call. The two imagegen counters still move
+to memory permanently after their first failure (their own design; see the comments in those
+files).
+
+**Not converted, on purpose.** `lib/telemetry/latency-store.ts` (the `latency:log` writer, also
+used by `app/api/quotes/route.ts`) and `lib/streaming/resumable-stream-context.ts` (publisher and
+subscriber) already register `'error'` listeners, and resumable-stream pub/sub relies on the
+offline queue the factory turns off.
+
+**Checking a live app.** `GET /api/advanced-search` with the internal bearer PINGs Redis through
+the `advanced-search` client and fires no search: 200 `{"redis":"ok",…}`, or 503. Run it inside
+the app container so the token stays there; the command is in the
+[runbook](/operations/runbooks#search-hangs-after-a-redis-restart). Client state changes are in
+the app log: `docker logs --since 1h ask 2>&1 | grep '\[redis:'`.
 
 ### Key families
 

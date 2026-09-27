@@ -19,8 +19,45 @@ behind the change. Lab-first work lives on `flow-design`. `git cherry-pick -x` l
 ## 2026-09 — September
 
 **Streaming lifecycle, mobile QA, the end of the latency campaign, a fleet clean-up, every
-question searches, and citations the model copies instead of counting**
+question searches, citations the model copies instead of counting, and search that survives a
+Redis restart**
 
+- **09-27** — **Incident: a Redis restart hung every balanced/quality search; the fix**
+  (`2f5eac13`; lab `a9c5914a`; staging `c0df517f`; deployed about 20:45 UTC;
+  [D39](/history/decisions#d39-every-local-redis-client-goes-through-local-redis-ts)).
+  - The weekly sidecar update (04:30 PDT = 11:30 UTC) recreated `redis`, `gluetun` and
+    `searxng` for prod and staging under the running apps. The app's node-redis clients had no
+    `'error'` listener, threw before reconnecting and queued every later command, so
+    `/api/advanced-search` never answered and turns died silently at 300 s. Health checks,
+    the homepage and the update's own verification stayed green. Restarting both apps at about
+    20:03 UTC mitigated it.
+    → [known issues](/history/known-issues#search-hung-after-the-weekly-redis-update),
+    [runbook](/operations/runbooks#search-hangs-after-a-redis-restart)
+  - `lib/redis/local-redis.ts`: one resilient local client factory (error listener,
+    `disableOfflineQueue`, 2 s connect timeout, backoff capped at 2 s, every command bounded at
+    1 s via `LOCAL_REDIS_COMMAND_TIMEOUT_MS`, dead clients rebuilt), used by all seven modules
+    that had a bare client. Per-caller outage behaviour unchanged; the basic-search cache and
+    the ingest heartbeat now also recover from a failed first connect.
+    → [data layer](/infrastructure/data-layer#redis-clients)
+  - The search tool bounds its internal call: `ADVANCED_SEARCH_HEADERS_TIMEOUT_MS` (20 s, stream
+    mode) and `ADVANCED_SEARCH_TIMEOUT_MS` (180 s total), then falls back to a basic SearXNG
+    search with a `[search] advanced-search timed out …` line and a
+    `[latency:search] kind:"advanced-fallback"` line.
+    → [pipeline](/search/pipeline#advanced-search-deadline-and-fallback),
+    [telemetry](/operations/telemetry#emitted-by-the-search-tool)
+  - New token-gated `GET /api/advanced-search`: PINGs Redis through the route's client, no search.
+    `update-images.sh` restarts the app when a sidecar changed under it and runs that probe.
+    → [fleet scripts](/operations/fleet-scripts#update-images-sh)
+  - Open follow-up: the same morning the lab's image pull failed and the script reported success
+    ([known issue](/history/known-issues#image-pull-failures-are-swallowed-by-update-images-sh)).
+- **09-27** — **The forced search is the first search, not the only one** (`facc98f3`; lab
+  `8c4a28b2`; staging `9c24ed64`;
+  [D37 addendum](/history/decisions#addendum-2026-09-27-the-forced-search-is-the-first-search)).
+  The always-search prompt addendum told the model to search again or fetch "only if those
+  results leave a specific gap you can name" and, if they were irrelevant, to "answer from what
+  you know". It now says to treat the forced search as the first of the turn's searches and
+  continue the mode's research protocol, and to search again with a better query when the
+  results are irrelevant. A test guards the wording.
 - **09-27** — **Citations: ready-made citation handles; reloaded citations keep their page**
   (`8878a42d`, `0ca166fe`, `337dbee7`; lab `48cc3938`, `8a67e3cd`, `1194ae0f`; staging
   `696bd454`, `3402bc5d`, `2c41c22c`; [D38](/history/decisions#d38-ready-made-citation-handles)).

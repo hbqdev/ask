@@ -170,15 +170,17 @@ To add a merged source (LangSearch is the template):
    full timeout to every search.
 2. **Budget gate** if it is metered: a `maybeFetchX` that reads a Redis counter first and skips
    if Redis cannot be read (**fail closed**), and increments only after success
-   (`route.ts:467-500`). Prod and staging share API keys and count separately, so set the daily
-   or monthly budget below the provider quota.
-3. **Fan out**: add the call to the `Promise.allSettled` array (`route.ts:838`). Decide the
+   (`route.ts:466-499`). Prod and staging share API keys and count separately, so set the daily
+   or monthly budget below the provider quota. Use the route's existing Redis client
+   (`initializeRedisClient()`), never a new `createClient`; see
+   [Add a Redis-backed feature](#add-a-redis-backed-feature).
+3. **Fan out**: add the call to the `Promise.allSettled` array (`route.ts:884`). Decide the
    tier: everything hangs off `includeSearxngDegoog = searchMode !== 'balanced'`
-   (`route.ts:824`).
+   (`route.ts:870`).
 4. **Merge**: add `lib/tools/search/providers/merge-<x>.ts` that dedups by `normalizeUrl` and
-   caps (`merge-langsearch.ts`), and call it where the others merge (`route.ts:1058`).
+   caps (`merge-langsearch.ts`), and call it where the others merge (`route.ts:1104`).
 5. **Prefetched URLs**: if the source returns usable page text, add its URLs to
-   `prefetchedUrls` (`route.ts:992`) so crawl4ai does not re-fetch them.
+   `prefetchedUrls` (`route.ts:1038`) so crawl4ai does not re-fetch them.
 6. **Env flags** for enable/timeout/budget: see [the next recipe](#add-an-env-flag).
 7. **Measure on the lab** and judge the answers, not source counts. See
    [Search pipeline → How to change things](/search/pipeline#how-to-change-things) and
@@ -214,12 +216,54 @@ To add a merged source (LangSearch is the template):
    `cd /home/nightfury/selfhosted/ask/selfhosted/model-manager && docker compose up -d --build`.
    See [Model Manager](/infrastructure/model-manager).
 5. **Docs reference**: run `cd docs-site && bun run gen`. `scripts/gen/env.ts` rediscovers every
-   `process.env.X` in `app/ lib/ components/ hooks/ config/`, every compose reference and every
-   `.env*.example` entry, and never reads real `.env` files (`scripts/gen/lib.ts:76-79`). The
-   [Env flags](/reference/env-flags) page updates from that data.
+   `process.env.X` in `app/ lib/ components/ hooks/ config/` (plus same-file reader helpers
+   called with a literal name, such as `positiveIntEnv('ADVANCED_SEARCH_TIMEOUT_MS', …)`), every
+   compose reference and every `.env*.example` entry, and never reads real `.env` files
+   (`scripts/gen/lib.ts:76-79`). The [Env flags](/reference/env-flags) page updates from that
+   data. A name built at runtime (for example `process.env[ROLE_ENV[role]]`) is not found.
 6. **Apply**: env-only changes need `up -d --force-recreate --no-deps ask` for the env, not a
    rebuild ([Deploy → Env-only changes](/operations/deploy#env-only-changes)). Verify with
    `docker exec <container> printenv MY_FLAG`.
+
+## Add a Redis-backed feature
+
+Each environment's Redis is a sidecar that nothing treats as authoritative, and it can vanish
+under the running app: the weekly image update recreates it. On 2026-09-27 that wedged every
+bare node-redis client in the app and hung search for hours
+([D39](/history/decisions#d39-every-local-redis-client-goes-through-local-redis-ts)). So every
+local client comes from one factory.
+
+1. **Get the client from the connector**, once per module:
+
+   ```ts
+   import { createLocalRedisConnector } from '@/lib/redis/local-redis'
+
+   // The label appears in the logs as [redis:my-feature]
+   const localRedis = createLocalRedisConnector('my-feature')
+
+   const client = await localRedis.get() // null => treat Redis as unavailable
+   ```
+
+   Never import `createClient` from `redis` for this. `get()` never throws; the first call waits
+   at most ~2.5 s, and later calls return `null` at once while Redis is unreachable. Commands
+   reject immediately while disconnected and time out after `LOCAL_REDIS_COMMAND_TIMEOUT_MS`
+   (1000 ms). Details: [Data layer › Redis clients](/infrastructure/data-layer#redis-clients).
+2. **Choose the outage behaviour and code it**: a cache misses, a spend budget fails closed, a
+   liveness signal reads "unknown", a counter falls back to memory. Treat a `null` client and a
+   rejected command the same way (`try { await client.x() } catch { … }`). Copy the nearest
+   existing caller: `lib/search/basic-search-cache.ts` (cache), `lib/search/brave-budget.ts`
+   (fail-closed budget), `lib/utils/ingest-heartbeat.ts` (unknown), `lib/imagegen/rotation.ts`
+   (memory fallback).
+3. **Upstash.** The connector is local-only. The existing callers keep an
+   `UPSTASH_REDIS_REST_URL`/`_TOKEN` branch; do the same if the feature must work there.
+4. **Pub/sub** needs the offline queue the connector turns off. Give it its own client with an
+   `'error'` listener, as `lib/streaming/resumable-stream-context.ts` does.
+5. **Keys.** Set a TTL (Redis runs `noeviction`, so keys without one accumulate until writes
+   fail), keep the prefix out of `search:` unless it is a search cache (operators flush
+   `search:*`), and add the family to [Data layer › Key families](/infrastructure/data-layer#key-families).
+6. **Test the outage.** `lib/redis/__tests__/caller-outage-semantics.test.ts` mocks `redis`
+   with a client that hangs, is offline or refuses the connection, and asserts each caller's
+   answer arrives in bounded time. Add the new module there.
 
 ## Add a DB table or column (with a migration)
 
