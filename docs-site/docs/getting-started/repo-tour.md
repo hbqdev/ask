@@ -115,7 +115,7 @@ The generated [API routes reference](/reference/api-routes) lists methods and au
 |---|---|---|
 | `agents/` | The answering agent and helper LLM calls | `researcher.ts` (ToolLoopAgent, turn modes), `query-classifier.ts` (skipSearch + fused expansion), `query-expander.ts` (fallback), `title-generator.ts`, `memory-extractor.ts`, `answer-deadline.ts`, `flows/` (lab-only flow variants), `prompts/` |
 | `streaming/` | Turn orchestration and stream plumbing | `create-chat-stream-response.ts`, `create-ephemeral-chat-stream-response.ts` (guests), `active-generations.ts` (Stop registry), `resumable-stream-context.ts`, `resumable-chat-transport.ts`, `helpers/` (persist, narration stripping, stopped-message sanitising, doc-source budgeting) |
-| `tools/` | Tools the agent can call | `search.ts` + `search/` (providers, merges, intent, telemetry), `fetch.ts`, `recall.ts`, `remember.ts`, `generate-image.ts`, `weather.ts`, `calculate.ts`, `todo.ts`, `question.ts` |
+| `tools/` | Tools the agent can call | `search.ts` + `search/` (providers, merges, intent, telemetry, `advanced-search-deadline.ts`), `fetch.ts`, `recall.ts`, `remember.ts`, `generate-image.ts`, `weather.ts`, `calculate.ts`, `todo.ts`, `question.ts` |
 | `search/` | Pipeline pieces used by `advanced-search` | `quality-content.ts`, `snippet-gate.ts`, `build-excerpt.ts`, `crop-position.ts`, `engine-health*.ts`, `basic-search-cache.ts`, `brave-budget.ts`, `rehydrate-full-content.ts` |
 | `embeddings/` | Rerank, embeddings, upload/URL RAG | `rerank.ts`, `transformers-embedding.ts`, `passage-budget.ts`, `split-text.ts`, `upload-rag.ts`, `url-rag.ts` |
 | `memory/` | Long-term memory and conversation recall | `recall-index.ts`, `recall-search.ts`, `recall-inject.ts`, `inject.ts`, `write.ts` |
@@ -126,6 +126,7 @@ The generated [API routes reference](/reference/api-routes) lists methods and au
 | `auth/` | Current-user resolution, cron auth | `get-current-user.ts` |
 | `supabase/` | Supabase clients and session middleware | |
 | `telemetry/` | Latency log store and stage timers | `latency-store.ts`, `stage-timer.ts` (see [Telemetry](/operations/telemetry)) |
+| `redis/` | The one factory for local Redis clients (reconnecting, time-bounded; every module uses it) | `local-redis.ts` (see [Data layer › Redis clients](/infrastructure/data-layer#redis-clients)) |
 | `imagegen/` | Replicate image generation: registry, budget, rotation, retry escalation | `registry.ts`, `models/*.json` |
 | `voice/` | TTS/STT clients, spoken-gist generation | |
 | `warm/` | Demand-warm request builder and client trigger | |
@@ -155,7 +156,7 @@ and [Deploy › Migrations](/operations/deploy#migrations-at-boot).
 | `expire-uploads-daily.sh` | Daily 04:15 cron: calls `/api/maintenance/expire-uploads` on all three stacks. |
 | `rotate-mullvad.sh`, `rotate-daily.sh` | Mullvad exit-IP rotation (manual verbs / daily 05:00 cron). |
 | `update-ollama-fleet.sh`, `update-ollama.sh` | Weekly (Sun 03:30) Ollama upgrade on every host + re-pin resident models. |
-| `update-images.sh`, `update-ask.sh` + `fleet-update-ask.*`, `update-public-search.sh` + `fleet-update-public-search.*` | Pull + recreate third-party sidecar images: the Ask stacks weekly (lab, prod, staging; Sun 04:30 on .17) and the public search stacks weekly (.231). |
+| `update-images.sh`, `update-ask.sh` + `fleet-update-ask.*`, `update-public-search.sh` + `fleet-update-public-search.*` | Pull + recreate third-party sidecar images: the Ask stacks weekly (lab, prod, staging; Sun 04:30 on .17; restarts the app when a sidecar changed and probes the search route's Redis) and the public search stacks weekly (.231). |
 | `check-crawl4ai-version.sh` | Notify-only check for a newer crawl4ai release. |
 | `create-app-user.sh` | Create the restricted `app_user` Postgres role for a stack. |
 | `keep-warm.sh`, `gpu-idle-log.sh` | Legacy 24/7 GPU keep-warm (superseded by `/api/warm`) and a P-state sampler. |

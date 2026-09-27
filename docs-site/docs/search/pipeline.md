@@ -122,6 +122,7 @@ flowchart TD
   F --> V[Merge expansion variants<br/>first search only]
   V --> OUT
   E -- yes: advanced --> G[POST /api/advanced-search<br/>bearer token, NDJSON]
+  G -. no headers in 20s<br/>or not done in 180s .-> F
   G --> H{Redis cache hit?<br/>key includes searchMode}
   H -- yes --> OUT
   H -- no --> I[Fan-out, Promise.allSettled]
@@ -146,10 +147,10 @@ flowchart TD
 
 ### 1. The `search` tool entry: round cap and dedup
 
-`createSearchTool` (`lib/tools/search.ts:332`) is built **once per turn** by
+`createSearchTool` (`lib/tools/search.ts:337`) is built **once per turn** by
 `createResearcher`, so the counters in its closure are per-turn state.
 
-- **Round cap** (`lib/tools/search.ts:388-419`). Every executing search
+- **Round cap** (`lib/tools/search.ts:393-424`). Every executing search
   increments `searchRounds`. When it exceeds `resolveSearchRoundsBudget(searchMode)`
   (3, or 5 for quality), the tool returns a *valid, non-error* result with
   `results: []`, `searchLimitReached: true`, and a `notice` telling the model
@@ -166,7 +167,7 @@ flowchart TD
   reasoning between calls). On the lab, capping a looping turn cut
   `prompt_tokens` 93k→53k (−43%) and held the answer. The legacy module-level
   `searchTool` singleton (url-rag) passes no `toolOptions` and is exempt.
-- **Query dedup** (`:453-508`). Each query is embedded. A later query in the
+- **Query dedup** (`:458-513`). Each query is embedded. A later query in the
   same turn and same `search_mode` whose cosine similarity with an earlier one is
   ≥ `SEARCH_DEDUP_THRESHOLD` (0.92) returns a short "already searched" note
   instead of searching. A query is recorded only after its search *succeeds*,
@@ -179,7 +180,7 @@ flowchart TD
 
 When `shouldUseOllamaWebSpeed` holds (`searchMode === 'speed'`, an
 `OLLAMA_SEARCH_API_KEY` is configured, and `OLLAMA_SEARCH_ENABLED !== 'off'`),
-the tool (`:535-688`):
+the tool (`:540-693`):
 
 1. Calls Ollama's web-search API for ≤10 results (the API clamps at 10;
    `OLLAMA_SEARCH_MAX_RESULTS` can only lower it). Each result is a **full page
@@ -221,9 +222,16 @@ main results. Expansion is skipped for speed and skipped turns.
 `QUERY_EXPANSION_ENABLED=false` turns it off (`lib/agents/classifier-expansion.ts`).
 Telemetry: `[latency:search] {kind:"expansion", variants, cache_misses, failed, returned}`.
 
+The variants run **inside** that first `search` call (`lib/tools/search.ts:708-726`, merged at
+`:1143-1185`), so the UI shows a single search entry and the turn's `tool_calls` counts one call,
+although up to four queries ran. On a forced turn ([D37](/history/decisions#d37-always-search-every-question))
+that one entry is the forced search. It is only the first of the turn's searches: the forced-search
+prompt tells the model to go on searching with different queries as its mode's protocol
+describes ([D37 addendum](/history/decisions#addendum-2026-09-27-the-forced-search-is-the-first-search)).
+
 ### 4. Depth tiering: one advanced search per turn
 
-`resolveEffectiveDepth` (`:133`) decides the depth for each search. With
+`resolveEffectiveDepth` (`:138`) decides the depth for each search. With
 tiering on (`SEARCH_DEPTH_TIERING !== 'off'`, the default) and
 `SEARCH_API=searxng`, the first search uses the researcher's `firstSearchDepth`
 (`advanced` for balanced/quality, `basic` for speed, skip, and academic- or
@@ -245,11 +253,11 @@ A `type:"general"` search goes to Brave+SearXNG, merged in parallel
 ### 5. `/api/advanced-search`: auth and cache
 
 The route is internal-only. It requires `Authorization: Bearer $INGEST_API_TOKEN`
-(`checkIngestAuth`, `route.ts:542`), the same token the ingest routes use.
+(`checkIngestAuth`, `route.ts:586`), the same token the ingest routes use.
 Before this check existed, anyone who could reach the public tunnel could
 drive crawls and spend the metered API quotas. The search tool is the only caller.
 
-**Cache key** (`route.ts:578`):
+**Cache key** (`route.ts:622`):
 `search:{query}:{maxResults}:{searchDepth}:{searchMode}:{include}:{exclude}:{timeRange}:{intent}:{ollNN}`.
 `searchMode` is part of the key because balanced and quality both send
 `searchDepth: 'advanced'` but query different sources, so without it one
@@ -264,9 +272,56 @@ resolves (~2s, `preview_ms`) and a `final` line after crawl and rerank. The
 preview only reaches the UI (source cards render early). The model only ever
 sees the `final` line.
 
+**The route's Redis client** (cache and the three budget helpers) comes from
+`createLocalRedisConnector('advanced-search')` (`route.ts:186`). While Redis is unreachable it
+returns `null` or rejects within 1 s, so the cache misses and the metered providers are skipped
+(fail closed) instead of the route waiting. Before 2026-09-27 a bare client held the cache
+`GET` forever after a Redis restart, which is why the route never sent headers
+([runbook](/operations/runbooks#search-hangs-after-a-redis-restart),
+[D39](/history/decisions#d39-every-local-redis-client-goes-through-local-redis-ts)).
+
+**Redis probe: `GET /api/advanced-search`** (`route.ts:542-577`). Same bearer gate as POST. It
+PINGs Redis through this route's own client and fires no search, so it spends no engine quota.
+It answers `200 {"redis":"ok","backend":"local","ms":…}`, or 503 with `redis:"unavailable"`
+(no ready client) or `redis:"error"` (PING failed or timed out), always with
+`Cache-Control: no-store`. `fleet-boot/update-images.sh` runs it from inside the app container
+after every sidecar update; builds older than the fix answer 405.
+
+#### Caller-side deadline and basic fallback {#advanced-search-deadline-and-fallback}
+
+The search tool's `fetch` to this route had **no timeout** until 2026-09-27, so a route that
+never answered held the turn until undici's 300 s headers timeout. It is now bounded by
+`createAdvancedSearchDeadline` (`lib/tools/search/advanced-search-deadline.ts:93-141`, used at
+`lib/tools/search.ts:919-924`), with two limits because the route has two very different phases:
+
+| Limit | Env var | Default | Applies | Why this value |
+|---|---|---|---|---|
+| Headers | `ADVANCED_SEARCH_HEADERS_TIMEOUT_MS` | 20 000 ms | stream mode only (the default); stops when response headers arrive | In stream mode the route returns its NDJSON response right after auth and the cache lookup, normally within milliseconds. No headers in 20 s means it is stuck before doing any search work, which was exactly the 2026-09-27 failure. Non-stream mode sends headers only with the final result, so the clock is off there. |
+| Total | `ADVANCED_SEARCH_TIMEOUT_MS` | 180 000 ms | the whole call, including the streamed body | Deliberately loose: the slowest healthy advanced searches in `latency:log` took 69 s and 91 s (quality, crawl about 50 s plus legacy enrich about 20 s), and the route's own internal limits (120 s Crawl4AI chunk, 20 s legacy crawl, 20 s cross-encoder) allow more. A 60 s cap would have cut real searches. 180 s still ends inside the 300 s generation budget. |
+
+Both are read per call; a non-numeric or non-positive value falls back to the default. The
+turn's own abort signal is combined in, so Stop still cancels the call at once and surfaces as
+a normal abort, not a timeout.
+
+On **either** timeout the tool (`lib/tools/search.ts:1010-1037`, `runBasicSearxng` at `:851-904`):
+
+1. logs `[search] advanced-search timed out (phase=headers|total, limit=<ms>ms, waited=<ms>ms, mode=<searchMode>) — falling back to basic SearXNG for "<query>"`;
+2. runs the same cached **basic** SearXNG search a follow-up search would run (SearXNG
+   snippets, plus Ollama web search when it is enabled; no crawl, no rerank, no
+   Tavily/Brave/LangSearch), so the turn still gets citable sources;
+3. writes its own `[latency:search]` line with `depth:"basic"`, `provider`,
+   `kind:"advanced-fallback"`, `advanced_timeout` (the phase) and `advanced_wait_ms`, because the
+   route never reports this search ([telemetry](/operations/telemetry#emitted-by-the-search-tool)).
+
+Anything else (an HTTP error status, a stream with no `final` line, the turn's own abort) still
+throws and reaches the model as a tool error, as before. Expansion variants still merge into the
+fallback's results. A fallback is a symptom: several in a row mean the route or its
+dependencies are sick, so read the route's log and run the probe
+([runbook](/operations/runbooks#search-hangs-after-a-redis-restart)).
+
 ### 6. Fan-out and source tiers
 
-All sources are fired concurrently with `Promise.allSettled` (`route.ts:827-885`).
+All sources are fired concurrently with `Promise.allSettled` (`route.ts:873-931`).
 The tier switch is a single line:
 `includeSearxngDegoog = searchMode !== 'balanced'`. An undefined mode
 (legacy or url-rag callers) behaves like quality.
@@ -325,10 +380,10 @@ Tavily, Brave, LangSearch, Ollama (`merge-*.ts`). Each merge is capped at
 at least 10 (the tool default is 20) and at most `SEARXNG_MAX_RESULTS` (50).
 The multiplier is **2 on prod** and 4 on staging and lab.
 
-`prefetchedUrls` (`route.ts:985`) is the set of URLs that already carry usable
+`prefetchedUrls` (`route.ts:1038`) is the set of URLs that already carry usable
 text and must **not** be crawled: all Ollama, Tavily, and LangSearch URLs, plus
 Brave URLs beyond the top `BRAVE_CRAWL_MAX`. The include/exclude domain filter
-is applied a **second time across the full pool** (`:1084`), because the
+is applied a **second time across the full pool** (`:1132`), because the
 provider merges run without the domain arguments, and some of them prepend
 their results.
 
@@ -350,7 +405,7 @@ gate fails open to the unfiltered pool.
 ### 9. Crawl
 
 Candidates not in `prefetchedUrls` go to the **crawl4ai** sidecar
-(`crawl4aiScrapeMany`, `route.ts:1166-1200`):
+(`crawl4aiScrapeMany`, `route.ts:1212-1246`):
 
 - Up to `MAX_ENRICH_URLS` (100) URLs, in chunks of `CRAWL4AI_CHUNK_SIZE` (8),
   with at most `CRAWL4AI_MAX_CONCURRENT_CHUNKS` (6) chunks in flight. That is
@@ -386,7 +441,7 @@ speedup.
 
 Every page's text (crawled or prefetched) is cut to
 **`SEARCH_ENRICH_MAX_CHARS`** characters (`ENRICH_CONTENT_MAX_CHARS`,
-`route.ts:124`). The code default is 10000. **Prod, staging, and lab all run
+`route.ts:121`). The code default is 10000. **Prod, staging, and lab all run
 20000.** Query terms are wrapped in `<mark>` for the UI, and the tags are
 stripped again before scoring.
 
@@ -413,7 +468,7 @@ strict on purpose to hold prompt size down.
 ### 12. Rerank
 
 Tiers are tried from best to worst, and each one falls back to the next on
-failure (`route.ts:1313-1452`):
+failure (`route.ts:1359-1498`):
 
 | Tier | Function | Scorer | Score floor | Telemetry `rerank_tier` |
 |---|---|---|---|---|
@@ -455,7 +510,7 @@ The pool is sliced to `maxResults`, cached (if non-empty), and returned with a
 `timings` object. The search tool adds those timings to the turn's
 `[latency]` line. The tool output keeps `toolCallId` and `images`, and drops
 `state`/`citationMap` before the result is shown to the model (`toModelOutput`,
-`lib/tools/search.ts:1213-1226`).
+`lib/tools/search.ts:1276-1289`).
 
 **The citation contract.** A citation `[N](#toolCallId)` means result N of this call, where N is
 the result's 1-based position in this output's `results`, restarting at 1 for every call. The
@@ -528,8 +583,10 @@ the same URLs unchecked. (Fixed 2026-09-23; before that it used a raw
 | Basic SearXNG search | `basicSearchCacheKey(query\|mode\|domains\|intent\|content_types, max, timeRange)` | 1h | `lib/search/basic-search-cache.ts`; also used by expansion variants (the classifier runs at temperature 0, so the same question produces the same variants) |
 | Metered budgets | `tavily:budget:YYYY-MM`, `brave:budget:YYYY-MM`, `langsearch:budget:YYYY-MM-DD` | 35 days / 48h | counters, not caches |
 
-All live in the per-env Redis (`LOCAL_REDIS_URL`, `noeviction`). See
-[Data layer](/infrastructure/data-layer).
+All live in the per-env Redis (`LOCAL_REDIS_URL`, `noeviction`), reached through the
+self-healing clients of `lib/redis/local-redis.ts`: while Redis is down, every cache misses and
+every budget fails closed within about a second instead of blocking the search. See
+[Data layer](/infrastructure/data-layer#redis-clients).
 
 ## Knobs
 
@@ -550,7 +607,9 @@ inlined at build time and do need a rebuild.
 | `SEARXNG_DEFAULT_DEPTH` | `advanced` forces advanced depth when tiering is off | `basic` | |
 | `SEARCH_DEDUP_ENABLED` / `SEARCH_DEDUP_THRESHOLD` | In-turn near-duplicate query skip | on / 0.92 | |
 | `QUERY_EXPANSION_ENABLED` | `false` disables expansion variants | on | |
-| `SEARCH_STREAM_PREVIEW` | `false` disables the NDJSON preview line | on | |
+| `SEARCH_STREAM_PREVIEW` | `false` disables the NDJSON preview line (and with it the headers deadline below) | on | |
+| `ADVANCED_SEARCH_HEADERS_TIMEOUT_MS` | Search tool gives up on `/api/advanced-search` if no response headers arrive, then falls back to basic SearXNG ([deadline](#advanced-search-deadline-and-fallback)) | 20000 | unset in all envs |
+| `ADVANCED_SEARCH_TIMEOUT_MS` | Same, for the whole call including the streamed body | 180000 | unset in all envs |
 | `OLLAMA_SEARCH_ENABLED` | `off` disables Ollama web search (and the speed fast path) | on if `OLLAMA_SEARCH_API_KEY` set | |
 | `OLLAMA_SEARCH_MAX_RESULTS` | Ollama results per call (clamped to 10) | 10 | |
 | `OLLAMA_SEARCH_TIMEOUT_MS` | Ollama web-search timeout | 10000 | |
@@ -610,7 +669,7 @@ call to the `Promise.allSettled` array. Add a `merge-x.ts` in
 the returned URLs and the answers, not source counts.
 
 **Move a source between tiers.** Everything hangs off `includeSearxngDegoog`
-(`route.ts:823`). Because `searchMode` is in the cache key, no cache flush is
+(`route.ts:870`). Because `searchMode` is in the cache key, no cache flush is
 needed.
 
 **Tune the round cap.** Set `SEARCH_ROUNDS_MAX` / `SEARCH_ROUNDS_MAX_QUALITY`

@@ -300,7 +300,7 @@ them; see the note above about `.gitignore`).
 | `HEARTBEAT_INTERVAL` | no | `180` | Seconds between lease-refreshing progress heartbeats during a job. Keep well under Ask's 30-minute stale window; `≤ 0` disables |
 
 Ask-side variables that interact with the worker: `INGEST_API_TOKEN` (gate),
-`INGEST_HEARTBEAT_TTL_S` (liveness window, default 60 s, `lib/utils/ingest-heartbeat.ts:27-30`),
+`INGEST_HEARTBEAT_TTL_S` (liveness window, default 60 s, `lib/utils/ingest-heartbeat.ts:31-34`),
 and the answer-path wait knobs documented in
 [RAG & uploads](/knowledge/rag-uploads#waiting-for-ingest-on-the-answer-path).
 

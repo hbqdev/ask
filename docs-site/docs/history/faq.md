@@ -27,6 +27,7 @@ flowchart TD
   A -- yes --> B{What degraded?}
   B -- speed --> L[Read the turn's latency line]
   B -- search results --> V[gluetun / SearXNG / providers]
+  B -- search never returns --> RD[Redis probe; restart app on an old build]
   B -- titles, memory --> O[.171 local Ollama]
   B -- uploads --> I[ingestor heartbeat]
   B -- mic / location --> P[Permissions-Policy header, HTTPS]
@@ -147,6 +148,25 @@ On builds before the lab fix, a SearXNG failure also discarded every other provi
 ([known issue](/history/known-issues#searxng-failure-empties-a-quality-search)).
 → [Runbooks › Search dead after boot](/operations/runbooks#search-dead-after-boot-gluetun-searxng-vpn-sidecar-down),
 [Search pipeline](/search/pipeline), [Fleet scripts](/operations/fleet-scripts) (`rotate-mullvad.sh`)
+
+### Answers never arrive / search spins for minutes
+
+**First check.** Is it every balanced and quality question, while speed mode still answers? Run
+the search-path Redis probe inside the app container (it PINGs Redis, fires no search):
+
+```bash
+docker exec ask node -e "fetch('http://127.0.0.1:3000/api/advanced-search',{headers:{authorization:'Bearer '+(process.env.INGEST_API_TOKEN||'')}}).then(async r=>console.log(r.status,await r.text()))"
+```
+
+`200 {"redis":"ok",…}` means Redis is not the cause. A `405` means a build from before
+2026-09-27, whose Redis clients wedge for good when Redis restarts under them: if
+`docker inspect -f '{{.State.StartedAt}}' ask-redis` is newer than the app's start, `docker
+restart ask`. That was the 2026-09-27 incident, triggered by the Sunday image update; the homepage and
+health checks stayed green throughout. On a current build a stuck search falls back to a basic
+search after 20 s (`[search] advanced-search timed out` in the log) instead of spinning for
+five minutes, and the Redis clients log `[redis:<label>] reconnected` by themselves.
+→ [Runbooks › Search hangs after a Redis restart](/operations/runbooks#search-hangs-after-a-redis-restart),
+[Telemetry › aborted turns](/operations/telemetry#aborted-turns-provider-stall-or-hung-tool)
 
 ### The answer keeps spinning, or Stop does nothing
 

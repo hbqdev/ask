@@ -97,7 +97,7 @@
       "label": "Redis ×3",
       "kind": "datastore",
       "host": "h17",
-      "description": "Per-env redis:alpine, noeviction, no host port. Search caches, resumable-stream pointers + pub/sub, latency:log, metered-API budgets, ingest heartbeat, imagegen counters.",
+      "description": "Per-env redis:alpine, noeviction, no host port. Search caches, resumable-stream pointers + pub/sub, latency:log, metered-API budgets, ingest heartbeat, imagegen counters. The app's clients (lib/redis/local-redis.ts) reconnect by themselves when it is recreated under them (weekly image update).",
       "link": "/infrastructure/services#redis"
     },
     {

@@ -65,8 +65,9 @@ names the lab original. See [deploy](/operations/deploy) for the flow.
 | [D34](#d34-recall-rerank-deferred-not-aborted) | Recall rerank deferred (not aborted); pool 10 × 384 tokens (8 on prod and lab since 09-25) | adopted | 2026-09-23 / 09-25 |
 | [D35](#d35-retire-and-remove-the-231-ask-stacks) | Retire and remove the .231 Ask stacks | adopted | 2026-08-27 → 09-24 |
 | [D36](#d36-strip-historical-citation-anchors-resolve-citations-per-turn-only) | Strip historical citation anchors; resolve citations per turn only (one resolver, N = position within that call, since 09-26) | adopted | 2026-09-24 / 09-26 |
-| [D37](#d37-always-search-every-question) | Always search every question (forced first search) | adopted | 2026-09-26 |
+| [D37](#d37-always-search-every-question) | Always search every question (forced first search; since 09-27 the first search, not the only one) | adopted | 2026-09-26 / 09-27 |
 | [D38](#d38-ready-made-citation-handles) | Ready-made citation handles in the model-facing tool output (`CITATION_HANDLES`) | adopted | 2026-09-27 |
+| [D39](#d39-every-local-redis-client-goes-through-local-redis-ts) | Every local Redis client goes through `lib/redis/local-redis.ts` | adopted | 2026-09-27 |
 
 ---
 
@@ -284,7 +285,7 @@ names the lab original. See [deploy](/operations/deploy) for the flow.
 - **Context.** After D5–D8, real balanced turns still looped up to **7** `search` calls (~15 s
   fan-outs plus ~57 s of inter-call model reasoning).
 - **Decision.** `SEARCH_ROUNDS_MAX` (default 3) and `SEARCH_ROUNDS_MAX_QUALITY` (default 5). The
-  cap is enforced **inside the search tool's `execute`** (`lib/tools/search.ts:311-396`) with a
+  cap is enforced **inside the search tool's `execute`** (`lib/tools/search.ts:316-401`) with a
   per-turn counter in the `createSearchTool` closure. Past the budget it returns a non-error
   "answer from what you have" result (no fan-out, no crawl) and logs `kind:'round-cap'`.
 - **Why inside the tool.** In AI SDK v6, `activeTools` only filters which tool **definitions** are
@@ -1002,7 +1003,7 @@ turn-based loop (`git revert b0ff56ad`) brings back the same latency.
      would not survive the anchor regexes (`ANCHOR_SAFE_ID_RE`, `citation-handles.ts:42`). A
      legacy output with a `citationMap` is left alone, and the input is never mutated.
   2. **Where it is added: only in model-facing output.** The `search` tool's `toModelOutput`
-     (`lib/tools/search.ts:1213-1226`) numbers the results **after** the researcher's per-turn
+     (`lib/tools/search.ts:1276-1289`) numbers the results **after** the researcher's per-turn
      URL dedup, because the dedup wrapper yields the trimmed list and keeps the tool's
      `toModelOutput` (`lib/agents/researcher.ts:257-354`). `fetch` gained a `toModelOutput`
      (`lib/tools/fetch.ts:759-765`) that numbers the merged `results`, from which failed URLs
@@ -1137,7 +1138,8 @@ turn-based loop (`git revert b0ff56ad`) brings back the same latency.
   4. **The prompt is told.** `FORCED_SEARCH_PROMPT_ADDENDUM` (`always-search.ts:319`, appended at
      `researcher.ts:833-835`) says the first search has already run, asks for the answer to be
      grounded and cited, and cancels the mode prompts' "clarifying your own prior answer, do not
-     search" exception. It is appended after the mode prompt, so it wins. Since 2026-09-27 it is
+     search" exception. Since 2026-09-27 it also says this is the first search, not the only one
+     (addendum below). It is appended after the mode prompt, so it wins. Since 2026-09-27 it is
      appended through `getForcedSearchPromptAddendum()` (`always-search.ts:330-338`), which
      swaps the citing sentence for "copy each result's `cite` string" while `CITATION_HANDLES`
      is on ([D38](#d38-ready-made-citation-handles)).
@@ -1239,3 +1241,99 @@ turn-based loop (`git revert b0ff56ad`) brings back the same latency.
 - **Revisit if** the forced searches make answers measurably worse on judged turns (not on counts;
   see D4), or the latency cost starts to hurt. The skip definition is the lever to tune first, not
   the forcing mechanism.
+- <span id="addendum-2026-09-27-the-forced-search-is-the-first-search"></span>**Addendum
+  2026-09-27: the forced search is the first search, not the only one.** Commit `facc98f3`
+  (lab `8c4a28b2`, staging `9c24ed64`).
+  - **What was wrong.** The addendum ended: "Search again or fetch a page only if those results
+    leave a specific gap you can name; if they turn out irrelevant, answer from what you know
+    and do not cite them." It is appended after the mode prompt, so it wins over it. That
+    sentence overrode quality mode's deep-research protocol (plan with `todoWrite`, then many
+    searches with different phrasings and a gap check,
+    `lib/agents/prompts/search-mode-prompts.ts:484-520`) and balanced mode's ordinary follow-up
+    searching, and "answer from what you know" reopened the memory-only answers D37 exists to
+    stop.
+  - **What the numbers showed, and how little.** Prod `latency:log`: the 41 turns (balanced and
+    speed) with at least one tool call logged before always-search had a median of **3** tool
+    calls; the 4 forced
+    research turns logged after it had a median of **1**. But 2 of those 4 were turns hung by
+    the [Redis incident](/history/known-issues#search-hung-after-the-weekly-redis-update), whose
+    only call never returned; the 2 healthy ones made 1 and 2 calls. The lab (mostly
+    kimi-k2.6, all balanced) had 33 forced turns on the old wording: median 2, and 16 of them
+    made a single call. The change rests on the wording contradicting the protocols; the counts
+    only point the same way.
+  - **New wording** (`FORCED_SEARCH_PROMPT_ADDENDUM`, `lib/agents/always-search.ts:319-322`):
+    "Treat it as your FIRST search, not your only one: continue your research exactly as the
+    protocol above describes — search again with different queries (never repeat this one) and
+    fetch pages for anything the question needs that these results do not already settle …
+    If these results turn out irrelevant, search again with a better query instead of answering
+    from memory." The `CITATION_HANDLES` variant (`getForcedSearchPromptAddendum`, `:330-338`)
+    swaps only the citing sentence, so it carries the same text. The test "frames the forced
+    search as the first search, not the only one" (`lib/agents/__tests__/always-search.test.ts`)
+    also fails if "only if those results" or "answer from what you know" comes back.
+  - **First lab turns on the new wording** (kimi-k2.6, as of 21:00 UTC on 09-27): four balanced
+    forced turns made 2, 3, 5 and 6 tool calls, a quality turn 9 and a speed turn 1. Too few to
+    call; it is the direction intended.
+  - **Unchanged.** Every search after the first is basic depth and counts against
+    `SEARCH_ROUNDS_MAX` (3; 5 in quality), see [D9](#d9-search-round-cap-enforced-inside-the-tool).
+    The expansion variants (up to 3) still run inside the forced call itself, so the UI shows
+    one search entry for them and `tool_calls` counts one call
+    ([pipeline](/search/pipeline#_3-expansion-variants)).
+  - **Watch** on prod lines from `facc98f3` onward: `tool_calls` and `total_ms` of research
+    turns per `modelId` and mode. More searches cost time; whether they make better answers is
+    a judging question ([D4](#d4-judge-answers-not-source-counts)), not a count.
+
+## Reliability
+
+### D39. Every local Redis client goes through `local-redis.ts`
+
+- **Status:** adopted · **Date:** 2026-09-27 (lab, staging and prod the same day) ·
+  **Commit:** `2f5eac13` (lab `a9c5914a`, staging `c0df517f`).
+- **Context.** Seven modules each built their own module-level node-redis client with a bare
+  `createClient({ url }) + connect()`: no `'error'` listener, the default offline queue, no
+  command timeout. When the weekly update recreated Redis under the running app, those clients
+  threw before reconnecting and then held every command forever. Every balanced and quality
+  search hung for about 8.5 hours while every health check stayed green
+  ([known issue](/history/known-issues#search-hung-after-the-weekly-redis-update)).
+- **Decision.** Code that talks to the env's local Redis gets its client from
+  `createLocalRedisConnector('<label>')` (`lib/redis/local-redis.ts:213`) and never calls
+  `createClient` itself. The connector:
+  - registers an `'error'` listener that logs `[redis:<label>] …` once per change of error and
+    never rethrows, so node-redis's own reconnect runs; `ready` after an error logs
+    `[redis:<label>] reconnected` (`:117-129`);
+  - sets `disableOfflineQueue: true`, so a command issued while disconnected rejects at once
+    instead of queueing (`:103-110`);
+  - bounds each connect attempt at 2 s and backs off `min(retries × 200, 2000)` ms (`:37`,
+    `:54-56`);
+  - bounds every command at `LOCAL_REDIS_COMMAND_TIMEOUT_MS` (1000 ms), because a half-open
+    socket answers nothing and node-redis takes minutes to notice (`:48-51`, `:150-180`);
+  - waits at most ~2.5 s for the first connect, then `get()` returns `null` immediately while
+    the client is not ready, and rebuilds a client that is closed or has timed out 3 commands in
+    a row (`:218-223`, `:250-263`, `:288-298`).
+
+  The callers keep their own outage semantics, because the connector only turns a hang into a
+  fast rejection or a `null`: the Brave, Tavily, LangSearch and Replicate budgets **fail
+  closed**, the search caches miss, the ingest heartbeat reads "unknown", the imagegen rotation
+  and retry counters fall back to memory (for the rest of the process, as before). Upstash REST
+  clients are not built here; callers keep their Upstash branches.
+- **Exceptions, and why.** `lib/telemetry/latency-store.ts` (also used by the quotes cache) and
+  `lib/streaming/resumable-stream-context.ts` already register `'error'` listeners, and the
+  resumable stream's pub/sub connections rely on the offline queue, so both keep their own
+  clients.
+- **The other half.** The search tool bounds its call to `/api/advanced-search` (20 s to headers,
+  180 s total, then a basic SearXNG fallback), so any future stall in that route costs a turn
+  about 20 s instead of 300 s ([pipeline](/search/pipeline#advanced-search-deadline-and-fallback)).
+  And `fleet-boot/update-images.sh` restarts the app whenever a sidecar was recreated under it,
+  then probes the route's Redis ([fleet scripts](/operations/fleet-scripts#update-images-sh)).
+- **Evidence.** Unit tests: `lib/redis/__tests__/local-redis.test.ts` (the connector),
+  `lib/redis/__tests__/caller-outage-semantics.test.ts` (each caller's outage behaviour),
+  `app/api/advanced-search/__tests__/redis-resilience.test.ts` (the route and its probe),
+  `lib/tools/search/__tests__/advanced-search-deadline.test.ts` and
+  `lib/tools/__tests__/search-advanced-timeout.test.ts` (the deadline and fallback). On the lab,
+  `ask-redis-lab` was recreated under the running app: `[redis:advanced-search] reconnected`,
+  no uncaught exception, and a balanced question answered normally.
+- **Do not** add a Redis-backed feature with its own `createClient`, and do not "simplify" the
+  connector by dropping the error listener or re-enabling the offline queue. Either brings the
+  2026-09-27 failure back.
+- **Revisit if** Ask moves to Upstash or a Redis cluster (the connector is local-only), or a new
+  caller needs pub/sub (give it its own client with an error listener, like the resumable
+  stream).
