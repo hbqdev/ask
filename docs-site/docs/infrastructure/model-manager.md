@@ -309,17 +309,23 @@ helpers use that: `boolIsOn(spec, value)` (`:94-104`) decides what the switch sh
 |---|---|---|---|---|---|
 | `RECALL_ENABLED` | `not-off` | `!== 'off'` (`lib/streaming/create-chat-stream-response.ts:1150`, `lib/db/recall-actions.ts:225`) | on | `on` / `off` | `on` or `off` |
 | `MEMORY_ENABLED` | `not-off` | `!== 'off'` (`create-chat-stream-response.ts:1092`, `lib/db/memory-actions.ts:161`) | on | `on` / `off` | `on` or `off` |
-| `OLLAMA_SEARCH_ENABLED` | `not-off` | `!== 'off'` (`lib/tools/search.ts:169,773`) | on | `on` / `off` | `on` or `off` |
-| `ALWAYS_SEARCH` | `not-off` | `!== 'off'` (`isAlwaysSearchEnabled`, `lib/agents/always-search.ts:30-34`; spec `lib/env-schema.ts:462-473`, Search tab) | on | `on` / `off` | `on` or `off` |
+| `OLLAMA_SEARCH_ENABLED` | `not-off` | `!== 'off'` (`lib/tools/search.ts:176,783`) | on | `on` / `off` | `on` or `off` |
+| `ALWAYS_SEARCH` | `not-off` | `!== 'off'` (`isAlwaysSearchEnabled`, `lib/agents/always-search.ts:32-36`; spec `lib/env-schema.ts:462-473`, Search tab) | on | `on` / `off` | `on` or `off` |
+| `CITATION_HANDLES` | `not-off` | `!== 'off'` (`isCitationHandlesEnabled`, `lib/utils/citation-handles.ts:24-28`; spec `lib/env-schema.ts:474-485`, Search tab, label "Ready-made citation handles") | on | `on` / `off` | `on` or `off` |
 | `ENABLE_AUTH` | `not-false` | `=== 'false'` → anonymous mode (`lib/auth/get-current-user.ts:21`, `lib/supabase/middleware.ts:82`) | on | `true` / `false` | `true` or `false` |
 | `DATABASE_SSL_DISABLED` | `true` | `=== 'true'` (`lib/db/index.ts:50`, `lib/db/migrate.ts:21`) | off (SSL on, verified) | `true` / `false` | `true` or `false` |
 | `MORPHIC_CLOUD_DEPLOYMENT` | `true` | `=== 'true'` everywhere | off | `true` / `false` | `true` or `false` |
+
+The `CITATION_HANDLES` switch was added on 2026-09-27 (lab `1194ae0f`, staging `2c41c22c`, the
+branch the running copy is built from; `dev` `337dbee7`). Switching it off reverts the ready-made
+citation handles ([D38](/history/decisions#d38-ready-made-citation-handles)) on the next `ask`
+recreate, without a rebuild.
 
 What the operator sees:
 
 - **Unset shows the app's real default**, followed by "(default)"
   (`components/field.tsx:43-48`, `:101-112`). `RECALL_ENABLED` unset reads "Enabled (default)", not "Disabled".
-- **A kill switch writes `on`/`off`.** The validator for the four `not-off` keys (`onOff`,
+- **A kill switch writes `on`/`off`.** The validator for the five `not-off` keys (`onOff`,
   `lib/env-schema.ts:125-128`) rejects `false` with "Must be on or off (Ask disables this only on
   `off`; `false` leaves it on)", in the browser and again server-side in `validateEdits`. A
   `false` already in `.env` is shown as **Enabled**, which is what the app does with it, and the
@@ -346,7 +352,7 @@ file (a code change on every branch) if they must ever differ.
 
 A registry test keeps every `bool` audited: the set of `bool` keys must equal the test's
 `APP_UNSET_BEHAVIOUR` table, and each spec's `default` must be the literal its switch writes for
-the app's unset behaviour (`lib/__tests__/env-schema.test.ts:158-244`). **When adding a boolean
+the app's unset behaviour (`lib/__tests__/env-schema.test.ts:158-246`). **When adding a boolean
 flag**, find how Ask reads it (`grep -rn "process.env.<NAME>" lib app components`), pick the
 matching `boolSense`, set `default` to the unset behaviour, and add the key to
 `APP_UNSET_BEHAVIOUR`. Use the `onOff` validator for a `not-off` flag and `bool` for the others.
