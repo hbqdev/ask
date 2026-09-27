@@ -5,7 +5,8 @@
 // in-process fallback map.
 
 import { Redis } from '@upstash/redis'
-import { createClient } from 'redis'
+
+import { createLocalRedisConnector } from '@/lib/redis/local-redis'
 
 export const RETRY_ESCALATION_THRESHOLD = 4
 const TTL_SECONDS = 60 * 60 * 24
@@ -17,6 +18,7 @@ type RetryClient = {
 }
 
 let client: RetryClient | null = null
+const localRedis = createLocalRedisConnector('imagegen-retry')
 let clientInitialized = false
 let clientOverridden = false
 const memoryCounters = new Map<string, number>()
@@ -31,16 +33,15 @@ async function getRetryClient(): Promise<RetryClient | null> {
     client = new Redis({ url, token }) as unknown as RetryClient
     return client
   }
-  try {
-    const local = createClient({
-      url: process.env.LOCAL_REDIS_URL || 'redis://localhost:6379'
-    })
-    await local.connect()
-    client = local as unknown as RetryClient
-  } catch (error) {
-    console.warn('[imagegen] retry: Redis unavailable, using memory:', error)
-    client = null
+  // Self-healing local client (lib/redis/local-redis.ts): its commands reject
+  // fast (and are time-bounded) while Redis is down instead of queueing
+  // forever, so a Redis restart lands in the catch blocks below — which
+  // abandon it for the memory path, exactly as for any other Redis failure.
+  const local = await localRedis.get()
+  if (!local) {
+    console.warn('[imagegen] retry: Redis unavailable, using memory')
   }
+  client = local as unknown as RetryClient | null
   return client
 }
 

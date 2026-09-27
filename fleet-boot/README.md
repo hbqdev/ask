@@ -51,7 +51,12 @@ Already deployed and enabled on all three hosts (2026-07-21).
   gluetun/kokoro; never the source-built app image) for one stack or all,
   recreates via the VPN overlays, health-checks and verifies VPN egress, then
   reclaims space. Stacks: `ask-lab`, `ask-prod`, `ask-staging` (each from its
-  own worktree), `degoog`, `public-searxng`.
+  own worktree), `degoog`, `public-searxng`. For an Ask stack, if any sidecar
+  container changed it also `docker restart`s the app (keeps its networks) and
+  verifies the search path's Redis via the token-gated
+  `GET /api/advanced-search` probe, run inside the app container — since
+  2026-09-27, when a recreated redis wedged the running app's clients and
+  every first search hung while the homepage still answered 200.
 - `update-ask.sh` + `fleet-update-ask.{service,timer}` — on NightFuryX (.17),
   Sundays 04:30: runs `update-images.sh` for `ask-lab` (canary), `ask-prod`,
   `ask-staging`. Logs to `/home/nightfury/selfhosted/logs/update-ask.log`.

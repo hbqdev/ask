@@ -5,6 +5,10 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 // times out on a machine without Redis. Simulate "Redis unreachable" instead.
 vi.mock('redis', () => ({
   createClient: vi.fn(() => ({
+    on: vi.fn(),
+    isOpen: false,
+    isReady: false,
+    disconnect: vi.fn().mockResolvedValue(undefined),
     connect: vi.fn().mockRejectedValue(new Error('ECONNREFUSED'))
   }))
 }))
