@@ -159,6 +159,7 @@ const APP_UNSET_BEHAVIOUR: Record<string, boolean> = {
   // `!== 'off'` / `=== 'off'` kill switches — unset = ON
   OLLAMA_SEARCH_ENABLED: true, // lib/tools/search.ts
   ALWAYS_SEARCH: true, // lib/agents/always-search.ts isAlwaysSearchEnabled
+  CITATION_HANDLES: true, // lib/utils/citation-handles.ts isCitationHandlesEnabled
   MEMORY_ENABLED: true, // lib/db/memory-actions.ts, create-chat-stream-response.ts
   RECALL_ENABLED: true, // lib/db/recall-actions.ts, create-chat-stream-response.ts
   // `=== 'false'` disables — unset = ON
@@ -200,7 +201,8 @@ describe('boolean flags show and write what Ask actually does', () => {
       'RECALL_ENABLED',
       'MEMORY_ENABLED',
       'OLLAMA_SEARCH_ENABLED',
-      'ALWAYS_SEARCH'
+      'ALWAYS_SEARCH',
+      'CITATION_HANDLES'
     ]) {
       const spec = specByKey(key)!
       expect(boolIsOn(spec, 'off')).toBe(false)
