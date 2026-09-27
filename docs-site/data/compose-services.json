@@ -247,6 +247,10 @@
               "value": "${ANSWER_THINK:-}"
             },
             {
+              "key": "CITATION_HANDLES",
+              "value": "${CITATION_HANDLES:-}"
+            },
+            {
               "key": "CLASSIFIER_MODEL_ID",
               "value": "deepseek-v4-pro:cloud"
             },
