@@ -1,3 +1,5 @@
+import { stripNarrationPreamble } from '../streaming/helpers/strip-narration-preamble'
+
 /** A part as seen by both the live path (UIMessage) and the backfill (DB rows). */
 export interface IndexablePart {
   type: string
@@ -82,9 +84,23 @@ function collapseWhitespace(text: string): string {
  */
 export function extractIndexableText(
   role: 'user' | 'assistant',
-  parts: IndexablePart[]
+  rawParts: IndexablePart[]
 ): string {
-  if (!Array.isArray(parts) || parts.length === 0) return ''
+  if (!Array.isArray(rawParts) || rawParts.length === 0) return ''
+
+  // The backfill reads raw DB rows, and answers saved before a narration rule
+  // existed can carry a preamble glued to their `## ` heading (D20). Cut it
+  // first, so it is neither indexed nor able to hide the heading the
+  // First-token fallback below looks for. Idempotent on the live path, which
+  // already passes the persist-cleaned message.
+  const parts =
+    role === 'assistant'
+      ? rawParts.map(p =>
+          p.type === 'text' && typeof p.text === 'string'
+            ? { ...p, text: stripNarrationPreamble(p.text) }
+            : p
+        )
+      : rawParts
 
   let relevant = parts
   if (role === 'assistant') {

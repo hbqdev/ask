@@ -31,6 +31,7 @@ import { isUsageLogging, logUsage } from '../utils/usage-logging'
 
 import { convertDataPart } from './helpers/convert-data-part'
 import { stripCitationAnchorsFromHistory } from './helpers/strip-citation-anchors-from-history'
+import { stripNarrationFromMessages } from './helpers/strip-narration-from-message'
 import { stripReasoningParts } from './helpers/strip-reasoning-parts'
 import { stripSpecFromMessages } from './helpers/strip-spec-from-messages'
 import { BaseStreamConfig } from './types'
@@ -46,14 +47,19 @@ type EphemeralStreamConfig = Pick<
 export async function createEphemeralChatStreamResponse(
   config: EphemeralStreamConfig
 ): Promise<Response> {
-  const { messages, model, abortSignal, searchMode, sources, chatId } = config
+  const { model, abortSignal, searchMode, sources, chatId } = config
 
-  if (!messages || messages.length === 0) {
+  if (!config.messages || config.messages.length === 0) {
     return new Response('messages are required', {
       status: 400,
       statusText: 'Bad Request'
     })
   }
+
+  // A guest's history arrives from the client as streamed, so earlier answers
+  // still carry inter-step chatter and any preamble glued to their `## `
+  // heading. Hand the classifier and the model the narration-free view (D20).
+  const messages = stripNarrationFromMessages(config.messages)
 
   // Create parent trace ID for grouping all operations
   let parentTraceId: string | undefined
