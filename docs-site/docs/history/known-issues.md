@@ -38,7 +38,8 @@ thing.
 | [Stopped label not rendered](#stopped-label-not-rendered) | UI | ~~Low~~ fixed 2026-09-24 | done |
 | [Chain-of-thought flash in the live stream](#chain-of-thought-flash-in-the-live-stream) | UI | Low | accepted |
 | [Old answers keep leaked narration in storage](#old-answers-with-leaked-reasoning-stay-leaked) | data | Low (display fixed 2026-09-28) | decision (backfill + recall re-index) |
-| [An answer with a glued preamble appears late while streaming](#an-answer-with-a-glued-preamble-appears-late-while-streaming) | UI | Low | accepted |
+| [An answer with a glued preamble appears late while streaming](#an-answer-with-a-glued-preamble-appears-late-while-streaming) | UI | ~~Low~~ fixed 2026-09-28 (lab, staging, prod) | done (the remaining short delay is by design) |
+| [A glued first section can be cut at persist](#a-glued-first-section-can-be-cut-at-persist) | chat | Low | code |
 | [Narration the structural rules keep by design](#narration-the-structural-rules-keep-by-design) | chat | Low | by design (watch) |
 | [Serenity (.171) Ollama intermittently unreachable](#serenity-171-ollama-intermittently-unreachable) | fleet | Low (cause fixed 2026-09-23) | watch |
 | [Stale mxbai embedding hints in code](#stale-mxbai-embedding-hints-in-code) | code | ~~Med~~ fixed 2026-09-22 (Model Manager field read-only since 2026-09-23) | done |
@@ -786,7 +787,9 @@ These are decisions still pending, not bugs:
 - **Impact.** Cosmetic.
 - **Why it isn't "fixed".** The live transform (`smooth-and-strip-narration.ts`) has to decide from
   a prefix and is deliberately conservative. An aggressive live stripper silently dropped real
-  answers in July 2026. Persisted messages are cleaned by the persist-time strippers. Since
+  answers in July 2026. (The glued seam is the one cut the transform makes in any language,
+  because there the persisted cut can be known from a prefix; see
+  [the entry below](#an-answer-with-a-glued-preamble-appears-late-while-streaming).) Persisted messages are cleaned by the persist-time strippers. Since
   2026-09-28 the renderer also applies those persist-time rules to the message while it streams
   (`narrationCleanView`, `components/render-message.tsx:158`), so only a leak that neither the
   live transform nor the persist-time rules recognise can flash. See
@@ -837,20 +840,66 @@ These are decisions still pending, not bugs:
 
 ### An answer with a glued preamble appears late while streaming {#an-answer-with-a-glued-preamble-appears-late-while-streaming}
 
-- **Symptom.** When a model glues narration to the answer's heading (`…câu trả lời.## Title`),
-  nothing is shown for that part at first; the answer then appears from its heading, a few
-  hundred characters into the stream. The preamble never flashes.
-- **Why.** The seam cut (`stripGluedHeadingPreamble`,
-  `lib/streaming/helpers/strip-narration-preamble.ts:306`) requires the prefix to be shorter
-  than the text after the seam, so it cannot fire until the answer body outweighs the
-  preamble. Until then the part does not start with a heading, and the first-token rule
-  (`components/render-message.tsx:237`) keeps it hidden. The live transform does not cut it,
-  because it only acts on English phrasing
-  ([D20](/history/decisions#addendum-2026-09-28-language-agnostic-structural-rules)).
-- **Impact.** Low: a short delay before the answer appears, only on turns with a glued preamble
-  (3 answers on prod in the 60 days before the fix).
-- **Fix sketch.** Accepted. Cutting earlier would mean deciding from a prefix, the trade-off D20
-  rejects. Revisit only if glued preambles become common.
+- **Symptom (before the fix).** When a model glues narration to the answer's heading
+  (`…breakdown.## Title`, `…câu trả lời.## Title`), nothing was shown for that part at first.
+  How long depended on the preamble:
+  - **An English-looking preamble** kept the live transform buffering, waiting for a line-start
+    heading that a glued `## ` never provides (`findHeadingMatch`), so the **whole answer** was
+    held until the part ended and then appeared at once. Lab chat `bllkvux84ck1uz3wwrwnydg5`
+    (deepseek-v4-pro): 4,916 characters, about 72 s with nothing on screen after the last tool
+    call.
+  - **A longer non-English preamble** is released by the transform after ~64 characters. The
+    render view cuts it once the answer body outweighs it, and the first-token rule
+    (`components/render-message.tsx:237`) hides the part until then, so the answer appeared a
+    few hundred characters into the stream.
+
+  An earlier version of this entry described only the second case and understated the worst
+  case.
+- **Status: fixed 2026-09-28** (prod `6e19914f`, lab `a3074f86`, staging `951b6a83`;
+  [D20 addendum › Decision 5](/history/decisions#decision-5-the-live-transform-cuts-the-glued-seam)).
+  The transform now finds the glued seam through the same helpers as the persist rule
+  (`findGluedPreambleSeam`, `gluedAnswerOutweighsPreamble`,
+  `lib/streaming/helpers/strip-narration-preamble.ts:302,325`) and, as soon as the text after
+  the seam outweighs the prefix, emits the answer from its heading and streams the rest
+  (`lib/streaming/helpers/smooth-and-strip-narration.ts:98-127`). On a replay of the recorded
+  turn the answer starts 792 characters after the seam (after 1,577 of 4,916 characters)
+  instead of at the end.
+- **What remains, by design.** The answer still appears only once its body outweighs the
+  preamble. That is the persist rule's own guard (a long preamble in front of a short answer is
+  kept), and releasing earlier could drop text that persist keeps. The delay is at most one
+  delta past prefix + 1 characters of answer, and the prefix is at most 2,000 characters. A
+  longer non-English preamble still passes through the transform (it is released before the
+  seam arrives) and is cut by the render view at the same point. The preamble never flashes
+  in either case.
+- **Tests.** `lib/streaming/helpers/__tests__/smooth-and-strip-narration-replay.test.ts`
+  (replay of the recorded turns) and the glued-seam guards in
+  `lib/streaming/helpers/__tests__/smooth-and-strip-narration.test.ts`.
+
+### A glued first section can be cut at persist {#a-glued-first-section-can-be-cut-at-persist}
+
+- **Symptom.** A saved or displayed answer starts at its second `## ` heading; the first
+  section is missing.
+- **When.** Text shaped `narration.## A … \n## B` that reaches the persist-time cleanup with the
+  preamble still in place. `stripNarrationPreamble`
+  (`lib/streaming/helpers/strip-narration-preamble.ts:392-395`) runs the English phrase rule
+  first: it takes `\n## B` as the heading and, when the text before it reads as narration, cuts
+  everything up to it, section A included. The glued rule, which would cut at `## A`, runs
+  second and finds nothing left to cut. The live transform handles this shape (a seam before a
+  later heading wins, `lib/streaming/helpers/smooth-and-strip-narration.ts:100-104`), so it only
+  reaches persist when the transform released the text unchanged:
+  - the seam stayed undecidable until the part ended (the text after it never outweighed the
+    prefix) or the 16,000-character ceiling was reached; or
+  - the preamble did not look like narration in its first 64 characters, so the transform
+    released it before the seam arrived, and an English narration sentence follows later.
+- **Impact.** Low. It needs a glued preamble, English narration in it, a later line-start
+  heading, and a turn on which the live cut did not fire. The render view runs the same
+  function, so what is shown matches what is saved.
+- **Fix sketch.** In `stripNarrationPreamble`, let a qualifying glued seam
+  (`findGluedPreambleSeam`) that comes before the phrase rule's heading win, as the transform
+  does. Add the shape to `lib/streaming/helpers/__tests__/strip-narration-structural.test.ts`
+  and re-run the English regression check on stored history
+  ([D20 addendum](/history/decisions#addendum-2026-09-28-language-agnostic-structural-rules))
+  before shipping.
 
 ### Narration the structural rules keep by design {#narration-the-structural-rules-keep-by-design}
 
