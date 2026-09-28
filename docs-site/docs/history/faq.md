@@ -213,6 +213,8 @@ If it still appears on a current build, match it to one of the cases left alone 
   best-effort ([known issue](/history/known-issues#chain-of-thought-flash-in-the-live-stream)).
   An answer that appears a moment late, with no flash, is the glued-preamble case working as
   designed ([known issue](/history/known-issues#an-answer-with-a-glued-preamble-appears-late-while-streaming)).
+  On a build older than prod `6e19914f` (2026-09-28), such an answer could stay blank until the
+  whole answer had streamed.
 
 A new shape outside these cases needs a rule plus tests in `lib/streaming/helpers/__tests__`.
 → [Models & reasoning › Narration and chain-of-thought leak handling](/search/models-reasoning#narration-and-chain-of-thought-leak-handling)
