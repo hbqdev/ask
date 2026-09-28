@@ -2,6 +2,7 @@ import { cloneElement } from 'react'
 
 import { UseChatHelpers } from '@ai-sdk/react'
 
+import { narrationCleanView } from '@/lib/streaming/helpers/strip-narration-from-message'
 import type { SearchResultItem } from '@/lib/types'
 import type {
   UIDataTypes,
@@ -48,7 +49,10 @@ interface RenderMessageProps {
 // indicator instead of spinning right below it.
 export function endsInActiveResearch(message: UIMessage): boolean {
   let live = false
-  for (const part of (message.parts as any[] | undefined) ?? []) {
+  // Same narration-free view RenderMessage draws, so an answer whose heading
+  // only appears after a (now-cut) glued preamble ends the phase here too.
+  const view = narrationCleanView(message)
+  for (const part of (view.parts as any[] | undefined) ?? []) {
     if (
       part.type === 'reasoning' ||
       part.type === 'data-classifier' ||
@@ -145,6 +149,14 @@ export function RenderMessage({
     )
   }
 
+  // Render the narration-free view of the answer (D20): inter-step chatter
+  // dropped and a preamble glued to the answer's `## ` heading cut, in any
+  // language. The same pure cleanup the persist path applies, so stored
+  // messages saved before a rule existed display clean without a DB rewrite,
+  // and the streaming message cleans itself as soon as the seam or the next
+  // tool call arrives. Memoized per message object (see narrationCleanView).
+  const view = narrationCleanView(message)
+
   // New rendering: interleave text parts with grouped non-text segments
   const elements: React.ReactNode[] = []
   let buffer: any[] = []
@@ -165,7 +177,7 @@ export function RenderMessage({
   // lib/voice/emit-spoken-gist.ts) — the answer text cleaned for speech. It's
   // attached to the FINAL answer's action row below so the Listen control sits
   // inline with copy/share (not on its own line).
-  const gistPart = (message.parts as any[] | undefined)?.find(
+  const gistPart = (view.parts as any[] | undefined)?.find(
     (part: any) => part.type === 'data-spokenGist'
   )
   const spokenGist: string =
@@ -184,7 +196,7 @@ export function RenderMessage({
     elements.push(
       <ResearchProcessSection
         key={`${messageId}-proc-${keySuffix}`}
-        message={message}
+        message={view}
         messageId={messageId}
         parts={buffer}
         getIsOpen={getIsOpen}
@@ -198,14 +210,14 @@ export function RenderMessage({
     buffer = []
   }
 
-  message.parts?.forEach((part: any, index: number) => {
+  view.parts?.forEach((part: any, index: number) => {
     if (part.type === 'text') {
       // Ignore empty text chunks (some providers emit them before reasoning/tool parts).
       if (!isNonEmptyTextPart(part)) {
         return
       }
 
-      const remainingParts = message.parts?.slice(index + 1) || []
+      const remainingParts = view.parts?.slice(index + 1) || []
       const hasMoreTextParts = remainingParts.some(isNonEmptyTextPart)
       const isLastTextPart = !hasMoreTextParts
 
@@ -246,7 +258,7 @@ export function RenderMessage({
           isOpen={getIsOpen(
             messageId,
             part.type,
-            index < (message.parts?.length ?? 0) - 1
+            index < (view.parts?.length ?? 0) - 1
           )}
           onOpenChange={open => onOpenChange(messageId, open)}
           chatId={chatId}
@@ -294,7 +306,8 @@ export function RenderMessage({
       (part.type === 'data-recall' && part.data?.chats?.length) ||
       // tool-generateImage / the generateImage image card are handled above;
       // every other tool-* part is research process and buffers.
-      (part.type?.startsWith?.('tool-') && part.type !== 'tool-generateImage') ||
+      (part.type?.startsWith?.('tool-') &&
+        part.type !== 'tool-generateImage') ||
       // Dynamic tools (calculate, get_weather, remember, recall, MCP mcp__*)
       // are ordinary research steps: buffer them into the accordion so they
       // collapse under "Completed N steps" instead of rendering as a

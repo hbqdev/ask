@@ -7,6 +7,8 @@
  * merge that folds the arms into one deduped, recency-ordered result set.
  */
 
+import { stripNarrationPreamble } from '@/lib/streaming/helpers/strip-narration-preamble'
+
 export type ChatSearchResult = {
   chatId: string
   chatTitle: string
@@ -66,13 +68,19 @@ export function mergeKeywordSearchArms(
 ): ChatSearchResult[] {
   const byChat = new Map<string, ChatSearchResult>()
 
-  // Content arm first — its snippet is the matching MESSAGE text.
+  // Content arm first — its snippet is the matching MESSAGE text. An
+  // assistant answer is shown through the same narration cleanup the chat
+  // view uses (D20), so a preamble glued to its heading is not the snippet.
   for (const row of contentRows) {
     if (byChat.has(row.chatId)) continue
+    const text =
+      row.snippet != null && row.role === 'assistant'
+        ? stripNarrationPreamble(row.snippet)
+        : row.snippet
     byChat.set(row.chatId, {
       chatId: row.chatId,
       chatTitle: row.chatTitle,
-      snippet: extractSnippet(row.snippet ?? row.chatTitle, query),
+      snippet: extractSnippet(text ?? row.chatTitle, query),
       role: row.role ?? 'user',
       lastViewedAt: row.lastViewedAt
     })

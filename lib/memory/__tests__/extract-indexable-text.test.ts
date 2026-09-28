@@ -152,3 +152,32 @@ describe('extractIndexableText', () => {
     expect(text).toContain('Version 8.2')
   })
 })
+
+describe('extractIndexableText — narration glued to the heading (D20 addendum)', () => {
+  it('backfill: drops a non-English preamble glued to the answer heading', () => {
+    // Raw DB rows from a stored prod answer (pq6zs7w88m1kmowjdu9udfrw).
+    const parts: IndexablePart[] = [
+      text('Tôi cần đọc trang fandom này để lấy cấu trúc chi tiết.'),
+      tool('tool-fetch'),
+      text(
+        'Tôi đã có đủ thông tin. Bây giờ viết câu trả lời.## Thôn Phệ Tinh Không\n\n' +
+          'Cự Phủ Sáng Thế Giả là cột trụ duy nhất của nhân tộc, và cái chết của ông mở màn đại chiến chủng tộc.'
+      )
+    ]
+    const result = extractIndexableText('assistant', parts)
+    expect(result.startsWith('## Thôn Phệ Tinh Không')).toBe(true)
+    expect(result).not.toContain('Bây giờ viết câu trả lời')
+  })
+
+  it('a glued preamble no longer hides the heading from the trailing-tool fallback', () => {
+    const parts: IndexablePart[] = [
+      text(
+        'Ya tengo suficiente información.## Respuesta\n\nLa RTX 5060 cuesta 299 USD y rinde un 20 % más que la 4060.'
+      ),
+      tool('tool-dynamic')
+    ]
+    expect(extractIndexableText('assistant', parts)).toBe(
+      '## Respuesta\n\nLa RTX 5060 cuesta 299 USD y rinde un 20 % más que la 4060.'
+    )
+  })
+})
