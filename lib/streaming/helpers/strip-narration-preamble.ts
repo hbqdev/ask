@@ -228,9 +228,138 @@ export function stripStrayThinkTags(text: string): string {
   return text
 }
 
+// ---------------------------------------------------------------------------
+// Language-agnostic STRUCTURAL rules (D20 addendum, 2026-09-28).
+//
+// Everything above is phrase-anchored in English, so a model narrating in
+// Vietnamese/Chinese/Spanish ("Tôi đã có đủ thông tin… Bây giờ viết câu trả
+// lời.## …") sailed through every check. The rules below key off the SHAPE
+// of the leak instead of its wording, and stay conservative: each fires only
+// when several independent structural signals agree.
+// ---------------------------------------------------------------------------
+
+/** A markdown ATX heading at the start of a line (≤3 leading spaces). */
+const LINE_START_HEADING = /(?:^|\n)[ \t]{0,3}#{1,6}[ \t]/
+/** Ask's inline citation marker, e.g. `[3](#toolCallId)`. */
+const CITATION_MARKER = /\[\d+\]\(#[^)\s]*\)/
+/** A GFM table delimiter row, e.g. `|---|:--:|` or `--- | ---`. */
+const TABLE_DELIMITER_ROW =
+  /(?:^|\n)[ \t]*\|?[ \t]*:?-{3,}:?[ \t]*(?:\|[ \t]*:?-{3,}:?[ \t]*)+\|?[ \t]*(?=\n|$)/
+/** A bullet or numbered list item at the start of a line. */
+const LIST_ITEM = /(?:^|\n)[ \t]*(?:[-*+•]|\d{1,3}[.)])[ \t]+\S/g
+
+/**
+ * Blank out fenced code blocks and inline code spans (same length, newlines
+ * kept) so a literal `##` inside code can never look like a heading seam and
+ * index positions still line up with the original text. An unclosed fence
+ * (mid-stream) masks through the end of the text — the conservative reading.
+ */
+function maskCode(text: string): string {
+  const blank = (s: string) => s.replace(/[^\n]/g, ' ')
+  return text
+    .replace(
+      /(^|\n)[ \t]{0,3}(`{3,}|~{3,})(?:[^\n]*\n(?:[\s\S]*?\n)?[ \t]{0,3}\2[ \t]*(?=\n|$)|[\s\S]*$)/g,
+      (m, lead: string) => lead + blank(m.slice(lead.length))
+    )
+    .replace(/(`+)[^`\n]+?\1/g, blank)
+}
+
+// Upper bound on the text in front of a glued `## ` seam. Measured: the three
+// Vietnamese preambles on prod (chat pq6zs7w88m1kmowjdu9udfrw, 2026-09-28)
+// were 613, 653 and 673 chars — 6–9% of their answers; a Khmer stray glyph
+// ("និ## How to…") was 2. D20's corpus puts genuine intros at ≤~700 chars and
+// the smallest reasoning DUMP at ~8 KB (those carry English starters and are
+// handled by the phrase rules above). 2,000 is ~3× the largest observed
+// non-English preamble while staying far below the dump range, so a big
+// block of real prose is never eaten on the seam signal alone.
+const GLUED_PREAMBLE_MAX = 2000
+
+/**
+ * Index of the first `## ` heading GLUED to preceding content on the same
+ * line (`…chương.## Title`, `…rồi.</think>## Title`), outside code. The
+ * character before `##` must be non-space and not `#` (so `###` is never
+ * split) nor `\` (an escaped, literal hash). A `## ` preceded by a space —
+ * e.g. prose that mentions "use ## for headings" — is not a seam. Returns the
+ * index of the `##`, or null.
+ */
+export function findGluedHeadingSeam(text: string): number | null {
+  if (!text || !text.includes('##')) return null
+  const match = /[^\s#\\]##[ \t]/.exec(maskCode(text))
+  return match ? match.index + 1 : null
+}
+
+/**
+ * Cut a preamble fused IN FRONT OF the answer's first heading on the same
+ * line, in any language. A `## ` that follows text on the same line does not
+ * even render as a heading, and every mode's prompt makes the answer start
+ * with `## `, so that glued seam is where narration ends and the answer
+ * begins. The prefix is dropped only when it is plausibly a preamble:
+ *
+ * - it has no heading of its own (else the seam is a missing newline INSIDE
+ *   the answer, and nothing is cut);
+ * - it carries no citation marker (narration never cites; answer prose does);
+ * - it is ≤ GLUED_PREAMBLE_MAX chars and shorter than what follows the seam.
+ *
+ * A proper `\n\n## ` heading after an intro paragraph is never a seam, so a
+ * genuine intro is untouched here (the English phrase rules still apply).
+ */
+export function stripGluedHeadingPreamble(text: string): string {
+  const seam = findGluedHeadingSeam(text)
+  if (seam === null) return text
+
+  // The seam needs a non-space character before `##`, so the prefix is never
+  // blank here.
+  const prefix = text.slice(0, seam)
+  const answer = text.slice(seam)
+  const trimmedPrefix = prefix.trim()
+  if (LINE_START_HEADING.test(maskCode(prefix))) return text
+  if (CITATION_MARKER.test(prefix)) return text
+  if (trimmedPrefix.length > GLUED_PREAMBLE_MAX) return text
+  if (trimmedPrefix.length >= answer.trim().length) return text
+  return answer
+}
+
+// Upper bound for an inter-step text part to count as chatter on STRUCTURE
+// alone. Measured across every stored prod+lab assistant message (831, as of
+// 2026-09-28): text parts written right before a tool call are p50 ~110–180
+// chars, p90 ~250–460; the non-English ones (vi/zh) were all 67–247. Longer
+// ones were English phrase-rule hits, a structured partial answer (a
+// `## Key Findings` block, 1,482 chars) that the guards below keep anyway, or
+// a handful of 600–1,600-char reasoning notes this rule deliberately leaves
+// alone. 600 covers the chatter with headroom and stays below the ~700-char
+// mark where D20 saw genuine prose begin.
+const INTER_STEP_CHATTER_MAX = 600
+
+/**
+ * True when a text part is short, unstructured prose: ≤ 600 chars, and no
+ * heading, table, code block, list of 3+ items, or citation marker. Used
+ * ONLY for a non-final text part that a tool call follows — process chatter
+ * by construction ("Tôi cần đọc trang này…", "让我搜索一下…", "Déjame buscar…")
+ * — so an interim note in any language is recognised without a phrase list,
+ * while a structured partial answer written before a tool call is kept.
+ */
+export function looksLikeInterStepChatter(text: string): boolean {
+  const t = typeof text === 'string' ? text.trim() : ''
+  if (!t || t.length > INTER_STEP_CHATTER_MAX) return false
+  if (/```|~~~/.test(t)) return false
+  if (LINE_START_HEADING.test(t)) return false
+  if (TABLE_DELIMITER_ROW.test(t)) return false
+  if (CITATION_MARKER.test(t)) return false
+  if ((t.match(LIST_ITEM) ?? []).length >= 3) return false
+  return true
+}
+
+/**
+ * Persist/render-time cleanup of a single text part: the English phrase and
+ * think-tag rules first (unchanged behaviour), then the language-agnostic
+ * glued-seam cut on what remains. Idempotent.
+ */
 export function stripNarrationPreamble(text: string): string {
   if (!text || typeof text !== 'string') return text
+  return stripGluedHeadingPreamble(stripPhraseAnchoredPreamble(text))
+}
 
+function stripPhraseAnchoredPreamble(text: string): string {
   // First remove any leaked think-tag reasoning. This also handles the
   // no-heading case (reasoning closed by a stray tag with the answer after
   // it) that the heading-anchored logic below cannot reach.
