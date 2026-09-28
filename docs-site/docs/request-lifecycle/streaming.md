@@ -74,22 +74,39 @@ answer to start with a `## ` heading ("first-token rule"); all three paths ancho
 The rules themselves, their thresholds and their limits are in
 [Models & reasoning › Narration](/search/models-reasoning#narration-and-chain-of-thought-leak-handling).
 
-**Stream path** — `smoothAndStripNarration()` (`helpers/smooth-and-strip-narration.ts:57`),
-passed as `experimental_transform` to the agent stream. Per text part:
+**Stream path** — `smoothAndStripNarration()` (`helpers/smooth-and-strip-narration.ts:75`),
+passed as `experimental_transform` to the agent stream (`create-chat-stream-response.ts:901`).
+Per text part:
 
-- buffer `text-delta`s until a heading appears;
-- heading at offset 0 → flush as-is; heading later → strip the preamble if
-  `shouldStripPreamble` judges it narration (known English starter phrases, or a structural
-  backstop: long preamble + strong reasoning signal such as a stray `</think>` or several
-  first-person research sentences), else flush it unchanged;
+- buffer `text-delta`s until the answer's heading appears;
+- **glued seam first** (`:98-127`, since 2026-09-28): a `## ` glued to the text before it on
+  the same line (`…breakdown.## Title`, any language) that passes the persist rule's own prefix
+  guards (`findGluedPreambleSeam`: no heading or citation marker in the prefix, at most 2,000
+  characters) and comes before any heading the next bullet would match (so a later `\n## `
+  cannot cut through the glued first section; `</think>## ` and `<channel|>## ` stay on the
+  next bullet, whose heading is that same `##`). As soon as the text after the seam is
+  longer than the prefix (`gluedAnswerOutweighsPreamble`), emit the buffer from the `##` and
+  pass later deltas through 1:1. This is exactly the cut persist makes: the answer only grows,
+  so persist's guard cannot fail later. If a backtick precedes the seam on its line, also wait
+  for the line to end (a closing backtick would make the `##` inline code). Until then keep
+  holding, within the same ceiling;
+- heading at offset 0 → flush as-is; heading later (line start, `<channel|>`, closing think
+  tag) → strip the preamble if `shouldStripPreamble` judges it narration (known English
+  starter phrases, or a structural backstop: long preamble + strong reasoning signal such as a
+  stray `</think>` or several first-person research sentences), else flush it unchanged. The
+  stripped flush starts at the `##` and is not trimmed (`:136-143`), so the heading line keeps
+  its newline;
 - no heading yet → keep holding only while the buffer still looks like narration and is
-  under 16,000 chars (`NARRATION_HARD_MAX`); a clean heading-less answer is released
-  after ~64 chars (`NARRATION_SNIFF_LIMIT`);
+  under 16,000 chars (`NARRATION_HARD_MAX`, `:24`); a clean heading-less answer is released
+  after ~64 chars (`NARRATION_SNIFF_LIMIT`, `:15`);
 - on `text-end` with a held buffer, flush it as a synthetic `text-delta` (extra fields on
   `text-end` are dropped downstream).
 
-The stream path only knows English phrasing. A non-English preamble, or one glued to the
-heading (`…câu trả lời.## `), passes through it and is handled by the next two paths.
+Apart from the glued seam, the stream path only knows English phrasing, and the seam cut
+fires only while the part is still buffered when the seam arrives: the preamble reads as
+English narration, or the seam comes within the first ~64 characters. A longer non-English
+preamble is released before that; if it is glued to the heading, the next two paths cut it
+(before a proper `\n\n## ` heading it is kept by design, see below).
 
 **Render path** — `RenderMessage` draws `narrationCleanView(message)`
 (`components/render-message.tsx:158`), the persist-time cleanup below, memoized per message
@@ -100,7 +117,8 @@ streaming, a text part is shown as the answer only if it starts with a heading
 (`:237`); after the stream ends, only the last text part is the answer. Inter-step narration
 therefore never flashes on screen. A preamble glued to the heading is cut once the text after
 the seam is longer than the preamble; until then the part does not start with a heading, so
-the answer appears a moment later instead of showing the preamble.
+the answer appears a moment later instead of showing the preamble. (When the stream path has
+already cut the seam, the part arrives starting with its heading.)
 
 **Persist path** — `stripNarrationFromMessage` (`helpers/strip-narration-from-message.ts:72`),
 applied in `onFinish` (`create-chat-stream-response.ts:1072`) and again inside
@@ -124,7 +142,10 @@ Residual by design: a final answer with fused narration but **no** heading is ke
 `\n\n## ` heading. The stored rows are not rewritten: what users see and what the model is
 fed are clean, but keyword search can still match stored status notes, and recall chunks
 indexed before 2026-09-28 keep a glued preamble until re-indexed
-([known issue](/history/known-issues#old-answers-with-leaked-reasoning-stay-leaked)).
+([known issue](/history/known-issues#old-answers-with-leaked-reasoning-stay-leaked)). One
+ordering gap is open: `stripNarrationPreamble` runs the English phrase rule before the glued
+rule, so `narration.## A … \n## B` that reaches persist unstripped can lose section A
+([known issue](/history/known-issues#a-glued-first-section-can-be-cut-at-persist)).
 
 ## Disconnect survival {#disconnect-survival}
 
@@ -382,6 +403,6 @@ readers re-sign upload URLs at read time.
 | `ANSWER_DEADLINE_MS` (constant) | 200,000 | tools removed, forced answer |
 | `STOPPED_TURN_SETTLE_TIMEOUT_MS` (constant) | 5,000 | max wait for a stopped partial save |
 | `experimental_throttle` (`chat.tsx`) | 100 ms | client render batching |
-| `NARRATION_HARD_MAX` / `NARRATION_SNIFF_LIMIT` (constants) | 16,000 / 64 chars | narration buffering |
-| `INTER_STEP_CHATTER_MAX` / `GLUED_PREAMBLE_MAX` (constants, `strip-narration-preamble.ts:331,275`) | 600 / 2,000 chars | language-agnostic narration rules (persist + read time) |
+| `NARRATION_HARD_MAX` / `NARRATION_SNIFF_LIMIT` (constants, `smooth-and-strip-narration.ts:24,15`) | 16,000 / 64 chars | narration buffering |
+| `INTER_STEP_CHATTER_MAX` / `GLUED_PREAMBLE_MAX` (constants, `strip-narration-preamble.ts:366,275`) | 600 / 2,000 chars | language-agnostic narration rules (persist + read time; `GLUED_PREAMBLE_MAX` also bounds the live glued-seam cut) |
 | `ENABLE_GUEST_CHAT` | off | enables the ephemeral guest path |

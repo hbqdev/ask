@@ -22,6 +22,34 @@ behind the change. Lab-first work lives on `flow-design`. `git cherry-pick -x` l
 question searches, citations the model copies instead of counting, search that survives a
 Redis restart, and narration cleanup in any language**
 
+- **09-28** — **The live stream cuts a glued preamble and streams the answer** (`6e19914f`;
+  lab `a3074f86`; staging `951b6a83`;
+  [D20 addendum › Decision 5](/history/decisions#decision-5-the-live-transform-cuts-the-glued-seam)).
+  - The trigger: a lab deepseek-v4-pro turn (chat `bllkvux84ck1uz3wwrwnydg5`) whose final
+    answer opened with a 785-character English preamble glued to its heading
+    (`…the detailed chapter breakdown.## …`). The transform kept buffering for a line-start
+    heading that never came and released all 4,916 characters at text-end: about 72 s with
+    nothing on screen after the last tool call.
+  - The persist glued rule was split into shared helpers, `findGluedPreambleSeam` (seam and
+    prefix guards) and `gluedAnswerOutweighsPreamble`; `stripGluedHeadingPreamble` is built from
+    them with unchanged behaviour. The transform runs the same helpers on every held delta and
+    emits from the `##` as soon as the text after the seam outweighs the prefix, then passes
+    deltas through 1:1. The answer only grows, so the live cut is exactly the persisted cut. It
+    waits for the end of the line when a backtick precedes the seam, lets a seam before a later
+    `\n## ` win, and keeps holding (ceiling 16,000 characters, or an unchanged flush at
+    text-end) while the cut is undecidable. On a replay of the real turn the answer starts 792
+    characters after the seam instead of at the end.
+  - Also fixed: when the transform stripped a preamble in front of a line-start heading, it
+    trimmed the partial buffer and dropped the heading's newline, so the stream and the saved
+    answer read `## Remedying Canker SoresCanker sores are painful.`
+  - Tests: a replay of the recorded turn pair under six chunkings
+    (`lib/streaming/helpers/__tests__/smooth-and-strip-narration-replay.test.ts`, fixtures
+    `narration-replay-t{1,2}.json`) plus guards in `smooth-and-strip-narration.test.ts`.
+    → [streaming](/request-lifecycle/streaming#narration),
+    [models & reasoning](/search/models-reasoning#how-the-stream-transform-decides)
+  - Open: persist still runs the English phrase rule before the glued rule, so unstripped
+    `narration.## A … \n## B` can lose section A
+    ([known issue](/history/known-issues#a-glued-first-section-can-be-cut-at-persist)).
 - **09-28** — **Narration cleanup works in any language and applies wherever text is read**
   (`48d5b06d`; lab `5f8caf17`; staging `91d25f65`; ported the same day for release after a lab
   browser check; [D20 addendum](/history/decisions#addendum-2026-09-28-language-agnostic-structural-rules)).
@@ -46,7 +74,8 @@ Redis restart, and narration cleanup in any language**
   - Open: stored rows are unchanged, so keyword search still matches stored status notes and 39
     recall chunks keep a glued preamble; a backfill (92 prod messages) awaits an owner decision
     ([known issue](/history/known-issues#old-answers-with-leaked-reasoning-stay-leaked)). A glued
-    answer appears a moment later while streaming
+    answer appears a moment later while streaming, and an English-looking glued preamble was
+    still held by the live transform until the part ended; fixed the same day (entry above)
     ([known issue](/history/known-issues#an-answer-with-a-glued-preamble-appears-late-while-streaming)).
 - **09-27** — **Incident: a Redis restart hung every balanced/quality search; the fix**
   (`2f5eac13`; lab `a9c5914a`; staging `c0df517f`; deployed about 20:45 UTC;

@@ -14829,6 +14829,7 @@
         "lib/streaming/create-chat-stream-response.ts"
       ],
       "tests": [
+        "lib/streaming/helpers/__tests__/smooth-and-strip-narration-replay.test.ts",
         "lib/streaming/helpers/__tests__/smooth-and-strip-narration.test.ts"
       ],
       "docs": [
@@ -14950,6 +14951,7 @@
         "lib/streaming/helpers/persist-stream-results.ts"
       ],
       "tests": [
+        "lib/streaming/helpers/__tests__/smooth-and-strip-narration-replay.test.ts",
         "lib/streaming/helpers/__tests__/strip-narration-from-message.test.ts",
         "lib/streaming/helpers/__tests__/strip-narration-structural.test.ts"
       ],
@@ -14994,6 +14996,8 @@
         "findHeadingMatch",
         "stripStrayThinkTags",
         "findGluedHeadingSeam",
+        "findGluedPreambleSeam",
+        "gluedAnswerOutweighsPreamble",
         "stripGluedHeadingPreamble",
         "looksLikeInterStepChatter",
         "stripNarrationPreamble"
@@ -15009,6 +15013,8 @@
         "scripts/clean-narration-preambles.ts"
       ],
       "tests": [
+        "lib/streaming/helpers/__tests__/smooth-and-strip-narration-replay.test.ts",
+        "lib/streaming/helpers/__tests__/smooth-and-strip-narration.test.ts",
         "lib/streaming/helpers/__tests__/strip-narration-preamble.test.ts",
         "lib/streaming/helpers/__tests__/strip-narration-structural.test.ts"
       ],
