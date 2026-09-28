@@ -1,21 +1,21 @@
 {
   "generatedFrom": {
-    "ask": "ask-prod",
+    "ask": "ask-flow",
     "ingestor": "ingestor"
   },
-  "count": 653,
+  "count": 655,
   "coverage": {
-    "files": 653,
-    "withPurpose": 653,
-    "header": 168,
-    "jsdoc": 37,
+    "files": 655,
+    "withPurpose": 655,
+    "header": 169,
+    "jsdoc": 38,
     "derived": 59,
     "override": 389,
-    "documented": 357
+    "documented": 359
   },
   "kinds": {
     "dockerfile": 3,
-    "lib-module": 247,
+    "lib-module": 248,
     "route-handler": 37,
     "page": 13,
     "stylesheet": 2,
@@ -37,7 +37,7 @@
     "server-action": 8,
     "types": 8,
     "middleware": 2,
-    "script": 17
+    "script": 18
   },
   "files": [
     {
@@ -1534,6 +1534,12 @@
           "title": "Frontend",
           "section": "Main components",
           "anchor": "main-components"
+        },
+        {
+          "page": "/search/models-reasoning",
+          "title": "Models & reasoning",
+          "section": "Read time: one cleanup wherever text is read",
+          "anchor": "narration-read-time"
         }
       ]
     },
@@ -2080,8 +2086,8 @@
         {
           "page": "/history/decisions",
           "title": "Decisions",
-          "section": "D28. Sidebar refresh invariants and uncached conversation reads",
-          "anchor": "d28-sidebar-refresh-invariants-and-uncached-conversation-reads"
+          "section": "D20. Narration strippers: strict at persist, best-effort live",
+          "anchor": "d20-narration-strippers-strict-at-persist-best-effort-live"
         },
         {
           "page": "/history/known-issues",
@@ -2136,6 +2142,12 @@
           "title": "Streaming",
           "section": "Smoothing",
           "anchor": "smoothing"
+        },
+        {
+          "page": "/search/models-reasoning",
+          "title": "Models & reasoning",
+          "section": "Read time: one cleanup wherever text is read",
+          "anchor": "narration-read-time"
         }
       ]
     },
@@ -3173,6 +3185,12 @@
           "anchor": "components"
         },
         {
+          "page": "/history/decisions",
+          "title": "Decisions",
+          "section": "D20. Narration strippers: strict at persist, best-effort live",
+          "anchor": "d20-narration-strippers-strict-at-persist-best-effort-live"
+        },
+        {
           "page": "/history/known-issues",
           "title": "Known issues",
           "section": "Stopped label not rendered",
@@ -3199,7 +3217,7 @@
         {
           "page": "/request-lifecycle/streaming",
           "title": "Streaming",
-          "section": "Narration stripping: stream path vs persist path",
+          "section": "Narration stripping: stream, render and persist paths",
           "anchor": "narration"
         },
         {
@@ -9240,7 +9258,8 @@
         "scripts/eval/gate-stability.ts"
       ],
       "tests": [
-        "lib/agents/__tests__/query-classifier.test.ts"
+        "lib/agents/__tests__/query-classifier.test.ts",
+        "lib/streaming/__tests__/create-ephemeral-chat-stream-response.test.ts"
       ],
       "docs": [
         {
@@ -9399,7 +9418,8 @@
       "tests": [
         "lib/agents/__tests__/citation-handles-e2e.test.ts",
         "lib/agents/__tests__/researcher-always-search.test.ts",
-        "lib/agents/__tests__/researcher.test.ts"
+        "lib/agents/__tests__/researcher.test.ts",
+        "lib/streaming/__tests__/create-ephemeral-chat-stream-response.test.ts"
       ],
       "docs": [
         {
@@ -10756,6 +10776,18 @@
           "title": "Repo tour",
           "section": "lib/",
           "anchor": "lib"
+        },
+        {
+          "page": "/history/decisions",
+          "title": "Decisions",
+          "section": "D20. Narration strippers: strict at persist, best-effort live",
+          "anchor": "d20-narration-strippers-strict-at-persist-best-effort-live"
+        },
+        {
+          "page": "/search/models-reasoning",
+          "title": "Models & reasoning",
+          "section": "Read time: one cleanup wherever text is read",
+          "anchor": "narration-read-time"
         }
       ]
     },
@@ -11071,6 +11103,12 @@
           "title": "Repo tour",
           "section": "Top level",
           "anchor": "top-level"
+        },
+        {
+          "page": "/history/known-issues",
+          "title": "Known issues",
+          "section": "Old answers keep leaked narration in storage",
+          "anchor": "old-answers-with-leaked-reasoning-stay-leaked"
         },
         {
           "page": "/infrastructure/data-layer",
@@ -12423,6 +12461,12 @@
           "title": "Memory & recall",
           "section": "Indexing",
           "anchor": "indexing"
+        },
+        {
+          "page": "/search/models-reasoning",
+          "title": "Models & reasoning",
+          "section": "Read time: one cleanup wherever text is read",
+          "anchor": "narration-read-time"
         }
       ]
     },
@@ -14427,8 +14471,8 @@
         {
           "page": "/history/decisions",
           "title": "Decisions",
-          "section": "D37. Always search every question",
-          "anchor": "d37-always-search-every-question"
+          "section": "D20. Narration strippers: strict at persist, best-effort live",
+          "anchor": "d20-narration-strippers-strict-at-persist-best-effort-live"
         },
         {
           "page": "/history/known-issues",
@@ -14687,6 +14731,12 @@
           "title": "Streaming",
           "section": "Moving parts",
           "anchor": "moving-parts"
+        },
+        {
+          "page": "/search/models-reasoning",
+          "title": "Models & reasoning",
+          "section": "Read time: one cleanup wherever text is read",
+          "anchor": "narration-read-time"
         }
       ]
     },
@@ -14887,16 +14937,21 @@
       "purposeSource": "jsdoc",
       "exports": [
         "stripNarrationFromMessage",
-        "stripNarrationFromMessages"
+        "stripNarrationFromMessages",
+        "narrationCleanView"
       ],
       "methods": [],
       "route": null,
       "usedBy": [
+        "components/chat.tsx",
+        "components/render-message.tsx",
         "lib/streaming/create-chat-stream-response.ts",
+        "lib/streaming/create-ephemeral-chat-stream-response.ts",
         "lib/streaming/helpers/persist-stream-results.ts"
       ],
       "tests": [
-        "lib/streaming/helpers/__tests__/strip-narration-from-message.test.ts"
+        "lib/streaming/helpers/__tests__/strip-narration-from-message.test.ts",
+        "lib/streaming/helpers/__tests__/strip-narration-structural.test.ts"
       ],
       "docs": [
         {
@@ -14904,6 +14959,12 @@
           "title": "Decisions",
           "section": "D20. Narration strippers: strict at persist, best-effort live",
           "anchor": "d20-narration-strippers-strict-at-persist-best-effort-live"
+        },
+        {
+          "page": "/history/known-issues",
+          "title": "Known issues",
+          "section": "Old answers keep leaked narration in storage",
+          "anchor": "old-answers-with-leaked-reasoning-stay-leaked"
         },
         {
           "page": "/request-lifecycle/streaming",
@@ -14914,8 +14975,8 @@
         {
           "page": "/search/models-reasoning",
           "title": "Models & reasoning",
-          "section": "Narration and chain-of-thought leak handling",
-          "anchor": "narration-and-chain-of-thought-leak-handling"
+          "section": "Language-agnostic structural rules (2026-09-28)",
+          "anchor": "narration-structural-rules"
         }
       ]
     },
@@ -14925,24 +14986,31 @@
       "area": "lib",
       "project": "ask",
       "kind": "lib-module",
-      "purpose": "Heuristics that detect and strip models' 'thinking out loud' narration before the first ## heading, plus stray <think> tags, from answer text.",
-      "purposeSource": "override",
+      "purpose": "Persist/render-time cleanup of a single text part: the English phrase and think-tag rules first (unchanged behaviour), then the language-agnostic glued-seam cut on what remains.",
+      "purposeSource": "jsdoc",
       "exports": [
         "shouldStripPreamble",
         "looksLikeNarrationStart",
         "findHeadingMatch",
         "stripStrayThinkTags",
+        "findGluedHeadingSeam",
+        "stripGluedHeadingPreamble",
+        "looksLikeInterStepChatter",
         "stripNarrationPreamble"
       ],
       "methods": [],
       "route": null,
       "usedBy": [
+        "lib/db/keyword-search.ts",
+        "lib/memory/extract-indexable-text.ts",
+        "lib/streaming/create-chat-stream-response.ts",
         "lib/streaming/helpers/smooth-and-strip-narration.ts",
         "lib/streaming/helpers/strip-narration-from-message.ts",
         "scripts/clean-narration-preambles.ts"
       ],
       "tests": [
-        "lib/streaming/helpers/__tests__/strip-narration-preamble.test.ts"
+        "lib/streaming/helpers/__tests__/strip-narration-preamble.test.ts",
+        "lib/streaming/helpers/__tests__/strip-narration-structural.test.ts"
       ],
       "docs": [
         {
@@ -14952,10 +15020,28 @@
           "anchor": "d20-narration-strippers-strict-at-persist-best-effort-live"
         },
         {
+          "page": "/history/known-issues",
+          "title": "Known issues",
+          "section": "An answer with a glued preamble appears late while streaming",
+          "anchor": "an-answer-with-a-glued-preamble-appears-late-while-streaming"
+        },
+        {
+          "page": "/operations/evaluation",
+          "title": "Evaluation harnesses & scripts",
+          "section": "Data-maintenance scripts",
+          "anchor": "data-maintenance-scripts"
+        },
+        {
+          "page": "/request-lifecycle/streaming",
+          "title": "Streaming",
+          "section": "Knobs",
+          "anchor": "knobs"
+        },
+        {
           "page": "/search/models-reasoning",
           "title": "Models & reasoning",
-          "section": "Narration and chain-of-thought leak handling",
-          "anchor": "narration-and-chain-of-thought-leak-handling"
+          "section": "How the stream transform decides",
+          "anchor": "how-the-stream-transform-decides"
         }
       ]
     },
@@ -15939,8 +16025,8 @@
         {
           "page": "/search/models-reasoning",
           "title": "Models & reasoning",
-          "section": "Narration and chain-of-thought leak handling",
-          "anchor": "narration-and-chain-of-thought-leak-handling"
+          "section": "Limits to know about",
+          "anchor": "limits-to-know-about"
         },
         {
           "page": "/search/pipeline",
@@ -17370,7 +17456,8 @@
         "lib/agents/query-classifier.ts",
         "lib/agents/query-expander.ts",
         "lib/agents/title-generator.ts",
-        "lib/utils/registry.ts"
+        "lib/utils/registry.ts",
+        "lib/voice/spoken-gist.ts"
       ],
       "tests": [
         "lib/agents/__tests__/memory-extractor.test.ts",
@@ -17734,7 +17821,8 @@
       "usedBy": [
         "lib/agents/memory-extractor.ts",
         "lib/agents/query-expander.ts",
-        "lib/agents/title-generator.ts"
+        "lib/agents/title-generator.ts",
+        "lib/voice/spoken-gist.ts"
       ],
       "tests": [],
       "docs": [
@@ -17977,6 +18065,7 @@
       "purposeSource": "header",
       "exports": [
         "AnswerThink",
+        "AnswerTurnMode",
         "ANSWER_THINK_DEFAULT",
         "resolveAnswerThink",
         "thinkEnabledForOllama"
@@ -18194,6 +18283,7 @@
         "lib/streaming/create-ephemeral-chat-stream-response.ts"
       ],
       "tests": [
+        "lib/streaming/__tests__/create-ephemeral-chat-stream-response.test.ts",
         "lib/utils/__tests__/resolve-context-window.test.ts"
       ],
       "docs": []
@@ -18630,6 +18720,7 @@
         "app/api/voice/speak/route.ts",
         "app/api/voice/transcribe/route.ts",
         "lib/streaming/create-chat-stream-response.ts",
+        "lib/voice/spoken-gist.ts",
         "lib/voice/stt-client.ts",
         "lib/voice/tts-client.ts"
       ],
@@ -18716,6 +18807,39 @@
       ]
     },
     {
+      "path": "lib/voice/spoken-gist.ts",
+      "dir": "lib/voice",
+      "area": "lib",
+      "project": "ask",
+      "kind": "lib-module",
+      "purpose": "Condenses a finished answer into a 2-3 sentence read-aloud gist using a local Ollama model with a timeout, for voice read-aloud.",
+      "purposeSource": "override",
+      "exports": [
+        "buildGistPrompt",
+        "condenseForSpeech"
+      ],
+      "methods": [],
+      "route": null,
+      "usedBy": [],
+      "tests": [
+        "lib/voice/__tests__/spoken-gist.test.ts"
+      ],
+      "docs": [
+        {
+          "page": "/history/known-issues",
+          "title": "Known issues",
+          "section": "Other stale comments and docs",
+          "anchor": "other-stale-comments-and-docs"
+        },
+        {
+          "page": "/knowledge/media",
+          "title": "Media, voice, weather & Discover",
+          "section": "Read-aloud (Kokoro TTS)",
+          "anchor": "read-aloud-kokoro-tts"
+        }
+      ]
+    },
+    {
       "path": "lib/voice/strip-for-speech.ts",
       "dir": "lib/voice",
       "area": "lib",
@@ -18730,7 +18854,8 @@
       "methods": [],
       "route": null,
       "usedBy": [
-        "lib/voice/emit-spoken-gist.ts"
+        "lib/voice/emit-spoken-gist.ts",
+        "lib/voice/spoken-gist.ts"
       ],
       "tests": [
         "lib/voice/__tests__/strip-for-speech.test.ts"
@@ -19302,6 +19427,12 @@
           "anchor": "scripts"
         },
         {
+          "page": "/history/known-issues",
+          "title": "Known issues",
+          "section": "Old answers keep leaked narration in storage",
+          "anchor": "old-answers-with-leaked-reasoning-stay-leaked"
+        },
+        {
           "page": "/operations/evaluation",
           "title": "Evaluation harnesses & scripts",
           "section": "Summary table",
@@ -19555,6 +19686,35 @@
       ]
     },
     {
+      "path": "scripts/eval/harvest-pairs.py",
+      "dir": "scripts/eval",
+      "area": "scripts",
+      "project": "ask",
+      "kind": "script",
+      "purpose": "Harvest per-turn telemetry and answers for browser-driven staging/lab chats.",
+      "purposeSource": "header",
+      "exports": [
+        "sh",
+        "psql",
+        "turns",
+        "latency",
+        "summarise",
+        "main"
+      ],
+      "methods": [],
+      "route": null,
+      "usedBy": [],
+      "tests": [],
+      "docs": [
+        {
+          "page": "/operations/evaluation",
+          "title": "Evaluation harnesses & scripts",
+          "section": "Map of the harnesses",
+          "anchor": "map-of-the-harnesses"
+        }
+      ]
+    },
+    {
       "path": "scripts/eval/judge-flow-arms.py",
       "dir": "scripts/eval",
       "area": "scripts",
@@ -19569,7 +19729,8 @@
       "methods": [],
       "route": null,
       "usedBy": [
-        "scripts/eval/analyze-flow-arms.py"
+        "scripts/eval/analyze-flow-arms.py",
+        "scripts/eval/harvest-pairs.py"
       ],
       "tests": [],
       "docs": [

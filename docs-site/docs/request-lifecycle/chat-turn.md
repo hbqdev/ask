@@ -131,7 +131,7 @@ for why that matters.
 
 ## 3. Load chat and ownership {#_3-load-chat-and-ownership}
 
-`lib/streaming/create-chat-stream-response.ts:170`. Only for follow-ups:
+`lib/streaming/create-chat-stream-response.ts:174`. Only for follow-ups:
 
 - `waitForStoppedTurn(chatId)` — if the previous turn in this chat was just Stopped,
   wait (bounded, 5s) for its partial to be saved, so the new turn's history contains
@@ -160,7 +160,7 @@ New chats skip the read entirely.
 ## 5. Classifier {#_5-classifier}
 
 Kicked off **before** the stream opens and awaited only just before the agent is
-built (`create-chat-stream-response.ts:273-309`), so it overlaps message prep.
+built (`create-chat-stream-response.ts:282-318`), so it overlaps message prep.
 
 `classifyQuery` (`lib/agents/query-classifier.ts:350`) runs a fixed model (not the
 user's chat model) on the last ~20 messages and returns:
@@ -193,7 +193,7 @@ are forced on the raw message with its URLs removed, unless the message carries 
 it only points at. The guest path bypasses only for a URL.
 
 **User-supplied source.** Next to the bypass check, `detectUserSuppliedSource`
-(`lib/agents/always-search.ts:118-137`, called at `create-chat-stream-response.ts:281-283`)
+(`lib/agents/always-search.ts:118-137`, called at `create-chat-stream-response.ts:290-292`)
 reads the latest message's **parts**: a URL in the text or a pasted link chip (`url`), an
 attachment with no typed text (`attachment-only`), or an attachment whose text only points at
 it (`attachment-reference`, e.g. "what is this", "summarise this file"). It is read from the
@@ -211,7 +211,7 @@ generate the fused expansions ran a ~4.6s median before the soft budget existed.
 ## 6. Inside the stream: attachments, pruning, truncation {#_6-inside-the-stream-attachments-pruning-truncation}
 
 From here on everything runs inside `createUIMessageStream({ execute })`
-(`create-chat-stream-response.ts:351`). That is a deliberate UX choice: the browser
+(`create-chat-stream-response.ts:360`). That is a deliberate UX choice: the browser
 receives a `start` chunk immediately and the pre-answer waits are rendered as
 steps instead of dead air.
 
@@ -234,7 +234,7 @@ steps instead of dead air.
    model). On a model failure, an empty reply or a reply longer than a title, the generator
    returns the first 75 characters of the question (`lib/agents/title-generator.ts:69`);
    `"Untitled"` is used only if the call itself rejects
-   (`lib/streaming/create-chat-stream-response.ts:477-480`). The reply is cleaned first: the
+   (`lib/streaming/create-chat-stream-response.ts:486-489`). The reply is cleaned first: the
    first non-empty line that does **not** end with `:` is taken, and a leading `Title:` label
    is dropped (`lib/agents/title-generator.ts:113-117`, since 2026-09-25). That skips lead-ins
    such as "Here is the short, concise title (4 words):", which a lab chat once stored as its
@@ -243,7 +243,7 @@ steps instead of dead air.
 
 ## 7. Recall race {#_7-recall-race}
 
-`create-chat-stream-response.ts:498-581`. After `await classificationPromise`:
+`create-chat-stream-response.ts:507-590`. After `await classificationPromise`:
 
 - `chooseRecall` (`helpers/choose-recall.ts`): `gated` if `skipSearch` (no rerank);
   `speculative` if the effective query equals the raw text (rerank the candidates
@@ -273,7 +273,7 @@ is rewritten as `done` with the decision and duration.
 
 ## 8. Attached documents and pasted URLs {#_8-attached-documents-and-pasted-urls}
 
-`create-chat-stream-response.ts:636-792`. Document chunks from step 6 and **this turn's**
+`create-chat-stream-response.ts:645-801`. Document chunks from step 6 and **this turn's**
 pasted URLs (`data-sourceUrl` parts, fetched + ranked by `retrieveUrlChunks`, top 10)
 are merged, deduped by a deterministic `sourceId`, relative URLs dropped, capped at
 `MAX_INJECTED_DOC_SOURCES = 8` (newest kept), then **token-budgeted**
@@ -369,7 +369,7 @@ Other per-turn wiring:
 
 ## 10. The tool loop and its caps {#_10-the-tool-loop-and-its-caps}
 
-`researchAgent.stream(...)` (`create-chat-stream-response.ts:889`). No `toolChoice`
+`researchAgent.stream(...)` (`create-chat-stream-response.ts:898`). No `toolChoice`
 and no "done" tool: apart from the forced step 0 of a research turn (above), every
 step is the model's own choice, and the loop ends when the model replies with plain
 text. The forced search is round 1 of the search-round cap. These independent limits
@@ -398,19 +398,20 @@ through two timers (first chunk → `ttft_ms`; per-part-type first-seen offsets)
 forced-search turn the first chunk belongs to the synthetic step 0, which emits its tool call
 with no model round trip, so `ttft_ms` measures only the pre-work; time to first prose is
 `stream["text-start"]`. The
-`smoothAndStripNarration()` transform removes "thinking out loud" preambles before the
-`## ` heading. On voice turns the final text is condensed into a `data-spokenGist`
+`smoothAndStripNarration()` transform removes "thinking out loud" preambles in English
+before the `## ` heading; other languages and preambles glued to the heading are cleaned when
+the message is rendered and saved. On voice turns the final text is condensed into a `data-spokenGist`
 part inside `execute` (the only scope where the writer is still open). All of this
 is detailed in [Streaming](/request-lifecycle/streaming).
 
 ## 12. onFinish: persist, then learn {#_12-onfinish-persist-then-learn}
 
-`create-chat-stream-response.ts:962`, in order:
+`create-chat-stream-response.ts:973`, in order:
 
 1. `unregisterGeneration` (only removes the entry if it is still this turn's controller).
-2. Wait ≤1s for token usage; audit citations (`auditCitations`, `:984`: own / recovered /
+2. Wait ≤1s for token usage; audit citations (`auditCitations`, `:995`: own / recovered /
    unresolved, by the same resolver rendering uses); emit the `[latency]` line
-   (with `turn_mode`, `forced_search` and `forced_skip`, `create-chat-stream-response.ts:1003-1010`).
+   (with `turn_mode`, `forced_search` and `forced_skip`, `create-chat-stream-response.ts:1014-1021`).
 3. Abort handling: aborted and not a user Stop → **discard**. User Stop → sanitize +
    newer-turn guard (see [Streaming → Stop](/request-lifecycle/streaming#stop)).
 4. `stripNarrationFromMessage` → `rehydrateFullContent` (swap excerpts back to full
@@ -422,7 +423,7 @@ is detailed in [Streaming](/request-lifecycle/streaming).
    `disabled | no_user_text | no_candidates | saved | failed`.
 6. **Recall indexing** (async, `RECALL_ENABLED!=='off'`): `indexMessage` for the user
    question and for the answer's final text only (`extractIndexableText` drops
-   inter-step narration and citation markers).
+   inter-step narration, a preamble glued to the heading, and citation markers).
 7. `finally`: release anyone waiting on a stopped turn; flush Langfuse if tracing is on.
 
 ## Stage cost summary
