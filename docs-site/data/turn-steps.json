@@ -173,12 +173,12 @@
     "id": "answer-stream",
     "title": "Answer streams to the browser",
     "actor": "model",
-    "description": "`researchAgent.stream({ experimental_transform: smoothAndStripNarration() })` buffers the start of each text part until a `## ` heading appears and drops English 'thinking out loud' preambles; the browser renders the message through the same cleanup the saved message gets (`narrationCleanView`), which also drops status notes and glued preambles in any language. The agent's UI stream is merged into the response (`sendStart:false`). The response is SSE with `Cache-Control: no-cache, no-transform`; a tee'd copy is mirrored to Redis for resume. The browser throttles re-renders to 100ms.",
+    "description": "`researchAgent.stream({ experimental_transform: smoothAndStripNarration() })` buffers the start of each text part until the answer's `## ` heading appears, drops English 'thinking out loud' preambles, and cuts a preamble glued to the heading (`…breakdown.## Title`) once the answer after it outweighs it (exactly the cut persist makes); the browser renders the message through the same cleanup the saved message gets (`narrationCleanView`), which also drops status notes and glued preambles in any language. The agent's UI stream is merged into the response (`sendStart:false`). The response is SSE with `Cache-Control: no-cache, no-transform`; a tee'd copy is mirrored to Redis for resume. The browser throttles re-renders to 100ms.",
     "code": [
       "lib/streaming/create-chat-stream-response.ts:898",
       "lib/streaming/create-chat-stream-response.ts:938",
       "lib/streaming/create-chat-stream-response.ts:1216",
-      "lib/streaming/helpers/smooth-and-strip-narration.ts:57",
+      "lib/streaming/helpers/smooth-and-strip-narration.ts:75",
       "components/render-message.tsx:158"
     ],
     "link": "/request-lifecycle/streaming"
