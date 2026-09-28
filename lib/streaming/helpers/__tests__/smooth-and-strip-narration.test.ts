@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 
 import { smoothAndStripNarration } from '../smooth-and-strip-narration'
+import { stripNarrationPreamble } from '../strip-narration-preamble'
 
 /**
  * Drives the transform with a sequence of text-delta chunks (plus the
@@ -207,5 +208,140 @@ describe('smoothAndStripNarration', () => {
       { type: 'reasoning-delta', id: 'r1', text: 'thinking...' },
       { type: 'reasoning-end', id: 'r1' }
     ])
+  })
+
+  it('keeps the newline after a stripped heading (exact output, no trim)', async () => {
+    // The heading is recognised on the delta that ends with its newline; the
+    // flush used to trim the partial buffer and glue the body to the title.
+    const deltas = [
+      'I have enough info. ',
+      'I will now write the response.\n',
+      '## Remedying Canker Sores\n',
+      'Canker sores are painful.'
+    ]
+    const { assembled } = await runTransform(deltas)
+    expect(assembled).toBe(
+      '## Remedying Canker Sores\nCanker sores are painful.'
+    )
+    expect(assembled).toBe(stripNarrationPreamble(deltas.join('')))
+  })
+})
+
+/** Cut `text` into fixed-size deltas, the way a model streams it. */
+const chunk = (text: string, size = 7) =>
+  Array.from({ length: Math.ceil(text.length / size) }, (_, i) =>
+    text.slice(i * size, (i + 1) * size)
+  )
+
+const BODY =
+  '\n\nThe first paragraph of the real answer explains the main point in detail.\n\n' +
+  '- A supporting bullet with a concrete fact that belongs in the answer.\n'.repeat(
+    8
+  )
+
+describe('smoothAndStripNarration — glued `## ` seam (D20 addendum)', () => {
+  it('cuts an English preamble glued to the heading and streams the rest', async () => {
+    const preamble =
+      'I have enough info. Let me write the answer with the detailed breakdown.'
+    const raw = preamble + '## Chapter Breakdown' + BODY
+    const { emitted, assembled } = await runTransform(chunk(raw))
+    expect(assembled).toBe('## Chapter Breakdown' + BODY)
+    expect(assembled).toBe(stripNarrationPreamble(raw))
+    // Released mid-stream (not in one lump at text-end).
+    expect(emitted.filter(c => c.type === 'text-delta').length).toBeGreaterThan(
+      10
+    )
+  })
+
+  it('finds the seam when `##` and its space arrive in different deltas', async () => {
+    const raw = 'I have enough info. Now the answer.#'
+    const deltas = [raw, '# Title', '\n', BODY]
+    const { assembled } = await runTransform(deltas)
+    expect(assembled).toBe('## Title\n' + BODY)
+  })
+
+  it('keeps the glued first section when a line-start `## ` follows it', async () => {
+    // `\n## Details` arrives while the seam is still pending (the glued
+    // section is shorter than the prefix). The phrase rule alone would cut up
+    // to it and eat `## Overview`; the seam comes first in the text and wins.
+    const raw =
+      'I have enough info. ' +
+      'I will now go through each source one by one. '.repeat(5) +
+      'Let me write it.## Overview\n\nA short opening line.\n\n## Details' +
+      BODY
+    const { assembled } = await runTransform(chunk(raw))
+    expect(assembled).toBe(raw.slice(raw.indexOf('## Overview')))
+    expect(stripNarrationPreamble(assembled)).toBe(assembled)
+  })
+
+  it('holds (never cuts) while the answer after the seam is still shorter than the prefix', async () => {
+    // Persist keeps a long preamble in front of a short answer, so live must
+    // not drop it: held to text-end and flushed as today.
+    const raw =
+      'I have enough info. ' +
+      'I will now go through each source one by one. '.repeat(6) +
+      '## Short\nTail.'
+    const { emitted, assembled } = await runTransform(chunk(raw))
+    expect(assembled).toBe(raw)
+    expect(stripNarrationPreamble(raw)).toBe(raw)
+    expect(emitted.filter(c => c.type === 'text-delta')).toHaveLength(1)
+  })
+
+  it('waits for the line to end when a backtick precedes the seam on it', async () => {
+    // Mid-line, `a.## b…` looks like a seam that already outweighs its short
+    // prefix; the closing backtick later on the SAME line makes it inline
+    // code. Releasing before the line ended would have cut real text.
+    const raw =
+      'I have enough info. Try `a.## b and a fairly long inline code span that keeps going` then more.' +
+      BODY
+    const { assembled } = await runTransform(chunk(raw))
+    expect(assembled).toBe(raw)
+    expect(stripNarrationPreamble(raw)).toBe(raw)
+  })
+
+  it('does not cut past the 2,000-char prefix bound or a citing prefix', async () => {
+    const huge =
+      'I have enough info. ' +
+      'I keep checking one more source. '.repeat(70) +
+      '## Title' +
+      BODY.repeat(10)
+    const cites = 'I have enough info [1](#t1).## Title' + BODY
+    for (const raw of [huge, cites]) {
+      const { assembled } = await runTransform(chunk(raw))
+      expect(assembled).toBe(raw)
+      expect(stripNarrationPreamble(raw)).toBe(raw)
+    }
+  })
+
+  it.each([
+    [
+      'a `##` inside a fenced code block',
+      'I have enough info. Here is the syntax:\n```md\nIntro.## Not a seam\n```' +
+        BODY
+    ],
+    [
+      'a `##` inside inline code',
+      'I have enough info. Write `Title.## Sub` literally.' + BODY
+    ],
+    ['a glued `###`', 'I have enough info.### Details' + BODY],
+    ['an escaped `\\##`', 'I have enough info.\\## Details' + BODY],
+    [
+      'a real intro paragraph before `\\n\\n## `',
+      'Canker sores are painful ulcers that affect many people.\n\n## Background' +
+        BODY
+    ],
+    [
+      'a real Vietnamese intro before `\\n\\n## `',
+      'Loét miệng là những vết loét nhỏ, đau, xuất hiện bên trong miệng.\n\n## Nguyên nhân' +
+        BODY
+    ],
+    [
+      'an answer with no heading at all',
+      'Paris is the capital of France and its largest city. ' + BODY
+    ]
+  ])('never cuts %s', async (_label, raw) => {
+    const { assembled } = await runTransform(chunk(raw))
+    expect(assembled).toBe(raw)
+    expect(stripNarrationPreamble(raw)).toBe(raw)
   })
 })
