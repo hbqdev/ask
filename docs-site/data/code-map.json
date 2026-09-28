@@ -8,9 +8,9 @@
     "files": 655,
     "withPurpose": 655,
     "header": 169,
-    "jsdoc": 37,
+    "jsdoc": 38,
     "derived": 59,
-    "override": 390,
+    "override": 389,
     "documented": 359
   },
   "kinds": {
@@ -1534,6 +1534,12 @@
           "title": "Frontend",
           "section": "Main components",
           "anchor": "main-components"
+        },
+        {
+          "page": "/search/models-reasoning",
+          "title": "Models & reasoning",
+          "section": "Read time: one cleanup wherever text is read",
+          "anchor": "narration-read-time"
         }
       ]
     },
@@ -2080,8 +2086,8 @@
         {
           "page": "/history/decisions",
           "title": "Decisions",
-          "section": "D28. Sidebar refresh invariants and uncached conversation reads",
-          "anchor": "d28-sidebar-refresh-invariants-and-uncached-conversation-reads"
+          "section": "D20. Narration strippers: strict at persist, best-effort live",
+          "anchor": "d20-narration-strippers-strict-at-persist-best-effort-live"
         },
         {
           "page": "/history/known-issues",
@@ -2136,6 +2142,12 @@
           "title": "Streaming",
           "section": "Smoothing",
           "anchor": "smoothing"
+        },
+        {
+          "page": "/search/models-reasoning",
+          "title": "Models & reasoning",
+          "section": "Read time: one cleanup wherever text is read",
+          "anchor": "narration-read-time"
         }
       ]
     },
@@ -3173,6 +3185,12 @@
           "anchor": "components"
         },
         {
+          "page": "/history/decisions",
+          "title": "Decisions",
+          "section": "D20. Narration strippers: strict at persist, best-effort live",
+          "anchor": "d20-narration-strippers-strict-at-persist-best-effort-live"
+        },
+        {
           "page": "/history/known-issues",
           "title": "Known issues",
           "section": "Stopped label not rendered",
@@ -3199,7 +3217,7 @@
         {
           "page": "/request-lifecycle/streaming",
           "title": "Streaming",
-          "section": "Narration stripping: stream path vs persist path",
+          "section": "Narration stripping: stream, render and persist paths",
           "anchor": "narration"
         },
         {
@@ -9240,7 +9258,8 @@
         "scripts/eval/gate-stability.ts"
       ],
       "tests": [
-        "lib/agents/__tests__/query-classifier.test.ts"
+        "lib/agents/__tests__/query-classifier.test.ts",
+        "lib/streaming/__tests__/create-ephemeral-chat-stream-response.test.ts"
       ],
       "docs": [
         {
@@ -9399,7 +9418,8 @@
       "tests": [
         "lib/agents/__tests__/citation-handles-e2e.test.ts",
         "lib/agents/__tests__/researcher-always-search.test.ts",
-        "lib/agents/__tests__/researcher.test.ts"
+        "lib/agents/__tests__/researcher.test.ts",
+        "lib/streaming/__tests__/create-ephemeral-chat-stream-response.test.ts"
       ],
       "docs": [
         {
@@ -10756,6 +10776,18 @@
           "title": "Repo tour",
           "section": "lib/",
           "anchor": "lib"
+        },
+        {
+          "page": "/history/decisions",
+          "title": "Decisions",
+          "section": "D20. Narration strippers: strict at persist, best-effort live",
+          "anchor": "d20-narration-strippers-strict-at-persist-best-effort-live"
+        },
+        {
+          "page": "/search/models-reasoning",
+          "title": "Models & reasoning",
+          "section": "Read time: one cleanup wherever text is read",
+          "anchor": "narration-read-time"
         }
       ]
     },
@@ -11071,6 +11103,12 @@
           "title": "Repo tour",
           "section": "Top level",
           "anchor": "top-level"
+        },
+        {
+          "page": "/history/known-issues",
+          "title": "Known issues",
+          "section": "Old answers keep leaked narration in storage",
+          "anchor": "old-answers-with-leaked-reasoning-stay-leaked"
         },
         {
           "page": "/infrastructure/data-layer",
@@ -12423,6 +12461,12 @@
           "title": "Memory & recall",
           "section": "Indexing",
           "anchor": "indexing"
+        },
+        {
+          "page": "/search/models-reasoning",
+          "title": "Models & reasoning",
+          "section": "Read time: one cleanup wherever text is read",
+          "anchor": "narration-read-time"
         }
       ]
     },
@@ -14427,8 +14471,8 @@
         {
           "page": "/history/decisions",
           "title": "Decisions",
-          "section": "D37. Always search every question",
-          "anchor": "d37-always-search-every-question"
+          "section": "D20. Narration strippers: strict at persist, best-effort live",
+          "anchor": "d20-narration-strippers-strict-at-persist-best-effort-live"
         },
         {
           "page": "/history/known-issues",
@@ -14687,6 +14731,12 @@
           "title": "Streaming",
           "section": "Moving parts",
           "anchor": "moving-parts"
+        },
+        {
+          "page": "/search/models-reasoning",
+          "title": "Models & reasoning",
+          "section": "Read time: one cleanup wherever text is read",
+          "anchor": "narration-read-time"
         }
       ]
     },
@@ -14887,16 +14937,21 @@
       "purposeSource": "jsdoc",
       "exports": [
         "stripNarrationFromMessage",
-        "stripNarrationFromMessages"
+        "stripNarrationFromMessages",
+        "narrationCleanView"
       ],
       "methods": [],
       "route": null,
       "usedBy": [
+        "components/chat.tsx",
+        "components/render-message.tsx",
         "lib/streaming/create-chat-stream-response.ts",
+        "lib/streaming/create-ephemeral-chat-stream-response.ts",
         "lib/streaming/helpers/persist-stream-results.ts"
       ],
       "tests": [
-        "lib/streaming/helpers/__tests__/strip-narration-from-message.test.ts"
+        "lib/streaming/helpers/__tests__/strip-narration-from-message.test.ts",
+        "lib/streaming/helpers/__tests__/strip-narration-structural.test.ts"
       ],
       "docs": [
         {
@@ -14904,6 +14959,12 @@
           "title": "Decisions",
           "section": "D20. Narration strippers: strict at persist, best-effort live",
           "anchor": "d20-narration-strippers-strict-at-persist-best-effort-live"
+        },
+        {
+          "page": "/history/known-issues",
+          "title": "Known issues",
+          "section": "Old answers keep leaked narration in storage",
+          "anchor": "old-answers-with-leaked-reasoning-stay-leaked"
         },
         {
           "page": "/request-lifecycle/streaming",
@@ -14914,8 +14975,8 @@
         {
           "page": "/search/models-reasoning",
           "title": "Models & reasoning",
-          "section": "Narration and chain-of-thought leak handling",
-          "anchor": "narration-and-chain-of-thought-leak-handling"
+          "section": "Language-agnostic structural rules (2026-09-28)",
+          "anchor": "narration-structural-rules"
         }
       ]
     },
@@ -14925,24 +14986,31 @@
       "area": "lib",
       "project": "ask",
       "kind": "lib-module",
-      "purpose": "Heuristics that detect and strip models' 'thinking out loud' narration before the first ## heading, plus stray <think> tags, from answer text.",
-      "purposeSource": "override",
+      "purpose": "Persist/render-time cleanup of a single text part: the English phrase and think-tag rules first (unchanged behaviour), then the language-agnostic glued-seam cut on what remains.",
+      "purposeSource": "jsdoc",
       "exports": [
         "shouldStripPreamble",
         "looksLikeNarrationStart",
         "findHeadingMatch",
         "stripStrayThinkTags",
+        "findGluedHeadingSeam",
+        "stripGluedHeadingPreamble",
+        "looksLikeInterStepChatter",
         "stripNarrationPreamble"
       ],
       "methods": [],
       "route": null,
       "usedBy": [
+        "lib/db/keyword-search.ts",
+        "lib/memory/extract-indexable-text.ts",
+        "lib/streaming/create-chat-stream-response.ts",
         "lib/streaming/helpers/smooth-and-strip-narration.ts",
         "lib/streaming/helpers/strip-narration-from-message.ts",
         "scripts/clean-narration-preambles.ts"
       ],
       "tests": [
-        "lib/streaming/helpers/__tests__/strip-narration-preamble.test.ts"
+        "lib/streaming/helpers/__tests__/strip-narration-preamble.test.ts",
+        "lib/streaming/helpers/__tests__/strip-narration-structural.test.ts"
       ],
       "docs": [
         {
@@ -14952,10 +15020,28 @@
           "anchor": "d20-narration-strippers-strict-at-persist-best-effort-live"
         },
         {
+          "page": "/history/known-issues",
+          "title": "Known issues",
+          "section": "An answer with a glued preamble appears late while streaming",
+          "anchor": "an-answer-with-a-glued-preamble-appears-late-while-streaming"
+        },
+        {
+          "page": "/operations/evaluation",
+          "title": "Evaluation harnesses & scripts",
+          "section": "Data-maintenance scripts",
+          "anchor": "data-maintenance-scripts"
+        },
+        {
+          "page": "/request-lifecycle/streaming",
+          "title": "Streaming",
+          "section": "Knobs",
+          "anchor": "knobs"
+        },
+        {
           "page": "/search/models-reasoning",
           "title": "Models & reasoning",
-          "section": "Narration and chain-of-thought leak handling",
-          "anchor": "narration-and-chain-of-thought-leak-handling"
+          "section": "How the stream transform decides",
+          "anchor": "how-the-stream-transform-decides"
         }
       ]
     },
@@ -15939,8 +16025,8 @@
         {
           "page": "/search/models-reasoning",
           "title": "Models & reasoning",
-          "section": "Narration and chain-of-thought leak handling",
-          "anchor": "narration-and-chain-of-thought-leak-handling"
+          "section": "Limits to know about",
+          "anchor": "limits-to-know-about"
         },
         {
           "page": "/search/pipeline",
@@ -18197,6 +18283,7 @@
         "lib/streaming/create-ephemeral-chat-stream-response.ts"
       ],
       "tests": [
+        "lib/streaming/__tests__/create-ephemeral-chat-stream-response.test.ts",
         "lib/utils/__tests__/resolve-context-window.test.ts"
       ],
       "docs": []
@@ -19338,6 +19425,12 @@
           "title": "Repo tour",
           "section": "scripts/",
           "anchor": "scripts"
+        },
+        {
+          "page": "/history/known-issues",
+          "title": "Known issues",
+          "section": "Old answers keep leaked narration in storage",
+          "anchor": "old-answers-with-leaked-reasoning-stay-leaked"
         },
         {
           "page": "/operations/evaluation",

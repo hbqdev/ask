@@ -191,9 +191,31 @@ Read `modelId` from the `[latency]` line to see what really ran.
 
 ### Reasoning text appears in an answer, or flashes while streaming
 
-→ [Known issues › Chain-of-thought flash in the live stream](/history/known-issues#chain-of-thought-flash-in-the-live-stream),
-[Old answers with leaked reasoning stay leaked](/history/known-issues#old-answers-with-leaked-reasoning-stay-leaked),
-[Models & reasoning › Narration and chain-of-thought leak handling](/search/models-reasoning#narration-and-chain-of-thought-leak-handling)
+The model sometimes "thinks out loud" in the answer text: a status note before a tool call
+("Let me search…", "Tôi cần đọc trang này…") or a preamble in front of the answer's heading,
+sometimes glued to it ("…câu trả lời.## Title").
+
+**First check.** Is the build older than 2026-09-28 (prod `48d5b06d`)? Older builds cleaned only
+English phrasing, so non-English status notes were kept and a preamble glued to the heading showed
+as "…sentence.## Title". Current builds clean both in any language, and apply the cleanup
+whenever a message is shown, copied, spoken, fed back to the model or indexed, so old answers
+display clean too.
+
+If it still appears on a current build, match it to one of the cases left alone on purpose:
+
+- **Narration before a proper heading on its own line** in a language other than English, or
+  a long or list-shaped status note: kept by design
+  ([known issue](/history/known-issues#narration-the-structural-rules-keep-by-design)).
+- **An answer with no `## ` heading at all**: never cut, since there is no safe place to cut.
+- **Only in search results or a recall excerpt**: the stored rows are not rewritten yet
+  ([known issue](/history/known-issues#old-answers-with-leaked-reasoning-stay-leaked)).
+- **A brief flash while streaming** that disappears after reload: the live transform is
+  best-effort ([known issue](/history/known-issues#chain-of-thought-flash-in-the-live-stream)).
+  An answer that appears a moment late, with no flash, is the glued-preamble case working as
+  designed ([known issue](/history/known-issues#an-answer-with-a-glued-preamble-appears-late-while-streaming)).
+
+A new shape outside these cases needs a rule plus tests in `lib/streaming/helpers/__tests__`.
+→ [Models & reasoning › Narration and chain-of-thought leak handling](/search/models-reasoning#narration-and-chain-of-thought-leak-handling)
 
 ### An answer shows "[blocked]" after a citation or a link
 

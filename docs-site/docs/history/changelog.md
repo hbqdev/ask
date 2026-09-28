@@ -19,9 +19,35 @@ behind the change. Lab-first work lives on `flow-design`. `git cherry-pick -x` l
 ## 2026-09 — September
 
 **Streaming lifecycle, mobile QA, the end of the latency campaign, a fleet clean-up, every
-question searches, citations the model copies instead of counting, and search that survives a
-Redis restart**
+question searches, citations the model copies instead of counting, search that survives a
+Redis restart, and narration cleanup in any language**
 
+- **09-28** — **Narration cleanup works in any language and applies wherever text is read**
+  (`48d5b06d`; lab `5f8caf17`; staging `91d25f65`; ported the same day for release after a lab
+  browser check; [D20 addendum](/history/decisions#addendum-2026-09-28-language-agnostic-structural-rules)).
+  - The trigger: a Vietnamese prod chat (deepseek-v4-pro, balanced) saved every status note
+    written before a tool call, and its answers began with "…chương.## " (a preamble glued to the
+    heading, the `</think>` between them hidden by the sanitizer). The persist-time rules only
+    knew English phrases, and a heading glued to a sentence was never recognised.
+  - Two structural rules, run after the unchanged English rules: a non-final text part directly
+    followed by a tool call is dropped when it is ≤600 characters, unstructured (no heading,
+    table, code fence, 3+ item list or citation) and not longer than the final answer; a `## `
+    glued to preceding text outside code is the narration/answer seam, and the prefix is cut
+    when it has no heading or citation of its own, is ≤2000 characters and is shorter than the
+    rest. A proper `\n\n## ` heading is never touched.
+  - The same cleanup now runs wherever text is read: the chat view (`narrationCleanView`, also
+    for the live message), the "research still running" indicator, copy, the history sent to
+    the model and the classifier (logged-in and guest), the spoken gist, recall indexing and
+    sidebar/Library search snippets. Already-stored answers display clean without a DB rewrite.
+    → [models & reasoning](/search/models-reasoning#narration-and-chain-of-thought-leak-handling),
+    [streaming](/request-lifecycle/streaming#narration)
+  - Review of all 88 new removals in stored history (15 Vietnamese, 73 English): 0 false
+    positives; of the 118 messages the old rules changed, 95 identical, 23 cleaner, 0 regressions.
+  - Open: stored rows are unchanged, so keyword search still matches stored status notes and 39
+    recall chunks keep a glued preamble; a backfill (92 prod messages) awaits an owner decision
+    ([known issue](/history/known-issues#old-answers-with-leaked-reasoning-stay-leaked)). A glued
+    answer appears a moment later while streaming
+    ([known issue](/history/known-issues#an-answer-with-a-glued-preamble-appears-late-while-streaming)).
 - **09-27** — **Incident: a Redis restart hung every balanced/quality search; the fix**
   (`2f5eac13`; lab `a9c5914a`; staging `c0df517f`; deployed about 20:45 UTC;
   [D39](/history/decisions#d39-every-local-redis-client-goes-through-local-redis-ts)).

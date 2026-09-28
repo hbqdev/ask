@@ -191,7 +191,7 @@ and gate rates describe what Ask did. They do not show whether the answer was
 better.** Judge the answers before deciding a gate is right or wrong.
 
 The classifier is **bypassed** when the message contains a URL, when the user hits
-Retry, and in **speed mode** (`create-chat-stream-response.ts:273-309`). A
+Retry, and in **speed mode** (`create-chat-stream-response.ts:282-318`). A
 bypassed turn gets a fixed classification: `skipSearch:false`,
 `needsSources:true`, `standaloneQuery` = the raw message, no expansions. A
 classifier failure, empty reply or soft-budget timeout falls back to the same
@@ -199,7 +199,7 @@ values (`query-classifier.ts:363-378`). All of these are therefore `research`
 turns. A URL turn is not forced (above). Retry, speed and classifier-failure
 turns are forced on the raw message minus its URLs, which is what those paths
 searched before, now guaranteed, unless the message carries an attachment it
-only points at. Guests (`create-ephemeral-chat-stream-response.ts:86-101`)
+only points at. Guests (`create-ephemeral-chat-stream-response.ts:92-107`)
 bypass only for a URL; they run the classifier in speed mode and have no Retry.
 
 ### Classifier model, host, and budget
@@ -318,24 +318,35 @@ unset on all three envs.
 
 ## Narration and chain-of-thought leak handling
 
-"Narration" is the model talking about its process ("Let me search for…",
-"I have comprehensive data now…") in visible text instead of in reasoning parts.
-It happens in three places, and each is handled at a different layer:
+"Narration" is the model talking about its process in visible text instead of in
+reasoning parts: "Let me search for…", "I have comprehensive data now…", or the same in
+another language ("Tôi cần đọc trang này…", "让我搜索一下…"). Every mode's prompt requires
+the final answer to start with a `## ` heading (the "first-token rule"), and all of the
+cleanup below anchors on that rule. Each leak shape is handled at a different layer:
 
-| Leak shape | Live (while streaming) | Persisted (what reload, history, and search indexing see) |
+| Leak shape | Live (while streaming) | At persist (`stripNarrationFromMessage`) |
 |---|---|---|
-| **Reasoning parts** (the model's native thinking) | shown as a "Thinking…" pill; raw text not rendered | stored unchanged in the message; the display is gated by `NEXT_PUBLIC_SHOW_REASONING` |
-| **Inter-step narration**: a separate text part, then more tool calls, then the answer | **muted by the renderer**: while streaming, a text part renders as answer text only if it starts with a markdown heading (`components/render-message.tsx:225`); after the stream completes, only the last text part renders | **dropped** by `stripNarrationFromMessage` (`lib/streaming/helpers/strip-narration-from-message.ts`): a non-final text part that looks like narration and is followed by a later tool or text part is removed |
-| **Fused preamble**: narration in the same text part as the answer, before its `## ` heading | **stripped by the stream transform** `smoothAndStripNarration()` (`smooth-and-strip-narration.ts`), passed as `experimental_transform` to `researchAgent.stream` | stripped again by `stripNarrationPreamble` at persist time |
+| **Reasoning parts** (the model's native thinking) | shown as a "Thinking…" pill; raw text not rendered | stored unchanged; the display is gated by `NEXT_PUBLIC_SHOW_REASONING` |
+| **Inter-step narration**: a separate text part, then a tool call, then later the answer | **hidden by the renderer**: while streaming, a text part renders as answer text only if it starts with a markdown heading (`components/render-message.tsx:237`); after the stream completes, only the last text part renders | **dropped**, in any language (the rules are below) |
+| **Fused preamble after a line break**: narration, then `\n## ` in the same part | **stripped by the stream transform** `smoothAndStripNarration()` (`lib/streaming/helpers/smooth-and-strip-narration.ts:57`) when it matches the English rules | stripped again by `stripNarrationPreamble` (English rules only) |
+| **Glued preamble**: `## ` directly after a sentence or a stray tag, e.g. `…câu trả lời.## ` or `…chương.</think>## ` | not stripped by the transform; the renderer's cleaned view cuts it once the answer after the seam outweighs it (until then the part does not start with a heading, so it stays hidden) | **cut**, in any language (`stripGluedHeadingPreamble`) |
 
-How the stream transform decides (`strip-narration-preamble.ts`):
+Since 2026-09-28 the persist-time cleanup is also applied **at read time**, everywhere the
+text is read (table below). A message saved before a rule existed therefore displays clean
+without a database rewrite.
+
+### How the stream transform decides
+
+`smoothAndStripNarration()` is passed as `experimental_transform` to
+`researchAgent.stream`. Its decisions come from `strip-narration-preamble.ts`:
 
 - It buffers the start of every text part. If a `## ` heading appears at
-  offset 0, it flushes immediately. If a heading appears later, it strips the
-  text before the heading when that text **starts with a known narration
-  phrase** (`NARRATION_STARTERS`, which includes the round-cap and
+  offset 0, it flushes immediately. If a heading appears later (at a line start, after a
+  `<channel|>` marker or after a closing think tag, `findHeadingMatch`, `:160`), it strips
+  the text before the heading when that text **starts with a known narration
+  phrase** (`NARRATION_STARTERS`, `:18`, which includes the round-cap and
   "source inventory" phrases). There is also a **structural backstop**
-  (`shouldStripPreamble`): a preamble longer than 1000 characters that shows a
+  (`shouldStripPreamble`, `:115`): a preamble longer than 1000 characters that shows a
   strong reasoning signal (a stray `<think>`/`</think>` tag, or ≥3 first-person
   research sentences) is stripped even without a matching phrase. The
   thresholds come from measurement: real introductions were ≤~700 characters,
@@ -344,27 +355,134 @@ How the stream transform decides (`strip-narration-preamble.ts`):
   looks like narration, up to `NARRATION_HARD_MAX` (16000 characters, sized for
   the largest observed ~15KB dump). A normal answer with no heading is released
   after ~64 characters.
-- `stripStrayThinkTags` removes a leading `<think>` block or a stray
-  `</think>`, but leaves the tag alone when an answer genuinely mentions it.
+- `stripStrayThinkTags` (`:204`) is **not** part of the live transform: it runs at persist
+  and read time, inside `stripNarrationPreamble`. It removes a leading `<think>` block, or a
+  stray `</think>` whose preceding text reads like reasoning (`looksLikeReasoningPrefix`,
+  `:175`), and leaves the tag alone when an answer genuinely mentions it.
 
-Limits to know about:
+Apart from the think-tag signal on a preamble over 1000 characters, every one of these
+decisions is anchored on English wording. The transform was **not**
+changed on 2026-09-28: a live stripper has to decide from a prefix, and an aggressive one
+once dropped real answers ([D20](/history/decisions#d20-narration-strippers-strict-at-persist-best-effort-live)).
+The language-agnostic rules run at persist and at read time instead.
+
+### Language-agnostic structural rules (2026-09-28) {#narration-structural-rules}
+
+Before 2026-09-28 a status note in Vietnamese or Chinese, or in English with unlisted
+wording ("Let me try…", "One more check…"), was saved: the persist-time drop needed
+`looksLikeNarrationStart` to match an English starter. A preamble in front of the answer
+leaked for two reasons. The cut needed an English decider (`looksLikeReasoningPrefix` /
+`shouldStripPreamble`) even when `findHeadingMatch` had found `</think>## `. And a heading
+glued straight after a sentence, with no tag and no newline, was never found at all. The
+markdown sanitizer drops the unknown `</think>` element, so users saw "…chương.## " followed
+by the answer. The fix keys off the **shape** of the leak instead of its wording. Each rule
+fires only when several independent signals agree, and both run **after** the English rules,
+so English behaviour is unchanged ([D20 addendum](/history/decisions#addendum-2026-09-28-language-agnostic-structural-rules)).
+
+**Rule 1: inter-step chatter.** In `stripNarrationFromMessage`
+(`lib/streaming/helpers/strip-narration-from-message.ts:111-121`) a non-final text part is
+dropped when either:
+
+- it starts (or has a sentence that starts) with an English narration phrase, at any
+  length (the older rule); or
+- all of these hold:
+  - its next significant part (skipping `step-start`, reasoning, `data-*` and empty
+    text) is a **tool call** (`isFollowedByToolCall`, `:34`), so it was written before
+    the tool ran and cannot be an answer grounded in that tool's result;
+  - it is short, unstructured prose (`looksLikeInterStepChatter`,
+    `strip-narration-preamble.ts:341`): at most 600 characters (`INTER_STEP_CHATTER_MAX`,
+    `:331`), and no heading, table, code fence, list of 3 or more items, or citation marker;
+  - it is **not longer than the final answer** (`strip-narration-from-message.ts:93-96`).
+    This guard keeps the shape
+    "short real reply → side-effect tool (`remember`, `generateImage`) → shorter sign-off".
+
+*Why 600:* in stored history (831 assistant messages across prod and the lab), text written
+right before a tool call was 110–180 characters at the median and 250–460 at p90; every
+Vietnamese and Chinese one was 67–247. 600 covers the chatter with headroom and stays below
+the ~700 characters D20 measured for genuine intro prose. A structured partial answer
+written before a tool call (a `## Key Findings` block) is kept by the structure checks.
+
+**Rule 2: the glued seam.** `findGluedHeadingSeam` (`strip-narration-preamble.ts:285`)
+finds the first `## ` outside code (fences and inline code are blanked first, `maskCode`,
+`:257`) whose preceding character is not whitespace, not `#` (so `###` is never split) and
+not `\` (an escaped hash). A `## ` glued to text on the same line does not even render as a
+heading, so it is where narration ends and the answer begins. `stripGluedHeadingPreamble`
+(`:306`) cuts the prefix only when it has no heading and no citation marker of its own, is at
+most 2000 characters (`GLUED_PREAMBLE_MAX`, `:275`) and is shorter than what follows the seam.
+A proper `\n\n## ` heading after an intro paragraph is never a seam.
+
+*Why 2000:* the three Vietnamese preambles on prod were 613, 653 and 673 characters (6–9 % of
+their answers), and a stray glyph glued in front of a heading ("និ## How to…") was 2. Real
+reasoning dumps start around 8 KB and carry English starters, which the phrase rules already
+handle. 2000 is about 3× the largest non-English preamble seen while staying far below the
+dump range.
+
+`stripNarrationPreamble` (`:357`) is the per-part entry point: the English phrase and
+think-tag rules first (`stripPhraseAnchoredPreamble`, `:362`), then the glued-seam cut on
+what remains. Both rules are pure and idempotent.
+
+### Read time: one cleanup wherever text is read {#narration-read-time}
+
+The same functions run wherever an answer's text is used, so what the user sees, what the
+model is fed back and what search finds agree:
+
+| Reader | Code | What runs |
+|---|---|---|
+| Chat view (stored and streaming messages) | `components/render-message.tsx:158` | `narrationCleanView` |
+| "Research still running" indicator (`endsInActiveResearch`) | `components/render-message.tsx:54` | `narrationCleanView` |
+| Copy shortcut (Mod+Shift+C) | `components/chat.tsx:686` | `narrationCleanView` |
+| Copy and Save in the answer's action row | `components/answer-section.tsx:320` | receives the rendered (cleaned) answer text |
+| History fed to the classifier and the model | `lib/streaming/create-chat-stream-response.ts:258` | `stripNarrationFromMessages` |
+| Guest history (sent by the browser) | `lib/streaming/create-ephemeral-chat-stream-response.ts:62` | `stripNarrationFromMessages` |
+| Spoken gist (voice turns) | `lib/streaming/create-chat-stream-response.ts:959` | `stripNarrationPreamble` on the final step's text |
+| Recall indexing and the recall backfill | `lib/memory/extract-indexable-text.ts:96-103` | `stripNarrationPreamble` on each assistant text part |
+| Sidebar and Library keyword-search snippets | `lib/db/keyword-search.ts:76-79` | `stripNarrationPreamble` on an assistant snippet |
+| Persist | `lib/streaming/create-chat-stream-response.ts:1072`, `lib/streaming/helpers/persist-stream-results.ts:39` | `stripNarrationFromMessage` |
+
+`narrationCleanView` (`strip-narration-from-message.ts:156`) is `stripNarrationFromMessage`
+memoized in a `WeakMap` keyed by the message object (`:147`). That is safe because
+`@ai-sdk/react` `structuredClone()`s a message into state on every streamed update: a changed
+message is a new object and an unchanged one keeps its identity. The chat re-renders every
+message on each streamed delta, so the memo keeps that cost proportional to the messages that
+changed.
+
+Recall indexing never needed the inter-step rule: `extractIndexableText` keeps only the text
+after the last tool call ([memory & recall](/knowledge/memory-recall)). It did index a glued
+preamble, because that preamble sits inside the final answer part.
+
+### Limits to know about
 
 - **A final answer with fused narration and no `## ` heading is left intact.**
   With no heading there is nothing safe to cut at, and removing real content
   would be worse. It is rare because every mode's prompt requires the answer to
   start with a heading.
-- **Cleaning is model-specific in practice.** The leak families were collected
-  from specific models (deepseek-v4-flash, glm-5.3-flash). A new model can
-  narrate in a way no pattern matches yet. Add its phrasing to
-  `NARRATION_STARTERS`, with a test in `lib/streaming/helpers/__tests__`.
+- **Non-English narration before a proper `\n\n## ` heading is not cut.** Only the English
+  phrase rules apply there; cutting an unrecognised intro paragraph risks eating real prose.
+  The 2026-09-28 scan found no such case.
+- **Long or structured status notes are kept.** A non-final part over 600 characters, or with
+  a heading, table, code fence, 3+ item list or citation, or longer than the final answer, is
+  not dropped unless it starts with an English phrase. The review found 6 such narration parts
+  in stored history, kept by design ([known issues](/history/known-issues#narration-the-structural-rules-keep-by-design)).
+- **A glued answer appears late while streaming.** Until the text after the seam is longer
+  than the preamble (a few hundred characters), the part neither starts with a heading nor
+  qualifies for the cut, so nothing is shown; then the answer appears from its heading. The
+  preamble never flashes ([known issues](/history/known-issues#an-answer-with-a-glued-preamble-appears-late-while-streaming)).
+- **The English phrase list is still model-specific.** Its families were collected from
+  specific models (deepseek-v4-flash, glm-5.3-flash). A new English phrasing in front of a
+  proper heading needs its pattern in `NARRATION_STARTERS`, with a test in
+  `lib/streaming/helpers/__tests__`. Status notes before a tool call and glued preambles need
+  no pattern.
 - **Live and persisted views can differ.** A leak that gets past the live
   transform (for example, glm narration that doesn't match a starter pattern
   and doesn't meet the structural threshold) can briefly appear while
-  streaming and then be gone after a reload, once the persist-time pass has
-  run. *(Reported for glm. The 2026-09-19 A/B saw 0 of 12 leaks on the current
-  roster.)*
-- **Cleaning applies only to new answers.** A message that was saved with a
-  leak stays that way until the user regenerates it.
+  streaming. Since 2026-09-28 the renderer also applies the persist-time rules to the
+  streaming message, so anything those rules catch is hidden live as well. *(Reported for
+  glm. The 2026-09-19 A/B saw 0 of 12 leaks on the current roster.)*
+- **Stored rows are not rewritten.** The display, copy, history and snippets are clean, but
+  the rows keep what was saved: keyword search still **matches** words that only occur in a
+  stored status note (and shows that note as the snippet), and recall chunks indexed before
+  2026-09-28 keep a glued preamble until the message is re-indexed. A backfill is an open
+  decision ([known issues](/history/known-issues#old-answers-with-leaked-reasoning-stay-leaked)).
 - The round-cap notice itself tells the model not to restate the limit or
   describe its sources, and to start with the heading (`lib/tools/search.ts:420`).
 
