@@ -289,6 +289,47 @@ export function findGluedHeadingSeam(text: string): number | null {
 }
 
 /**
+ * The first glued `## ` seam in `text` (`findGluedHeadingSeam`) when the text
+ * in front of it qualifies as a preamble ON ITS OWN: no heading of its own
+ * (else the seam is a missing newline INSIDE the answer), no citation marker
+ * (narration never cites; answer prose does), and ≤ GLUED_PREAMBLE_MAX chars
+ * trimmed. Returns the seam index and the trimmed prefix length, or null.
+ *
+ * Everything here depends only on the text up to the seam, so the live stream
+ * transform can evaluate it on a partial buffer. The remaining guard — the
+ * answer must outweigh the prefix — is `gluedAnswerOutweighsPreamble`.
+ */
+export function findGluedPreambleSeam(
+  text: string
+): { seam: number; prefixLength: number } | null {
+  const seam = findGluedHeadingSeam(text)
+  if (seam === null) return null
+
+  // The seam needs a non-space character before `##`, so the prefix is never
+  // blank here.
+  const prefix = text.slice(0, seam)
+  const prefixLength = prefix.trim().length
+  if (LINE_START_HEADING.test(maskCode(prefix))) return null
+  if (CITATION_MARKER.test(prefix)) return null
+  if (prefixLength > GLUED_PREAMBLE_MAX) return null
+  return { seam, prefixLength }
+}
+
+/**
+ * The last glued-seam guard: the text after the seam must be strictly longer
+ * (trimmed) than the prefix in front of it, so a long preamble is never cut
+ * from a short answer. Monotone in `answer`: appending text never shrinks its
+ * trimmed length, so once a PARTIAL streamed answer passes, the complete one
+ * will too — which is what lets the live transform decide before the end.
+ */
+export function gluedAnswerOutweighsPreamble(
+  prefixLength: number,
+  answer: string
+): boolean {
+  return answer.trim().length > prefixLength
+}
+
+/**
  * Cut a preamble fused IN FRONT OF the answer's first heading on the same
  * line, in any language. A `## ` that follows text on the same line does not
  * even render as a heading, and every mode's prompt makes the answer start
@@ -302,20 +343,14 @@ export function findGluedHeadingSeam(text: string): number | null {
  *
  * A proper `\n\n## ` heading after an intro paragraph is never a seam, so a
  * genuine intro is untouched here (the English phrase rules still apply).
+ * The live transform (`smoothAndStripNarration`) makes the same cut through
+ * the same two helpers, so the streamed and persisted text converge.
  */
 export function stripGluedHeadingPreamble(text: string): string {
-  const seam = findGluedHeadingSeam(text)
-  if (seam === null) return text
-
-  // The seam needs a non-space character before `##`, so the prefix is never
-  // blank here.
-  const prefix = text.slice(0, seam)
-  const answer = text.slice(seam)
-  const trimmedPrefix = prefix.trim()
-  if (LINE_START_HEADING.test(maskCode(prefix))) return text
-  if (CITATION_MARKER.test(prefix)) return text
-  if (trimmedPrefix.length > GLUED_PREAMBLE_MAX) return text
-  if (trimmedPrefix.length >= answer.trim().length) return text
+  const candidate = findGluedPreambleSeam(text)
+  if (!candidate) return text
+  const answer = text.slice(candidate.seam)
+  if (!gluedAnswerOutweighsPreamble(candidate.prefixLength, answer)) return text
   return answer
 }
 
