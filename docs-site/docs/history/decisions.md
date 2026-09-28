@@ -48,7 +48,7 @@ names the lab original. See [deploy](/operations/deploy) for the flow.
 | [D17](#d17-20k-per-page-crop-with-a-crop-position-shadow) | 20k per-page crop + crop-position shadow | adopted (experiment) | 2026-08-06 |
 | [D18](#d18-targeted-reasoning-reasoning-only-on-research-turns) | Targeted reasoning (research turns only); since D37 nearly every turn is a research turn | **inconclusive** | 2026-09-19 |
 | [D19](#d19-follow-up-re-search-prompt-nudge) | Follow-up re-search prompt nudge (only re-searching since D37) | adopted (soft) | 2026-09-19 |
-| [D20](#d20-narration-strippers-strict-at-persist-best-effort-live) | Narration strippers: strict at persist, best-effort live | adopted | 2026-09-10 / 09-17 |
+| [D20](#d20-narration-strippers-strict-at-persist-best-effort-live) | Narration strippers: strict at persist, best-effort live; language-agnostic rules applied wherever text is read | adopted | 2026-09-10 / 09-17 / 09-28 |
 | [D21](#d21-other-latency-knobs-measured) | Other latency knobs measured (rerank budget, enrich cap, crawl parallelism, turn budget) | mixed | 2026-07/09 |
 | [D22](#d22-multi-agent-deep-research) | Multi-agent deep research | **shelved** | 2026-08-04 |
 | [D23](#d23-uploads-and-url-rag-on-disk-not-pgvector) | Uploads / URL RAG on disk, not pgvector | adopted | 2026-07-07 → 09-12 |
@@ -385,7 +385,7 @@ bounded by the ~4–10% stable prefix.
 - **Status:** **rejected** — already done · **Date:** 2026-09-11
 - **Finding.** `pruneMessages({ reasoning: 'before-last-message', toolCalls:
   'before-last-2-messages', emptyMessages: 'remove' })` in
-  `lib/streaming/create-chat-stream-response.ts:447` already strips earlier turns' crawled pages
+  `lib/streaming/create-chat-stream-response.ts:456` already strips earlier turns' crawled pages
   from the live prompt from the next turn onward. A three-turn searching chat does **not** balloon
   to 120–270k tokens. The only residual slice maps onto the excerpts idea that already lost (D15).
 - **Consequence.** The real lever is the **volatile suffix**: crop size, source count, rerank
@@ -487,7 +487,8 @@ non-determinism, the agent's search-or-not choice and the ceiling swamp live A/B
 
 ### D20. Narration strippers: strict at persist, best-effort live
 
-- **Status:** adopted · **Dates/commits:** `378e81af` (2026-09-10), `0290896c` (2026-09-17);
+- **Status:** adopted · **Dates/commits:** `378e81af` (2026-09-10), `0290896c` (2026-09-17),
+  `48d5b06d` (2026-09-28, [addendum](#addendum-2026-09-28-language-agnostic-structural-rules));
   earlier `f4c53a7a` (2026-07-08)
 - **Context.** Reasoning models emit "process narration" such as "I have comprehensive data now…
   let me search…" or "The search limit has been reached (3 rounds)…" as text parts. Two families
@@ -510,13 +511,108 @@ non-determinism, the agent's search-or-not choice and the ceiling swamp live A/B
   transform is conservative, and a brief flash of narration on some models (seen on glm) is
   accepted. The persisted message is cleaned properly and replaces the live view on reload.
 - **Consequences.**
-  - Already-saved leaked messages stay leaked until regenerated. The strippers act at persist time.
+  - ~~Already-saved leaked messages stay leaked until regenerated. The strippers act at persist
+    time.~~ **Corrected 2026-09-28:** the chat view, copy, the history fed back to the model and
+    the classifier, the spoken gist, recall indexing and search snippets now apply the same
+    cleanup when they read a message, so a saved leak **displays** clean. The stored rows are
+    unchanged: keyword search still matches a stored status note, and recall chunks indexed
+    earlier keep a glued preamble until a backfill and re-index (see the addendum).
   - Residual by design: a final answer with fused narration and **no** `##` heading is left intact
     (rare, since prompts mandate the heading). Dropping it risks losing real content.
   - The rule "the answer is the text after the last tool part" is also used by
     `lib/memory/extract-indexable-text.ts`.
 - **Revisit if** a new narration family appears. Add its starters and tests
   (`lib/streaming/helpers/__tests__`); don't loosen the structural thresholds without a corpus.
+- <span id="addendum-2026-09-28-language-agnostic-structural-rules"></span>**Addendum
+  2026-09-28: language-agnostic structural rules, applied everywhere text is read.** Commit
+  `48d5b06d` (lab `5f8caf17`, staging `91d25f65`), ported to prod and staging the same day for
+  release after a lab browser check.
+  - **What leaked.** Prod chat `pq6zs7w88m1kmowjdu9udfrw` (deepseek-v4-pro, balanced,
+    Vietnamese): its status notes before each tool call ("Tôi cần đọc trang này…") were saved,
+    and two of its three answers ended their preamble with `…chương.</think>## 吞噬星空`, the
+    third with `…câu trả lời.## ` (no tag, no newline). The markdown sanitizer drops the unknown
+    `</think>` element, so users saw "…chương.## " in front of the answer. Three causes, all in
+    the rules of 2026-09-10/17:
+    1. The persist-time drop of a non-final text part (`strip-narration-from-message.ts`)
+       required `looksLikeNarrationStart`, i.e. an English `NARRATION_STARTERS` match. Vietnamese
+       and Chinese status notes, and English ones with unlisted wording ("Let me try…", "One more
+       check…"), were kept.
+    2. The fused-preamble cut required an English decider (`looksLikeReasoningPrefix` for the
+       stray-tag cut, `shouldStripPreamble` for the heading cut) even when `findHeadingMatch`
+       had found `</think>## `.
+    3. A heading glued straight after a sentence was never recognised as a heading at all.
+  - **Where it showed.** After a turn completes, `render-message.tsx` already hid every text
+    part except the last, so the status notes were not visible in the chat view. They leaked
+    into the history sent back to the model and the classifier (logged-in and guest), the copy
+    shortcut (which joins every text part) and keyword-search matches and snippets. Recall never
+    indexed them, because `extractIndexableText` keeps only the text after the last tool call.
+    The glued preamble sits inside the final text part, so it was visible in the answer and
+    reached everything that reads the answer: copy, the spoken gist, recall chunks, snippets
+    and the history. During streaming the Vietnamese answer stayed hidden (it did not start with
+    a heading), then appeared with its preamble.
+  - **Decision 1: inter-step chatter in any language.** A non-final text part whose next
+    significant part is a tool call is dropped when it is at most 600 characters, has no
+    heading, table, code fence, list of 3+ items or citation marker, and is not longer than the
+    final answer (`looksLikeInterStepChatter`, `lib/streaming/helpers/strip-narration-preamble.ts:341`;
+    `lib/streaming/helpers/strip-narration-from-message.ts:111-121`). The English phrase rule
+    still drops a narration part at any length. The final-answer guard protects "short real
+    reply → side-effect tool → shorter sign-off". **Why 600:** in stored history (831 assistant
+    messages, prod and lab), text written right before a tool call is 110–180 characters at the
+    median and 250–460 at p90; every Vietnamese and Chinese one was 67–247. D20's genuine intros
+    reached ~700 characters, so 600 covers the chatter with headroom and stays below that.
+  - **Decision 2: the glued seam.** The first `## ` outside code whose preceding character is
+    not whitespace, `#` or `\` is a seam (`findGluedHeadingSeam`,
+    `lib/streaming/helpers/strip-narration-preamble.ts:285`). The prefix is cut when it has no
+    heading or citation of its own, is at most 2000 characters and is shorter than the rest
+    (`stripGluedHeadingPreamble`, `:306`). A proper `\n\n## ` heading is never touched.
+    **Why 2000:** the three prod preambles were 613, 653 and 673 characters (6–9 % of
+    their answers); a stray glyph glued in front of a heading was 2; real reasoning dumps start
+    around 8 KB and carry English starters. 2000 is about 3× the largest non-English preamble.
+  - **Decision 3: English first, structure second.** Both rules run **after** the existing
+    English rules (`stripNarrationPreamble`, `strip-narration-preamble.ts:357-360`; the
+    phrase test is the first alternative in `strip-narration-from-message.ts:112-116`), so they
+    only add removals and English behaviour is unchanged.
+  - **Decision 4: one cleanup wherever text is read.** The same pure functions now run in the
+    chat view and the "research still running" indicator (`narrationCleanView`, memoized per
+    message object, `components/render-message.tsx:54,158`), the copy shortcut
+    (`components/chat.tsx:686`), the model and classifier history
+    (`lib/streaming/create-chat-stream-response.ts:258`; guests
+    `lib/streaming/create-ephemeral-chat-stream-response.ts:62`), the spoken gist
+    (`lib/streaming/create-chat-stream-response.ts:959`), recall extraction
+    (`lib/memory/extract-indexable-text.ts:96-103`) and keyword-search snippets
+    (`lib/db/keyword-search.ts:76-79`). Stored messages therefore display clean without a DB
+    rewrite. The live stream transform is unchanged: it still decides from a
+    prefix, which is why live stays best-effort.
+  - **Evidence (read-only scan of the last 60 days).** Non-final text parts followed by a tool
+    call:
+
+    | Env | Language | Parts | Already dropped (old rules) | Leaked |
+    |---|---|---|---|---|
+    | prod | en | 50 | 34 | 16 |
+    | prod | vi | 9 | 0 | 9 |
+    | lab | en | 105 | 79 | 26 |
+    | lab | zh | 1 | 0 | 1 |
+
+    Glued seams: prod 3, all Vietnamese, all leaked. With the new rules the prod messages the
+    cleanup changes go from 26 to 38 (57 parts dropped, 3 answers cut). All 88 new removals
+    across stored history (15 Vietnamese, 73 English) were reviewed by hand: **0 false
+    positives**. English regression check: of the 118 messages the old rules changed, 95 are
+    identical under the new rules, 23 are cleaner, 0 regressed. 6 long or list-shaped
+    narration parts are kept by design. Tests:
+    `lib/streaming/helpers/__tests__/strip-narration-structural.test.ts` (fixtures from the prod
+    chat, plus Chinese, Spanish and false-positive guards).
+  - **Limits** (tracked in [known issues](/history/known-issues#narration-the-structural-rules-keep-by-design)):
+    during streaming a glued answer appears only once its body outweighs the preamble (no
+    flash); non-English narration before a proper `\n\n## ` heading is not cut (0 cases in the
+    data); keyword search still matches stored chatter, and the recall chunks of the 3
+    Vietnamese answers (39 chunks) keep the preamble, until a backfill and a recall re-index run.
+  - **Backfill: not done, owner decision pending.** All prod history: 92 messages (177 text-part
+    deletes, 4 answer rewrites); 69 of the 92 were saved before the English rules were complete
+    (the last of those rules landed 2026-09-17). Last 60 days: 38 messages. Rewritten answers also need a recall
+    re-index. How: [known issues](/history/known-issues#old-answers-with-leaked-reasoning-stay-leaked).
+  - **Don't** raise 600 or 2000 without re-running the corpus review, and don't cut a
+    non-English intro before a proper `\n\n## ` heading on a guess: that is exactly where
+    genuine intro prose lives.
 
 ### D21. Other latency knobs measured
 
@@ -884,7 +980,7 @@ turn-based loop (`git revert b0ff56ad`) brings back the same latency.
   largest class (146 of 655 over all history; 70 of 158 in the 11 flagged recent turns) was
   anchors copied from **earlier answers**. The model-bound history still carried every earlier
   answer's `[N](#<old toolCallId>)` text, while `pruneMessages` (`toolCalls:
-  'before-last-2-messages'`, `lib/streaming/create-chat-stream-response.ts:447-450`) had already
+  'before-last-2-messages'`, `lib/streaming/create-chat-stream-response.ts:456-459`) had already
   removed those turns' tool calls and results. Follow-up turns that ran no search had every
   anchor unresolved.
 - **Decision.**
@@ -1017,7 +1113,7 @@ turn-based loop (`git revert b0ff56ad`) brings back the same latency.
      is the id the UI part and persistence store, including for the forced step-0 search.
   3. **Never stored, so it cannot leak across turns.** The UI part, the database and the
      browser get the raw output. Chat history is converted without `tools`
-     (`convertToModelMessages`, `lib/streaming/create-chat-stream-response.ts:442-444`), so
+     (`convertToModelMessages`, `lib/streaming/create-chat-stream-response.ts:451-453`), so
      `toModelOutput` does not run on replayed tool results and an earlier turn's results carry
      no handle. Earlier answers' anchors are still stripped from history (D36).
   4. **Prompts: copy, never compute.** With the flag on, `getCitationFormatGuidance()`
@@ -1176,12 +1272,12 @@ turn-based loop (`git revert b0ff56ad`) brings back the same latency.
     or soft-budget timeout) have no classifier rewrite: `standaloneQuery` is the raw message, so
     apart from the URL and attachment cases above the forced search runs on the raw text. That
     is what those paths searched before. Guest turns bypass the classifier only for a URL
-    (`lib/streaming/create-ephemeral-chat-stream-response.ts:86-101`) and apply the same
+    (`lib/streaming/create-ephemeral-chat-stream-response.ts:92-107`) and apply the same
     user-supplied-source check.
 - **Telemetry.** The `[latency]` line gains `turn_mode`, `forced_search` and (with the
   follow-up) `forced_skip`, the user-supplied-source reason
   (`lib/streaming/latency-tracker.ts:313-317`, set from `onTurnPlan` at
-  `lib/streaming/create-chat-stream-response.ts:831-833`). The container log also gets
+  `lib/streaming/create-chat-stream-response.ts:840-842`). The container log also gets
   `[Researcher] always-search: step 0 forced to search "<query>"`. On a forced turn the synthetic
   step emits at once, so `ttft_ms` and `first_step_ms` measure only the pre-work (about 2 s). Use
   `stream["text-start"]` for the time to first prose. Guest turns write no `[latency]` line.

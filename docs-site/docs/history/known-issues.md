@@ -5,7 +5,7 @@ title: Known issues
 # Known issues and gotchas
 
 Open problems, pending operator actions and traps a maintainer needs to know about, as of
-**2026-09-27**. Each entry gives the **symptom**, its **impact**, a **workaround** and a **fix
+**2026-09-28**. Each entry gives the **symptom**, its **impact**, a **workaround** and a **fix
 sketch**. Resolved history lives in the [changelog](/history/changelog). Rationale for deliberate
 trade-offs lives in [decisions](/history/decisions).
 
@@ -37,7 +37,9 @@ thing.
 | [Reloaded speed-mode answers cited a different page](#reloaded-speed-mode-answers-cited-a-different-page) | chat | ~~Low–Med~~ fixed 2026-09-27 (lab, staging, prod) | done (older saved answers unchanged) |
 | [Stopped label not rendered](#stopped-label-not-rendered) | UI | ~~Low~~ fixed 2026-09-24 | done |
 | [Chain-of-thought flash in the live stream](#chain-of-thought-flash-in-the-live-stream) | UI | Low | accepted |
-| [Old answers with leaked reasoning stay leaked](#old-answers-with-leaked-reasoning-stay-leaked) | data | Low | manual |
+| [Old answers keep leaked narration in storage](#old-answers-with-leaked-reasoning-stay-leaked) | data | Low (display fixed 2026-09-28) | decision (backfill + recall re-index) |
+| [An answer with a glued preamble appears late while streaming](#an-answer-with-a-glued-preamble-appears-late-while-streaming) | UI | Low | accepted |
+| [Narration the structural rules keep by design](#narration-the-structural-rules-keep-by-design) | chat | Low | by design (watch) |
 | [Serenity (.171) Ollama intermittently unreachable](#serenity-171-ollama-intermittently-unreachable) | fleet | Low (cause fixed 2026-09-23) | watch |
 | [Stale mxbai embedding hints in code](#stale-mxbai-embedding-hints-in-code) | code | ~~Med~~ fixed 2026-09-22 (Model Manager field read-only since 2026-09-23) | done |
 | [Other stale comments and docs](#other-stale-comments-and-docs) | code | Low (granite/compose/engines items fixed 2026-09-24) | code |
@@ -244,7 +246,7 @@ On NightFuryX (.17) these container names do not resolve, so each silently degra
      (a failed fetch has nothing to cite and gets none).
   2. `stripCitationAnchorsFromHistory` (`lib/streaming/helpers/strip-citation-anchors-from-history.ts`)
      removes anchors from **prior** assistant turns before they reach the model. It runs in
-     `create-chat-stream-response.ts:372` and `create-ephemeral-chat-stream-response.ts:126`. The
+     `create-chat-stream-response.ts:381` and `create-ephemeral-chat-stream-response.ts:132`. The
      stored and displayed text keeps its anchors.
   3. `resolveByUrlFragment` (`lib/utils/citation.ts:66`) resolves an anchor whose id is a
      fragment of **exactly one** of this message's source URLs. UUID-shaped ids, fragments shorter
@@ -784,19 +786,90 @@ These are decisions still pending, not bugs:
 - **Impact.** Cosmetic.
 - **Why it isn't "fixed".** The live transform (`smooth-and-strip-narration.ts`) has to decide from
   a prefix and is deliberately conservative. An aggressive live stripper silently dropped real
-  answers in July 2026. Persisted messages are cleaned by the persist-time strippers. See
+  answers in July 2026. Persisted messages are cleaned by the persist-time strippers. Since
+  2026-09-28 the renderer also applies those persist-time rules to the message while it streams
+  (`narrationCleanView`, `components/render-message.tsx:158`), so only a leak that neither the
+  live transform nor the persist-time rules recognise can flash. See
   [D20](/history/decisions#d20-narration-strippers-strict-at-persist-best-effort-live).
 - **Fix sketch.** Add the new starter phrases to `NARRATION_STARTERS` with tests. Don't loosen the
   buffer ceiling without a corpus. If leaks become frequent, re-evaluate
   [targeted reasoning](/history/decisions#d18-targeted-reasoning-reasoning-only-on-research-turns).
 
-### Old answers with leaked reasoning stay leaked
+### Old answers keep leaked narration in storage {#old-answers-with-leaked-reasoning-stay-leaked}
 
-- **Symptom.** Answers saved before 2026-09-17 (`0290896c`) may contain a long reasoning preamble
-  or a stray `</think>`.
-- **Workaround.** Regenerate the answer. The strippers act at persist time only.
-- **Fix sketch.** A one-off backfill that runs `stripNarrationFromMessage` over stored `parts`
-  *(not built)*.
+- **Symptom.** Answers saved before a narration rule existed still hold it in Postgres: status
+  notes written before a tool call (in any language, or English with unlisted wording), a long
+  reasoning preamble or stray `</think>` from before 2026-09-17 (`0290896c`), and a preamble
+  glued to the answer heading (`…câu trả lời.## `) from before 2026-09-28 (`48d5b06d`).
+- **What is already fixed (2026-09-28).** Every reader applies the persist-time cleanup when it
+  reads a message: the chat view, the copy shortcut and the action-row copy, the history fed
+  back to the model and the classifier (logged-in and guest), the spoken gist and search
+  snippets ([full list](/search/models-reasoning#narration-read-time)). A leaked answer therefore
+  **displays** clean without a database rewrite.
+- **What is still affected.**
+  - **Keyword search** (sidebar and Library) matches the stored text, so a word that appears
+    only in a stored status note still finds that chat and shows the note as the snippet.
+  - **Recall chunks** indexed before 2026-09-28 keep a glued preamble. On prod that is the 3
+    Vietnamese answers of chat `pq6zs7w88m1kmowjdu9udfrw` (39 chunks). Status notes before a
+    tool call were never indexed (`extractIndexableText` keeps only the text after the last
+    tool call).
+- **Impact.** Low: slightly noisier search matches and recall excerpts.
+- **Backfill: owner decision pending.** Sizes from the 2026-09-28 read-only scan: all prod
+  history, **92 messages** (177 text-part deletes, 4 answer rewrites; 69 of the 92 were saved
+  before the English rules were complete on 2026-09-17); last 60 days, **38 messages**. A
+  backfill must:
+  1. run `stripNarrationFromMessage` (`lib/streaming/helpers/strip-narration-from-message.ts:72`)
+     per assistant message, deleting the dropped text parts and rewriting the cut ones;
+  2. re-index recall for every rewritten answer: delete that message's `conversation_chunks`
+     rows, then run the recall backfill, which only fills messages without chunks
+     ([memory & recall › backfill](/knowledge/memory-recall#backfill)).
+     `extractIndexableText` already cuts a glued preamble, so step 2 alone fixes the 39 recall
+     chunks even without step 1.
+
+  Take a database backup first and run one environment at a time
+  ([evaluation › data scripts](/operations/evaluation)).
+- **Don't use `bun run clean:narration` for this.** `scripts/clean-narration-preambles.ts`
+  applies `stripNarrationPreamble` to **every** `type='text'` part, user messages included
+  (`:37-49`); it never drops a status-note part and never re-indexes recall.
+- **Workaround meanwhile.** None needed for reading. Regenerating an answer replaces it with one
+  saved and indexed under the current rules (its old recall chunks go with the old message,
+  `conversation_chunks.message_id` is `ON DELETE CASCADE`, `lib/db/schema.ts:501-503`).
+
+### An answer with a glued preamble appears late while streaming {#an-answer-with-a-glued-preamble-appears-late-while-streaming}
+
+- **Symptom.** When a model glues narration to the answer's heading (`…câu trả lời.## Title`),
+  nothing is shown for that part at first; the answer then appears from its heading, a few
+  hundred characters into the stream. The preamble never flashes.
+- **Why.** The seam cut (`stripGluedHeadingPreamble`,
+  `lib/streaming/helpers/strip-narration-preamble.ts:306`) requires the prefix to be shorter
+  than the text after the seam, so it cannot fire until the answer body outweighs the
+  preamble. Until then the part does not start with a heading, and the first-token rule
+  (`components/render-message.tsx:237`) keeps it hidden. The live transform does not cut it,
+  because it only acts on English phrasing
+  ([D20](/history/decisions#addendum-2026-09-28-language-agnostic-structural-rules)).
+- **Impact.** Low: a short delay before the answer appears, only on turns with a glued preamble
+  (3 answers on prod in the 60 days before the fix).
+- **Fix sketch.** Accepted. Cutting earlier would mean deciding from a prefix, the trade-off D20
+  rejects. Revisit only if glued preambles become common.
+
+### Narration the structural rules keep by design {#narration-the-structural-rules-keep-by-design}
+
+- **Symptom.** A model's process talk still appears in a saved or displayed answer.
+- **Cases left alone on purpose** (rules in
+  [models & reasoning](/search/models-reasoning#narration-structural-rules)):
+  - **Non-English narration before a proper `\n\n## ` heading.** Only the English phrase rules
+    look at a preamble separated from the heading by a newline; cutting an unrecognised intro
+    paragraph risks eating genuine prose. The 2026-09-28 scan found **0** such cases.
+  - **Long or structured status notes.** A non-final part over 600 characters, or with a
+    heading, table, code fence, 3+ item list or citation, or longer than the final answer, is
+    kept unless it starts with an English narration phrase. The review of stored history found
+    **6** such narration parts. After the turn they are hidden anyway (only the last text part
+    is the answer); they still reach the history sent to the model and search.
+  - **A final answer with fused narration and no heading** (unchanged since D20).
+- **Impact.** Low.
+- **Fix sketch.** Only with a corpus: collect the new shape, add a rule with tests in
+  `lib/streaming/helpers/__tests__/strip-narration-structural.test.ts`, and re-run the
+  false-positive review before shipping. Don't raise the 600 / 2000 thresholds on a single case.
 
 ### Mobile keyboard / composer on real devices
 
