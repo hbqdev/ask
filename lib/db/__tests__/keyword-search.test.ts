@@ -110,6 +110,35 @@ describe('mergeKeywordSearchArms', () => {
   })
 })
 
+describe('mergeKeywordSearchArms — narration-free snippets (D20)', () => {
+  it('snips an assistant answer from its heading, not a glued preamble', () => {
+    const [r] = mergeKeywordSearchArms(
+      [
+        contentRow('c1', {
+          snippet:
+            'Tôi đã có đủ thông tin. Bây giờ viết câu trả lời.## Thôn Phệ Tinh Không\n\nCự Phủ là cột trụ của nhân tộc.'
+        })
+      ],
+      [],
+      'Cự Phủ',
+      10
+    )
+    expect(r.snippet).toContain('Cự Phủ là cột trụ')
+    expect(r.snippet).not.toContain('Bây giờ viết câu trả lời')
+  })
+
+  it('leaves a user message untouched', () => {
+    const question = 'Tóm tắt.## Không phải tiêu đề, người dùng tự gõ vậy thôi'
+    const [r] = mergeKeywordSearchArms(
+      [contentRow('c1', { role: 'user', snippet: question })],
+      [],
+      'Tóm tắt',
+      10
+    )
+    expect(r.snippet).toBe(question)
+  })
+})
+
 describe('extractSnippet', () => {
   it('centres ~150 chars on the first match with ellipses', () => {
     const text = 'x'.repeat(200) + 'NEEDLE' + 'y'.repeat(200)
