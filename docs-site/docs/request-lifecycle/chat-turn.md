@@ -399,8 +399,10 @@ forced-search turn the first chunk belongs to the synthetic step 0, which emits 
 with no model round trip, so `ttft_ms` measures only the pre-work; time to first prose is
 `stream["text-start"]`. The
 `smoothAndStripNarration()` transform removes "thinking out loud" preambles in English
-before the `## ` heading; other languages and preambles glued to the heading are cleaned when
-the message is rendered and saved. On voice turns the final text is condensed into a `data-spokenGist`
+before the `## ` heading, and cuts a preamble glued to the heading (`…breakdown.## `) once the
+answer after it outweighs it, exactly as persist will; what it lets through (other languages,
+a glued preamble released before its seam arrived) is cleaned when the message is rendered
+and saved. On voice turns the final text is condensed into a `data-spokenGist`
 part inside `execute` (the only scope where the writer is still open). All of this
 is detailed in [Streaming](/request-lifecycle/streaming).
 

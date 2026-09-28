@@ -328,8 +328,8 @@ cleanup below anchors on that rule. Each leak shape is handled at a different la
 |---|---|---|
 | **Reasoning parts** (the model's native thinking) | shown as a "Thinking…" pill; raw text not rendered | stored unchanged; the display is gated by `NEXT_PUBLIC_SHOW_REASONING` |
 | **Inter-step narration**: a separate text part, then a tool call, then later the answer | **hidden by the renderer**: while streaming, a text part renders as answer text only if it starts with a markdown heading (`components/render-message.tsx:237`); after the stream completes, only the last text part renders | **dropped**, in any language (the rules are below) |
-| **Fused preamble after a line break**: narration, then `\n## ` in the same part | **stripped by the stream transform** `smoothAndStripNarration()` (`lib/streaming/helpers/smooth-and-strip-narration.ts:57`) when it matches the English rules | stripped again by `stripNarrationPreamble` (English rules only) |
-| **Glued preamble**: `## ` directly after a sentence or a stray tag, e.g. `…câu trả lời.## ` or `…chương.</think>## ` | not stripped by the transform; the renderer's cleaned view cuts it once the answer after the seam outweighs it (until then the part does not start with a heading, so it stays hidden) | **cut**, in any language (`stripGluedHeadingPreamble`) |
+| **Fused preamble after a line break**: narration, then `\n## ` in the same part | **stripped by the stream transform** `smoothAndStripNarration()` (`lib/streaming/helpers/smooth-and-strip-narration.ts:75`) when it matches the English rules | stripped again by `stripNarrationPreamble` (English rules only) |
+| **Glued preamble**: `## ` directly after a sentence or a stray tag, e.g. `…breakdown.## `, `…câu trả lời.## ` or `…chương.</think>## ` | **cut by the transform** once the answer after the seam outweighs the prefix, held until then (`smooth-and-strip-narration.ts:98-127`, since 2026-09-28): the same cut persist makes, then streamed 1:1. This needs the part to still be buffered when the seam arrives (an English-looking preamble, or a seam in the first ~64 characters). A longer non-English preamble passes through, and the renderer's cleaned view makes the same cut at the same point (until then the part does not start with a heading, so it stays hidden). A `</think>## ` seam stays on the transform's English heading rule | **cut**, in any language (`stripGluedHeadingPreamble`) |
 
 Since 2026-09-28 the persist-time cleanup is also applied **at read time**, everywhere the
 text is read (table below). A message saved before a rule existed therefore displays clean
@@ -355,16 +355,35 @@ without a database rewrite.
   looks like narration, up to `NARRATION_HARD_MAX` (16000 characters, sized for
   the largest observed ~15KB dump). A normal answer with no heading is released
   after ~64 characters.
+- **Glued seam, checked before the heading rules above** (since 2026-09-28,
+  `smooth-and-strip-narration.ts:98-127`). On every held delta the transform looks for a glued
+  `## ` that passes the persist rule's prefix guards (`findGluedPreambleSeam`, `:302`: no
+  line-start heading with code masked, no citation marker, trimmed prefix ≤ 2000) and comes
+  before any heading `findHeadingMatch` finds. Once the text
+  after the seam is longer than the prefix (`gluedAnswerOutweighsPreamble`, `:325`), it emits
+  the buffer from the `##` and passes later deltas through 1:1. Because the trimmed answer only
+  grows, the persist guard cannot fail later, so the live cut is exactly the persisted cut. If a
+  backtick precedes the seam on its line it also waits for the line to end, since a closing
+  backtick would turn the `##` into inline code. Until the cut is certain it keeps holding, up
+  to `NARRATION_HARD_MAX`, and a part that ends first is flushed unchanged.
+- When it strips a preamble in front of a line-start heading, the flush starts at the `##`
+  and is not trimmed (`smooth-and-strip-narration.ts:136-143`). Trimming the partial buffer
+  used to drop the heading line's newline, which glued the heading to its first line in the
+  stream and the saved answer (fixed 2026-09-28).
 - `stripStrayThinkTags` (`:204`) is **not** part of the live transform: it runs at persist
   and read time, inside `stripNarrationPreamble`. It removes a leading `<think>` block, or a
   stray `</think>` whose preceding text reads like reasoning (`looksLikeReasoningPrefix`,
   `:175`), and leaves the tag alone when an answer genuinely mentions it.
 
-Apart from the think-tag signal on a preamble over 1000 characters, every one of these
-decisions is anchored on English wording. The transform was **not**
-changed on 2026-09-28: a live stripper has to decide from a prefix, and an aggressive one
-once dropped real answers ([D20](/history/decisions#d20-narration-strippers-strict-at-persist-best-effort-live)).
-The language-agnostic rules run at persist and at read time instead.
+Apart from the think-tag signal on a preamble over 1000 characters and the glued seam, every
+one of these decisions is anchored on English wording. The inter-step chatter rule stays out
+of the transform: a live stripper has to decide from a prefix, and an aggressive one once
+dropped real answers ([D20](/history/decisions#d20-narration-strippers-strict-at-persist-best-effort-live)).
+It runs at persist and at read time instead. The glued seam is the exception, because there
+the persist decision can be settled from a prefix
+([D20 addendum › Decision 5](/history/decisions#decision-5-the-live-transform-cuts-the-glued-seam)).
+The seam cut only fires while the part is still buffered, so a non-English preamble longer than
+~64 characters is released before its seam arrives and is cut at render and persist time.
 
 ### Language-agnostic structural rules (2026-09-28) {#narration-structural-rules}
 
@@ -390,8 +409,8 @@ dropped when either:
     text) is a **tool call** (`isFollowedByToolCall`, `:34`), so it was written before
     the tool ran and cannot be an answer grounded in that tool's result;
   - it is short, unstructured prose (`looksLikeInterStepChatter`,
-    `strip-narration-preamble.ts:341`): at most 600 characters (`INTER_STEP_CHATTER_MAX`,
-    `:331`), and no heading, table, code fence, list of 3 or more items, or citation marker;
+    `strip-narration-preamble.ts:376`): at most 600 characters (`INTER_STEP_CHATTER_MAX`,
+    `:366`), and no heading, table, code fence, list of 3 or more items, or citation marker;
   - it is **not longer than the final answer** (`strip-narration-from-message.ts:93-96`).
     This guard keeps the shape
     "short real reply → side-effect tool (`remember`, `generateImage`) → shorter sign-off".
@@ -407,9 +426,12 @@ finds the first `## ` outside code (fences and inline code are blanked first, `m
 `:257`) whose preceding character is not whitespace, not `#` (so `###` is never split) and
 not `\` (an escaped hash). A `## ` glued to text on the same line does not even render as a
 heading, so it is where narration ends and the answer begins. `stripGluedHeadingPreamble`
-(`:306`) cuts the prefix only when it has no heading and no citation marker of its own, is at
+(`:349`) cuts the prefix only when it has no heading and no citation marker of its own, is at
 most 2000 characters (`GLUED_PREAMBLE_MAX`, `:275`) and is shorter than what follows the seam.
-A proper `\n\n## ` heading after an intro paragraph is never a seam.
+It is built from two shared helpers that the live transform also uses:
+`findGluedPreambleSeam` (`:302`), the seam plus the prefix-only guards, which can be evaluated
+on a partial buffer; and `gluedAnswerOutweighsPreamble` (`:325`), the length guard, which is
+monotone in the answer. A proper `\n\n## ` heading after an intro paragraph is never a seam.
 
 *Why 2000:* the three Vietnamese preambles on prod were 613, 653 and 673 characters (6–9 % of
 their answers), and a stray glyph glued in front of a heading ("និ## How to…") was 2. Real
@@ -417,9 +439,12 @@ reasoning dumps start around 8 KB and carry English starters, which the phrase r
 handle. 2000 is about 3× the largest non-English preamble seen while staying far below the
 dump range.
 
-`stripNarrationPreamble` (`:357`) is the per-part entry point: the English phrase and
-think-tag rules first (`stripPhraseAnchoredPreamble`, `:362`), then the glued-seam cut on
-what remains. Both rules are pure and idempotent.
+`stripNarrationPreamble` (`:392`) is the per-part entry point: the English phrase and
+think-tag rules first (`stripPhraseAnchoredPreamble`, `:397`), then the glued-seam cut on
+what remains. Both rules are pure and idempotent. The order leaves one gap open: with
+`narration.## A … \n## B`, the phrase rule cuts at `\n## B` before the glued rule can cut at
+`## A`, so section A is lost when that text reaches persist unstripped (the live transform
+lets the seam win; [known issue](/history/known-issues#a-glued-first-section-can-be-cut-at-persist)).
 
 ### Read time: one cleanup wherever text is read {#narration-read-time}
 
@@ -463,10 +488,16 @@ preamble, because that preamble sits inside the final answer part.
   a heading, table, code fence, 3+ item list or citation, or longer than the final answer, is
   not dropped unless it starts with an English phrase. The review found 6 such narration parts
   in stored history, kept by design ([known issues](/history/known-issues#narration-the-structural-rules-keep-by-design)).
-- **A glued answer appears late while streaming.** Until the text after the seam is longer
-  than the preamble (a few hundred characters), the part neither starts with a heading nor
-  qualifies for the cut, so nothing is shown; then the answer appears from its heading. The
-  preamble never flashes ([known issues](/history/known-issues#an-answer-with-a-glued-preamble-appears-late-while-streaming)).
+- **A glued answer appears once its body outweighs the preamble.** Until the text after the
+  seam is longer than the preamble, the cut is not certain, so nothing of that part is shown;
+  then the answer appears from its heading and streams. The delay is at most one delta past
+  prefix + 1 characters, with the prefix ≤ 2000. The preamble never flashes. Before
+  2026-09-28 (`6e19914f`) an English-looking glued preamble made the transform hold the whole
+  answer until the part ended ([known issues](/history/known-issues#an-answer-with-a-glued-preamble-appears-late-while-streaming)).
+- **Persist runs the phrase rule before the glued rule.** Unstripped text shaped
+  `narration.## A … \n## B` can lose section A at persist (and in the render view, which runs
+  the same function). The transform avoids it when it makes the cut; open
+  ([known issues](/history/known-issues#a-glued-first-section-can-be-cut-at-persist)).
 - **The English phrase list is still model-specific.** Its families were collected from
   specific models (deepseek-v4-flash, glm-5.3-flash). A new English phrasing in front of a
   proper heading needs its pattern in `NARRATION_STARTERS`, with a test in
