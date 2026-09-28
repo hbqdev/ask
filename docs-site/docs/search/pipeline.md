@@ -202,7 +202,7 @@ sometimes got zero usable results. Sending whole Ollama bodies grew the prompt
 to 73–89k tokens. With passage selection, a lab turn went from 24.7s (broken)
 to ~6.9s, and the prompt from 89k to ~16k tokens. The remote cross-encoder was
 deliberately left out: it adds 5–7s, and Ollama's results are already ranked.
-Speed also **bypasses the classifier and recall** (`create-chat-stream-response.ts:284-326`),
+Speed also **bypasses the classifier and recall** (`create-chat-stream-response.ts:293-335`),
 because the researcher agent rewrites its own follow-up queries into
 standalone form, so the classifier's rewrite is redundant. One consequence since
 2026-09-26: the forced first search of a speed turn runs on the **raw** message,

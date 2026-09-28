@@ -261,7 +261,7 @@
     "lib/streaming/helpers/choose-recall.ts": "Decides per turn whether memory recall is gated, reuses the speculative prefetch, or is refetched, based on the classifier's skipSearch and standalone query.",
     "lib/streaming/helpers/persist-stream-results.ts": "Persists a finished assistant message (after stripping narration and recall parts), creating the chat if needed and updating its title with DB retries.",
     "lib/streaming/helpers/prepare-messages.ts": "Builds the message history for a turn: handles regenerate (deleting later messages), new-chat creation, message upserts, and signing file-part URLs.",
-    "lib/streaming/helpers/strip-narration-preamble.ts": "Heuristics that detect and strip models' 'thinking out loud' narration before the first ## heading, plus stray <think> tags, from answer text.",
+    "lib/streaming/helpers/strip-narration-preamble.ts": "Rules that strip models' 'thinking out loud' narration from answer text: English phrases and stray <think> tags before a ## heading, plus language-agnostic glued-heading and inter-step chatter rules.",
     "lib/streaming/helpers/transform-file-parts.ts": "Rewrites user file attachments into model input: images for vision models, VLM/extracted text or ranked upload-RAG chunks as citable documentRetrieval sources.",
     "lib/streaming/helpers/types.ts": "Defines the StreamContext interface (chat/user/model ids, trigger, initial chat, pending initial save) shared by the streaming helpers.",
     "lib/streaming/types.ts": "Defines BaseStreamConfig, the input contract for chat stream responses (message, model, chat/user ids, search mode, sources, stop controller, voice flag).",

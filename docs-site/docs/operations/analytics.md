@@ -128,7 +128,7 @@ All go through `captureClient(event, props)` (`lib/analytics/posthog-client.ts:5
 | Area | Events | Where |
 |---|---|---|
 | Navigation | `$pageview` | `components/posthog-provider.tsx:37` |
-| Generative UI | `genui_component_shown`, `genui_component_clicked` (image lightbox), `related_question_clicked` | `components/chat.tsx:310-312`, `lib/render/components/image.tsx:43`, `components/spec-block.tsx:41` |
+| Generative UI | `genui_component_shown`, `genui_component_clicked` (image lightbox), `related_question_clicked` | `components/chat.tsx:324-327`, `lib/render/components/image.tsx:43`, `components/spec-block.tsx:41` |
 | Homepage examples | `example_category_opened`, `example_prompt_clicked` | `components/action-buttons.tsx:108-112` |
 | Composer cards | `content_card_created`, `content_card_expanded`, `content_card_submitted`, `url_card_created`, `url_card_removed`, `url_card_submitted` | `components/chat-panel.tsx:539-827` |
 | Notes / Library | `note_save_clicked`, `note_saved`, `note_save_failed`, `selection_note_actions_shown`, `selection_followup`, `library_auth_prompt_opened`, `library_auth_prompt_cta_clicked`, `library_opened`, `library_list_loaded`, `library_list_load_failed`, `note_opened`, `note_delete_requested`, `note_deleted`, `note_delete_failed`, `library_closed` | `components/message-actions.tsx:138-356`, `components/answer-section.tsx:169-372`, `components/library/library-panel.tsx:174-359` |
@@ -137,7 +137,7 @@ To list the current set: `grep -rn "captureClient('" components lib app`.
 
 ### The GenUI summary
 
-When an assistant message finishes, `components/chat.tsx:310` calls
+When an assistant message finishes, `components/chat.tsx:324` calls
 `summarizeGenui(text)` (`lib/analytics/genui-summary.ts:23`). It scans the final text
 for ` ```spec ` fences, parses each with the same `parseSpecBlock` the renderer uses,
 and returns:
@@ -279,7 +279,7 @@ auto-repeat and Alt combinations (`lib/keyboard-shortcuts.ts:81-95`).
 | Mod+B | Toggle sidebar | `components/keyboard-shortcut-handler.tsx:45` |
 | Mod+Shift+O | New chat | event `shortcut:new-chat` → `components/chat-panel.tsx:297` (the sidebar's New chat item dispatches the same event, `components/app-sidebar.tsx:230`) |
 | Mod+Shift+D | Cycle theme dark → light → system | `keyboard-shortcut-handler.tsx:53-55` |
-| Mod+Shift+C | Copy latest assistant message | event `shortcut:copy-message` → `components/chat.tsx:684` |
+| Mod+Shift+C | Copy latest assistant message | event `shortcut:copy-message` → `components/chat.tsx:669` |
 | Mod+Shift+M | Cycle search mode Speed → Balanced → Quality (writes the `searchMode` cookie, toasts) | `keyboard-shortcut-handler.tsx:63-71` |
 | Mod+Shift+F | Cycle sources Web → Academic → Social (writes the `sources` cookie) | `keyboard-shortcut-handler.tsx:73-89` |
 | Mod+/ | Show the shortcuts dialog (Shift ignored, since `/` needs Shift on some layouts) | `components/keyboard-shortcut-dialog.tsx:37` |

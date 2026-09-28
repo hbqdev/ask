@@ -137,11 +137,11 @@ dedupes by cosine ≥ 0.9 and caps each user, so the sweep is a safety net, not 
 
 ### Indexing
 
-After each authenticated turn (`create-chat-stream-response.ts` ~L1114, non-blocking),
+After each authenticated turn (`create-chat-stream-response.ts:1161`, non-blocking),
 `indexMessage` (`lib/memory/recall-index.ts`) indexes the user's message and the assistant's
 answer:
 
-- **What text:** `extractIndexableText` (`lib/memory/extract-indexable-text.ts`). For the assistant, only the **final answer** (text after the last tool call) is kept. Inter-step narration, citation markers like `[1](#id)`, and bare tool-call UUIDs are stripped. Leaked tool-call ids in old chunks once caused recall to inject ids from another chat, which the model then cited, producing unresolvable citations.
+- **What text:** `extractIndexableText` (`lib/memory/extract-indexable-text.ts`). For the assistant, only the **final answer** (text after the last tool call) is kept. Inter-step narration, citation markers like `[1](#id)`, and bare tool-call UUIDs are stripped. Each assistant text part first goes through `stripNarrationPreamble` (`lib/memory/extract-indexable-text.ts:96-103`, since 2026-09-28), so a narration preamble glued to the answer's `## ` heading is not indexed and cannot hide that heading from the trailing-tool fallback; chunks indexed before then keep it until the message is re-indexed ([known issue](/history/known-issues#old-answers-with-leaked-reasoning-stay-leaked)). Leaked tool-call ids in old chunks once caused recall to inject ids from another chat, which the model then cited, producing unresolvable citations.
 - **Chunking:** `splitText(text, RECALL_CHUNK_TOKENS=512, RECALL_CHUNK_OVERLAP=128)`.
 - **Embedding:** `EMBEDDING_MODEL` in document mode, with a hard dimension guard (1024).
 - **Idempotent:** existing chunks for the message id are deleted before insert, so a regenerate or edit re-indexes cleanly.
@@ -191,7 +191,7 @@ sequenceDiagram
   S-->>S: recall block appended to system prompt, data-recall chips streamed
 ```
 
-- **Speculative prefetch** (`create-chat-stream-response.ts` ~L300–317): `prefetchRecallCandidates` embeds the raw message and runs both DB arms while the classifier runs (~50–100 ms). The **rerank is deferred** until `chooseRecall` decides, so a discarded query never costs reranker GPU time. **Speed mode skips recall entirely.**
+- **Speculative prefetch** (`create-chat-stream-response.ts:320-336`): `prefetchRecallCandidates` embeds the raw message and runs both DB arms while the classifier runs (~50–100 ms). The **rerank is deferred** until `chooseRecall` decides, so a discarded query never costs reranker GPU time. **Speed mode skips recall entirely.**
 - **`chooseRecall`** (`lib/streaming/helpers/choose-recall.ts`): `gated` (skipSearch turn; the answer comes from this chat; no rerank at all), `speculative` (query unchanged: rerank the prefetched candidates), or `refetch` (the classifier rewrote the query: retrieve and rerank the resolved query). Either way the critical-path wait is roughly one rerank (~1.3 s at pool 10, ~1.1 s at pool 8).
 - **Budget race:** `RECALL_BUDGET_MS` (default 1500) caps the wait. If the timer wins, the turn proceeds with no recall; the recall work still completes in the background. Telemetry on the `[latency]` line: `recall_ms` (true background cost, stamped when it actually resolves), `recall_wait_ms` (critical-path wait), `recall_budget_hit`.
 - **Injection thresholds** (`lib/memory/recall-inject.ts`): `RECALL_INJECT_TOP_K` (2) hits with rerank score ≥ `RECALL_INJECT_MIN_SCORE` (0.05). Hits become a `## Relevant past conversations` block (chat title, date, excerpt) plus a `data-recall` stream part the UI renders as attribution chips.
@@ -373,7 +373,7 @@ re-measure these gates after swapping `RERANKER_MODEL`.
 
 **Check recall health.** On the `[latency]` line, look at `recall_ms` vs `recall_wait_ms` and `recall_budget_hit`. `[recall] fail-closed` warnings mean the reranker is unreachable. `[recall] search failed` means an embedder or DB error. Settings → Memory shows the per-user indexed/unindexed counts.
 
-**Turn memory or recall off for everyone.** Set `MEMORY_ENABLED=off` / `RECALL_ENABLED=off` in the environment and recreate the `ask` container (runtime env, no rebuild needed). The value must be exactly `off`: the app checks `=== 'off'` / `!== 'off'` (`lib/db/memory-actions.ts:161`, `lib/db/recall-actions.ts:225`, `lib/streaming/create-chat-stream-response.ts:1092,1150`), so `false`, `0` or `no` leave the feature on. On prod the Model Manager switch writes `on`/`off` and rejects `false` (since 2026-09-25; before that it wrote `false`, which could never turn either feature off, see [Model Manager › boolean switches](/infrastructure/model-manager#boolean-switches)).
+**Turn memory or recall off for everyone.** Set `MEMORY_ENABLED=off` / `RECALL_ENABLED=off` in the environment and recreate the `ask` container (runtime env, no rebuild needed). The value must be exactly `off`: the app checks `=== 'off'` / `!== 'off'` (`lib/db/memory-actions.ts:161`, `lib/db/recall-actions.ts:225`, `lib/streaming/create-chat-stream-response.ts:1103,1161`), so `false`, `0` or `no` leave the feature on. On prod the Model Manager switch writes `on`/`off` and rejects `false` (since 2026-09-25; before that it wrote `false`, which could never turn either feature off, see [Model Manager › boolean switches](/infrastructure/model-manager#boolean-switches)).
 
 ### How to schedule memory consolidation
 
