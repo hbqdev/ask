@@ -21,7 +21,7 @@ For where these sit in the turn, see [Chat turn](/request-lifecycle/chat-turn).
 | Client transport | `lib/streaming/resumable-chat-transport.ts` | `DefaultChatTransport` whose reconnect reports "replay started" / "nothing to resume" |
 | Client activity registry | `lib/streaming/stream-activity.ts` | which chats are mid-turn (defers sidebar refreshes) |
 | Narration (stream) | `lib/streaming/helpers/smooth-and-strip-narration.ts` | transform on the live text stream |
-| Narration (persist) | `lib/streaming/helpers/strip-narration-from-message.ts` | cleans the assembled message |
+| Narration (persist + read) | `lib/streaming/helpers/strip-narration-from-message.ts` | cleans the assembled message; `narrationCleanView` applies the same cleanup when a message is rendered |
 | Stop sanitizer | `lib/streaming/helpers/sanitize-stopped-message.ts` | keeps only settled parts of a stopped answer |
 | Persist | `lib/streaming/helpers/persist-stream-results.ts` | the single DB write path for answers |
 | Endpoints | `app/api/chat/[chatId]/{stream,stop,messages}/route.ts` | resume, Stop, reload persisted |
@@ -32,7 +32,7 @@ always share a process.
 
 ## The SSE response {#sse-response}
 
-`createUIMessageStreamResponse` (`create-chat-stream-response.ts:1205`) returns the AI
+`createUIMessageStreamResponse` (`create-chat-stream-response.ts:1216`) returns the AI
 SDK UI-message stream as Server-Sent Events. Headers: `Cache-Control: no-cache,
 no-transform` — `no-transform` stops Cloudflare-style proxies from buffering the body
 to minify it (which made progress appear only at the end); `no-cache` is restated
@@ -59,23 +59,27 @@ Parts with the same `id` replace each other in place — that is how `running` b
 
 - **Authenticated path:** there is **no server-side token smoothing**. Despite its
   name, `smoothAndStripNarration()` only strips narration (below). Visual smoothness
-  comes from the client: `useChat({ experimental_throttle: 100 })` (`components/chat.tsx:342`)
+  comes from the client: `useChat({ experimental_throttle: 100 })` (`components/chat.tsx:356`)
   batches re-renders to at most one per 100ms.
-- **Guest path:** `smoothStream({ chunking: 'word' })` and no narration stripping.
+- **Guest path:** `smoothStream({ chunking: 'word' })` and no narration stripping on the
+  stream. The browser renders the cleaned view, and the guest's history is cleaned before
+  the classifier and the model see it (`create-ephemeral-chat-stream-response.ts:62`).
 
-### Narration stripping: stream path vs persist path {#narration}
+### Narration stripping: stream, render and persist paths {#narration}
 
 Reasoning-capable models sometimes "think out loud" in the answer text ("I have
-comprehensive data now. Let me search…", or a multi-KB chain-of-thought dump after
-hitting the round cap). Every mode's prompt requires the final answer to start with a
-`## ` heading ("first-token rule"); both strippers anchor on that.
+comprehensive data now. Let me search…", "Tôi cần đọc trang này…", or a multi-KB
+chain-of-thought dump after hitting the round cap). Every mode's prompt requires the final
+answer to start with a `## ` heading ("first-token rule"); all three paths anchor on that.
+The rules themselves, their thresholds and their limits are in
+[Models & reasoning › Narration](/search/models-reasoning#narration-and-chain-of-thought-leak-handling).
 
 **Stream path** — `smoothAndStripNarration()` (`helpers/smooth-and-strip-narration.ts:57`),
 passed as `experimental_transform` to the agent stream. Per text part:
 
 - buffer `text-delta`s until a heading appears;
 - heading at offset 0 → flush as-is; heading later → strip the preamble if
-  `shouldStripPreamble` judges it narration (known starter phrases, or a structural
+  `shouldStripPreamble` judges it narration (known English starter phrases, or a structural
   backstop: long preamble + strong reasoning signal such as a stray `</think>` or several
   first-person research sentences), else flush it unchanged;
 - no heading yet → keep holding only while the buffer still looks like narration and is
@@ -84,21 +88,43 @@ passed as `experimental_transform` to the agent stream. Per text part:
 - on `text-end` with a held buffer, flush it as a synthetic `text-delta` (extra fields on
   `text-end` are dropped downstream).
 
-**Render path** — `components/render-message.tsx:225`: while streaming, a text part is
-shown as the answer only if it starts with a heading; after the stream ends, only the
-last text part is the answer. Inter-step narration therefore never flashes on screen.
+The stream path only knows English phrasing. A non-English preamble, or one glued to the
+heading (`…câu trả lời.## `), passes through it and is handled by the next two paths.
 
-**Persist path** — `stripNarrationFromMessage` (`helpers/strip-narration-from-message.ts:51`),
-applied in `onFinish` and again inside `persistStreamResults`:
+**Render path** — `RenderMessage` draws `narrationCleanView(message)`
+(`components/render-message.tsx:158`), the persist-time cleanup below, memoized per message
+object. It is applied to stored messages and to the message still streaming, so an answer
+saved before a rule existed displays clean without a database rewrite, and a streaming
+message drops a status note as soon as the next tool call arrives. On that view, while
+streaming, a text part is shown as the answer only if it starts with a heading
+(`:237`); after the stream ends, only the last text part is the answer. Inter-step narration
+therefore never flashes on screen. A preamble glued to the heading is cut once the text after
+the seam is longer than the preamble; until then the part does not start with a heading, so
+the answer appears a moment later instead of showing the preamble.
 
-1. fused preamble in front of a heading, per text part (`stripNarrationPreamble`);
-2. inter-step narration: a non-final text part that looks like narration and is followed
-   by a later tool/text part is dropped.
+**Persist path** — `stripNarrationFromMessage` (`helpers/strip-narration-from-message.ts:72`),
+applied in `onFinish` (`create-chat-stream-response.ts:1072`) and again inside
+`persistStreamResults`:
+
+1. per text part, `stripNarrationPreamble`: the English phrase and think-tag rules for a
+   preamble in front of a heading, then the language-agnostic **glued-seam** cut (a `## `
+   directly after a non-space character);
+2. inter-step narration: a non-final text part is dropped when it starts with an English
+   narration phrase and a later tool or text part follows, or, in any language, when a tool
+   call follows it directly and it is short, unstructured prose no longer than the final
+   answer.
+
+The same cleanup is used for the history sent back to the classifier and the model
+(`create-chat-stream-response.ts:258`, and `create-ephemeral-chat-stream-response.ts:62` for
+guests), the spoken gist (`create-chat-stream-response.ts:959`), copy, recall indexing and search snippets
+([full list](/search/models-reasoning#narration-read-time)).
 
 Residual by design: a final answer with fused narration but **no** heading is kept
-(dropping it risks losing real content). The strippers clean **new** answers at persist
-time; an already-saved leaked message stays until regenerated. Background:
-[Models & reasoning](/search/models-reasoning).
+(dropping it risks losing real content), and so is non-English narration before a proper
+`\n\n## ` heading. The stored rows are not rewritten: what users see and what the model is
+fed are clean, but keyword search can still match stored status notes, and recall chunks
+indexed before 2026-09-28 keep a glued preamble until re-indexed
+([known issue](/history/known-issues#old-answers-with-leaked-reasoning-stay-leaked)).
 
 ## Disconnect survival {#disconnect-survival}
 
@@ -153,7 +179,7 @@ sequenceDiagram
     end
 ```
 
-**Producer** (`create-chat-stream-response.ts:1222`): `consumeSseStream` gets a tee'd
+**Producer** (`create-chat-stream-response.ts:1233`): `consumeSseStream` gets a tee'd
 copy of the SSE. With a resumable context it generates a `streamId`, **first** writes
 the pointer `ask:chat:{chatId}:activeStream` (TTL 300s = the generation timeout, so a
 crashed server never leaves a dangling pointer), then `rsc.createNewResumableStream`.
@@ -177,7 +203,7 @@ not make a finished turn resumable. A client returning after the turn ended gets
 claiming "the TTL lets a late returner replay" was wrong.)
 :::
 
-**Client side** (`components/chat.tsx:175-210, 353-426`,
+**Client side** (`components/chat.tsx:192-216, 404-440`,
 `lib/streaming/resumable-chat-transport.ts`):
 
 - `useChat({ resume: !isGuest && Boolean(providedId) })` reconnects on mount for chats
@@ -227,7 +253,7 @@ sequenceDiagram
     S-->>B: 204
 ```
 
-**Client** (`components/chat.tsx:462`): `handleStop` calls the SDK `stop()` **and**
+**Client** (`components/chat.tsx:476`): `handleStop` calls the SDK `stop()` **and**
 `POST /api/chat/<id>/stop` for every non-guest chat. The server call is essential:
 since authenticated turns ignore `req.signal`, closing the connection no longer halts
 generation. (Earlier the POST was skipped for homepage-started chats, so a "stopped"
@@ -245,7 +271,7 @@ reason surfaces as a stream error.
 | 300s generation timeout | timeout | discarded |
 | Client disconnect (authenticated) | — no abort — | turn completes normally |
 
-**Saving the partial** (`create-chat-stream-response.ts:1021-1081`):
+**Saving the partial** (`create-chat-stream-response.ts:1032-1092`):
 
 1. `wasStoppedByUser(stopController)` is checked independently of `isAborted` — a Stop
    during the classifier/recall phase fails `execute` instead of emitting an abort chunk,
@@ -272,11 +298,11 @@ messages in history and the model re-answered the stopped question.
 its action row, so a partial answer does not pass for a complete one. There are two sources for
 the flag, one for each moment the user can see the answer:
 
-- **Live.** `handleStop` sets `userStopRequestedRef` (`components/chat.tsx:476`). When `useChat`'s
+- **Live.** `handleStop` sets `userStopRequestedRef` (`components/chat.tsx:477`). When `useChat`'s
   `onFinish` then reports an abort for the current chat and that ref is set, it calls
   `markMessageStopped` (`lib/streaming/helpers/sanitize-stopped-message.ts:115`), which adds
   `metadata.stopped = true` to that assistant message in client state
-  (`components/chat.tsx:291-297`). The ref is what separates a user Stop from an abort caused by
+  (`components/chat.tsx:292-298`). The ref is what separates a user Stop from an abort caused by
   leaving the chat mid-answer, which must not be labelled.
 - **After a reload.** The label comes from the `metadata.stopped` that `sanitizeStoppedMessage`
   persisted in step 2 above.
@@ -288,7 +314,7 @@ label. See [frontend](/request-lifecycle/frontend#message-actions) for the layou
 
 ## Persistence {#persistence}
 
-The authenticated `onFinish` (`create-chat-stream-response.ts:962`) ends in:
+The authenticated `onFinish` (`create-chat-stream-response.ts:973`) ends in:
 
 ```text
 stripNarrationFromMessage → rehydrateFullContent → persistStreamResults
@@ -357,4 +383,5 @@ readers re-sign upload URLs at read time.
 | `STOPPED_TURN_SETTLE_TIMEOUT_MS` (constant) | 5,000 | max wait for a stopped partial save |
 | `experimental_throttle` (`chat.tsx`) | 100 ms | client render batching |
 | `NARRATION_HARD_MAX` / `NARRATION_SNIFF_LIMIT` (constants) | 16,000 / 64 chars | narration buffering |
+| `INTER_STEP_CHATTER_MAX` / `GLUED_PREAMBLE_MAX` (constants, `strip-narration-preamble.ts:331,275`) | 600 / 2,000 chars | language-agnostic narration rules (persist + read time) |
 | `ENABLE_GUEST_CHAT` | off | enables the ephemeral guest path |

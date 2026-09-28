@@ -65,8 +65,8 @@ impossible.
 
 Non-tool progress uses **data parts** written directly to the stream with
 `writer.write({ type: 'data-…' })` (for example `data-attachments` and
-`data-classifier`, `lib/streaming/create-chat-stream-response.ts:387`,
-`lib/streaming/create-chat-stream-response.ts:429`). Their payload types are declared in
+`data-classifier`, `lib/streaming/create-chat-stream-response.ts:401`,
+`lib/streaming/create-chat-stream-response.ts:443`). Their payload types are declared in
 `UIDataTypes` (`lib/types/ai.ts:28`).
 
 ### 2. The client sees parts with a lifecycle state
@@ -80,13 +80,14 @@ arrive as a `dynamic-tool` part.
 
 ### 3. RenderMessage routes the part
 
-`RenderMessage` (`components/render-message.tsx:201`) walks the parts in order:
+`RenderMessage` (`components/render-message.tsx:213`) walks the parts of the message's
+narration-free view (`narrationCleanView`, `:158`) in order:
 
 - `tool-generateImage` (or a `dynamic-tool` named `generateImage`) becomes a standalone
-  `GeneratedImageSection` card (`components/render-message.tsx:268`).
+  `GeneratedImageSection` card (`components/render-message.tsx:280`).
 - Every other `tool-*`, `dynamic-tool`, `reasoning`, `data-classifier`,
   `data-attachments` and non-empty `data-recall` part is buffered into a
-  `ResearchProcessSection` (`components/render-message.tsx:286`).
+  `ResearchProcessSection` (`components/render-message.tsx:298`).
 - Text parts become the answer (rules in [Frontend](/request-lifecycle/frontend#render-message)).
 
 Inside the research section each step is dispatched by kind
@@ -335,14 +336,14 @@ removed wherever the text leaves the renderer:
 
 | Where | Why | Code |
 |---|---|---|
-| Before prior turns are sent back to the model | Old spec JSON would waste context on every subsequent turn | `stripSpecFromMessages` (`lib/streaming/helpers/strip-spec-from-messages.ts:11`), called at `lib/streaming/create-chat-stream-response.ts:373` and `lib/streaming/create-ephemeral-chat-stream-response.ts:125` |
+| Before prior turns are sent back to the model | Old spec JSON would waste context on every subsequent turn | `stripSpecFromMessages` (`lib/streaming/helpers/strip-spec-from-messages.ts:11`), called at `lib/streaming/create-chat-stream-response.ts:382` and `lib/streaming/create-ephemeral-chat-stream-response.ts:133` |
 | Copy / share from message actions | Users should not paste JSONL | `components/message-actions.tsx:119`, `components/message-actions.tsx:137` |
-| Copy shortcut in the chat | Same | `components/chat.tsx:677` |
+| Copy shortcut in the chat | Same | `components/chat.tsx:694` |
 
 ### Analytics
 
 When a turn finishes, `summarizeGenui` (`lib/analytics/genui-summary.ts:52`) parses every
-spec fence strictly and emits `genui_component_shown` (`components/chat.tsx:312`) with
+spec fence strictly and emits `genui_component_shown` (`components/chat.tsx:326`) with
 block counts, image count and component types. A block that contains any `Button` is
 classed as the related-questions block and excluded from content metrics. Opening an
 inline image fires `genui_component_clicked` (`lib/render/components/image.tsx:43`). See
