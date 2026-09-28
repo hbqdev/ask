@@ -858,3 +858,75 @@ describe('endsInActiveResearch', () => {
     ).toBe(false)
   })
 })
+
+// D20 addendum: the render path applies the same narration cleanup as the
+// persist path, so stored leaky answers display clean without a DB rewrite
+// and a streaming answer cleans itself once its glued `## ` seam arrives.
+describe('RenderMessage narration-free view', () => {
+  const PREAMBLE =
+    'Tôi đã có đủ chi tiết để viết một câu trả lời chi tiết theo từng chương.</think>'
+  const ANSWER =
+    '## **吞噬星空: Toàn cảnh từng chương**\n\nDưới đây là diễn biến chi tiết theo từng chương trong nguyên tác tiểu thuyết, chia thành ba hồi lớn.'
+  const chatter = 'Tôi cần đọc trang fandom này để lấy cấu trúc chi tiết.'
+
+  const leaky = (finalText: string): UIMessage =>
+    ({
+      id: 'vi-msg',
+      role: 'assistant',
+      parts: [
+        { type: 'text', text: chatter },
+        {
+          type: 'tool-fetch',
+          toolCallId: 'f1',
+          state: 'output-available'
+        },
+        { type: 'text', text: finalText }
+      ]
+    }) as unknown as UIMessage
+
+  test('a stored answer with a glued preamble renders from its heading', () => {
+    render(
+      <RenderMessage
+        message={leaky(PREAMBLE + ANSWER)}
+        messageId="vi-msg"
+        getIsOpen={() => true}
+        onOpenChange={() => {}}
+      />
+    )
+    const answers = screen.getAllByTestId('answer-section')
+    expect(answers).toHaveLength(1)
+    expect(answers[0].textContent).toBe(ANSWER)
+    expect(answers[0].textContent).not.toContain('Tôi đã có đủ chi tiết')
+  })
+
+  test('while streaming, the answer appears once the glued seam arrives', () => {
+    const { rerender } = render(
+      <RenderMessage
+        message={leaky(PREAMBLE.slice(0, 40))}
+        messageId="vi-msg"
+        getIsOpen={() => true}
+        onOpenChange={() => {}}
+        status="streaming"
+        isLatestMessage
+      />
+    )
+    // Preamble in progress: no heading yet, so it stays muted.
+    expect(screen.queryByTestId('answer-section')).not.toBeInTheDocument()
+
+    rerender(
+      <RenderMessage
+        message={leaky(PREAMBLE + ANSWER)}
+        messageId="vi-msg"
+        getIsOpen={() => true}
+        onOpenChange={() => {}}
+        status="streaming"
+        isLatestMessage
+      />
+    )
+    expect(screen.getByTestId('answer-section').textContent).toBe(ANSWER)
+  })
+
+  test('endsInActiveResearch sees the heading behind a cut preamble', () => {
+    expect(endsInActiveResearch(leaky(PREAMBLE + ANSWER))).toBe(false)
+  })
+})

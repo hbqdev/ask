@@ -24,6 +24,7 @@ import {
   isAdaptiveModeAuthBlocked
 } from '@/lib/search-mode-availability'
 import { markMessageStopped } from '@/lib/streaming/helpers/sanitize-stopped-message'
+import { narrationCleanView } from '@/lib/streaming/helpers/strip-narration-from-message'
 import {
   ResumableChatTransport,
   type ResumeHooks
@@ -679,9 +680,11 @@ export function Chat({
         toast.info('No assistant message to copy')
         return
       }
+      // Copy what the user sees: the narration-free view (D20), not raw
+      // inter-step chatter or a preamble glued to the answer heading.
       const text =
-        lastAssistant.parts
-          ?.filter(
+        narrationCleanView(lastAssistant)
+          .parts?.filter(
             (p): p is { type: 'text'; text: string } => p.type === 'text'
           )
           .map(p => p.text)

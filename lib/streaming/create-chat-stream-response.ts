@@ -75,7 +75,11 @@ import {
 import { smoothAndStripNarration } from './helpers/smooth-and-strip-narration'
 import { streamPartTimer } from './helpers/stream-part-timer'
 import { stripCitationAnchorsFromHistory } from './helpers/strip-citation-anchors-from-history'
-import { stripNarrationFromMessage } from './helpers/strip-narration-from-message'
+import {
+  stripNarrationFromMessage,
+  stripNarrationFromMessages
+} from './helpers/strip-narration-from-message'
+import { stripNarrationPreamble } from './helpers/strip-narration-preamble'
 import { stripReasoningParts } from './helpers/strip-reasoning-parts'
 import { stripSpecFromMessages } from './helpers/strip-spec-from-messages'
 import { transformFileParts } from './helpers/transform-file-parts'
@@ -247,6 +251,11 @@ export async function createChatStreamResponse(
       `prepareMessages - Invoked: trigger=${trigger}, isNewChat=${isNewChat}`
     )
     const messagesToModel = await prepareMessages(context, message)
+    // Earlier turns come from the DB as stored, and answers saved before a
+    // narration rule existed still carry inter-step chatter or a preamble
+    // glued to their `## ` heading (D20). Feed the model and the classifier
+    // the same narration-free view the user sees, not the raw transcript.
+    const historyForModel = stripNarrationFromMessages(messagesToModel)
     perfTime('prepareMessages completed (stream)', prepareStart)
     latency.mark('prepare_ms', performance.now() - prepareStart)
 
@@ -306,7 +315,7 @@ export async function createChatStreamResponse(
           // expansions; the standalone expander supplies them.
           expandedQueries: []
         })
-      : classifyQuery({ messages: messagesToModel, abortSignal })
+      : classifyQuery({ messages: historyForModel, abortSignal })
 
     // Start recall's cheap half speculatively on the raw message, concurrent
     // with the classifier: embed + DB arms only (~50-100ms, no reranker GPU).
@@ -370,7 +379,7 @@ export async function createChatStreamResponse(
         // History anchors name earlier turns' tool calls, which are pruned
         // below — strip them so the model can't copy dead ids into this turn.
         const messagesWithoutSpec = stripCitationAnchorsFromHistory(
-          stripSpecFromMessages(messagesToModel)
+          stripSpecFromMessages(historyForModel)
         )
         const messagesToConvert = isOpenAI
           ? stripReasoningParts(messagesWithoutSpec)
@@ -945,7 +954,9 @@ export async function createChatStreamResponse(
         // byte-for-byte unchanged — no extra part, no extra model call.
         if (voice && isVoiceEnabled()) {
           try {
-            const answerText = await result.text
+            // result.text is the final step's raw text: cut a preamble glued
+            // to its heading before it is condensed for speech.
+            const answerText = stripNarrationPreamble(await result.text)
             // The SDK writer's `write` is strongly typed to UI message chunks;
             // emitSpokenGist takes a minimal structural writer. Bridge the two
             // the same way flowProgress does above (writer as unknown as …).
