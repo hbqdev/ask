@@ -95,7 +95,13 @@ The fix is an opaque strip **inside** the scroller, rendered only when there are
 
 ## How an assistant message is rendered {#render-message}
 
-`RenderMessage` walks `message.parts` in order and buffers non-text parts
+`RenderMessage` first takes the **narration-free view** of the message,
+`narrationCleanView(message)` (`components/render-message.tsx:158`): the same cleanup that
+runs before an answer is saved, memoized per message object. Status notes written before a
+tool call are dropped and a preamble glued to the answer's `## ` heading is cut, in any
+language ([rules](/search/models-reasoning#narration-structural-rules)).
+Because it runs at render time, an answer saved before a rule existed displays clean without
+a database rewrite. It then walks the view's parts in order and buffers non-text parts
 (`reasoning`, `data-classifier`, `data-attachments`, non-empty `data-recall`, every
 `tool-*` except `tool-generateImage`, every `dynamic-tool` except generateImage) into a
 `ResearchProcessSection`. It flushes the buffer when answer text or an image arrives.
@@ -103,10 +109,12 @@ The fix is an opaque strip **inside** the scroller, rendered only when there are
 - **Which text is the answer?** After the stream: only the **last** non-empty text part
   (earlier ones are inter-step narration and are hidden). While this message is
   streaming: a text part renders only if it **starts with a markdown heading** — the
-  "first-token rule" every mode's prompt enforces — so narration never flashes before a
-  tool call replaces it. Streaming state is scoped to the latest message only; keying
-  it off the global status used to make earlier answers re-enter streaming rendering
-  and light up as "Working on it" on every new turn.
+  "first-token rule" every mode's prompt enforces (`components/render-message.tsx:237`) —
+  so narration never flashes before a tool call replaces it. An answer whose heading is
+  glued to a preamble (`…câu trả lời.## `) is hidden until the text after the seam is longer
+  than the preamble, then appears from its heading. Streaming state is scoped to the latest
+  message only; keying it off the global status used to make earlier answers re-enter
+  streaming rendering and light up as "Working on it" on every new turn.
 - **Research section liveness:** a section is "in progress" only if it is the trailing
   element of the message; anything after it (answer, image, another section) settles it.
 - **Generated images** render as a standalone card, never inside the accordion (live they
@@ -114,8 +122,12 @@ The fix is an opaque strip **inside** the scroller, rendered only when there are
 - **Dynamic tools** (calculate, get_weather, remember, recall, MCP tools) buffer into the
   accordion like typed tools; `ToolSection` has an explicit `tool-calculate` case so a
   live calculation shows `expr = result` instead of an empty step.
-- `endsInActiveResearch` lets `ChatMessages` show a single animated Wild Breath mark:
-  the footer glyph hides while the research indicator is live.
+- `endsInActiveResearch` (`components/render-message.tsx:50`) lets `ChatMessages` show a
+  single animated Wild Breath mark: the footer glyph hides while the research indicator is
+  live. It reads the same narration-free view, so an answer whose heading appears only after
+  a cut preamble ends the research phase too.
+- **Copy.** The action row copies the rendered (cleaned) answer text; the copy shortcut
+  (Mod+Shift+C) copies the text parts of the same view (`components/chat.tsx:686`).
 
 ## Message actions and the "Stopped" label {#message-actions}
 
