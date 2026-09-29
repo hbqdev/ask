@@ -11,4 +11,8 @@ User=nightfury
 ExecStart=/home/nightfury/ask-fleet-boot.sh
 
 [Install]
+# Enabled via this only on bare metal. On WSL hosts deploy.sh leaves the unit
+# DISABLED: Docker Desktop attaches only after boot finishes, so a Docker-waiting
+# unit in multi-user.target deadlocks the boot. fleet-boot.timer pulls it in
+# after boot there instead.
 WantedBy=multi-user.target
