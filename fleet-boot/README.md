@@ -24,7 +24,19 @@ systemd `oneshot` unit, deployed to each WSL2 GPU box, that on boot:
   `/home/nightfury/ask-fleet-boot.sh` on each host.
 - `ask-fleet-boot.service` — systemd oneshot, `WantedBy=multi-user.target`,
   runs as `nightfury`. Deployed to `/etc/systemd/system/` on each host.
-- `deploy.sh` — push both files to all hosts and enable the service.
+- `deploy.sh` — push both files to all hosts. The service is **enabled only on
+  bare metal** (.231); on WSL hosts (.17, .160, .171) it is left **disabled**.
+
+> **Never enable anything that waits for Docker into `multi-user.target` on a
+> WSL host.** Docker Desktop attaches its WSL integration only after systemd
+> reports boot finished, so such a unit deadlocks the boot: it waits for a
+> Docker that is waiting for it (Serenity .171, 2026-09-29 — "Bootup is not yet
+> finished" for 8 min, Docker never came up). On WSL hosts `fleet-boot.timer`
+> (75 s after boot) pulls `ask-fleet-boot.service` in via `Wants=`/`After=`, so
+> it still runs every boot — after boot finishes. Check:
+> `systemctl is-enabled ask-fleet-boot.service` → `disabled` on .17/.160/.171,
+> `enabled` on .231; `systemctl show ask-fleet-boot.service -p WantedBy` on a
+> WSL host lists only `fleet-boot.service`.
 
 ## Usage
 
@@ -43,7 +55,7 @@ ssh nightfury@192.168.50.17 sudo systemctl start ask-fleet-boot.service
 ssh nightfury@192.168.50.17 journalctl -u ask-fleet-boot.service -n 20 -o cat
 ```
 
-Already deployed and enabled on all three hosts (2026-07-21).
+Deployed to all four hosts; enabled at boot only on .231 (bare metal). On the WSL hosts it runs via `fleet-boot.timer` after boot (see the warning above; changed 2026-09-29).
 
 ## Weekly sidecar image updates
 
