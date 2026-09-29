@@ -142,6 +142,9 @@ services:
       # (e.g. SEARCH_ROUNDS_MAX=2 docker compose ... up -d --force-recreate ask).
       SEARCH_ROUNDS_MAX: ${SEARCH_ROUNDS_MAX:-3}
       SEARCH_ROUNDS_MAX_QUALITY: ${SEARCH_ROUNDS_MAX_QUALITY:-5}
+      # Shell-overridable for A/B arms (unset = on; only `off` disables).
+      RECALL_ENABLED: ${RECALL_ENABLED:-}
+      MEMORY_ENABLED: ${MEMORY_ENABLED:-}
       # Model-agnostic reasoning control for the ANSWERING model
       # (lib/utils/ollama-think.ts resolveAnswerThink -> registry.ts). The
       # answering model's chain-of-thought is the single largest remaining
