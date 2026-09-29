@@ -1,8 +1,19 @@
 #!/usr/bin/env bash
-# Deploy ask-fleet-boot.{sh,service} to the Ask GPU boxes and enable the
-# systemd oneshot. Re-run this after editing ask-fleet-boot.sh here.
+# Deploy ask-fleet-boot.{sh,service} to the Ask GPU boxes. Re-run this after
+# editing ask-fleet-boot.sh here.
 #
-#   ./deploy.sh          # push script + unit, enable on boot
+# Enablement is decided per host by PLATFORM, not IP: on a WSL host the unit is
+# left DISABLED. Docker Desktop cannot attach its WSL integration until systemd
+# reports boot finished, so a unit in multi-user.target that waits for Docker
+# deadlocks the boot (Serenity .171, 2026-09-29: "Bootup is not yet finished"
+# for 8 min, Docker never came up). fleet-boot.timer (75 s after boot) still
+# pulls ask-fleet-boot.service in via Wants=/After=, so it runs every boot —
+# after boot finishes instead of holding it open. On bare metal (.231, a real
+# docker.service) it is enabled as before.
+# RULE: on a WSL host, nothing that waits for Docker may be enabled into
+# multi-user.target.
+#
+#   ./deploy.sh          # push script + unit (enabled on bare metal only)
 #   ./deploy.sh run      # ...and also trigger it once now on each host
 #
 # Needs: ssh key access as nightfury@ to each host, passwordless sudo there.
@@ -33,9 +44,13 @@ for ip in "${HOSTS[@]}"; do
   on "$ip" \
     'sudo tee /etc/systemd/system/ask-fleet-boot.service >/dev/null \
        && sudo systemctl daemon-reload \
-       && sudo systemctl enable ask-fleet-boot.service' \
-    < ask-fleet-boot.service >/dev/null
-  echo "  script + unit deployed, service enabled"
+       && if [ "$(systemd-detect-virt --container 2>/dev/null)" = wsl ]; then
+            # WSL: never on the boot path; fleet-boot.timer pulls it in after boot.
+            sudo systemctl disable ask-fleet-boot.service >/dev/null 2>&1; echo "  script + unit deployed, left disabled (WSL)"
+          else
+            sudo systemctl enable ask-fleet-boot.service >/dev/null 2>&1;  echo "  script + unit deployed, enabled"
+          fi' \
+    < ask-fleet-boot.service
   # MiniNightFury has no Ask worktree (the old ask-* checkouts there were
   # deleted 2026-09-23), so the jobs it runs for the public searxng/degoog
   # stacks run from a synced copy in ~/fleet-boot instead:
