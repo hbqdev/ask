@@ -316,7 +316,7 @@ An id copied with a character missing (seen with kimi-k2.6) has no repair and is
   is not UUID-shaped, and is contained in **exactly one** distinct source URL of this message.
   Otherwise it is dropped: an invented citation is never guessed.
 - **Where valid ids come from.** Search results always echoed their `toolCallId`. Fetch results
-  do too since 2026-09-24 (`lib/tools/fetch.ts:719`); before that a fetched page could not be
+  do too since 2026-09-24 (`lib/tools/fetch.ts:760`); before that a fetched page could not be
   cited correctly. Since 2026-09-27 each citable result also carries the whole anchor in `cite`,
   built from the `toolCallId` the AI SDK passes to `toModelOutput`. Earlier answers' anchors are
   removed from the history sent to the model

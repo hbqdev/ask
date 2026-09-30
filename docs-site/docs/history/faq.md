@@ -50,10 +50,24 @@ The container was recreated on the wrong network and cannot resolve `postgres`. 
 
 **First check.** Is the Windows host sitting at the login screen? The app host relies on
 auto-login so Docker Desktop can start. Then read the boot reconcile:
-`journalctl -u ask-fleet-boot.service -b -o cat`.
+`journalctl -u ask-fleet-boot.service -b -o cat`. On the WSL hosts it starts about 75 s after
+boot (from `fleet-boot.timer`), so an empty journal right after a reboot is normal; if it stays
+empty, check `systemctl is-enabled fleet-boot.timer`.
 → [Runbooks › What automation already exists](/operations/runbooks#what-automation-already-exists),
 [Known issues › Boot and power-loss fragilities](/history/known-issues#boot-and-power-loss-fragilities),
 [Fleet scripts](/operations/fleet-scripts)
+
+### A WSL host never finishes booting
+
+**First check.** In the distro (SSH usually still works): `systemd-analyze` prints "Bootup is
+not yet finished" and `docker info` fails. Then `ls /etc/systemd/system/multi-user.target.wants/`
+for a unit that waits for Docker; `systemctl is-enabled ask-fleet-boot.service` must be
+`disabled` on .17, .160 and .171.
+
+Docker Desktop attaches to WSL only after boot finishes, so a Docker-waiting unit enabled at boot
+deadlocks it. Disable the unit, then `wsl --shutdown` and restart Docker Desktop from Windows.
+→ [Runbooks › WSL host hangs at boot](/operations/runbooks#wsl-host-hangs-at-boot),
+[D41](/history/decisions#d41-on-wsl-hosts-nothing-that-waits-for-docker-is-enabled-at-boot)
 
 ### The container restarts right after a deploy
 
@@ -207,8 +221,9 @@ If it still appears on a current build, match it to one of the cases left alone 
   a long or list-shaped status note: kept by design
   ([known issue](/history/known-issues#narration-the-structural-rules-keep-by-design)).
 - **An answer with no `## ` heading at all**: never cut, since there is no safe place to cut.
-- **Only in search results or a recall excerpt**: the stored rows are not rewritten yet
-  ([known issue](/history/known-issues#old-answers-with-leaked-reasoning-stay-leaked)).
+- **Only in search results or a recall excerpt**: the stored row still holds it. Staging and
+  prod history was cleaned on 2026-09-28/29; an answer saved before a newer rule needs the
+  backfill re-run ([runbook](/operations/runbooks#re-run-the-narration-backfill)).
 - **A brief flash while streaming** that disappears after reload: the live transform is
   best-effort ([known issue](/history/known-issues#chain-of-thought-flash-in-the-live-stream)).
   An answer that appears a moment late, with no flash, is the glued-preamble case working as
@@ -231,6 +246,17 @@ removed (for example `javascript:` or another non-http scheme). That is the XSS 
 do not loosen the sanitize schema to hide it.
 → [Frontend › Half-streamed links and the "[blocked]" flash](/request-lifecycle/frontend#blocked-flash),
 [Security › XSS pipeline](/infrastructure/security#xss-pipeline)
+
+### Quality mode stops searching, or a quality answer cites a snippet
+
+**First check.** The turn's `[latency:search]` lines: a `kind:"round-cap"` line with
+`search_round_budget:10` and `fetch_allowed:true` means the search cap was reached. That is by
+design since 2026-09-30: after 10 searches a quality turn may still fetch pages it found (up to 8
+fetch calls, `[fetch] fetch cap reached` in stdout). A citation that opens a search result whose
+text does not hold the claim is often a snippet cited for a fact read on a fetched page, an open
+issue.
+→ [Pipeline › round cap](/search/pipeline#round-cap),
+[Known issues › snippet citations](/history/known-issues#citations-point-at-a-snippet-instead-of-the-fetched-page)
 
 ### Citations missing or pointing nowhere
 

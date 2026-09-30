@@ -32,7 +32,7 @@ always share a process.
 
 ## The SSE response {#sse-response}
 
-`createUIMessageStreamResponse` (`create-chat-stream-response.ts:1216`) returns the AI
+`createUIMessageStreamResponse` (`create-chat-stream-response.ts:1219`) returns the AI
 SDK UI-message stream as Server-Sent Events. Headers: `Cache-Control: no-cache,
 no-transform` — `no-transform` stops Cloudflare-style proxies from buffering the body
 to minify it (which made progress appear only at the end); `no-cache` is restated
@@ -120,13 +120,15 @@ the seam is longer than the preamble; until then the part does not start with a 
 the answer appears a moment later instead of showing the preamble. (When the stream path has
 already cut the seam, the part arrives starting with its heading.)
 
-**Persist path** — `stripNarrationFromMessage` (`helpers/strip-narration-from-message.ts:72`),
+**Persist path** — `stripNarrationFromMessage` (`helpers/strip-narration-from-message.ts:73`),
 applied in `onFinish` (`create-chat-stream-response.ts:1072`) and again inside
 `persistStreamResults`:
 
-1. per text part, `stripNarrationPreamble`: the English phrase and think-tag rules for a
-   preamble in front of a heading, then the language-agnostic **glued-seam** cut (a `## `
-   directly after a non-space character);
+1. per text part, `stripNarrationPreamble`: stray think-tag reasoning first; then, when a
+   qualifying **glued seam** (a `## ` directly after a non-space character) comes before the
+   first line-start heading, the glued rule alone decides (since 2026-09-29, the same
+   precedence as the stream path); otherwise the English phrase rules for a preamble in front
+   of a heading, then the language-agnostic glued-seam cut on what remains;
 2. inter-step narration: a non-final text part is dropped when it starts with an English
    narration phrase and a later tool or text part follows, or, in any language, when a tool
    call follows it directly and it is short, unstructured prose no longer than the final
@@ -139,13 +141,11 @@ guests), the spoken gist (`create-chat-stream-response.ts:959`), copy, recall in
 
 Residual by design: a final answer with fused narration but **no** heading is kept
 (dropping it risks losing real content), and so is non-English narration before a proper
-`\n\n## ` heading. The stored rows are not rewritten: what users see and what the model is
-fed are clean, but keyword search can still match stored status notes, and recall chunks
-indexed before 2026-09-28 keep a glued preamble until re-indexed
-([known issue](/history/known-issues#old-answers-with-leaked-reasoning-stay-leaked)). One
-ordering gap is open: `stripNarrationPreamble` runs the English phrase rule before the glued
-rule, so `narration.## A … \n## B` that reaches persist unstripped can lose section A
-([known issue](/history/known-issues#a-glued-first-section-can-be-cut-at-persist)).
+`\n\n## ` heading. Stored rows written before a rule existed keep what was saved until the
+narration backfill runs; on staging and prod it ran on 2026-09-28/29 and re-indexed the
+affected recall chunks
+([D20 › Backfill](/history/decisions#backfill-2026-09-28-29),
+[runbook](/operations/runbooks#re-run-the-narration-backfill)).
 
 ## Disconnect survival {#disconnect-survival}
 
@@ -200,7 +200,7 @@ sequenceDiagram
     end
 ```
 
-**Producer** (`create-chat-stream-response.ts:1233`): `consumeSseStream` gets a tee'd
+**Producer** (`create-chat-stream-response.ts:1236`): `consumeSseStream` gets a tee'd
 copy of the SSE. With a resumable context it generates a `streamId`, **first** writes
 the pointer `ask:chat:{chatId}:activeStream` (TTL 300s = the generation timeout, so a
 crashed server never leaves a dangling pointer), then `rsc.createNewResumableStream`.
@@ -404,5 +404,5 @@ readers re-sign upload URLs at read time.
 | `STOPPED_TURN_SETTLE_TIMEOUT_MS` (constant) | 5,000 | max wait for a stopped partial save |
 | `experimental_throttle` (`chat.tsx`) | 100 ms | client render batching |
 | `NARRATION_HARD_MAX` / `NARRATION_SNIFF_LIMIT` (constants, `smooth-and-strip-narration.ts:24,15`) | 16,000 / 64 chars | narration buffering |
-| `INTER_STEP_CHATTER_MAX` / `GLUED_PREAMBLE_MAX` (constants, `strip-narration-preamble.ts:366,275`) | 600 / 2,000 chars | language-agnostic narration rules (persist + read time; `GLUED_PREAMBLE_MAX` also bounds the live glued-seam cut) |
+| `INTER_STEP_CHATTER_MAX` / `GLUED_PREAMBLE_MAX` (constants, `strip-narration-preamble.ts:373,282`) | 600 / 2,000 chars | language-agnostic narration rules (persist + read time; `GLUED_PREAMBLE_MAX` also bounds the live glued-seam cut) |
 | `ENABLE_GUEST_CHAT` | off | enables the ephemeral guest path |

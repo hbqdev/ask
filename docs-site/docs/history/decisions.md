@@ -37,7 +37,7 @@ names the lab original. See [deploy](/operations/deploy) for the flow.
 | [D6](#d6-classifier-on-a-cloud-model-with-expansion-fused-in) | Classifier on a cloud model, with expansion fused in | adopted | 2026-09-04 |
 | [D7](#d7-cap-the-brave-crawl-to-the-top-3) | Cap the Brave crawl to the top 3 | adopted | 2026-09-07 |
 | [D8](#d8-timebox-recall-classifier-and-langsearch) | Timebox recall, classifier and LangSearch | adopted | 2026-09-07 |
-| [D9](#d9-search-round-cap-enforced-inside-the-tool) | Search round cap, enforced inside the tool | adopted | 2026-09-07 |
+| [D9](#d9-search-round-cap-enforced-inside-the-tool) | Search round cap, enforced inside the tool (quality 10 since 09-30) | adopted | 2026-09-07 / 09-30 |
 | [D10](#d10-answering-model-reasoning-off-by-default) | Answering-model reasoning OFF by default | adopted | 2026-09-09 |
 | [D11](#d11-hide-raw-reasoning-in-the-ui) | Hide raw reasoning in the UI | adopted | 2026-09-09 |
 | [D12](#d12-single-pass-search-instead-of-the-agentic-loop) | Single-pass search instead of the agentic loop | **reverted** | 2026-09-10 |
@@ -48,7 +48,7 @@ names the lab original. See [deploy](/operations/deploy) for the flow.
 | [D17](#d17-20k-per-page-crop-with-a-crop-position-shadow) | 20k per-page crop + crop-position shadow | adopted (experiment) | 2026-08-06 |
 | [D18](#d18-targeted-reasoning-reasoning-only-on-research-turns) | Targeted reasoning (research turns only); since D37 nearly every turn is a research turn | **inconclusive** | 2026-09-19 |
 | [D19](#d19-follow-up-re-search-prompt-nudge) | Follow-up re-search prompt nudge (only re-searching since D37) | adopted (soft) | 2026-09-19 |
-| [D20](#d20-narration-strippers-strict-at-persist-best-effort-live) | Narration strippers: strict at persist, best-effort live; language-agnostic rules applied wherever text is read | adopted | 2026-09-10 / 09-17 / 09-28 |
+| [D20](#d20-narration-strippers-strict-at-persist-best-effort-live) | Narration strippers: strict at persist, best-effort live; language-agnostic rules applied wherever text is read; stored history backfilled | adopted | 2026-09-10 / 09-17 / 09-28 / 09-29 |
 | [D21](#d21-other-latency-knobs-measured) | Other latency knobs measured (rerank budget, enrich cap, crawl parallelism, turn budget) | mixed | 2026-07/09 |
 | [D22](#d22-multi-agent-deep-research) | Multi-agent deep research | **shelved** | 2026-08-04 |
 | [D23](#d23-uploads-and-url-rag-on-disk-not-pgvector) | Uploads / URL RAG on disk, not pgvector | adopted | 2026-07-07 → 09-12 |
@@ -68,6 +68,8 @@ names the lab original. See [deploy](/operations/deploy) for the flow.
 | [D37](#d37-always-search-every-question) | Always search every question (forced first search; since 09-27 the first search, not the only one) | adopted | 2026-09-26 / 09-27 |
 | [D38](#d38-ready-made-citation-handles) | Ready-made citation handles in the model-facing tool output (`CITATION_HANDLES`) | adopted | 2026-09-27 |
 | [D39](#d39-every-local-redis-client-goes-through-local-redis-ts) | Every local Redis client goes through `lib/redis/local-redis.ts` | adopted | 2026-09-27 |
+| [D40](#d40-quality-mode-read-pages-past-the-search-cap) | Quality mode: read pages past the search cap (fetch cap 8, search cap 10); the answer-step citation reminder stays off | adopted (reminder **shelved**) | 2026-09-30 |
+| [D41](#d41-on-wsl-hosts-nothing-that-waits-for-docker-is-enabled-at-boot) | On WSL hosts, nothing that waits for Docker is enabled into `multi-user.target` | adopted | 2026-09-29 |
 
 ---
 
@@ -153,14 +155,14 @@ names the lab original. See [deploy](/operations/deploy) for the flow.
 - **Reversal (2026-09-26, owner decision).** The prod record over the 60 days before the change
   showed what the gate was withholding: of 164 turns, 69 used no tools, 20 of them `skipSearch`
   turns and 47 `stable-knowledge` turns (`lib/agents/query-classifier.ts:217-221`,
-  `lib/agents/researcher.ts:176-181`). Many asked about named products, company policies, home
+  `lib/agents/researcher.ts:191-196`). Many asked about named products, company policies, home
   repair and cleaning, health and safety, or current fiction, and were answered confidently from
   memory. One answer about melted plastic on an oven tray recommended acetone with no fire
   warning. D3's evaluation judged answer style on settled concepts; it did not cover these
   questions. The owner ruled that correctness and safety on such questions outweigh the padding
   D3 avoided, so every question now searches ([D37](#d37-always-search-every-question)).
   - **What still exists.** `resolveTurnMode` keeps the gate after the flag check
-    (`lib/agents/researcher.ts:187`), `STABLE_KNOWLEDGE_PROMPT` is unchanged, and the old
+    (`lib/agents/researcher.ts:202`), `STABLE_KNOWLEDGE_PROMPT` is unchanged, and the old
     classifier prompt is kept verbatim as `LEGACY_CLASSIFIER_SYSTEM_PROMPT`
     (`lib/agents/query-classifier.ts:165`). The classifier still emits `needsSources`; with the
     flag on it is logged and gates nothing.
@@ -284,8 +286,9 @@ names the lab original. See [deploy](/operations/deploy) for the flow.
 - **Status:** adopted · **Date:** 2026-09-07 · **Commit:** `53f03c4f` (lab `fb78c847`)
 - **Context.** After D5–D8, real balanced turns still looped up to **7** `search` calls (~15 s
   fan-outs plus ~57 s of inter-call model reasoning).
-- **Decision.** `SEARCH_ROUNDS_MAX` (default 3) and `SEARCH_ROUNDS_MAX_QUALITY` (default 5). The
-  cap is enforced **inside the search tool's `execute`** (`lib/tools/search.ts:316-401`) with a
+- **Decision.** `SEARCH_ROUNDS_MAX` (default 3) and `SEARCH_ROUNDS_MAX_QUALITY` (default 5; 10
+  since 2026-09-30, see the update below). The
+  cap is enforced **inside the search tool's `execute`** (`lib/tools/search.ts:317-446`) with a
   per-turn counter in the `createSearchTool` closure. Past the budget it returns a non-error
   "answer from what you have" result (no fan-out, no crawl) and logs `kind:'round-cap'`.
 - **Why inside the tool.** In AI SDK v6, `activeTools` only filters which tool **definitions** are
@@ -302,6 +305,13 @@ names the lab original. See [deploy](/operations/deploy) for the flow.
   model that hits the cap may "reason aloud" into the answer text. See D20.
 - **Revisit if** multi-hop questions start failing because 3 rounds are not enough (raise the env,
   don't remove the cap).
+- **Update 2026-09-30** ([D40](#d40-quality-mode-read-pages-past-the-search-cap)). The quality cap
+  is **10** (`lib/tools/search.ts:325`), and a round is now counted only for a search that
+  runs: a near-duplicate skip no longer uses one (`:561-563`). In quality mode the cap ends the
+  searching, not the reading: the notice lets the model `fetch` URLs this turn already found,
+  bounded by a per-turn fetch cap (`FETCH_ROUNDS_MAX_QUALITY`, 8). Speed and balanced keep 3
+  rounds and the "answer now" notice. Commits: prod `a6db72f1` + `30838a61` (lab `49379e09` +
+  `98ba1d36`; staging `4b5f6fd3` + `7a2d74ba`).
 
 ### D10. Answering-model reasoning OFF by default
 
@@ -489,7 +499,9 @@ non-determinism, the agent's search-or-not choice and the ceiling swamp live A/B
 
 - **Status:** adopted · **Dates/commits:** `378e81af` (2026-09-10), `0290896c` (2026-09-17),
   `48d5b06d` (2026-09-28, [addendum](#addendum-2026-09-28-language-agnostic-structural-rules)),
-  `6e19914f` (2026-09-28, [addendum › Decision 5](#decision-5-the-live-transform-cuts-the-glued-seam));
+  `6e19914f` (2026-09-28, [addendum › Decision 5](#decision-5-the-live-transform-cuts-the-glued-seam)),
+  `d751352d` (2026-09-29, [addendum › Decision 6](#decision-6-the-glued-seam-wins-at-persist-too)),
+  backfill tool `a59d0c65` (run 2026-09-28/29, [addendum › Backfill](#backfill-2026-09-28-29));
   earlier `f4c53a7a` (2026-07-08)
 - **Context.** Reasoning models emit "process narration" such as "I have comprehensive data now…
   let me search…" or "The search limit has been reached (3 rounds)…" as text parts. Two families
@@ -517,9 +529,9 @@ non-determinism, the agent's search-or-not choice and the ceiling swamp live A/B
   - ~~Already-saved leaked messages stay leaked until regenerated. The strippers act at persist
     time.~~ **Corrected 2026-09-28:** the chat view, copy, the history fed back to the model and
     the classifier, the spoken gist, recall indexing and search snippets now apply the same
-    cleanup when they read a message, so a saved leak **displays** clean. The stored rows are
-    unchanged: keyword search still matches a stored status note, and recall chunks indexed
-    earlier keep a glued preamble until a backfill and re-index (see the addendum).
+    cleanup when they read a message, so a saved leak **displays** clean. **Since 2026-09-28/29
+    the stored rows are clean too:** a backfill rewrote staging and prod history and re-indexed
+    the affected recall chunks ([addendum › Backfill](#backfill-2026-09-28-29)).
   - Residual by design: a final answer with fused narration and **no** `##` heading is left intact
     (rare, since prompts mandate the heading). Dropping it risks losing real content.
   - The rule "the answer is the text after the last tool part" is also used by
@@ -556,8 +568,8 @@ non-determinism, the agent's search-or-not choice and the ceiling swamp live A/B
   - **Decision 1: inter-step chatter in any language.** A non-final text part whose next
     significant part is a tool call is dropped when it is at most 600 characters, has no
     heading, table, code fence, list of 3+ items or citation marker, and is not longer than the
-    final answer (`looksLikeInterStepChatter`, `lib/streaming/helpers/strip-narration-preamble.ts:376`;
-    `lib/streaming/helpers/strip-narration-from-message.ts:111-121`). The English phrase rule
+    final answer (`looksLikeInterStepChatter`, `lib/streaming/helpers/strip-narration-preamble.ts:383`;
+    `lib/streaming/helpers/strip-narration-from-message.ts:112-122`). The English phrase rule
     still drops a narration part at any length. The final-answer guard protects "short real
     reply → side-effect tool → shorter sign-off". **Why 600:** in stored history (831 assistant
     messages, prod and lab), text written right before a tool call is 110–180 characters at the
@@ -565,18 +577,20 @@ non-determinism, the agent's search-or-not choice and the ceiling swamp live A/B
     reached ~700 characters, so 600 covers the chatter with headroom and stays below that.
   - **Decision 2: the glued seam.** The first `## ` outside code whose preceding character is
     not whitespace, `#` or `\` is a seam (`findGluedHeadingSeam`,
-    `lib/streaming/helpers/strip-narration-preamble.ts:285`). The prefix is cut when it has no
+    `lib/streaming/helpers/strip-narration-preamble.ts:292`). The prefix is cut when it has no
     heading or citation of its own, is at most 2000 characters and is shorter than the rest
-    (`stripGluedHeadingPreamble`, `:349`; since Decision 5 built from the shared helpers
-    `findGluedPreambleSeam`, `:302`, and `gluedAnswerOutweighsPreamble`, `:325`). A proper
+    (`stripGluedHeadingPreamble`, `:356`; since Decision 5 built from the shared helpers
+    `findGluedPreambleSeam`, `:309`, and `gluedAnswerOutweighsPreamble`, `:332`). A proper
     `\n\n## ` heading is never touched.
     **Why 2000:** the three prod preambles were 613, 653 and 673 characters (6–9 % of
     their answers); a stray glyph glued in front of a heading was 2; real reasoning dumps start
     around 8 KB and carry English starters. 2000 is about 3× the largest non-English preamble.
   - **Decision 3: English first, structure second.** Both rules run **after** the existing
-    English rules (`stripNarrationPreamble`, `strip-narration-preamble.ts:392-395`; the
-    phrase test is the first alternative in `strip-narration-from-message.ts:112-116`), so they
-    only add removals and English behaviour is unchanged.
+    English rules (`stripNarrationPreamble`, `strip-narration-preamble.ts:417-426`; the
+    phrase test is the first alternative in `strip-narration-from-message.ts:113-117`), so they
+    only add removals and English behaviour is unchanged. One exception since 2026-09-29
+    (Decision 6): a glued seam in front of the first line-start heading is decided by the glued
+    rule alone.
   - **Decision 4: one cleanup wherever text is read.** The same pure functions now run in the
     chat view and the "research still running" indicator (`narrationCleanView`, memoized per
     message object, `components/render-message.tsx:54,158`), the copy shortcut
@@ -584,7 +598,7 @@ non-determinism, the agent's search-or-not choice and the ceiling swamp live A/B
     (`lib/streaming/create-chat-stream-response.ts:258`; guests
     `lib/streaming/create-ephemeral-chat-stream-response.ts:62`), the spoken gist
     (`lib/streaming/create-chat-stream-response.ts:959`), recall extraction
-    (`lib/memory/extract-indexable-text.ts:96-103`) and keyword-search snippets
+    (`lib/memory/extract-indexable-text.ts:135-142`) and keyword-search snippets
     (`lib/db/keyword-search.ts:76-79`). Stored messages therefore display clean without a DB
     rewrite. The live stream transform was left unchanged by this commit: it decides from a
     prefix, which is why live stays best-effort. Decision 5 (a follow-up the same day) moved
@@ -602,9 +616,9 @@ non-determinism, the agent's search-or-not choice and the ceiling swamp live A/B
       render.
     - **Shared helpers.** The persist rule was split in two
       (`lib/streaming/helpers/strip-narration-preamble.ts`): `findGluedPreambleSeam(text)`
-      (`:302`) returns the seam when the prefix qualifies on its own (no line-start heading with
+      (`:309`) returns the seam when the prefix qualifies on its own (no line-start heading with
       code masked, no citation marker, trimmed prefix ≤ 2000); `gluedAnswerOutweighsPreamble(prefixLength, answer)`
-      (`:325`) is the remaining guard. `stripGluedHeadingPreamble` (`:349`) is built from the
+      (`:332`) is the remaining guard. `stripGluedHeadingPreamble` (`:356`) is built from the
       two, with unchanged behaviour. The seam and prefix guards depend only on the text up to the
       seam, so they can be evaluated on a partial buffer.
     - **Exact release rule, not an approximation.** On every held delta the transform
@@ -648,11 +662,35 @@ non-determinism, the agent's search-or-not choice and the ceiling swamp live A/B
       before a later heading, holding while the answer is shorter, the backtick wait, the 2000
       bound, a citing prefix, and never cutting `##` in code, `###`, `\##`, a real intro or a
       heading-less answer.
-    - **Open edge.** `stripNarrationPreamble` (persist and read time) still runs the English
-      phrase rule before the glued rule. Raw text shaped `narration.## A … \n## B` that reaches
-      persist unstripped (an undecidable seam, or a non-narration-looking preamble released
-      after the first 64 characters) can lose section A. Making the seam win in persist too
-      would close it ([known issue](/history/known-issues#a-glued-first-section-can-be-cut-at-persist)).
+    - **Open edge (closed 2026-09-29 by Decision 6).** `stripNarrationPreamble` ran the
+      English phrase rule before the glued rule, so raw text shaped `narration.## A … \n## B`
+      that reached persist unstripped (an undecidable seam, or a non-narration-looking
+      preamble released after the first 64 characters) could lose section A.
+  - <span id="decision-6-the-glued-seam-wins-at-persist-too"></span>**Decision 6: the glued seam
+    wins at persist too, and two more English starters.** Prod `d751352d`, lab `0cb22cf9`,
+    staging `95c73f74` (2026-09-29).
+    - **Seam precedence.** `stripNarrationPreamble`
+      (`lib/streaming/helpers/strip-narration-preamble.ts:417-426`) first removes stray
+      think-tag reasoning, then asks `gluedSeamLeads` (`:401-406`): is there a qualifying glued
+      seam (`findGluedPreambleSeam`) before the first line-start heading? If so the glued rule
+      alone decides (cut at the seam, or keep the text); the phrase rule never runs, so it
+      cannot cut at the later `\n## B` and take section A with it. Otherwise the order is
+      unchanged: phrase rule, then the glued cut on what remains. This is the precedence the
+      live transform already applied (Decision 5), so live, persist and the render view make
+      the same cut.
+    - **English starters** (`NARRATION_STARTERS`, `:18`; the new patterns at `:25` and `:31`): "I have converging / convergent /
+      corroborating evidence…", and "I'm ready to write / compose / draft / synthesize / put
+      together / deliver / give / provide the (final / full / complete / comprehensive)
+      answer / response / reply" with an optional "ok / alright / now / so" lead. The object
+      must be **the/my answer/response/reply**, so user-facing offers ("I'm ready to help",
+      "I'm ready to write your cover letter") never match. Both phrasings were seen on prod
+      (2026-09-08).
+    - **Evidence.** A scan of every stored message on prod, staging and lab with the new rules:
+      exactly **1** message changes (a prod answer, 127 characters of preamble), and no real
+      content is removed. That message was cleaned in storage the same day by a second
+      backfill run (below). Tests: `lib/streaming/helpers/__tests__/strip-narration-preamble.test.ts`,
+      `strip-narration-structural.test.ts` (the `## A … \n## B` shape) and
+      `smooth-and-strip-narration.test.ts`.
   - **Evidence for Decisions 1–4 (read-only scan of the last 60 days).** Non-final text parts
     followed by a tool call:
 
@@ -674,12 +712,52 @@ non-determinism, the agent's search-or-not choice and the ceiling swamp live A/B
   - **Limits** (tracked in [known issues](/history/known-issues#narration-the-structural-rules-keep-by-design)):
     during streaming a glued answer appears only once its body outweighs the preamble (no
     flash; until Decision 5 an English-looking one was held until the part ended); non-English
-    narration before a proper `\n\n## ` heading is not cut (0 cases in the data); keyword search still matches stored chatter, and the recall chunks of the 3
-    Vietnamese answers (39 chunks) keep the preamble, until a backfill and a recall re-index run.
-  - **Backfill: not done, owner decision pending.** All prod history: 92 messages (177 text-part
-    deletes, 4 answer rewrites); 69 of the 92 were saved before the English rules were complete
-    (the last of those rules landed 2026-09-17). Last 60 days: 38 messages. Rewritten answers also need a recall
-    re-index. How: [known issues](/history/known-issues#old-answers-with-leaked-reasoning-stay-leaked).
+    narration before a proper `\n\n## ` heading is not cut (0 cases in the data). (Keyword
+    search matching stored chatter and recall chunks holding a glued preamble were limits until
+    the 2026-09-28/29 backfill below.)
+  - <span id="backfill-2026-09-28-29"></span>**Backfill: done 2026-09-28/29.** Stored history
+    on staging and prod was cleaned with the app's own code, and the affected recall chunks
+    were re-indexed. Tool: `scripts/backfill-narration.ts` (+ `scripts/backfill-narration-plan.ts`,
+    run through `scripts/backfill-narration.sh <env>`); prod `a59d0c65`, lab `449d8d3e`,
+    staging `736faf57`. How it works and how to re-run it:
+    [evaluation › data scripts](/operations/evaluation#narration-backfill),
+    [runbook](/operations/runbooks#re-run-the-narration-backfill).
+    - **Why a new tool, not `clean:narration`.** `scripts/clean-narration-preambles.ts` runs
+      the per-part preamble rule over every text part, user messages included, never drops a
+      status-note part and never re-indexes recall. The backfill runs the whole message
+      cleanup (`buildUIMessageFromDB` → `stripNarrationFromMessage`, exactly what the reader
+      renders) on assistant messages only, turns the difference into text-row deletes and
+      rewrites, and self-checks each plan: applied and mapped back, the rows must equal the
+      render view, and that view must already be clean, so a re-run finds nothing.
+    - **Why one transaction per message.** Each message is independent and self-verifying, so
+      a failure rolls back only that message and leaves every other one fully old or fully
+      clean, a state an idempotent re-run continues from. The message row is locked `FOR
+      UPDATE`, which serialises against the app's own `upsertMessage`, and locks stay short on
+      a live database.
+    - **Run 2026-09-28** (dry run → backup → apply → verify → re-index, one env at a time):
+
+      | Env | Messages | Part deletes | Rewrites | Chars removed | Recall re-indexed | Chunks with removed text |
+      |---|---|---|---|---|---|---|
+      | staging | 99 | 242 | 5 (4 messages) | 75,923 | 4 messages, 23 → 14 chunks | 7 → 0 |
+      | prod | 92 | 177 | 4 | 35,738 | 8 messages, 68 → 56 chunks | 3 → 0 |
+
+      On prod 88 of the 92 messages were saved before 2026-09-17 (when the last English rule
+      landed) and 36 in the last 60 days; on staging all 99 predate 2026-09-17. Verify through
+      the app's loader: 99/99 and 92/92 equal the render view. A dry run afterwards finds 0
+      changes (prod 435 assistant messages scanned, staging 509). A second re-index pass
+      re-indexed nothing. Messages whose chunks differ only for unrelated reasons (prod 2) and
+      messages never indexed (prod 3) are left alone.
+    - **Run 2026-09-29, prod only**, after Decision 6: 1 message, 1 rewrite (127 characters),
+      its 4 recall chunks re-indexed (the one holding the removed text → 0); verify 1/1; a dry
+      run afterwards finds 0 of 435. Staging and lab had nothing to change under the new rules.
+    - **Backups** are in `~/selfhosted/backups/narration-backfill/` on .17 (mode 0600, full
+      rows of every changed part and every recall chunk of every changed message). They hold
+      user content: do not copy them off the host or print them. Each 2026-09-28 backup also
+      has a `<backup>.restore.sql` next to it: one transaction that raises an error unless the
+      connected cluster's `system_identifier` matches the backed-up one, re-inserts the part
+      rows (restoring rewritten text on conflict) and replaces the messages' recall chunks. The
+      script does not generate these files; they were written alongside the run, and the
+      2026-09-29 backup has none.
   - **Don't** raise 600 or 2000 without re-running the corpus review, and don't cut a
     non-English intro before a proper `\n\n## ` heading on a guess: that is exactly where
     genuine intro prose lives.
@@ -1039,6 +1117,38 @@ turn-based loop (`git revert b0ff56ad`) brings back the same latency.
 - **Revisit if** Ask ever needs a second app host. Build it through `deploy.sh` and
   `ask-fleet-boot.sh` from the start, never from a hand-kept copy.
 
+### D41. On WSL hosts, nothing that waits for Docker is enabled at boot
+
+- **Status:** adopted · **Date:** 2026-09-29 · **Commits:** prod `bbf936f8` (lab `8d59d2f1`;
+  staging `d0fdba20`)
+- **Context.** Since 2026-09-23 `fleet-boot/deploy.sh` enabled `ask-fleet-boot.service`
+  (`WantedBy=multi-user.target`, `After=docker.service`) on every host. On WSL hosts Docker
+  Desktop injects its WSL integration (`/var/run/docker.sock`) only **after** systemd reports
+  that boot has finished. The oneshot's `wait_docker` polls for
+  Docker for up to 120 s, so the boot waited for a Docker that was waiting for the boot. On
+  2026-09-29 Serenity (.171) rebooted and hung: `systemctl` reported "Bootup is not yet
+  finished" for about 8 minutes, and Docker Desktop's `backend.sock` never appeared.
+- **Decision.** `deploy.sh` decides per **platform**, not per IP
+  (`fleet-boot/deploy.sh:44-53`): when `systemd-detect-virt --container` prints `wsl` it
+  leaves the unit **disabled**; otherwise (bare metal, .231) it enables it. On the WSL hosts
+  (.17, .160, .171) the unit still runs on every boot: the `lan_automation`
+  `fleet-boot.timer` (`OnBootSec=75s`) starts `fleet-boot.service`, which `Wants=` and
+  `After=` `ask-fleet-boot.service`, so it runs after boot has finished. **Rule:** on a WSL
+  host, nothing that waits for Docker may be enabled into `multi-user.target`.
+- **Evidence.** The same deadlock was measured on Serenity on 2026-08-29 for the
+  `lan_automation` unit (5 min 10 s boot with it enabled, 2.0 s without), which is why that
+  unit already ran from a timer. Recovery on 2026-09-29: `wsl --shutdown` and a Docker Desktop
+  restart from Windows; with the unit disabled, `systemd-analyze` on .171 reports userspace
+  boot in 1.6 s. Checked 2026-09-30: `systemctl is-enabled ask-fleet-boot.service` is
+  `disabled` on .17, .160 and .171 and `enabled` on .231, and on the WSL hosts
+  `systemctl show ask-fleet-boot.service -p WantedBy` lists only `fleet-boot.service`.
+- **Consequences.** On WSL hosts the boot reconcile starts about 75 s after boot instead of
+  during it, and it depends on `fleet-boot.timer` from the separate `lan_automation`
+  repository staying enabled. .231 has no `fleet-boot.timer`; its unit is enabled directly.
+- **Do not retry** enabling `ask-fleet-boot` (or any new Docker-waiting unit) into
+  `multi-user.target` on a WSL host, whatever `After=`/`TimeoutStartSec=` it carries. Recovery:
+  [runbook](/operations/runbooks#wsl-host-hangs-at-boot).
+
 ## Citations
 
 ### D36. Strip historical citation anchors; resolve citations per turn only
@@ -1169,10 +1279,10 @@ turn-based loop (`git revert b0ff56ad`) brings back the same latency.
      would not survive the anchor regexes (`ANCHOR_SAFE_ID_RE`, `citation-handles.ts:42`). A
      legacy output with a `citationMap` is left alone, and the input is never mutated.
   2. **Where it is added: only in model-facing output.** The `search` tool's `toModelOutput`
-     (`lib/tools/search.ts:1276-1289`) numbers the results **after** the researcher's per-turn
+     (`lib/tools/search.ts:1326-1339`) numbers the results **after** the researcher's per-turn
      URL dedup, because the dedup wrapper yields the trimmed list and keeps the tool's
-     `toModelOutput` (`lib/agents/researcher.ts:257-354`). `fetch` gained a `toModelOutput`
-     (`lib/tools/fetch.ts:759-765`) that numbers the merged `results`, from which failed URLs
+     `toModelOutput` (`lib/agents/researcher.ts:272-369`). `fetch` gained a `toModelOutput`
+     (`lib/tools/fetch.ts:800-806`) that numbers the merged `results`, from which failed URLs
      are already left out; with the flag off it returns exactly what the SDK sends for a tool
      without one. Attached-document and pasted-URL excerpts never pass through a tool, so
      `buildDocumentRetrievalModelMessages` adds the handles itself
@@ -1193,8 +1303,8 @@ turn-based loop (`git revert b0ff56ad`) brings back the same latency.
      same switch rewrites the numbering sentence of the balanced/quality citation rule
      (`getCitationNumberingSentence`, `:276-280`), the forced-search addendum's citing sentence
      (`getForcedSearchPromptAddendum`, `lib/agents/always-search.ts:330-338`) and the
-     attached-sources clause (`lib/agents/researcher.ts:871-881`). The speed prompt is now built
-     per turn (`getQuickModePrompt()`, `researcher.ts:725`) instead of from the module-level
+     attached-sources clause (`lib/agents/researcher.ts:891-901`). The speed prompt is now built
+     per turn (`getQuickModePrompt()`, `researcher.ts:745`) instead of from the module-level
      `SPEED_MODE_PROMPT` constant, so the flag is honoured there too.
   5. **The flag.** `CITATION_HANDLES`, read per call by `isCitationHandlesEnabled`
      (`citation-handles.ts:24-28`). Default on; only the literal `off` disables it (the
@@ -1287,11 +1397,11 @@ turn-based loop (`git revert b0ff56ad`) brings back the same latency.
      previous answer, and questions the conversation already seems to answer. If the classifier
      is unsure, it searches. `needsSources` is still produced, but only for analysis: it gates
      nothing.
-  2. **Turn mode.** `resolveTurnMode` (`lib/agents/researcher.ts:155-189`): `skipSearch` →
+  2. **Turn mode.** `resolveTurnMode` (`lib/agents/researcher.ts:170-204`): `skipSearch` →
      `direct`; everything else → `research`. `stable-knowledge` cannot be reached while the flag
      is on.
   3. **A guaranteed first search.** On a `research` turn, `prepareStep` gives step 0 to a
-     synthetic model instead of the user's model (`researcher.ts:1039-1041`).
+     synthetic model instead of the user's model (`researcher.ts:1136-1138`).
      `createForcedSearchModel` (`lib/agents/always-search.ts:264`) is a `LanguageModelV3` whose
      only output is **one `search` tool call**. Its query is the classifier's `standaloneQuery`
      with URLs removed, clipped at a word boundary to 400 characters (`resolveForcedSearchQuery`,
@@ -1302,7 +1412,7 @@ turn-based loop (`git revert b0ff56ad`) brings back the same latency.
      and telemetry all apply. The result streams to the browser, is persisted, and is citable by
      its toolCallId. The user's model answers from step 1 with those results in context.
   4. **The prompt is told.** `FORCED_SEARCH_PROMPT_ADDENDUM` (`always-search.ts:319`, appended at
-     `researcher.ts:833-835`) says the first search has already run, asks for the answer to be
+     `researcher.ts:853-855`) says the first search has already run, asks for the answer to be
      grounded and cited, and cancels the mode prompts' "clarifying your own prior answer, do not
      search" exception. Since 2026-09-27 it also says this is the first search, not the only one
      (addendum below). It is appended after the mode prompt, so it wins. Since 2026-09-27 it is
@@ -1324,7 +1434,7 @@ turn-based loop (`git revert b0ff56ad`) brings back the same latency.
   behave the same.
   - **Forced:** every `research` turn where the user did not supply the source and the resolved
     query still has text after URLs are removed (`resolveForcedFirstSearch`,
-    `researcher.ts:200-217`).
+    `researcher.ts:215-232`).
   - **Research but not forced: the user supplied the source** (follow-up the same day,
     `detectUserSuppliedSource`, `lib/agents/always-search.ts:118-137`, read from the latest
     message's parts). A URL in the text or a pasted link chip: the first version searched the
@@ -1385,7 +1495,7 @@ turn-based loop (`git revert b0ff56ad`) brings back the same latency.
     real question is still searched on its words alone
     ([known issue](/history/known-issues#image-attachment-forces-a-generic-search)).
   - **`remember` writes**: `remember` is candidate-only on research turns
-    (`researcher.ts:908-917`), so a "remember that …" message must stay `direct` to be confirmed.
+    (`researcher.ts:928-937`), so a "remember that …" message must stay `direct` to be confirmed.
     Checked on the lab classifier (`deepseek-v4-pro:cloud`, single message and as a second turn):
     "remember that I'm vegetarian", "remember I prefer metric units" and "forget my address"
     were already `skipSearch:true` under both the legacy and the first ALWAYS_SEARCH prompt, so no
@@ -1447,6 +1557,99 @@ turn-based loop (`git revert b0ff56ad`) brings back the same latency.
   - **Watch** on prod lines from `facc98f3` onward: `tool_calls` and `total_ms` of research
     turns per `modelId` and mode. More searches cost time; whether they make better answers is
     a judging question ([D4](#d4-judge-answers-not-source-counts)), not a count.
+
+### D40. Quality mode: read pages past the search cap
+
+- **Status:** adopted; the answer-step citation reminder is **shelved** (built, off by default) ·
+  **Date:** 2026-09-29 / 09-30 · **Commits:** prod `a6db72f1` + `30838a61` (lab `49379e09` +
+  `98ba1d36`; staging `4b5f6fd3` + `7a2d74ba`). The prod and staging ports call
+  `getModel(model, abortSignal)` with two arguments: the lab's third argument (the turn mode
+  that `ANSWER_THINK=targeted` reads, [D18](#d18-targeted-reasoning-reasoning-only-on-research-turns))
+  exists only on the lab.
+- **Context.** Quality mode capped `search` at 5 rounds ([D9](#d9-search-round-cap-enforced-inside-the-tool)),
+  and the cap's notice said "answer now from the sources already gathered", which in practice
+  also ended fetching. A near-duplicate skip ([pipeline › dedup](/search/pipeline#round-cap))
+  also used up a round.
+- **Decision.**
+  1. **A round counts only for a search that runs.** The counter moved after the
+     near-duplicate check (`lib/tools/search.ts:561-563`).
+  2. **The cap ends the searching, not the reading.** In a mode that has a fetch cap, the cap
+     notice (`buildSearchRoundCapNotice`, `lib/tools/search.ts:356-368`) refuses further
+     searches but lets the model `fetch` URLs that this turn's searches returned when a claim
+     needs the page's full text. Modes without a fetch cap keep the "answer now" wording.
+  3. **A per-turn fetch cap.** `FETCH_ROUNDS_MAX_QUALITY` (default 8 calls) for quality,
+     `FETCH_ROUNDS_MAX` for the other modes (unset = no cap), in `lib/tools/fetch-budget.ts`
+     and enforced in `lib/tools/fetch.ts:691-713`. A refused call returns a non-error notice.
+  4. **Quality search cap 5 → 10** (`SEARCH_ROUNDS_MAX_QUALITY`, `lib/tools/search.ts:325`).
+     Speed and balanced stay at 3.
+  5. **The answer-step citation reminder stays off** (`CITATION_REMINDER=on` enables it).
+- **Evidence** (lab A/Bs, kimi-k2.6, recall and memory off; the raw runs are internal, only
+  the results are recorded here):
+  - **A/B 1 (2026-09-29), cap 5 vs cap 15, old notice, 3 quality questions.** Cap 15 was
+    clearly better: two judges scored it 2-0-1 and 3-0-0 (win-loss-tie). The difference was
+    reading: cap 15 fetched 34 pages, cap 5 fetched 1 across its 3 turns (it hit the cap on all
+    3) and answered from snippets. One cap-5 answer reported a trial's result as null from a
+    401-character snippet; the cap-15 arm read the page and found the primary endpoint was
+    met. A false-positive dedup skip cost one cap-5 turn 1 of its 5 rounds (and two cap-15
+    turns 2 and 1). **But citations degraded on the long runs:** the 18-call turn (a
+    103k-token final prompt) wrote 13.9k characters with no citation at all, and the 15-call
+    turn numbered its sources as a running count under whole sections, 4 of whose anchors
+    pointed past the cited call's results. Neither turn hit the answer deadline, the step
+    ceiling or the cap.
+  - **A/B 2 (2026-09-30), cold cache, 4 quality questions × 3 arms.** C: cap 10, no reminder.
+    D: cap 10 + reminder. E: cap 5 + reminder. Fetching past the cap was used in all 3 E turns
+    that hit the cap, and in 0 of 3 turns at cap 10. Cap 10 vs cap 5 showed no measurable
+    quality or latency difference (q1–q3: 209 s vs 203 s), and D tied the stored cap-15
+    answers. Sizing: cap 10 would have refused none of the real searches the cap-15 arm made
+    (7, 5 and 10) once skips stopped counting, and its fetch calls per turn (6, 3 and 7) fit
+    under 8.
+- **The reminder, and why it is off.** Citation rules live only in the system prompt; on a long
+  loop the answer step starts 100k+ tokens and a dozen tool turns away from them. In stored lab
+  history (296 answers ≥ 1,500 characters) every bucket up to 11 search/fetch calls averaged
+  3.1–3.6 citations per 1,000 characters, while the 4 turns with 12+ calls averaged 0.95. The
+  reminder (`lib/agents/citation-reminder.ts`) re-states the rules on the step that writes the
+  answer once at least `CITATION_REMINDER_MIN_TOOL_CALLS` (8) search/fetch calls are behind
+  it. `createAnswerStepReminderModel` (`lib/agents/answer-step-reminder.ts`) buffers the step's
+  stream: a tool call passes through untouched; answer text (a markdown heading, or 280
+  characters without a tool call) aborts that attempt at the HTTP layer and re-runs the step
+  once with the reminder as a trailing **user** message. On the answer-deadline step (tools
+  withdrawn) it is appended directly. Wiring: `lib/agents/researcher.ts:979-1017`, `:1095-1130`.
+  - *Why user, not system:* Ollama drops a system message that is not the first one for
+    kimi-k2.6 (`prompt_eval_count` unchanged); glm-5.3-flash did render it.
+  - *Why only on the answer step:* replays showed the same trailing message also steers the
+    research loop, in a wording-dependent direction (one wording made the model stop at step
+    8, another made it call tools 6 of 6 times at the answer step).
+  - *Replays* of the two degraded turns: the unchanged context cited badly again; the reminder
+    as a trailing user message made 7 of 9 answers copy the `cite` strings (one partly, one
+    still counted).
+  - *Live (A/B 2):* the re-run fired on every armed long turn, but running-count numbering
+    still appeared in 2 of 3 of them, the cleanest long turn (18 calls) had the reminder off,
+    and each re-run re-sends the whole prompt (58–104k extra prompt tokens). So it is off.
+- **Gotcha for any future mid-conversation instruction.** With kimi-k2.6 through Ollama, an
+  instruction added after the first message must be a **user** message or tool-result content;
+  a later system message is silently dropped.
+- **Findings left open** (in [known issues](/history/known-issues)):
+  - **Snippet citations.** Citations to a search **snippet** (at most about 1,000
+    characters) were judged unsupported 71 % of the time, against 23 % for citations of page
+    text: the model cites the snippet for a fact it read on a fetched page
+    ([known issue](/history/known-issues#citations-point-at-a-snippet-instead-of-the-fetched-page)).
+  - **Dedup false positives.** At threshold 0.92, 6 of 7 skips of templated
+    "X GitHub features license" queries were false positives; the search is still dropped,
+    though no longer counted as a round
+    ([known issue](/history/known-issues#near-duplicate-dedup-drops-templated-queries)).
+  - **The URL limit is advisory.** Nothing checks that a URL fetched past the cap came from
+    this turn's results; in one test the model fetched GitHub URLs it constructed
+    ([known issue](/history/known-issues#the-fetch-past-the-cap-url-limit-is-advisory)).
+- **Consequences.** A quality turn can now make up to 10 searches and 8 fetch calls (up to 40
+  pages), still inside the 200 s answer deadline and the 100-step ceiling. The quality prompt
+  still asks for at least 15 searches, more than the cap allows; the cap's notice is what
+  stops it.
+- **Do not retry** the answer-step reminder as a default unless a new mechanism avoids the full
+  re-run and a judged A/B shows it removes running-count numbering; A/B 2 says the reminder
+  alone does not.
+- **Revisit if** quality answers start missing facts that only a page had (look at
+  `fetch_allowed` on `round-cap` lines and `[fetch] fetch cap reached`), or if the snippet
+  finding gets a fix that changes what the model can cite.
 
 ## Reliability
 

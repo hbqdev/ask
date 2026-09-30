@@ -5,7 +5,7 @@ title: Known issues
 # Known issues and gotchas
 
 Open problems, pending operator actions and traps a maintainer needs to know about, as of
-**2026-09-28**. Each entry gives the **symptom**, its **impact**, a **workaround** and a **fix
+**2026-09-30**. Each entry gives the **symptom**, its **impact**, a **workaround** and a **fix
 sketch**. Resolved history lives in the [changelog](/history/changelog). Rationale for deliberate
 trade-offs lives in [decisions](/history/decisions).
 
@@ -20,7 +20,8 @@ thing.
 | Issue | Area | Severity | Owner action |
 |---|---|---|---|
 | [Search hung after the weekly Redis update](#search-hung-after-the-weekly-redis-update) | search / fleet | ~~High~~ fixed 2026-09-27 (lab, staging, prod) | watch the Sunday update log |
-| [Image pull failures are swallowed by `update-images.sh`](#image-pull-failures-are-swallowed-by-update-images-sh) | fleet | Low | code (fleet script) |
+| [WSL host hung at boot](#wsl-host-hung-at-boot) | fleet | ~~High~~ fixed 2026-09-29 (unit disabled on the WSL hosts) | done ([D41](/history/decisions#d41-on-wsl-hosts-nothing-that-waits-for-docker-is-enabled-at-boot) rule) |
+| [Image pull failures are swallowed by `update-images.sh`](#image-pull-failures-are-swallowed-by-update-images-sh) | fleet | ~~Low~~ fixed 2026-09-29 (all branches) | watch the Sunday log |
 | [Pre-existing test failures](#pre-existing-test-failures) | tests | ~~Low~~ fixed 2026-09-23 (all branches) | done |
 | [Prod `.env` left `root:root 0644`](#prod-env-left-root-root-0644) | security | Med | ops (one-off `chown` + `chmod`) |
 | [RLS guard ignores an unset `ENABLE_AUTH`](#rls-guard-ignores-an-unset-enable-auth) | security | Low | code |
@@ -37,9 +38,14 @@ thing.
 | [Reloaded speed-mode answers cited a different page](#reloaded-speed-mode-answers-cited-a-different-page) | chat | ~~Low–Med~~ fixed 2026-09-27 (lab, staging, prod) | done (older saved answers unchanged) |
 | [Stopped label not rendered](#stopped-label-not-rendered) | UI | ~~Low~~ fixed 2026-09-24 | done |
 | [Chain-of-thought flash in the live stream](#chain-of-thought-flash-in-the-live-stream) | UI | Low | accepted |
-| [Old answers keep leaked narration in storage](#old-answers-with-leaked-reasoning-stay-leaked) | data | Low (display fixed 2026-09-28) | decision (backfill + recall re-index) |
+| [Old answers keep leaked narration in storage](#old-answers-with-leaked-reasoning-stay-leaked) | data | ~~Low~~ fixed 2026-09-28/29 (staging and prod backfilled, recall re-indexed) | done |
 | [An answer with a glued preamble appears late while streaming](#an-answer-with-a-glued-preamble-appears-late-while-streaming) | UI | ~~Low~~ fixed 2026-09-28 (lab, staging, prod) | done (the remaining short delay is by design) |
-| [A glued first section can be cut at persist](#a-glued-first-section-can-be-cut-at-persist) | chat | Low | code |
+| [A glued first section can be cut at persist](#a-glued-first-section-can-be-cut-at-persist) | chat | ~~Low~~ fixed 2026-09-29 (lab, staging, prod) | done |
+| [Citations point at a snippet instead of the fetched page](#citations-point-at-a-snippet-instead-of-the-fetched-page) | chat | Med | code (open) |
+| [todoWrite calls failed validation](#todowrite-calls-failed-validation) | chat | ~~Low~~ fixed 2026-09-29 (lab, staging, prod) | done |
+| [Near-duplicate dedup drops templated queries](#near-duplicate-dedup-drops-templated-queries) | search | Low | code (threshold, needs an A/B) |
+| [The fetch-past-the-cap URL limit is advisory](#the-fetch-past-the-cap-url-limit-is-advisory) | search | Low | watch |
+| [Older recall chunks lack UUIDs the answer contained](#older-recall-chunks-lack-uuids-the-answer-contained) | memory | Low | optional re-index |
 | [Narration the structural rules keep by design](#narration-the-structural-rules-keep-by-design) | chat | Low | by design (watch) |
 | [Serenity (.171) Ollama intermittently unreachable](#serenity-171-ollama-intermittently-unreachable) | fleet | Low (cause fixed 2026-09-23) | watch |
 | [Stale mxbai embedding hints in code](#stale-mxbai-embedding-hints-in-code) | code | ~~Med~~ fixed 2026-09-22 (Model Manager field read-only since 2026-09-23) | done |
@@ -93,7 +99,9 @@ are `06dfbd2b`..`80c44c6a` on `flow-design`.
   and `granite4.2:8b` was re-pinned. `ss -ltn` on .171 shows `*:11434`. The owner **accepted the
   LAN exposure** (no firewall rule was added); it stays listed under
   [unauthenticated LAN services](#unauthenticated-lan-services). `ask-fleet-boot` is enabled on
-  .171 again, and its synced `~/ask-fleet-boot.sh` warms `granite4.2:8b`. A drop-in survives the
+  .171 again (since 2026-09-29 it is disabled there on purpose and runs from `fleet-boot.timer`
+  after boot, see [WSL host hung at boot](#wsl-host-hung-at-boot)), and its synced
+  `~/ask-fleet-boot.sh` warms `granite4.2:8b`. A drop-in survives the
   weekly `update-ollama.sh` reinstall, which rewrites only the main unit file.
 
 ### Retired .231 Ask stacks running again
@@ -180,7 +188,7 @@ On NightFuryX (.17) these container names do not resolve, so each silently degra
   `[deadline] refused <tool> call`. The note now says further calls are refused. Tests drive the real
   SDK with a mock model calling `fetch` under `activeTools: []`
   (`lib/agents/__tests__/answer-deadline.test.ts`). The deadline clock now starts when the
-  researcher is built for the turn (`turnStartedAt`, `lib/agents/researcher.ts:897`), not at the
+  researcher is built for the turn (`turnStartedAt`, `lib/agents/researcher.ts:917`), not at the
   first step.
 
 
@@ -243,7 +251,7 @@ On NightFuryX (.17) these container names do not resolve, so each silently degra
   3. **URL-shaped ids.** Without a visible id, models often wrote a piece of the page's own URL
      as the "id" (`[1](#example.com/some-page)`, a YouTube video id): 83 of 655.
 - **Status: fixed 2026-09-24.**
-  1. `lib/tools/fetch.ts:671,719` echoes the call's `toolCallId` in a successful fetch result
+  1. `lib/tools/fetch.ts:687,760` echoes the call's `toolCallId` in a successful fetch result
      (a failed fetch has nothing to cite and gets none).
   2. `stripCitationAnchorsFromHistory` (`lib/streaming/helpers/strip-citation-anchors-from-history.ts`)
      removes anchors from **prior** assistant turns before they reach the model. It runs in
@@ -320,7 +328,10 @@ On NightFuryX (.17) these container names do not resolve, so each silently degra
   in `fleet-boot/deploy.sh`; host Node is 20 while `engines` requires 22.
 - **Status: fixed 2026-09-23 (all shipped); the host Node item was resolved 2026-09-24.**
   - `ask-fleet-boot` is enabled on all four hosts, and `deploy.sh` syncs every host, .231
-    included (on .231 it also installs `fleet-update-public-search.timer`).
+    included (on .231 it also installs `fleet-update-public-search.timer`). **Superseded
+    2026-09-29:** enabling it into `multi-user.target` deadlocked Serenity's boot, so on the
+    WSL hosts (.17, .160, .171) it is now disabled and runs from `fleet-boot.timer` after boot;
+    only .231 has it enabled ([WSL host hung at boot](#wsl-host-hung-at-boot)).
   - `rotate-mullvad.sh` `pin`/`city` run from each env's own worktree.
   - `rebuild-ask.sh` exits 1 and skips the reclaim when the app never returns 200
     (`fleet-boot/rebuild-ask.sh:64-67`).
@@ -730,6 +741,12 @@ These are decisions still pending, not bugs:
      clause with `[1](#<toolCallId>)`, `<first-id>` and `<second-id>` (a verbatim copy renders
      only when the turn made exactly one citable call), and too-high numbers on a one-result
      **search** (6 anchors in the replay; the resolver's out-of-range rule covers fetches only).
+  6. **Long research loops still drift (open).** With handles on, quality turns with 12+
+     search/fetch calls cited much less (0.95 anchors per 1,000 characters against 3.1–3.6 for
+     shorter turns in stored lab history). In the 2026-09-29 A/B an 18-call turn wrote no
+     citation at all and a 15-call turn went back to a running count with a reference list. An
+     answer-step reminder was built and measured but did not stop it and is off
+     ([D40](/history/decisions#d40-quality-mode-read-pages-past-the-search-cap)).
 - Tests: `lib/utils/__tests__/citation-handles.test.ts` (every handle of a 27-result search
   resolves to its own result; positions survive results without a handle),
   `lib/tools/__tests__/search-to-model-output.test.ts`,
@@ -748,7 +765,7 @@ These are decisions still pending, not bugs:
   excerpts. It replaced the whole `results` list with the recorded full list. In practice only
   the speed fast path records one (the advanced route's `fullResults` needs
   `SEARCH_EXCERPTS_ENABLED`, off everywhere), and it records the list **before** the researcher's
-  per-turn URL dedup (`wrapSearchToolWithDedup`, `lib/agents/researcher.ts:257-354`) removed
+  per-turn URL dedup (`wrapSearchToolWithDedup`, `lib/agents/researcher.ts:272-369`) removed
   results an earlier search of the turn had already returned. So on a speed turn with more than
   one search, a later search's saved list could contain the removed duplicates again, every
   position after them shifted, and a stored `[N](#id)` resolved to a different result.
@@ -800,43 +817,40 @@ These are decisions still pending, not bugs:
 
 ### Old answers keep leaked narration in storage {#old-answers-with-leaked-reasoning-stay-leaked}
 
-- **Symptom.** Answers saved before a narration rule existed still hold it in Postgres: status
-  notes written before a tool call (in any language, or English with unlisted wording), a long
-  reasoning preamble or stray `</think>` from before 2026-09-17 (`0290896c`), and a preamble
-  glued to the answer heading (`…câu trả lời.## `) from before 2026-09-28 (`48d5b06d`).
-- **What is already fixed (2026-09-28).** Every reader applies the persist-time cleanup when it
-  reads a message: the chat view, the copy shortcut and the action-row copy, the history fed
-  back to the model and the classifier (logged-in and guest), the spoken gist and search
-  snippets ([full list](/search/models-reasoning#narration-read-time)). A leaked answer therefore
-  **displays** clean without a database rewrite.
-- **What is still affected.**
-  - **Keyword search** (sidebar and Library) matches the stored text, so a word that appears
-    only in a stored status note still finds that chat and shows the note as the snippet.
-  - **Recall chunks** indexed before 2026-09-28 keep a glued preamble. On prod that is the 3
-    Vietnamese answers of chat `pq6zs7w88m1kmowjdu9udfrw` (39 chunks). Status notes before a
-    tool call were never indexed (`extractIndexableText` keeps only the text after the last
-    tool call).
-- **Impact.** Low: slightly noisier search matches and recall excerpts.
-- **Backfill: owner decision pending.** Sizes from the 2026-09-28 read-only scan: all prod
-  history, **92 messages** (177 text-part deletes, 4 answer rewrites; 69 of the 92 were saved
-  before the English rules were complete on 2026-09-17); last 60 days, **38 messages**. A
-  backfill must:
-  1. run `stripNarrationFromMessage` (`lib/streaming/helpers/strip-narration-from-message.ts:72`)
-     per assistant message, deleting the dropped text parts and rewriting the cut ones;
-  2. re-index recall for every rewritten answer: delete that message's `conversation_chunks`
-     rows, then run the recall backfill, which only fills messages without chunks
-     ([memory & recall › backfill](/knowledge/memory-recall#backfill)).
-     `extractIndexableText` already cuts a glued preamble, so step 2 alone fixes the 39 recall
-     chunks even without step 1.
+- **Symptom (before the backfill).** Answers saved before a narration rule existed still held
+  it in Postgres: status notes written before a tool call (in any language, or English with
+  unlisted wording), a long reasoning preamble or stray `</think>` from before 2026-09-17
+  (`0290896c`), and a preamble glued to the answer heading (`…câu trả lời.## `) from before
+  2026-09-28 (`48d5b06d`).
+- **Display fixed 2026-09-28.** Every reader applies the persist-time cleanup when it reads a
+  message: the chat view, the copy shortcut and the action-row copy, the history fed back to
+  the model and the classifier (logged-in and guest), the spoken gist and search snippets
+  ([full list](/search/models-reasoning#narration-read-time)). What stayed affected was
+  **keyword search** (sidebar and Library matched words that occurred only in a stored status
+  note) and **recall chunks** indexed before 2026-09-28 that kept a glued preamble (on prod,
+  the 3 Vietnamese answers of chat `pq6zs7w88m1kmowjdu9udfrw`).
+- **Status: fixed in storage 2026-09-28/29** with `scripts/backfill-narration.ts` (prod
+  `a59d0c65`, lab `449d8d3e`, staging `736faf57`):
+  - **staging:** 99 messages, 242 text-part deletes, 5 rewrites; recall re-indexed for 4
+    messages (23 → 14 chunks);
+  - **prod:** 92 messages, 177 deletes, 4 rewrites; recall re-indexed for 8 messages
+    (68 → 56 chunks); on 2026-09-29 one more prod message was rewritten after a new English
+    rule ([D20 › Decision 6](/history/decisions#decision-6-the-glued-seam-wins-at-persist-too)).
 
-  Take a database backup first and run one environment at a time
-  ([evaluation › data scripts](/operations/evaluation)).
+  Every changed message reloads through the app's loader equal to what the reader renders
+  (verify 100 %), a re-run finds 0 changes, and no recall chunk still contains removed text.
+  Numbers, method and backups: [D20 › Backfill](/history/decisions#backfill-2026-09-28-29).
+  To run it again: [runbook](/operations/runbooks#re-run-the-narration-backfill).
+- **Scope.** The recorded runs covered staging and prod. The lab has a backup file from
+  2026-09-28 but no apply report. After the 2026-09-29 rule, only one prod message needed a
+  change. A narration rule added later leaves older stored answers as they are until the
+  backfill is run again; the read-time cleanup still hides them meanwhile.
 - **Don't use `bun run clean:narration` for this.** `scripts/clean-narration-preambles.ts`
   applies `stripNarrationPreamble` to **every** `type='text'` part, user messages included
   (`:37-49`); it never drops a status-note part and never re-indexes recall.
-- **Workaround meanwhile.** None needed for reading. Regenerating an answer replaces it with one
-  saved and indexed under the current rules (its old recall chunks go with the old message,
-  `conversation_chunks.message_id` is `ON DELETE CASCADE`, `lib/db/schema.ts:501-503`).
+- **Regenerating an answer** also replaces it with one saved and indexed under the current rules
+  (its old recall chunks go with the old message, `conversation_chunks.message_id` is
+  `ON DELETE CASCADE`, `lib/db/schema.ts:501-503`).
 
 ### An answer with a glued preamble appears late while streaming {#an-answer-with-a-glued-preamble-appears-late-while-streaming}
 
@@ -859,7 +873,7 @@ These are decisions still pending, not bugs:
   [D20 addendum › Decision 5](/history/decisions#decision-5-the-live-transform-cuts-the-glued-seam)).
   The transform now finds the glued seam through the same helpers as the persist rule
   (`findGluedPreambleSeam`, `gluedAnswerOutweighsPreamble`,
-  `lib/streaming/helpers/strip-narration-preamble.ts:302,325`) and, as soon as the text after
+  `lib/streaming/helpers/strip-narration-preamble.ts:309,332`) and, as soon as the text after
   the seam outweighs the prefix, emits the answer from its heading and streams the rest
   (`lib/streaming/helpers/smooth-and-strip-narration.ts:98-127`). On a replay of the recorded
   turn the answer starts 792 characters after the seam (after 1,577 of 4,916 characters)
@@ -881,7 +895,7 @@ These are decisions still pending, not bugs:
   section is missing.
 - **When.** Text shaped `narration.## A … \n## B` that reaches the persist-time cleanup with the
   preamble still in place. `stripNarrationPreamble`
-  (`lib/streaming/helpers/strip-narration-preamble.ts:392-395`) runs the English phrase rule
+  (`lib/streaming/helpers/strip-narration-preamble.ts:417-420`) runs the English phrase rule
   first: it takes `\n## B` as the heading and, when the text before it reads as narration, cuts
   everything up to it, section A included. The glued rule, which would cut at `## A`, runs
   second and finds nothing left to cut. The live transform handles this shape (a seam before a
@@ -894,12 +908,15 @@ These are decisions still pending, not bugs:
 - **Impact.** Low. It needs a glued preamble, English narration in it, a later line-start
   heading, and a turn on which the live cut did not fire. The render view runs the same
   function, so what is shown matches what is saved.
-- **Fix sketch.** In `stripNarrationPreamble`, let a qualifying glued seam
-  (`findGluedPreambleSeam`) that comes before the phrase rule's heading win, as the transform
-  does. Add the shape to `lib/streaming/helpers/__tests__/strip-narration-structural.test.ts`
-  and re-run the English regression check on stored history
-  ([D20 addendum](/history/decisions#addendum-2026-09-28-language-agnostic-structural-rules))
-  before shipping.
+- **Status: fixed 2026-09-29** (prod `d751352d`, lab `0cb22cf9`, staging `95c73f74`;
+  [D20 › Decision 6](/history/decisions#decision-6-the-glued-seam-wins-at-persist-too)).
+  `stripNarrationPreamble` now asks `gluedSeamLeads`
+  (`lib/streaming/helpers/strip-narration-preamble.ts:401-406`) first: a qualifying glued seam
+  before the first line-start heading is decided by the glued rule alone, as the live transform
+  does, so the phrase rule can no longer cut at `\n## B`. A scan of every stored message on
+  prod, staging and lab with the new rules changed exactly 1 message and removed no real
+  content. Test: the `## A … \n## B` shape in
+  `lib/streaming/helpers/__tests__/strip-narration-structural.test.ts`.
 
 ### Narration the structural rules keep by design {#narration-the-structural-rules-keep-by-design}
 
@@ -920,6 +937,43 @@ These are decisions still pending, not bugs:
   `lib/streaming/helpers/__tests__/strip-narration-structural.test.ts`, and re-run the
   false-positive review before shipping. Don't raise the 600 / 2000 thresholds on a single case.
 
+### Citations point at a snippet instead of the fetched page
+
+- **Symptom.** A citation chip opens a real result of the turn's search, but the sentence it
+  backs is not on that result's text: the model read the fact on a page it fetched and cited
+  the **search snippet** that led it to that page.
+- **Measured** (2026-09-29/30 quality A/Bs on the lab, kimi-k2.6, judged support of each
+  citation against the stored source text). Citations to a search snippet (at most about 1,000
+  characters) were unsupported **71 %** of the time, citations to page text **23 %**. The
+  quality changes of 2026-09-30 make this more visible, because quality turns now fetch more
+  ([D40](/history/decisions#d40-quality-mode-read-pages-past-the-search-cap)).
+- **Why no counter sees it.** The anchor resolves (it names a real result of the turn), so
+  `citations_unresolved` stays 0. Only a support judge finds it
+  ([D4](/history/decisions#d4-judge-answers-not-source-counts)).
+- **Impact.** Med: the answer is often right, but its citation does not show where the fact came
+  from.
+- **Fix sketch (open).** Make the fetched page the natural thing to cite, for example by pointing
+  the snippet's handle at the fetch once the same URL has been fetched this turn, or by telling
+  the model in the fetch result which search result it supersedes. Measure with a support judge,
+  not with `citations_unresolved`. The answer-step citation reminder did not address this and is
+  off (D40).
+
+### todoWrite calls failed validation
+
+- **Symptom.** A `todoWrite` call (the quality protocol's task list) failed schema validation as
+  a whole, so the task list did not update.
+- **Cause.** The input schema required `id` and `timestamp` on every item. Models routinely left
+  out `timestamp` (13 of the 14 stored validation failures on prod, staging and lab by
+  2026-09-29), and one retry that added timestamps dropped `id`. Neither field is shown in the UI.
+- **Status: fixed 2026-09-29** (prod `3e715f2b`, lab `9cb61e63`, staging `5e614b72`). The model's
+  input schema (`todoItemInputSchema`, `lib/tools/todo.ts:27-38`) makes both optional, and
+  `completeTodos` (`:57-72`) fills them server-side: `id` defaults to the item's 1-based
+  position, `timestamp` to the time an earlier `todoWrite` call of the same tool instance recorded for
+  that id, else now. Values the
+  model sends are kept. The UI reads the input type (`TodoItemInput`,
+  `components/todo-list-content.tsx:15`), because a streamed input may still lack them. Tests:
+  `lib/tools/__tests__/todo.test.ts`.
+
 ### Mobile keyboard / composer on real devices
 
 - **Symptom.** Composer anchoring while typing on phones (`41f8ed8e`) and the click/keyboard timing
@@ -931,7 +985,84 @@ These are decisions still pending, not bugs:
 
 ---
 
+## Search, research and recall
+
+### Near-duplicate dedup drops templated queries
+
+- **Symptom.** A quality turn that researches several products with the same query template
+  ("X GitHub features license", "Y GitHub features license") gets a "Skipped: this search is a
+  near-duplicate…" note instead of results for some of them, and the answer covers those items
+  from other sources or not at all.
+- **Cause.** The in-turn dedup (`lib/tools/search.ts:492-559`) embeds each query and skips one
+  whose cosine similarity to an earlier query of the turn is ≥ `SEARCH_DEDUP_THRESHOLD` (0.92).
+  Queries that share a long template and differ in one name score above that. In the
+  2026-09-29/30 lab A/Bs, 6 of 7 such skips were false positives (for example "Scira" matched
+  "Morphic").
+- **Since 2026-09-30** a skip no longer uses a search round
+  ([D40](/history/decisions#d40-quality-mode-read-pages-past-the-search-cap)), so it cannot
+  exhaust the cap; the search itself is still dropped.
+- **Workaround.** None for users. Logs show each skip:
+  `docker logs ask 2>&1 | grep '\[search-dedup\] skipping'`.
+- **Fix sketch.** Raise the threshold or compare the query minus its shared words, and check on
+  stored skips that real duplicates are still caught. Needs a lab A/B; the knob is
+  `SEARCH_DEDUP_THRESHOLD` (`SEARCH_DEDUP_ENABLED=off` disables the check).
+
+### The fetch-past-the-cap URL limit is advisory
+
+- **What.** After the quality search cap, the notice lets the model fetch "URLs that appeared in
+  this turn's earlier search results" (`buildSearchRoundCapNotice`,
+  `lib/tools/search.ts:356-368`). Nothing enforces that: `fetch` accepts any URL. In one lab test
+  the model fetched GitHub URLs it had constructed.
+- **Bounds that do hold.** The fetch cap (8 calls per quality turn, `lib/tools/fetch-budget.ts`),
+  5 URLs per call, 40 s per URL, the SSRF guard, the 100-step ceiling and the 200 s answer
+  deadline.
+- **Impact.** Low. A constructed URL can 404 (a wasted call) or be a real page the searches did
+  not return, which is usually harmless.
+- **Fix sketch** (only if it becomes a problem). Record the turn's result URLs (the researcher
+  already keeps `seenUrls`) and refuse, past the cap, a fetch of a URL outside that set.
+
+### Older recall chunks lack UUIDs the answer contained
+
+- **Symptom.** Recall does not match a past answer by a UUID it contained (a GUID in a
+  configuration answer, the id inside an image URL), although the answer shows it.
+- **Cause.** Before 2026-09-29 the recall indexer stripped **every** UUID from answer text, to
+  remove bare tool-call ids. Of 33 UUIDs found outside citation markers in stored answers on
+  prod, staging and lab, 32 were real content (for example a Hyper-V `VMCreatorId` and the UUID
+  in `/uploads/asset/file/<uuid>/…`).
+- **Status: fixed for new indexing 2026-09-29** (prod `dfccc08c`, lab `418193e9`, staging
+  `f197f24a`). `extractIndexableText` strips only the message's **own** tool-call ids and a
+  UUID in citation-anchor position (`#<uuid>`), and indexes any other UUID
+  (`lib/memory/extract-indexable-text.ts:56-74`). The live indexer passes each part's
+  `toolCallId` (`lib/streaming/create-chat-stream-response.ts:1187`), and the recall backfill's
+  query returns `tool_tool_call_id` (`lib/db/recall-actions.ts:196-201`).
+- **Still affected.** 25 older messages on prod and staging keep chunks indexed under the old
+  rule until they are re-indexed. Impact is low: only a search for that UUID misses them.
+- **Fix sketch.** Delete those messages' `conversation_chunks` rows and run the recall backfill
+  ([memory & recall › backfill](/knowledge/memory-recall#backfill)), which fills messages that
+  have no chunks.
+
+---
+
 ## Fleet and operations
+
+### WSL host hung at boot
+
+- **Symptom (2026-09-29, Serenity .171).** After a reboot the WSL distro never finished booting:
+  `systemctl` reported "Bootup is not yet finished" for about 8 minutes, and Docker Desktop's
+  WSL integration never came up (its `backend.sock` never appeared), so no container started.
+- **Cause.** Since 2026-09-23 `fleet-boot/deploy.sh` enabled `ask-fleet-boot.service` into
+  `multi-user.target` on every host. The unit waits up to 120 s for Docker, but on WSL Docker
+  Desktop injects its integration only after systemd reports boot finished: each waited for
+  the other.
+- **Recovery that day.** `wsl --shutdown` and a Docker Desktop restart from Windows. With the unit
+  disabled, userspace boot on .171 takes 1.6 s.
+- **Status: fixed 2026-09-29** (prod `bbf936f8`, lab `8d59d2f1`, staging `d0fdba20`). `deploy.sh`
+  leaves the unit **disabled** when `systemd-detect-virt --container` prints `wsl`
+  (`fleet-boot/deploy.sh:44-53`) and enables it only on bare metal (.231). On the WSL hosts
+  `fleet-boot.timer` (`lan_automation`, `OnBootSec=75s`) pulls it in after boot. Checked
+  2026-09-30 on all four hosts. Rule and history:
+  [D41](/history/decisions#d41-on-wsl-hosts-nothing-that-waits-for-docker-is-enabled-at-boot);
+  runbook: [WSL host hangs at boot](/operations/runbooks#wsl-host-hangs-at-boot).
 
 ### Search hung after the weekly Redis update
 
@@ -991,14 +1122,19 @@ These are decisions still pending, not bugs:
   error). The script went on to `up -d`, which recreated nothing, and reported the lab
   `All stacks updated and verified.`
 - **Cause.** The pull runs as `docker compose … pull … | grep … | sed …`
-  (`fleet-boot/update-images.sh:154`) and its exit status is never checked, unlike `up -d` on
-  the next lines.
+  (`fleet-boot/update-images.sh:163`), and before the fix its exit status was never checked,
+  unlike `up -d` on the next lines.
 - **Impact.** Low. The stack keeps running on its old images, so nothing breaks; but the lab
   silently stops being a canary for new sidecar images, and a prod or staging pull failure
   would look like "no update available".
-- **Fix sketch.** Check the pull's status and add `<stack>:pull` to `failed` (a non-zero exit
-  and a `FAILED:` line), then continue to `up -d` as today. Until then, grep the Sunday log
-  for `failed commit`, `error` or `denied` under `-- pulling`.
+- **Status: fixed 2026-09-29** (prod `507cd044`, lab `faacfd18`, staging `50c7e577`). The
+  script reads compose's own exit status right after the pipeline (`PIPESTATUS[0]`; the
+  pipeline's status would come from `grep`, which exits 1 on empty output). A failed pull prints
+  `FAIL pull (docker compose pull exited N) — continuing with the images already present` and
+  adds `<stack>:pull` to the failures, so the run ends `FAILED: …` and exits 1
+  (`fleet-boot/update-images.sh:153-168`). The stack is still recreated and verified with the
+  images it has, and later stacks still run
+  ([fleet scripts](/operations/fleet-scripts#update-images-sh)).
 
 ### Serenity (.171) Ollama intermittently unreachable
 
@@ -1035,6 +1171,11 @@ These are decisions still pending, not bugs:
 - **.17 runs Docker Desktop on WSL2**, not native Docker. Unattended recovery depends on Windows
   `AutoAdminLogon=1` and Docker Desktop `AutoStart=true`. If either is reset, a reboot needs a
   manual login.
+- **Never enable a Docker-waiting unit at boot on a WSL host** (.17, .160, .171). It deadlocks the
+  boot ([WSL host hung at boot](#wsl-host-hung-at-boot)). `ask-fleet-boot` runs there from
+  `fleet-boot.timer`, which lives in the separate `lan_automation` repository; if that timer is
+  ever disabled, the boot reconcile silently stops running on the WSL hosts. Check with
+  `systemctl is-enabled fleet-boot.timer`.
 - **gluetun cold-boot race.** After a hard power cut the VPN sidecars can exit 127 (`/dev/net/tun`
   race), which takes SearXNG down with them. `ensure_vpn_search()` in `ask-fleet-boot.sh` retries
   6× at 10 s intervals. Its failure path has not yet been exercised by a real hard cut since the

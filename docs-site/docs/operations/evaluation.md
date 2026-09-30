@@ -91,10 +91,12 @@ flowchart TB
 | `scripts/test-cache-performance.ts` | Legacy: timing of repeated/regenerated turns | Yes | `API_URL` | `bun scripts/test-cache-performance.ts` | stdout |
 | `scripts/backfill-embeddings.ts` | Data migration: re-embed stored vectors | No | DB + embedder | `docker exec ask bun scripts/backfill-embeddings.ts [--apply]` | DB rows |
 | `scripts/backfill-file-object-keys.ts` | Data migration: derive object keys from stored file URLs | No | DB | `bun run backfill:file-keys [--apply]` | DB rows |
-| `scripts/clean-narration-preambles.ts` | Data cleanup: strip narration preambles from stored answers | No | DB | `bun run clean:narration [--apply]` | DB rows |
+| `scripts/backfill-narration.ts` (+ `backfill-narration-plan.ts`, `backfill-narration.sh`) | Data cleanup: remove leaked narration from stored assistant messages and re-index their recall chunks | No | one env's DB + embedder | `scripts/backfill-narration.sh <lab\|staging\|prod> [--backup F] [--apply] [--verify] [--reindex]` | JSON report + backup file; DB rows with `--apply` / `--reindex` |
+| `scripts/clean-narration-preambles.ts` | **Do not use** for stored narration (see below): strips preambles from every text part | No | DB | `bun run clean:narration [--apply]` | DB rows |
 
 The `package.json` aliases are `eval`, `eval:mine`, `chat`, `backfill:file-keys` and
-`clean:narration` (`package.json:15-21`). Everything else is invoked by path.
+`clean:narration` (`package.json:15-21`). Everything else, the narration backfill included, is
+invoked by path.
 
 ## Datasets
 
@@ -211,7 +213,7 @@ The output is real user text from prod. Review it before committing.
 These measure **control-flow variants**, the registry in `lib/agents/flows/variants.ts`
 (`baseline`, `adaptive`, `react-gap`, `plan-execute`, `wide-once`, `router`;
 default `baseline`, `variants.ts:352`). The running variant is chosen by the
-`FLOW_VARIANT` env var (`lib/streaming/create-chat-stream-response.ts:854`, `lib/agents/researcher.ts:942`), which the
+`FLOW_VARIANT` env var (`lib/streaming/create-chat-stream-response.ts:854`, `lib/agents/researcher.ts:962`), which the
 lab overlay exposes as `${FLOW_VARIANT:-baseline}` (`docker-compose.lab.yaml:24`), and
 it is written into every `[latency]` line as `variant`
 (`lib/streaming/latency-tracker.ts:257`). An unknown value degrades to `baseline`
@@ -496,17 +498,78 @@ rejects or falls through on these values)*. Use `[latency]` telemetry instead
 
 ### Data-maintenance scripts
 
-All three are **dry-run by default** and need `--apply` to write. They read
-`DATABASE_URL` from the environment, falling back to `.env.local`.
+`backfill-embeddings.ts`, `backfill-file-object-keys.ts` and `clean-narration-preambles.ts` are
+**dry-run by default** and need `--apply` to write. They read `DATABASE_URL` from the
+environment, falling back to `.env.local`. The narration backfill is different: it has its own
+wrapper and safety checks ([below](#narration-backfill)).
 
 | Script | What it changes | Notes |
 |---|---|---|
 | `backfill-embeddings.ts` | Re-embeds every row of `user_memories` and `conversation_chunks` (`backfill-embeddings.ts:78`) through the GPU embedding service, 32 per batch, asserting 1024 dims | Written for the mxbai → Qwen3-Embedding-0.6B migration (same dimension, so only values change). `--model=` overrides the model. Self-contained (no `lib/` imports) because it runs **inside** the app container: `docker exec ask bun scripts/backfill-embeddings.ts --apply`. Needs `EMBEDDING_SERVICE_URL` and `EMBEDDING_SERVICE_TOKEN`. Flip `EMBEDDING_MODEL` first so rows written during the run are already in the new space. See [Memory & recall](/knowledge/memory-recall) and why `EMBEDDING_MODEL` is locked in the [Model Manager](/infrastructure/model-manager). |
 | `backfill-file-object-keys.ts` (`bun run backfill:file-keys`) | Derives object-storage keys from stored public file URLs | Base URL from `--base-url=`, `R2_PUBLIC_URL` or `LEGACY_R2_PUBLIC_URL`; `--allow-skipped` tolerates rows it cannot map. Inherited from upstream. |
-| `clean-narration-preambles.ts` (`bun run clean:narration`) | Strips "thinking out loud" preambles from stored `parts.text_text` | Applies `stripNarrationPreamble` (`lib/streaming/helpers/strip-narration-preamble.ts:392`), the per-part half of the persist-time cleanup, not the live stream transform, so it is idempotent. It runs over **every** `type='text'` part, user messages included (`clean-narration-preambles.ts:37-49`), never drops a status-note part and never re-indexes recall, so it is **not** the narration backfill ([known issue](/history/known-issues#old-answers-with-leaked-reasoning-stay-leaked)). See [Models & reasoning](/search/models-reasoning). |
+| `backfill-narration.ts` (via `backfill-narration.sh <env>`) | Deletes leaked narration text parts and rewrites answers with a glued preamble in stored **assistant** messages; re-indexes their recall chunks | The tool used for the 2026-09-28/29 backfill. See [below](#narration-backfill). |
+| `clean-narration-preambles.ts` (`bun run clean:narration`) | Strips "thinking out loud" preambles from stored `parts.text_text` | **Never use it for stored narration.** It applies `stripNarrationPreamble` (`lib/streaming/helpers/strip-narration-preamble.ts:417`), the per-part half of the persist-time cleanup, to **every** `type='text'` part, user messages included (`clean-narration-preambles.ts:37-49`). It never drops a status-note part, never re-indexes recall and takes no backup. Use `backfill-narration.ts` instead ([known issue](/history/known-issues#old-answers-with-leaked-reasoning-stay-leaked)). |
 
 Run data scripts against a single environment's database at a time, and take a
 backup first ([Data layer](/infrastructure/data-layer)).
+
+#### `backfill-narration.ts`: the narration storage backfill {#narration-backfill}
+
+**What it does.** Stored answers saved before a narration rule existed still hold the leaked
+text in `parts`. The reader already hides it at read time (`narrationCleanView`), so the
+backfill makes storage match what the reader renders, with the app's own code:
+rows → `buildUIMessageFromDB` (the loader's mapper) → `stripNarrationFromMessage` → a row diff
+(`scripts/backfill-narration-plan.ts`, `planMessageCleanup`). Only assistant messages and only
+`type='text'` rows are touched: a dropped part's row is **deleted**, a cut part's `text_text`
+is **updated**, nothing is reordered (the loader sorts by `order`, so gaps are harmless). Every
+plan is self-checked: applied and mapped back, the rows must equal the render view, and that
+view must already be clean, so a second run finds nothing. A message that cannot be expressed
+safely as text-row deletes and rewrites is skipped with a reason.
+
+**How it reaches a database.** Always through the wrapper,
+`scripts/backfill-narration.sh <lab|staging|prod> [args…]`. It reads `DATABASE_URL` (the owner
+role) and the recall embedder settings from that env's **running app container**
+(`docker inspect`, into a 0600 temp env-file; nothing is printed), then runs the script in a
+throwaway `docker run --rm` container of that env's app image, on that stack's Docker network,
+with this worktree mounted read-only and `bun --no-env-file`, so the worktree's own `.env` (the
+lab's) can never leak into another env's run (`scripts/backfill-narration.sh:6-18`). The
+script refuses to run with `DATABASE_RESTRICTED_URL` set, with `ENABLE_AUTH=true`, or as a role
+that is neither the table owner nor able to bypass RLS (`scripts/backfill-narration.ts:211-251`).
+
+**Modes** (combine as needed; a JSON report is written on every run):
+
+| Flag | Effect |
+|---|---|
+| *(none)* | Dry run: counts, a per-message summary and a report. Read-only, one repeatable-read snapshot. |
+| `--backup <file>` | Also writes a backup: the full row (`row_to_json`) of every part the apply would change and every recall chunk of every affected message, plus the database name and cluster `system_identifier`. Read-only; refuses to overwrite an existing file. |
+| `--apply --backup <file>` | Deletes and rewrites exactly the planned rows, **one transaction per message**. Refuses unless the backup exists, was taken from **this** cluster and database, and holds the current pre-image of every row it changes. Under the message's `FOR UPDATE` lock it re-plans, skips the message if anything changed since planning, and verifies the result before commit. |
+| `--verify --backup <file>` | Read-only: reloads every backup message through the app's loader (`loadChatWithMessages`) and checks it equals the pre-apply render view, that the render path would not clean it further, and that dropped rows are gone and rewritten rows hold the cleaned text. `--spot N` prints N changed chats' parts, which is user content. |
+| `--reindex --backup <file>` | Rebuilds recall chunks with the app's own `indexMessage`, only for messages whose stored chunks hold narration (a rewritten answer, removed text, or narration the current extraction would not produce). Chunks stale for unrelated reasons, and messages never indexed, are left alone. Refuses unless `EMBEDDING_MODEL` is `Qwen/Qwen3-Embedding-0.6B` (the model the stored vectors are locked to, [D24](/history/decisions#d24-the-embedding-model-is-data-locked)) and the embedding service settings are present. |
+
+Filters: `--since YYYY-MM-DD`, `--chat <id>` (repeatable). Output goes to
+`~/selfhosted/backups/narration-backfill/` unless `--backup` / `--report` name another path
+(`BACKFILL_OUT_DIR` overrides the default); a directory the wrapper creates is made 0700 and
+files are written 0600.
+
+**Why one transaction per message.** Each message's cleanup is independent and
+self-verifying, so a failure rolls back only that message and leaves every other one either
+fully old or fully clean, a state an idempotent re-run continues from. The row lock
+serialises against the app's own `upsertMessage` and stays short on a live database.
+
+**Restore.** The backup JSON is the restore source (the rows were taken with `row_to_json`,
+which keeps Postgres's own text forms, so `json_populate_recordset(null::<table>)` round-trips
+them). The script has **no restore mode**. For the 2026-09-28 run a `<backup>.restore.sql` was
+written next to each backup: one transaction that raises an error unless the connected
+cluster's `system_identifier` matches, re-inserts the part rows (restoring rewritten text on
+conflict) and replaces the messages' recall chunks. Restore only right after an apply: any
+answer regenerated or chunk re-indexed since then would be overwritten.
+
+**Run history.** 2026-09-28: staging 99 messages, prod 92; 2026-09-29: 1 more prod message after
+a new English rule. Results and numbers:
+[D20 › Backfill](/history/decisions#backfill-2026-09-28-29). Procedure:
+[runbook](/operations/runbooks#re-run-the-narration-backfill). Tests:
+`scripts/__tests__/backfill-narration-plan.test.ts` (the planning logic against DB-row
+fixtures).
 
 ## How an A/B is carried out on the lab, end to end
 
