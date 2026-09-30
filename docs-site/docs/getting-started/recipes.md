@@ -101,7 +101,7 @@ overlay line `docker-compose.lab.yaml:101` on the lab). The code fallback is `ki
 ::: warning Other model roles are separate settings
 The query classifier (`CLASSIFIER_MODEL_ID`), expander, title and memory-extractor models are
 **not** in `OLLAMA_MODELS`. `CLASSIFIER_MODEL_ID` is set in prod's `.env` but **hardcoded in the
-staging and lab overlays** (`docker-compose.admin-feature.yaml:54`, `docker-compose.lab.yaml:170`),
+staging and lab overlays** (`docker-compose.admin-feature.yaml:54`, `docker-compose.lab.yaml:183`),
 which win over `.env`. Changing it fleet-wide is a `.env` edit plus an overlay commit per branch.
 `EMBEDDING_MODEL` must never change without a re-embed migration (it is read-only in the Model
 Manager, `selfhosted/model-manager/lib/env-schema.ts:250-262`).
@@ -120,13 +120,13 @@ The research agent is a `ToolLoopAgent` built in `createResearcher`
    values (`{ success: false, error }`), don't throw, and bound any untrusted input.
 2. **Type it** in `ResearcherTools` (`lib/types/agent.ts:20-32`). Make it optional (`?`) if it
    is only registered under a condition, as `generateImage` is.
-3. **Register it in the tools map** `rawTools` (`lib/agents/researcher.ts:902`). Everything in
-   this map is wrapped by `enforceAnswerDeadline` (`researcher.ts:933`,
+3. **Register it in the tools map** `rawTools` (`lib/agents/researcher.ts:922`). Everything in
+   this map is wrapped by `enforceAnswerDeadline` (`researcher.ts:953`,
    `lib/agents/answer-deadline.ts:173`), which refuses late calls.
 4. **Advertise it** by adding its name to `activeToolsList` in each turn mode that should offer
-   it (`researcher.ts:687` direct, `:712` stable-knowledge, `:726` speed, `:747` quality,
-   `:769` balanced). If it is conditional, gate the `activeToolsList.push` and the map entry
-   **identically** (compare `researcher.ts:805` with `:922-926`).
+   it (`researcher.ts:707` direct, `:732` stable-knowledge, `:746` speed, `:767` quality,
+   `:789` balanced). If it is conditional, gate the `activeToolsList.push` and the map entry
+   **identically** (compare `researcher.ts:825` with `:942-946`).
 5. **Prompt it if needed.** A mode prompt that should steer usage lives in
    `lib/agents/prompts/search-mode-prompts.ts`. Only append guidance when the tool is actually
    registered: guidance for an absent tool makes models hallucinate calls to it (see the
@@ -143,11 +143,11 @@ The research agent is a `ToolLoopAgent` built in `createResearcher`
 8. **Test** in `lib/tools/__tests__/<name>.test.ts`, then try it on the lab.
 
 ::: danger `activeTools` is advertising, not enforcement
-`activeTools: activeToolsList` (`researcher.ts:988`) only controls which tools are **described
+`activeTools: activeToolsList` (`researcher.ts:1050`) only controls which tools are **described
 to the model**. The AI SDK (v6) executes any tool call against the full `tools` map, so a model
 that names a non-advertised tool still runs it. The stable-knowledge mode relies on this on
 purpose: `search` is not advertised but stays in the map as an escape hatch
-(`researcher.ts:124-127`, `:707-713`; that mode is only reachable with `ALWAYS_SEARCH=off`). **To actually block a tool, leave it out of the map**
+(`researcher.ts:139-142`, `:727-733`; that mode is only reachable with `ALWAYS_SEARCH=off`). **To actually block a tool, leave it out of the map**
 (or wrap its `execute`, as the answer deadline does). Never rely on `activeTools` for a
 security or budget boundary.
 :::
@@ -377,7 +377,7 @@ Where prompts live:
 | Prompt | Location |
 |---|---|
 | Speed / balanced / quality mode prompts | `lib/agents/prompts/search-mode-prompts.ts` (`getQuickModePrompt` `:125`, `getAdaptiveModePrompt` `:332`, `getQualityModePrompt` `:476`) |
-| Direct and stable-knowledge turn prompts | `lib/agents/researcher.ts:91` (`DIRECT_ANSWER_PROMPT`), `:128` (`STABLE_KNOWLEDGE_PROMPT`) |
+| Direct and stable-knowledge turn prompts | `lib/agents/researcher.ts:106` (`DIRECT_ANSWER_PROMPT`), `:143` (`STABLE_KNOWLEDGE_PROMPT`) |
 | Forced-search addendum (appended when step 0 is a forced search) | `FORCED_SEARCH_PROMPT_ADDENDUM`, `lib/agents/always-search.ts:319`, appended through `getForcedSearchPromptAddendum()` (`:330-338`, rewrites the citing sentence while `CITATION_HANDLES` is on) |
 | Prompt-injection rule appended to every turn | `UNTRUSTED_CONTENT_RULE`, `search-mode-prompts.ts:556` |
 | Image tool guidance | `lib/agents/prompts/image-tool-guidance.ts` |
@@ -406,7 +406,7 @@ Procedure:
 3. **Remember what gets appended.** The final system prompt is the mode prompt plus sources
    addendum, `UNTRUSTED_CONTENT_RULE`, scope-of-turn block, the forced-search addendum (only
    when step 0 is a forced search), user instructions, memories, recall, attached-source
-   citation rules and image guidance, in that order (`researcher.ts:788-890`). Later text overrides earlier text, so a rule in the mode prompt can
+   citation rules and image guidance, in that order (`researcher.ts:808-910`). Later text overrides earlier text, so a rule in the mode prompt can
    be contradicted by an addendum.
 4. **Answering-model prompts must be model-agnostic.** The answering model is whatever the user
    picked, so do not tune wording for one model

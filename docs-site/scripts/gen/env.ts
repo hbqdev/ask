@@ -87,6 +87,21 @@ function detectDefault(
     if (def === undefined && dm[6]) def = resolveConst(src, dm[6]) ?? dm[6]
     if (def !== undefined) return { def }
   }
+  // Fallback operator at the end of the line, operand on the next, as
+  // Prettier wraps a long expression (lib/tools/fetch-budget.ts):
+  //   positiveInt(env.X) ??
+  //   X_DEFAULT
+  if (
+    new RegExp(`^(?:\\??\\.\\w+\\([^()]*\\))*\\s*\\)?\\s*(?:\\?\\?|\\|\\|)\\s*$`).test(rest) &&
+    following.length > 0
+  ) {
+    const nm = new RegExp(`^\\s*(?:${LITERAL})\\s*\\)?\\s*;?\\s*$`).exec(following[0])
+    if (nm) {
+      let def = literalValue(nm, 1)
+      if (def === undefined && nm[6]) def = resolveConst(src, nm[6]) ?? nm[6]
+      if (def !== undefined) return { def }
+    }
+  }
   // Ternary fallback within the same statement, e.g.
   //   const n = Number(process.env.X)
   //   return Number.isFinite(n) && n > 0 ? n : 1500

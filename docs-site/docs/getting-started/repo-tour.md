@@ -113,9 +113,9 @@ The generated [API routes reference](/reference/api-routes) lists methods and au
 
 | Folder | What lives there | Key files |
 |---|---|---|
-| `agents/` | The answering agent and helper LLM calls | `researcher.ts` (ToolLoopAgent, turn modes), `query-classifier.ts` (skipSearch + fused expansion), `query-expander.ts` (fallback), `title-generator.ts`, `memory-extractor.ts`, `answer-deadline.ts`, `flows/` (lab-only flow variants), `prompts/` |
+| `agents/` | The answering agent and helper LLM calls | `researcher.ts` (ToolLoopAgent, turn modes), `query-classifier.ts` (skipSearch + fused expansion), `query-expander.ts` (fallback), `title-generator.ts`, `memory-extractor.ts`, `answer-deadline.ts`, `citation-reminder.ts` + `answer-step-reminder.ts` (answer-step citation reminder, off by default), `flows/` (lab-only flow variants), `prompts/` |
 | `streaming/` | Turn orchestration and stream plumbing | `create-chat-stream-response.ts`, `create-ephemeral-chat-stream-response.ts` (guests), `active-generations.ts` (Stop registry), `resumable-stream-context.ts`, `resumable-chat-transport.ts`, `helpers/` (persist, narration stripping, stopped-message sanitising, doc-source budgeting) |
-| `tools/` | Tools the agent can call | `search.ts` + `search/` (providers, merges, intent, telemetry, `advanced-search-deadline.ts`), `fetch.ts`, `recall.ts`, `remember.ts`, `generate-image.ts`, `weather.ts`, `calculate.ts`, `todo.ts`, `question.ts` |
+| `tools/` | Tools the agent can call | `search.ts` + `search/` (providers, merges, intent, telemetry, `advanced-search-deadline.ts`), `fetch.ts` + `fetch-budget.ts` (per-turn fetch cap), `recall.ts`, `remember.ts`, `generate-image.ts`, `weather.ts`, `calculate.ts`, `todo.ts`, `question.ts` |
 | `search/` | Pipeline pieces used by `advanced-search` | `quality-content.ts`, `snippet-gate.ts`, `build-excerpt.ts`, `crop-position.ts`, `engine-health*.ts`, `basic-search-cache.ts`, `brave-budget.ts`, `rehydrate-full-content.ts` |
 | `embeddings/` | Rerank, embeddings, upload/URL RAG | `rerank.ts`, `transformers-embedding.ts`, `passage-budget.ts`, `split-text.ts`, `upload-rag.ts`, `url-rag.ts` |
 | `memory/` | Long-term memory and conversation recall | `recall-index.ts`, `recall-search.ts`, `recall-inject.ts`, `inject.ts`, `write.ts` |
@@ -149,8 +149,8 @@ and [Deploy › Migrations](/operations/deploy#migrations-at-boot).
 |---|---|
 | `rebuild-ask.sh {prod\|staging\|lab}` | Build + recreate + health-wait + reclaim for one stack. **The** deploy command. |
 | `reclaim-space.sh` | Prune all unused build cache + dangling images (never `-a`, never volumes/containers). |
-| `ask-fleet-boot.sh` + `ask-fleet-boot.service` | Host-aware boot reconcile (systemd oneshot) — app stacks, VPN sidecars, GPU services, model warm-up. |
-| `deploy.sh` | Pushes the boot script + unit to all four hosts (`.17`, `.160`, `.171`, `.231`; .231 since 2026-09-23). On .231 it also syncs the rotation and public-search update scripts to `~/fleet-boot` and enables `fleet-update-public-search.timer`. |
+| `ask-fleet-boot.sh` + `ask-fleet-boot.service` | Host-aware boot reconcile (systemd oneshot) — app stacks, VPN sidecars, GPU services, model warm-up. Enabled at boot only on bare metal (.231); on the WSL hosts it runs from `fleet-boot.timer` after boot. |
+| `deploy.sh` | Pushes the boot script + unit to all four hosts (`.17`, `.160`, `.171`, `.231`; .231 since 2026-09-23) and enables the unit only where `systemd-detect-virt --container` is not `wsl`. On .231 it also syncs the rotation and public-search update scripts to `~/fleet-boot` and enables `fleet-update-public-search.timer`. |
 | `docker-maintenance.sh` | Daily 04:30 cron: dangling-image prune, 7-day builder prune, disk warning, btree `amcheck`. |
 | `memory-consolidate-nightly.sh` | Nightly 03:45 cron: calls `/api/memory/consolidate` on the named stacks, each with its own `MEMORY_CRON_SECRET` sent on stdin. |
 | `expire-uploads-daily.sh` | Daily 04:15 cron: calls `/api/maintenance/expire-uploads` on all three stacks. |
@@ -168,7 +168,9 @@ and [Deploy › Migrations](/operations/deploy#migrations-at-boot).
 |---|---|
 | `chat-cli.ts` | Terminal client for `/api/chat` (`bun run chat`). |
 | `eval/` | Answer-quality harness: `run-eval.ts` (pairwise judge), `mine-questions.ts`, lab flow-arm runners (`run-flow-arms.py`, `run-flow-conversations.py`, `judge-flow-arms.py`), classifier evals, committed `results/`. See [Testing & QA](/operations/testing-qa). |
-| `backfill-embeddings.ts`, `backfill-file-object-keys.ts`, `clean-narration-preambles.ts` | One-off data backfills. |
+| `backfill-embeddings.ts`, `backfill-file-object-keys.ts` | One-off data backfills. |
+| `backfill-narration.ts`, `backfill-narration-plan.ts`, `backfill-narration.sh` | Narration storage backfill: cleans leaked narration out of stored assistant messages and re-indexes their recall chunks, one env at a time via the `.sh` wrapper. See [evaluation](/operations/evaluation#narration-backfill). |
+| `clean-narration-preambles.ts` | Older per-part preamble cleaner. **Do not use** on stored history (it touches user messages and skips recall). |
 | `test-cache-performance.ts` | Ad-hoc cache benchmark. |
 
 ## `selfhosted/`

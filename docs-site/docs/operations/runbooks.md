@@ -29,7 +29,7 @@ Knowing what self-heals tells you what *should* have happened before you interve
 | Mechanism | Where | When | What it does |
 |---|---|---|---|
 | `restart: unless-stopped` | every container | always | Restarts crashed containers (does **not** fix a container attached to a stale/wrong network, and gives up after its backoff). |
-| `ask-fleet-boot.service` → `~/ask-fleet-boot.sh` | .17, .160, .171, .231 (all synced by `fleet-boot/deploy.sh`) | once per boot (systemd oneshot) | Host-aware reconcile. On **.17**: waits for Docker, reconciles `reranker-qwen`, the three ingestors (`ingestor`, `ingestor-staging`, `ingestor-lab`), `ask-whisper`; warms `qwen3-vl:4b`; ensures the Whisper model; after a 15 s settle runs `reconcile_app_stack` for prod/staging/lab (up → force-recreate → down/up, gated on health); `ensure_vpn_search` retries gluetun+searxng 6×10 s per stack; reconciles `model-manager`. On **.160**: reconciles `embedder`. On **.171**: warms `granite4.2:8b`. On **.231**: reconciles `crawl4ai` and `flaresolverr` only. Source: `fleet-boot/ask-fleet-boot.sh`. |
+| `ask-fleet-boot.service` → `~/ask-fleet-boot.sh` | .17, .160, .171, .231 (all synced by `fleet-boot/deploy.sh`) | once per boot (systemd oneshot). On .231 (bare metal) enabled at boot; on the WSL hosts .17/.160/.171 **disabled** and pulled in by `fleet-boot.timer` about 75 s after boot, because a Docker-waiting unit at boot deadlocks WSL ([below](#wsl-host-hangs-at-boot)) | Host-aware reconcile. On **.17**: waits for Docker, reconciles `reranker-qwen`, the three ingestors (`ingestor`, `ingestor-staging`, `ingestor-lab`), `ask-whisper`; warms `qwen3-vl:4b`; ensures the Whisper model; after a 15 s settle runs `reconcile_app_stack` for prod/staging/lab (up → force-recreate → down/up, gated on health); `ensure_vpn_search` retries gluetun+searxng 6×10 s per stack; reconciles `model-manager`. On **.160**: reconciles `embedder`. On **.171**: warms `granite4.2:8b`. On **.231**: reconciles `crawl4ai` and `flaresolverr` only. Source: `fleet-boot/ask-fleet-boot.sh`. |
 | Docker healthcheck | `ask*` containers | every 30 s | `GET /api/health` (liveness only). Marks unhealthy but does **not** restart. |
 | `memory-consolidate-nightly.sh` | .17 cron `45 3 * * *` (`prod staging lab`) | daily | Memory consolidation sweep (exact-duplicate removal + per-user cap) via `POST /api/memory/consolidate`; each env's `MEMORY_CRON_SECRET` is read from its own `.env` and sent on stdin. 503 = secret unset, 401 = mismatch. Log: `~/.local/state/fleet-boot/memory-consolidate.log`. |
 | `expire-uploads-daily.sh` | .17 cron `15 4 * * *` | daily | Upload TTL sweep on :3738/:3739/:3742. Log: `~/.local/state/fleet-boot/expire-uploads-daily.log`. |
@@ -39,7 +39,7 @@ Knowing what self-heals tells you what *should* have happened before you interve
 | `fleet-update-ask.timer` → `update-ask.sh` | .17 systemd | Sun 04:30 | Pulls + recreates **sidecar** images (never the app build) for lab (canary), then prod, then staging; a failed stack does not stop the next. Since 2026-09-27, when a sidecar was recreated under the running app it `docker restart`s the app and runs the search-path Redis probe ([below](#search-hangs-after-a-redis-restart)). The lab recreate drops any shell-set `FLOW_VARIANT`. Log: `/home/nightfury/selfhosted/logs/update-ask.log`. |
 | `fleet-update-public-search.timer` | .231 systemd (installed by `deploy.sh`) | Sun 04:00 | Runs `~/fleet-boot/update-public-search.sh` (pull + recreate the public SearXNG and degoog stacks) and `check-crawl4ai-version.sh` (reports a newer crawl4ai release; the pin is not changed automatically). |
 | `memory-watchdog.sh` | .231 cron `*/15` | every 15 min | Restarts `crawl4ai` above 80 % of its 8 GiB cgroup limit. Log: `~/logs/crawl4ai-watchdog.log` on .231. |
-| `lan_automation` fleet-boot/sentinel | .17 systemd (outside this repo) | boot + every 15 min | Monitors all stacks; for Ask it defers recovery to `ask-fleet-boot.service`. |
+| `lan_automation` fleet-boot/sentinel | every host, systemd (outside this repo) | boot (`fleet-boot.timer`, 75 s after boot on the WSL hosts) + every 15 min | Monitors all stacks; for Ask it defers recovery to `ask-fleet-boot.service` (`fleet-boot.service` `Wants=` and `After=` it). |
 
 Check the last boot reconcile on any host:
 
@@ -117,6 +117,51 @@ docker exec ask getent hosts postgres
 For staging/lab, the same with their worktree, `-p` and `-f` set (container
 `ask-admin-feature` / `ask-lab`). If still unhealthy, `down` then `up -d` the whole stack
 with the full file set (volumes survive).
+
+---
+
+## WSL host hangs at boot / Docker Desktop integration won't start {#wsl-host-hangs-at-boot}
+
+**Symptoms.** After a reboot of a WSL host (.17, .160 or .171) no container comes back. Inside
+the distro `systemd-analyze` prints "Bootup is not yet finished", `systemctl is-system-running`
+stays `starting`, and `docker info` fails because Docker Desktop never attached its WSL
+integration (no `/var/run/docker.sock`; on 2026-09-29 Serenity's Docker Desktop `backend.sock`
+never appeared). SSH into the distro usually still works.
+
+**Cause.** A unit that waits for Docker is enabled into `multi-user.target`. Docker Desktop
+attaches to a WSL distro only after systemd reports boot finished, so the boot waits for Docker
+and Docker waits for the boot. On 2026-09-29 the unit was `ask-fleet-boot.service`, which
+`fleet-boot/deploy.sh` had enabled on every host since 2026-09-23; Serenity (.171) hung for about
+8 minutes ([D41](/history/decisions#d41-on-wsl-hosts-nothing-that-waits-for-docker-is-enabled-at-boot)).
+
+**Diagnosis** (in the hung distro):
+
+```bash
+systemd-analyze                                   # "Bootup is not yet finished" = still booting
+systemctl list-jobs                               # the job(s) holding the boot
+ls /etc/systemd/system/multi-user.target.wants/   # a Docker-waiting unit here is the culprit
+systemctl is-enabled ask-fleet-boot.service fleet-boot.service fleet-boot.timer
+```
+
+Expected on a WSL host: `ask-fleet-boot.service` **disabled**, `fleet-boot.service` **disabled**,
+`fleet-boot.timer` **enabled**, and `systemctl show ask-fleet-boot.service -p WantedBy` lists only
+`fleet-boot.service`. (On .231, bare metal, `ask-fleet-boot.service` is enabled, and that is
+correct.)
+
+**Fix.**
+
+1. Disable the offending unit in the distro, for example
+   `sudo systemctl disable ask-fleet-boot.service`. Otherwise the next boot hangs again.
+2. From Windows (PowerShell): `wsl --shutdown`, then quit and restart Docker Desktop. This is
+   what recovered Serenity on 2026-09-29; its userspace boot then took 1.6 s.
+3. Verify: `systemd-analyze` prints `Startup finished in …`, `docker info` works, and about
+   75 s after boot `journalctl -u ask-fleet-boot.service -b -o cat` shows the reconcile ran
+   (pulled in by `fleet-boot.timer` → `fleet-boot.service`).
+4. If `fleet-boot/deploy.sh` must be re-run, run it from a current worktree. Copies older than
+   prod `bbf936f8` / lab `8d59d2f1` / staging `d0fdba20` enable the unit on every host.
+
+**Rule.** On a WSL host nothing that waits for Docker may be enabled into `multi-user.target`.
+Run such a job from a timer (as `fleet-boot.timer` does) or pull it in from one.
 
 ---
 
@@ -508,6 +553,71 @@ polled within the last 60 s). Restart with
 `cd /home/nightfury/selfhosted/ingestor && docker compose up -d` (staging/lab use
 `-p ingestor-staging` / `-p ingestor-lab` with their compose files). Image OCR via
 `qwen3-vl:4b` can legitimately take ~90 s per image.
+
+---
+
+## Re-run the narration backfill {#re-run-the-narration-backfill}
+
+**When.** After a new narration rule ships, if stored answers should be cleaned under it too.
+Readers already hide leaked narration at read time, so this matters only for keyword search
+(which matches stored text) and recall chunks. The tool and its safety checks are described in
+[evaluation › narration backfill](/operations/evaluation#narration-backfill); the 2026-09-28/29
+runs are in [D20 › Backfill](/history/decisions#backfill-2026-09-28-29).
+
+**Before you start.**
+
+- Run it from **that environment's own worktree** (`ask-prod` for prod, `ask` for staging,
+  `ask-flow` for the lab). The wrapper mounts the worktree it lives in and runs **that
+  worktree's code** (only `bun` comes from the env's image), so the rules applied are the ones
+  in that checkout. Make sure the new rule is committed there and deployed, and that the
+  worktree has `node_modules`.
+- The env's app container must be running: the wrapper reads its database and embedder
+  settings from it.
+- One environment at a time, staging before prod.
+- Backups and reports hold user content (message ids, removed and kept text). Keep them in
+  `~/selfhosted/backups/narration-backfill/` (0600) and do not print or copy them.
+
+**Commands** (prod shown; replace `prod` and the directory for staging or the lab):
+
+```bash
+cd /home/nightfury/selfhosted/ask-prod
+D=~/selfhosted/backups/narration-backfill
+S=prod-$(date +%F)
+
+# 1. Dry run. Read the per-message lines and the [plan] totals; stop if anything looks wrong.
+scripts/backfill-narration.sh prod --report $D/$S-dryrun.json
+
+# 2. Backup (read-only; refuses to overwrite an existing file).
+scripts/backfill-narration.sh prod --backup $D/$S-backup.json --report $D/$S-backup-report.json
+
+# 3. Apply: one transaction per message; refuses without a backup from this cluster.
+scripts/backfill-narration.sh prod --apply --backup $D/$S-backup.json --report $D/$S-apply.json
+
+# 4. Verify through the app's loader: expect failed 0.
+scripts/backfill-narration.sh prod --verify --backup $D/$S-backup.json --report $D/$S-verify.json
+
+# 5. Re-index the recall chunks that held narration (needs the Qwen3 embedder settings).
+scripts/backfill-narration.sh prod --reindex --backup $D/$S-backup.json --report $D/$S-reindex.json
+
+# 6. A second dry run must plan 0 changes.
+scripts/backfill-narration.sh prod --report $D/$S-dryrun-after.json
+```
+
+**Reading the output.** Each run prints `env=… db=… cluster=… role=…` first: check it is the
+database you meant. `[plan] env=… {…}` holds the totals (`messagesChanged`, `partDeletes`,
+`partRewrites`, `skipped`, and `recall.reindexMessages`). `[verify] {"checked":N,"ok":N,"failed":0}`
+means every changed message reloads equal to the render view. The script exits 1 when any
+apply, re-index or verify step reports a failure; a failed message was rolled back on its own
+and the rest are consistent, so fix the cause and re-run (the run is idempotent).
+
+**Restore (only right after an apply).** The backup JSON holds the pre-image of every changed
+part row and every recall chunk of every changed message; the script has no restore mode. The
+2026-09-28 backups have a `<backup>.restore.sql` beside them (one transaction that refuses a
+different cluster). Restore **only immediately after the apply it undoes**: a message
+regenerated, or chunks re-indexed, after the apply would be overwritten with the old rows.
+Run a restore file with `psql` as the owner role against that env's Postgres. Afterwards a dry
+run plans the same changes as the backup again; `--verify` against that backup now fails for
+every restored message, which is expected (it checks the cleaned state).
 
 ---
 

@@ -134,12 +134,12 @@
     "actor": "researcher",
     "description": "`resolveTurnMode` picks `direct` (skipSearch: a non-question, answered from the conversation, 10 steps) or `research` (speed 20 / balanced 50 / quality 100 steps). With `ALWAYS_SEARCH` on, step 0 of a research turn is a forced web search unless the user supplied the source (a URL, an attachment with no text, or an attachment the text only points at; the turn stays research and the model reads it first): `prepareStep` swaps in a synthetic model that emits one `search` call on the classifier's `standaloneQuery` (URLs removed, ≤400 chars), because the Ollama provider ignores `toolChoice`. The real, wrapped `search` tool runs it and the user's model answers from step 1. `ALWAYS_SEARCH=off` restores the old third mode, `stable-knowledge` (needsSources and needsRecent both false: `search` not advertised). `activeTools` only ADVERTISES tools — the full tools map still executes whatever the model calls.",
     "code": [
-      "lib/agents/researcher.ts:154",
-      "lib/agents/researcher.ts:199",
+      "lib/agents/researcher.ts:169",
+      "lib/agents/researcher.ts:214",
       "lib/agents/always-search.ts:116",
       "lib/agents/always-search.ts:262",
-      "lib/agents/researcher.ts:1031",
-      "lib/agents/researcher.ts:894"
+      "lib/agents/researcher.ts:1093",
+      "lib/agents/researcher.ts:914"
     ],
     "link": "/request-lifecycle/chat-turn#_9-turn-mode-and-tools"
   },
@@ -147,12 +147,13 @@
     "id": "tool-loop",
     "title": "Tool loop: search / fetch / calculate / …",
     "actor": "search",
-    "description": "The `ToolLoopAgent` streams: after the forced step 0, each step either calls tools or emits the final text (no `toolChoice`; the loop ends on plain text). The forced search is round 1. `search` fans out to providers, crawls and reranks (see Search pipeline); after `SEARCH_ROUNDS_MAX` rounds (3; quality 5) it returns an empty result telling the model to answer. Its call to `/api/advanced-search` is bounded (20 s to response headers, 180 s in total) and falls back to a basic SearXNG search on timeout, so a stuck route costs a turn about 20 s instead of the whole 300 s. The answer deadline (200 s from the start of the turn) is applied twice: `prepareStep` stops advertising tools and tells the model to answer now, and `enforceAnswerDeadline` wraps every tool's `execute` so a call the model emits anyway is refused with an \"answer now\" result (`[deadline] refused <tool> call`). The 300 s ceiling therefore never produces a blank turn.",
+    "description": "The `ToolLoopAgent` streams: after the forced step 0, each step either calls tools or emits the final text (no `toolChoice`; the loop ends on plain text). The forced search is round 1. `search` fans out to providers, crawls and reranks (see Search pipeline); after `SEARCH_ROUNDS_MAX` rounds (3; quality 10 since 2026-09-30, and a near-duplicate skip does not count) it returns an empty result telling the model to answer; in quality mode the model may still `fetch` pages this turn found, up to 8 fetch calls (`FETCH_ROUNDS_MAX_QUALITY`). Its call to `/api/advanced-search` is bounded (20 s to response headers, 180 s in total) and falls back to a basic SearXNG search on timeout, so a stuck route costs a turn about 20 s instead of the whole 300 s. The answer deadline (200 s from the start of the turn) is applied twice: `prepareStep` stops advertising tools and tells the model to answer now, and `enforceAnswerDeadline` wraps every tool's `execute` so a call the model emits anyway is refused with an \"answer now\" result (`[deadline] refused <tool> call`). The 300 s ceiling therefore never produces a blank turn.",
     "code": [
-      "lib/tools/search.ts:321",
-      "lib/tools/search.ts:393",
+      "lib/tools/search.ts:327",
+      "lib/tools/search.ts:437",
+      "lib/tools/fetch-budget.ts:43",
       "lib/tools/search/advanced-search-deadline.ts:93",
-      "lib/agents/researcher.ts:996",
+      "lib/agents/researcher.ts:1058",
       "lib/agents/answer-deadline.ts:40",
       "lib/agents/answer-deadline.ts:173"
     ],
@@ -177,7 +178,7 @@
     "code": [
       "lib/streaming/create-chat-stream-response.ts:898",
       "lib/streaming/create-chat-stream-response.ts:938",
-      "lib/streaming/create-chat-stream-response.ts:1216",
+      "lib/streaming/create-chat-stream-response.ts:1219",
       "lib/streaming/helpers/smooth-and-strip-narration.ts:75",
       "components/render-message.tsx:158"
     ],
@@ -189,7 +190,7 @@
     "actor": "redis",
     "description": "`consumeSseStream` sets the pointer `ask:chat:{chatId}:activeStream` (TTL 300s) and hands the stream to `resumable-stream`, which publishes it over Redis pub/sub. A reconnecting client (`GET /api/chat/{id}/stream`) replays a still-live turn from its first chunk; a finished turn yields 204 and the client reloads the saved conversation.",
     "code": [
-      "lib/streaming/create-chat-stream-response.ts:1233",
+      "lib/streaming/create-chat-stream-response.ts:1236",
       "lib/streaming/resumable-stream-context.ts:17",
       "app/api/chat/[chatId]/stream/route.ts:18"
     ],
