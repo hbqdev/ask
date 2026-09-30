@@ -151,7 +151,21 @@ for entry in "${STACKS[@]}"; do
   fi
 
   echo "-- pulling"
+  # Judge the pull by compose's OWN exit status (PIPESTATUS[0]), read right
+  # after the pipeline: nothing checked it before, so a failed pull scrolled
+  # past and the run still ended "All stacks updated and verified" (lab,
+  # 2026-09-27: containerd "failed commit on ref … no such file or
+  # directory"). The pipeline status is no substitute — grep exits 1 on an
+  # empty output. A failed pull is recorded as this stack's failure, but the
+  # stack still goes through recreate + verify below: images that did pull
+  # get applied, a failed one leaves the old image in place, and the checks
+  # confirm the stack still serves either way.
   docker compose $files -p "$project" pull --ignore-buildable 2>&1 | grep -viE '^$' | sed 's/^/  /'
+  pull_rc=${PIPESTATUS[0]}
+  if ((pull_rc != 0)); then
+    echo "   FAIL pull (docker compose pull exited $pull_rc) — continuing with the images already present"
+    failed+=("$name:pull")
+  fi
 
   app="$(app_container "$files" "$project")"
   sidecars_before="$(sidecar_state "$files" "$project")"
