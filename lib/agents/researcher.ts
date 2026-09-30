@@ -2,8 +2,16 @@ import type { FlowStep, FlowStepOverrides } from './flows/types'
 
 // Structural shapes for the two SDK callbacks, so the casts above stay
 // narrow and readable rather than `any`.
-type FlowStepArgs = { stepNumber: number; steps: readonly unknown[] }
+type FlowStepArgs = {
+  stepNumber: number
+  steps: readonly unknown[]
+  // The step's input messages as the SDK built them (the turn's messages plus
+  // this turn's responses so far). Returning a `messages` override replaces
+  // them for this step only.
+  messages?: readonly unknown[]
+}
 type FlowStopArgs = { steps: readonly unknown[] }
+import type { LanguageModelV3 } from '@ai-sdk/provider'
 import { stepCountIs, tool, ToolLoopAgent } from 'ai'
 
 import type { ResearcherTools } from '@/lib/types/agent'
@@ -50,6 +58,13 @@ import {
   applyAnswerDeadline,
   enforceAnswerDeadline
 } from './answer-deadline'
+import { createAnswerStepReminderModel } from './answer-step-reminder'
+import {
+  countCitableToolCalls,
+  getCitationReminderText,
+  resolveCitationReminderMode,
+  withCitationReminder
+} from './citation-reminder'
 
 // The pasted-URL branch fills a source's title from the fetched page's <title>,
 // which is attacker-controlled when the user pastes a hostile link. That title
@@ -633,7 +648,12 @@ export async function createResearcher({
     })
     // Per-request fetch instance so this turn's fetch calls report their wall
     // time into the same tracker. Untimed default instance stays for url-rag.
-    const fetchTool = createFetchTool({ onToolTiming })
+    // searchMode selects the per-turn fetch cap (lib/tools/fetch-budget.ts).
+    const fetchTool = createFetchTool({
+      onToolTiming,
+      searchMode,
+      chatId: currentChatId
+    })
     const askQuestionTool = createQuestionTool(model)
     const todoTools = createTodoTools()
 
@@ -954,6 +974,47 @@ Treat each exactly like a \`search\` or \`fetch\` result from this turn: ${docCi
       )
     }
 
+    // The turn's answering model. Built here rather than inline so the
+    // citation reminder's answer-step guard can wrap it (below).
+    const answeringModel = getModel(model, abortSignal)
+
+    // Citation reminder on the answer step of a long loop
+    // (lib/agents/citation-reminder.ts). The guard re-runs a step with the
+    // reminder only once that step has started writing the answer; each attempt
+    // gets its own model instance whose HTTP request `attemptSignal` can cut
+    // off (ai-sdk-ollama ignores the per-call abortSignal). Built lazily, once
+    // per turn; null when the turn's model is not a v3 model object.
+    let answerStepModel: LanguageModelV3 | null | undefined
+    const getAnswerStepModel = (): LanguageModelV3 | null => {
+      if (answerStepModel !== undefined) return answerStepModel
+      const isV3 = (m: unknown): m is LanguageModelV3 =>
+        typeof m === 'object' &&
+        m !== null &&
+        (m as { specificationVersion?: string }).specificationVersion === 'v3'
+      answerStepModel = isV3(answeringModel)
+        ? createAnswerStepReminderModel({
+            base: answeringModel,
+            makeModel: attemptSignal => {
+              const m = getModel(
+                model,
+                abortSignal
+                  ? AbortSignal.any([abortSignal, attemptSignal])
+                  : attemptSignal
+              )
+              return isV3(m) ? m : (answeringModel as LanguageModelV3)
+            },
+            reminder: getCitationReminderText(),
+            onRetry: ({ detectMs, abortedTextChars }) =>
+              console.log(
+                `[citation-reminder] ${JSON.stringify({ chatId: currentChatId ?? null, event: 'answer-step-rerun', detect_ms: detectMs, aborted_text_chars: abortedTextChars })}`
+              )
+          })
+        : null
+      return answerStepModel
+    }
+    // Logged once per turn, at the first step that gets the reminder.
+    let citationReminderLogged = false
+
     // Built once per turn; handed to step 0 only (prepareStep below). Its
     // call runs the real, fully wrapped `search` tool from `tools`.
     const forcedSearchModel =
@@ -978,7 +1039,7 @@ Treat each exactly like a \`search\` or \`fetch\` result from this turn: ${docCi
 
     // Create ToolLoopAgent with all configuration
     const agent = new ToolLoopAgent({
-      model: getModel(model, abortSignal),
+      model: answeringModel,
       instructions: `${effectiveSystemPrompt}\nCurrent date and time: ${currentDate}`,
       tools,
       activeTools: activeToolsList,
@@ -997,7 +1058,7 @@ Treat each exactly like a \`search\` or \`fetch\` result from this turn: ${docCi
       // balanced-mode turns, two ran to route.ts's 300s ceiling at 17-18 steps
       // and persisted NOTHING — five minutes of waiting for a blank page — with
       // four more between 245s and 276s. See lib/agents/answer-deadline.ts.
-      prepareStep: (({ stepNumber, steps }: FlowStepArgs) => {
+      prepareStep: (({ stepNumber, steps, messages }: FlowStepArgs) => {
         const variant: FlowStepOverrides = flow.prepareStep
           ? flow.prepareStep({
               stepNumber,
@@ -1026,6 +1087,41 @@ Treat each exactly like a \`search\` or \`fetch\` result from this turn: ${docCi
               system: `${o.system}\nCurrent date and time: ${currentDate}`
             }
           : o
+        // Long loop: restate the citation contract right before the answer
+        // instead of only 100k tokens up, in the system prompt. On the
+        // deadline step (tools withdrawn, so it IS the answer) it is appended
+        // to the step's messages; on any other late step the answer-step
+        // guard adds it only if the step turns out to be the answer. Per-step
+        // only — the SDK rebuilds the next step's input from the turn's own
+        // messages. See lib/agents/citation-reminder.ts.
+        const citableToolCalls = countCitableToolCalls(
+          steps as readonly FlowStep[]
+        )
+        let reminderMode =
+          stepNumber > 0
+            ? resolveCitationReminderMode({
+                citableToolCalls,
+                answerDeadlinePassed: o !== variant
+              })
+            : 'none'
+        if (reminderMode === 'append' && !Array.isArray(messages)) {
+          reminderMode = 'none'
+        }
+        const guardModel =
+          reminderMode === 'answer-step' ? getAnswerStepModel() : null
+        if (reminderMode === 'answer-step' && !guardModel) reminderMode = 'none'
+        if (reminderMode !== 'none' && !citationReminderLogged) {
+          citationReminderLogged = true
+          console.log(
+            `[citation-reminder] ${JSON.stringify({ chatId: currentChatId ?? null, event: 'armed', mode: reminderMode, step: stepNumber, citableToolCalls })}`
+          )
+        }
+        const stepOverrides =
+          reminderMode === 'append'
+            ? { ...withDate, messages: withCitationReminder(messages!) }
+            : guardModel
+              ? { ...withDate, model: guardModel }
+              : withDate
         // ALWAYS_SEARCH: step 0 runs on the synthetic model, whose only
         // output is the `search` call. The per-step `model` override is
         // honoured by the SDK itself (streamText resolves
@@ -1033,8 +1129,8 @@ Treat each exactly like a \`search\` or \`fetch\` result from this turn: ${docCi
         // provider drops. From step 1 the real model runs as before.
         return (
           stepNumber === 0 && forcedSearchModel
-            ? { ...withDate, model: forcedSearchModel }
-            : withDate
+            ? { ...stepOverrides, model: forcedSearchModel }
+            : stepOverrides
         ) as never
       }) as never,
       // No toolChoice forcing by default and no dedicated "done" tool —
