@@ -20,7 +20,74 @@ behind the change. Lab-first work lives on `flow-design`. `git cherry-pick -x` l
 
 **Streaming lifecycle, mobile QA, the end of the latency campaign, a fleet clean-up, every
 question searches, citations the model copies instead of counting, search that survives a
-Redis restart, and narration cleanup in any language**
+Redis restart, narration cleanup in any language (and in storage), a WSL boot fix, and quality
+research that reads pages past the search cap**
+
+- **09-30** — **Quality mode reads pages past the search cap** (prod `a6db72f1` + `30838a61`;
+  lab `49379e09` + `98ba1d36`; staging `4b5f6fd3` + `7a2d74ba`;
+  [D40](/history/decisions#d40-quality-mode-read-pages-past-the-search-cap)).
+  - A search skipped as a near-duplicate no longer uses a round of the cap.
+  - In quality mode the round-cap notice stops the searching only: the model may still `fetch`
+    URLs this turn's searches returned. A new per-turn fetch cap bounds that:
+    `FETCH_ROUNDS_MAX_QUALITY` (8 calls); other modes have none unless `FETCH_ROUNDS_MAX` is set.
+    Telemetry: `fetch_allowed` on `kind:"round-cap"` lines and a `[fetch] fetch cap reached`
+    stdout line.
+  - `SEARCH_ROUNDS_MAX_QUALITY` default 5 → 10.
+  - Evidence (lab, kimi-k2.6, recall and memory off): cap 15 beat cap 5 because it fetched
+    34 pages against 1; with fetching past the cap allowed, cap 10 and cap 5 measured the same
+    (q1–q3 209 s vs 203 s) and cap 10 tied the stored cap-15 answers.
+  - An answer-step citation reminder (`lib/agents/citation-reminder.ts`,
+    `lib/agents/answer-step-reminder.ts`) was built and measured, and ships **off**
+    (`CITATION_REMINDER=on` enables it): running-count numbering still appeared in 2 of 3 armed
+    long turns, and each re-run cost 58–104k extra prompt tokens.
+  - The prod and staging ports call `getModel` with two arguments; the lab's turn-mode argument
+    (for `ANSWER_THINK=targeted`) exists only on the lab.
+  - Open: citations of search snippets were unsupported 71 % of the time against 23 % for page
+    text; the 0.92 dedup threshold dropped 6 of 7 templated queries falsely; the "URLs found
+    this turn" limit is advisory ([known issues](/history/known-issues)).
+    → [pipeline](/search/pipeline#round-cap), [telemetry](/operations/telemetry#emitted-by-the-search-tool)
+- **09-29** — **Four small fixes** (lab `faacfd18`, `0cb22cf9`, `418193e9`, `9cb61e63`; prod
+  `507cd044`, `d751352d`, `dfccc08c`, `3e715f2b`; staging `50c7e577`, `95c73f74`, `f197f24a`,
+  `5e614b72`).
+  - `update-images.sh` reports a failed image pull: `FAIL pull …` and `<stack>:pull` in
+    `FAILED: …` (exit 1); the stack is still recreated and verified with the images it has.
+    → [fleet scripts](/operations/fleet-scripts#update-images-sh)
+  - Narration: at persist and read time a glued seam before the first line-start heading now
+    wins, as it does live, so `narration.## A … \n## B` no longer loses section A; new English
+    starters "I have converging/corroborating evidence" and "I'm ready to write the (final)
+    answer" (narrow object). A scan of every stored message changed exactly 1, which the
+    backfill cleaned on prod the same day.
+    → [D20 › Decision 6](/history/decisions#decision-6-the-glued-seam-wins-at-persist-too)
+  - Recall indexing strips only the message's own tool-call ids and `#<uuid>` anchors; other
+    UUIDs (GUIDs, image-URL ids) are indexed. 25 older prod/staging messages keep their old
+    chunks until re-indexed
+    ([known issue](/history/known-issues#older-recall-chunks-lack-uuids-the-answer-contained)).
+  - `todoWrite`: item `id` and `timestamp` are optional and filled server-side; 13 of 14 stored
+    validation failures were a missing timestamp.
+- **09-29** — **A WSL host no longer deadlocks at boot** (prod `bbf936f8`; lab `8d59d2f1`;
+  staging `d0fdba20`; [D41](/history/decisions#d41-on-wsl-hosts-nothing-that-waits-for-docker-is-enabled-at-boot)).
+  - Serenity (.171) rebooted and hung for about 8 minutes ("Bootup is not yet finished", Docker
+    Desktop's integration never came up): `deploy.sh` had enabled the Docker-waiting
+    `ask-fleet-boot.service` into `multi-user.target` everywhere (2026-09-23), and on WSL Docker
+    Desktop attaches only after boot finishes. Recovered with `wsl --shutdown` and a Docker
+    Desktop restart; boot then took 1.6 s.
+  - `deploy.sh` now leaves the unit disabled when `systemd-detect-virt --container` is `wsl`
+    (.17, .160, .171), where `fleet-boot.timer` pulls it in 75 s after boot; it stays enabled on
+    .231 (bare metal).
+    → [fleet](/infrastructure/fleet#docker-desktop-on-17-and-the-boot-recovery-chain),
+    [runbook](/operations/runbooks#wsl-host-hangs-at-boot)
+- **09-28/29** — **Stored narration backfilled** (tool: prod `a59d0c65`, lab `449d8d3e`, staging
+  `736faf57`; [D20 › Backfill](/history/decisions#backfill-2026-09-28-29)).
+  - `scripts/backfill-narration.ts` (run through `scripts/backfill-narration.sh <env>`): dry run
+    → backup → apply (one locked transaction per message, refuses without a matching backup)
+    → verify through the app's loader → re-index recall with the app's `indexMessage` (refuses
+    any embedder but Qwen3-Embedding-0.6B).
+  - 2026-09-28: staging 99 messages (242 part deletes, 5 rewrites), prod 92 (177 deletes, 4
+    rewrites); 2026-09-29: 1 more prod rewrite after the new English rule. Verify 100 %, a
+    re-run finds 0 changes, recall chunks holding removed text → 0 (prod: 8 messages
+    re-indexed, 68 → 56 chunks).
+    → [evaluation › narration backfill](/operations/evaluation#narration-backfill),
+    [runbook](/operations/runbooks#re-run-the-narration-backfill)
 
 - **09-28** — **The live stream cuts a glued preamble and streams the answer** (`6e19914f`;
   lab `a3074f86`; staging `951b6a83`;
@@ -47,9 +114,8 @@ Redis restart, and narration cleanup in any language**
     `narration-replay-t{1,2}.json`) plus guards in `smooth-and-strip-narration.test.ts`.
     → [streaming](/request-lifecycle/streaming#narration),
     [models & reasoning](/search/models-reasoning#how-the-stream-transform-decides)
-  - Open: persist still runs the English phrase rule before the glued rule, so unstripped
-    `narration.## A … \n## B` can lose section A
-    ([known issue](/history/known-issues#a-glued-first-section-can-be-cut-at-persist)).
+  - Open at the time: persist still ran the English phrase rule before the glued rule, so
+    unstripped `narration.## A … \n## B` could lose section A; fixed 2026-09-29 (entry above).
 - **09-28** — **Narration cleanup works in any language and applies wherever text is read**
   (`48d5b06d`; lab `5f8caf17`; staging `91d25f65`; ported the same day for release after a lab
   browser check; [D20 addendum](/history/decisions#addendum-2026-09-28-language-agnostic-structural-rules)).
@@ -71,9 +137,9 @@ Redis restart, and narration cleanup in any language**
     [streaming](/request-lifecycle/streaming#narration)
   - Review of all 88 new removals in stored history (15 Vietnamese, 73 English): 0 false
     positives; of the 118 messages the old rules changed, 95 identical, 23 cleaner, 0 regressions.
-  - Open: stored rows are unchanged, so keyword search still matches stored status notes and 39
-    recall chunks keep a glued preamble; a backfill (92 prod messages) awaits an owner decision
-    ([known issue](/history/known-issues#old-answers-with-leaked-reasoning-stay-leaked)). A glued
+  - Open at the time: stored rows were unchanged, so keyword search still matched stored status
+    notes and 39 recall chunks kept a glued preamble; the backfill ran 2026-09-28/29 (entry
+    above). A glued
     answer appears a moment later while streaming, and an English-looking glued preamble was
     still held by the live transform until the part ended; fixed the same day (entry above)
     ([known issue](/history/known-issues#an-answer-with-a-glued-preamble-appears-late-while-streaming)).
@@ -104,7 +170,8 @@ Redis restart, and narration cleanup in any language**
     `update-images.sh` restarts the app when a sidecar changed under it and runs that probe.
     → [fleet scripts](/operations/fleet-scripts#update-images-sh)
   - Open follow-up: the same morning the lab's image pull failed and the script reported success
-    ([known issue](/history/known-issues#image-pull-failures-are-swallowed-by-update-images-sh)).
+    ([known issue](/history/known-issues#image-pull-failures-are-swallowed-by-update-images-sh));
+    fixed 2026-09-29.
 - **09-27** — **The forced search is the first search, not the only one** (`facc98f3`; lab
   `8c4a28b2`; staging `9c24ed64`;
   [D37 addendum](/history/decisions#addendum-2026-09-27-the-forced-search-is-the-first-search)).
