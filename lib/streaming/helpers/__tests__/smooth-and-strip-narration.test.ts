@@ -63,6 +63,19 @@ describe('smoothAndStripNarration', () => {
     expect(assembled).toContain('Canker sores are painful.')
   })
 
+  it('strips "I have converging evidence … I\'m ready to write the final answer." live, like persist', async () => {
+    // Prod ty94fVUhCJr3EVNT's opening, streamed in small deltas so the buffer
+    // must stay held past NARRATION_SNIFF_LIMIT on the starter alone.
+    const raw =
+      "I have converging evidence from the official docs and multiple reproducible bug reports. I'm ready to write the final answer.\n\n" +
+      '## Why /rc mode loads the GPU\n\nRemote Control is not a video stream.'
+    const { assembled } = await runTransform(chunk(raw))
+    expect(assembled).toBe(
+      '## Why /rc mode loads the GPU\n\nRemote Control is not a video stream.'
+    )
+    expect(stripNarrationPreamble(raw)).toBe(assembled)
+  })
+
   it('preserves a refusal with no heading (does not drop the answer)', async () => {
     const deltas = ['I cannot ', 'fulfill this ', 'request.']
     const { assembled } = await runTransform(deltas)
@@ -271,6 +284,8 @@ describe('smoothAndStripNarration — glued `## ` seam (D20 addendum)', () => {
       BODY
     const { assembled } = await runTransform(chunk(raw))
     expect(assembled).toBe(raw.slice(raw.indexOf('## Overview')))
+    // Persist makes the same cut from the raw text (the seam wins there too).
+    expect(stripNarrationPreamble(raw)).toBe(assembled)
     expect(stripNarrationPreamble(assembled)).toBe(assembled)
   })
 
