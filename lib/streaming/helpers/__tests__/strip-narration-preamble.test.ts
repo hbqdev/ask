@@ -144,6 +144,32 @@ describe('stripNarrationPreamble', () => {
     }
   })
 
+  it('strips "I have converging evidence … I\'m ready to write the final answer." (prod ty94fVUhCJr3EVNT)', () => {
+    // Verbatim opening of the stored prod answer: the self-talk sits before a
+    // correctly separated `\n\n## ` heading, so only the phrase rules can see it.
+    const answer =
+      "## Why /rc mode loads the GPU on the machine running the browser\n\n### First, what /rc actually is — and isn't\n\nRemote Control is **not** a remote-desktop or video stream."
+    const text =
+      "I have converging evidence from the official docs and multiple reproducible bug reports. I'm ready to write the final answer.\n\n" +
+      answer
+    expect(stripNarrationPreamble(text)).toBe(answer)
+    expect(stripNarrationPreamble(answer)).toBe(answer)
+  })
+
+  it('keeps a genuine intro that mentions converging evidence or being ready', () => {
+    for (const intro of [
+      // Real prod/lab answer openers (not first-person self-talk).
+      'Multiple converging constraints—technical, economic, and conceptual—are forcing every major LLM company to rethink their approach.',
+      'The addiction field has seen rapid growth in GLP-1 research, with converging preclinical, observational, and now RCT evidence.',
+      // User-facing offers: the object is not THE/MY answer.
+      "I'm ready to write your cover letter — here is a first draft.",
+      "I'm ready to help you plan the migration step by step."
+    ]) {
+      const text = `${intro}\n\n## Details\n\nBody.`
+      expect(stripNarrationPreamble(text)).toBe(text)
+    }
+  })
+
   it('does NOT strip a genuine "Let me explain" intro before a heading', () => {
     // "explain" is not a search/lookup verb, so this genuine intro is kept.
     const text =
@@ -304,7 +330,7 @@ describe('stripStrayThinkTags', () => {
     // The meme-reply shape: reasoning then a close tag butted against the
     // answer, with no ## heading anywhere.
     const text =
-      "The user is sharing a meme and wants a casual reply. I should keep " +
+      'The user is sharing a meme and wants a casual reply. I should keep ' +
       "it light.</mm:think>Ha, that's a solid comeback."
     expect(stripStrayThinkTags(text)).toBe("Ha, that's a solid comeback.")
   })
@@ -353,7 +379,9 @@ describe('looksLikeNarrationStart', () => {
   })
 
   it('matches "let me search" / "I\'ll look for" search-narration shapes', () => {
-    expect(looksLikeNarrationStart('Let me search for more sources.')).toBe(true)
+    expect(looksLikeNarrationStart('Let me search for more sources.')).toBe(
+      true
+    )
     expect(looksLikeNarrationStart("I'll look for additional details.")).toBe(
       true
     )
@@ -364,7 +392,9 @@ describe('looksLikeNarrationStart', () => {
   })
 
   it('does not match genuine "let me explain"/"let me show" intros', () => {
-    expect(looksLikeNarrationStart('Let me explain the difference.')).toBe(false)
+    expect(looksLikeNarrationStart('Let me explain the difference.')).toBe(
+      false
+    )
     expect(looksLikeNarrationStart('Let me show you the results.')).toBe(false)
     expect(looksLikeNarrationStart('Let me walk through the options.')).toBe(
       false
@@ -373,13 +403,40 @@ describe('looksLikeNarrationStart', () => {
 
   it('matches the "I have comprehensive/good/detailed ... data" research-done family', () => {
     expect(looksLikeNarrationStart('I have comprehensive data now.')).toBe(true)
-    expect(looksLikeNarrationStart('I now have good coverage of the topic.')).toBe(
-      true
-    )
-    expect(looksLikeNarrationStart('I have detailed specs for all three.')).toBe(
-      true
-    )
+    expect(
+      looksLikeNarrationStart('I now have good coverage of the topic.')
+    ).toBe(true)
+    expect(
+      looksLikeNarrationStart('I have detailed specs for all three.')
+    ).toBe(true)
     expect(looksLikeNarrationStart("I'll research these GPUs.")).toBe(true)
+  })
+
+  it('matches "I have converging evidence" and "I\'m ready to write the final answer"', () => {
+    for (const s of [
+      'I have converging evidence from the official docs.',
+      'I now have corroborating reports from two vendors.',
+      "I'm ready to write the final answer.",
+      'I’m ready to write the answer.',
+      'I am now ready to put together the final response.',
+      'Okay, I’m ready to compose my answer.',
+      'Some sources disagree. Now I am ready to give the full answer.'
+    ]) {
+      expect(looksLikeNarrationStart(s)).toBe(true)
+    }
+  })
+
+  it('does not match user-facing "ready to" offers or "converging" in prose', () => {
+    for (const s of [
+      "I'm ready to help.",
+      "I'm ready to write your cover letter once you share the job ad.",
+      "I'm ready to answer any follow-up questions.",
+      "I'm ready to provide more detail if you want it.",
+      'When you are ready to write the final answer to the exam, start with the thesis.',
+      'Multiple converging constraints are forcing a rethink.'
+    ]) {
+      expect(looksLikeNarrationStart(s)).toBe(false)
+    }
   })
 
   it('does not match genuine content that merely mentions having data', () => {
@@ -387,9 +444,9 @@ describe('looksLikeNarrationStart', () => {
       looksLikeNarrationStart('The RTX 5060 is a solid mid-range card.')
     ).toBe(false)
     // "I have three picks" is an answer opener, not research narration.
-    expect(looksLikeNarrationStart('I have three recommendations for you.')).toBe(
-      false
-    )
+    expect(
+      looksLikeNarrationStart('I have three recommendations for you.')
+    ).toBe(false)
   })
 
   it('does not match a narration phrase appearing mid-sentence (not at a boundary)', () => {
