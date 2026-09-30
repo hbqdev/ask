@@ -58,7 +58,11 @@ import { countToolCalls, type FlowStep } from './flows/types'
  * appended. Per-step and never persisted: the SDK rebuilds each step's input
  * from the turn's own messages, so no reminder is stored or piles up.
  *
- * Kill switch: CITATION_REMINDER=off. Threshold:
+ * DEFAULT OFF — enable with CITATION_REMINDER=on (experiments only). Lab
+ * re-test 2026-09-30 (4 quality questions x 3 arms, kimi-k2.6): the rerun fired
+ * on every armed long turn but running-count numbering still appeared in 2 of
+ * 3 of them, the cleanest long turn (18 calls) had it off, and each rerun
+ * re-sends the whole prompt (58-104k extra prompt tokens). Threshold:
  * CITATION_REMINDER_MIN_TOOL_CALLS (default 8: every turn with 12+ calls
  * degraded, and 8-11 is the widest bucket without a degraded turn, so the
  * reminder is in place before the drop).
@@ -68,7 +72,7 @@ export const CITATION_REMINDER_MIN_TOOL_CALLS_DEFAULT = 8
 export function isCitationReminderEnabled(
   env: Record<string, string | undefined> = process.env
 ): boolean {
-  return env.CITATION_REMINDER !== 'off'
+  return env.CITATION_REMINDER === 'on'
 }
 
 export function resolveCitationReminderMinToolCalls(

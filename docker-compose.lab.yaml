@@ -141,7 +141,7 @@ services:
       # the higher SEARCH_ROUNDS_MAX_QUALITY. Shell-overridable for A/B arms
       # (e.g. SEARCH_ROUNDS_MAX=2 docker compose ... up -d --force-recreate ask).
       SEARCH_ROUNDS_MAX: ${SEARCH_ROUNDS_MAX:-3}
-      SEARCH_ROUNDS_MAX_QUALITY: ${SEARCH_ROUNDS_MAX_QUALITY:-5}
+      SEARCH_ROUNDS_MAX_QUALITY: ${SEARCH_ROUNDS_MAX_QUALITY:-10}
       # Per-turn cap on `fetch` calls (lib/tools/fetch-budget.ts). Empty = the
       # code default: quality 8 calls, other modes uncapped. Past the search cap
       # the quality notice still allows fetching pages already found.
