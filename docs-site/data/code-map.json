@@ -1,21 +1,21 @@
 {
   "generatedFrom": {
-    "ask": "ask-prod",
+    "ask": "ask-flow",
     "ingestor": "ingestor"
   },
-  "count": 653,
+  "count": 661,
   "coverage": {
-    "files": 653,
-    "withPurpose": 653,
-    "header": 168,
+    "files": 661,
+    "withPurpose": 661,
+    "header": 173,
     "jsdoc": 38,
     "derived": 59,
-    "override": 388,
-    "documented": 357
+    "override": 391,
+    "documented": 366
   },
   "kinds": {
     "dockerfile": 3,
-    "lib-module": 247,
+    "lib-module": 251,
     "route-handler": 37,
     "page": 13,
     "stylesheet": 2,
@@ -37,7 +37,7 @@
     "server-action": 8,
     "types": 8,
     "middleware": 2,
-    "script": 17
+    "script": 21
   },
   "files": [
     {
@@ -4019,7 +4019,14 @@
         "components/tool-todo-display.tsx"
       ],
       "tests": [],
-      "docs": []
+      "docs": [
+        {
+          "page": "/history/known-issues",
+          "title": "Known issues",
+          "section": "todoWrite calls failed validation",
+          "anchor": "todowrite-calls-failed-validation"
+        }
+      ]
     },
     {
       "path": "components/tool-badge.tsx",
@@ -6451,10 +6458,28 @@
           "anchor": "fleet-boot"
         },
         {
+          "page": "/history/changelog",
+          "title": "Changelog",
+          "section": "2026-09 — September",
+          "anchor": "_2026-09-—-september"
+        },
+        {
+          "page": "/history/decisions",
+          "title": "Decisions",
+          "section": "D41. On WSL hosts, nothing that waits for Docker is enabled at boot",
+          "anchor": "d41-on-wsl-hosts-nothing-that-waits-for-docker-is-enabled-at-boot"
+        },
+        {
           "page": "/history/faq",
           "title": "Troubleshooting FAQ",
           "section": "Nothing came back at all after a reboot",
           "anchor": "nothing-came-back-at-all-after-a-reboot"
+        },
+        {
+          "page": "/history/known-issues",
+          "title": "Known issues",
+          "section": "WSL host hung at boot",
+          "anchor": "wsl-host-hung-at-boot"
         },
         {
           "page": "/infrastructure/fleet",
@@ -6717,12 +6742,14 @@
       "area": "fleet-boot",
       "project": "ask",
       "kind": "ops-script",
-      "purpose": "Deploy ask-fleet-boot.{sh,service} to the Ask GPU boxes and enable the systemd oneshot.",
+      "purpose": "Deploy ask-fleet-boot.{sh,service} to the Ask GPU boxes.",
       "purposeSource": "header",
       "exports": [],
       "methods": [],
       "route": null,
-      "usedBy": [],
+      "usedBy": [
+        "fleet-boot/ask-fleet-boot.service"
+      ],
       "tests": [],
       "docs": [
         {
@@ -6758,8 +6785,8 @@
         {
           "page": "/infrastructure/fleet",
           "title": "Fleet",
-          "section": "Legacy stacks on .231 (removed)",
-          "anchor": "legacy-stacks-on-231-removed"
+          "section": "Docker Desktop on .17 and the boot-recovery chain",
+          "anchor": "docker-desktop-on-17-and-the-boot-recovery-chain"
         },
         {
           "page": "/operations/environments",
@@ -7103,8 +7130,8 @@
         {
           "page": "/operations/fleet-scripts",
           "title": "Fleet scripts",
-          "section": null,
-          "anchor": null
+          "section": "Summary",
+          "anchor": "summary"
         },
         {
           "page": "/operations/runbooks",
@@ -8917,6 +8944,97 @@
       ]
     },
     {
+      "path": "lib/agents/answer-step-reminder.ts",
+      "dir": "lib/agents",
+      "area": "lib",
+      "project": "ask",
+      "kind": "lib-module",
+      "purpose": "Give the model the citation reminder on the step that writes the ANSWER, and on no other step.",
+      "purposeSource": "header",
+      "exports": [
+        "ANSWER_TEXT_CHARS",
+        "looksLikeAnswerStart",
+        "AnswerStepReminderInfo",
+        "createAnswerStepReminderModel"
+      ],
+      "methods": [],
+      "route": null,
+      "usedBy": [
+        "lib/agents/researcher.ts"
+      ],
+      "tests": [
+        "lib/agents/__tests__/answer-step-reminder.test.ts"
+      ],
+      "docs": [
+        {
+          "page": "/getting-started/repo-tour",
+          "title": "Repo tour",
+          "section": "lib/",
+          "anchor": "lib"
+        },
+        {
+          "page": "/history/changelog",
+          "title": "Changelog",
+          "section": "2026-09 — September",
+          "anchor": "_2026-09-—-september"
+        },
+        {
+          "page": "/history/decisions",
+          "title": "Decisions",
+          "section": "D40. Quality mode: read pages past the search cap",
+          "anchor": "d40-quality-mode-read-pages-past-the-search-cap"
+        }
+      ]
+    },
+    {
+      "path": "lib/agents/citation-reminder.ts",
+      "dir": "lib/agents",
+      "area": "lib",
+      "project": "ask",
+      "kind": "lib-module",
+      "purpose": "Opt-in citation reminder (CITATION_REMINDER=on, default off) for the answer step of a long research loop: threshold CITATION_REMINDER_MIN_TOOL_CALLS (8 search/fetch calls), the reminder text, and…",
+      "purposeSource": "override",
+      "exports": [
+        "CITATION_REMINDER_MIN_TOOL_CALLS_DEFAULT",
+        "isCitationReminderEnabled",
+        "resolveCitationReminderMinToolCalls",
+        "countCitableToolCalls",
+        "getCitationReminderText",
+        "CitationReminderMode",
+        "resolveCitationReminderMode",
+        "withCitationReminder"
+      ],
+      "methods": [],
+      "route": null,
+      "usedBy": [
+        "lib/agents/researcher.ts"
+      ],
+      "tests": [
+        "lib/agents/__tests__/citation-reminder.test.ts",
+        "lib/agents/__tests__/researcher-citation-reminder.test.ts"
+      ],
+      "docs": [
+        {
+          "page": "/getting-started/repo-tour",
+          "title": "Repo tour",
+          "section": "lib/",
+          "anchor": "lib"
+        },
+        {
+          "page": "/history/changelog",
+          "title": "Changelog",
+          "section": "2026-09 — September",
+          "anchor": "_2026-09-—-september"
+        },
+        {
+          "page": "/history/decisions",
+          "title": "Decisions",
+          "section": "D40. Quality mode: read pages past the search cap",
+          "anchor": "d40-quality-mode-read-pages-past-the-search-cap"
+        }
+      ]
+    },
+    {
       "path": "lib/agents/classifier-expansion.ts",
       "dir": "lib/agents",
       "area": "lib",
@@ -8970,6 +9088,7 @@
       "methods": [],
       "route": null,
       "usedBy": [
+        "lib/agents/citation-reminder.ts",
         "lib/agents/flows/variants.ts",
         "lib/agents/researcher.ts",
         "lib/streaming/flow-progress.ts"
@@ -9418,6 +9537,7 @@
       "tests": [
         "lib/agents/__tests__/citation-handles-e2e.test.ts",
         "lib/agents/__tests__/researcher-always-search.test.ts",
+        "lib/agents/__tests__/researcher-citation-reminder.test.ts",
         "lib/agents/__tests__/researcher.test.ts",
         "lib/streaming/__tests__/create-ephemeral-chat-stream-response.test.ts"
       ],
@@ -10560,7 +10680,8 @@
         "lib/actions/account.ts",
         "lib/actions/chat.ts",
         "lib/actions/notes.ts",
-        "lib/streaming/helpers/persist-stream-results.ts"
+        "lib/streaming/helpers/persist-stream-results.ts",
+        "scripts/backfill-narration.ts"
       ],
       "tests": [
         "lib/actions/__tests__/account.test.ts",
@@ -10686,7 +10807,8 @@
         "lib/db/file-actions.ts",
         "lib/db/recall-actions.ts",
         "lib/db/with-rls.ts",
-        "lib/memory/recall-backfill.ts"
+        "lib/memory/recall-backfill.ts",
+        "scripts/backfill-narration.ts"
       ],
       "tests": [
         "app/api/ingest/__tests__/routes.test.ts",
@@ -10950,7 +11072,8 @@
         "lib/memory/recall-backfill.ts",
         "lib/memory/recall-index.ts",
         "lib/memory/recall-search.ts",
-        "lib/tools/recall.ts"
+        "lib/tools/recall.ts",
+        "scripts/backfill-narration.ts"
       ],
       "tests": [
         "lib/actions/__tests__/recall.test.ts",
@@ -10962,6 +11085,12 @@
       ],
       "docs": [
         {
+          "page": "/history/known-issues",
+          "title": "Known issues",
+          "section": "Older recall chunks lack UUIDs the answer contained",
+          "anchor": "older-recall-chunks-lack-uuids-the-answer-contained"
+        },
+        {
           "page": "/infrastructure/model-manager",
           "title": "Model Manager",
           "section": "Boolean switches",
@@ -10970,8 +11099,8 @@
         {
           "page": "/knowledge/memory-recall",
           "title": "Memory & recall",
-          "section": "How to…",
-          "anchor": "how-to"
+          "section": "Indexing",
+          "anchor": "indexing"
         }
       ]
     },
@@ -11071,7 +11200,8 @@
         "lib/streaming/helpers/types.ts",
         "lib/types/message-persistence.ts",
         "lib/utils/message-mapping.ts",
-        "lib/utils/message-utils.ts"
+        "lib/utils/message-utils.ts",
+        "scripts/backfill-narration.ts"
       ],
       "tests": [
         "lib/actions/__tests__/chat.test.ts",
@@ -11299,7 +11429,8 @@
         "lib/embeddings/upload-rag.ts",
         "lib/embeddings/url-rag.ts",
         "lib/memory/recall-index.ts",
-        "lib/search/crop-position.ts"
+        "lib/search/crop-position.ts",
+        "scripts/backfill-narration-plan.ts"
       ],
       "tests": [],
       "docs": [
@@ -11339,7 +11470,8 @@
         "lib/memory/recall-search.ts",
         "lib/memory/write.ts",
         "lib/search/crop-position.ts",
-        "lib/tools/search.ts"
+        "lib/tools/search.ts",
+        "scripts/backfill-narration.ts"
       ],
       "tests": [
         "lib/embeddings/__tests__/rerank.test.ts",
@@ -11351,7 +11483,8 @@
         "lib/memory/__tests__/recall-index.test.ts",
         "lib/memory/__tests__/recall-search.test.ts",
         "lib/memory/__tests__/save.test.ts",
-        "lib/search/__tests__/crop-position.test.ts"
+        "lib/search/__tests__/crop-position.test.ts",
+        "lib/tools/__tests__/search-round-cap-execute.test.ts"
       ],
       "docs": [
         {
@@ -12444,7 +12577,8 @@
       "usedBy": [
         "lib/db/recall-actions.ts",
         "lib/memory/recall-backfill.ts",
-        "lib/streaming/create-chat-stream-response.ts"
+        "lib/streaming/create-chat-stream-response.ts",
+        "scripts/backfill-narration-plan.ts"
       ],
       "tests": [
         "lib/memory/__tests__/extract-indexable-text.test.ts"
@@ -12455,6 +12589,12 @@
           "title": "Decisions",
           "section": "D20. Narration strippers: strict at persist, best-effort live",
           "anchor": "d20-narration-strippers-strict-at-persist-best-effort-live"
+        },
+        {
+          "page": "/history/known-issues",
+          "title": "Known issues",
+          "section": "Older recall chunks lack UUIDs the answer contained",
+          "anchor": "older-recall-chunks-lack-uuids-the-answer-contained"
         },
         {
           "page": "/knowledge/memory-recall",
@@ -12490,6 +12630,7 @@
       "tests": [
         "lib/agents/__tests__/citation-handles-e2e.test.ts",
         "lib/agents/__tests__/researcher-always-search.test.ts",
+        "lib/agents/__tests__/researcher-citation-reminder.test.ts",
         "lib/agents/__tests__/researcher.test.ts",
         "lib/memory/__tests__/inject.test.ts"
       ],
@@ -12562,7 +12703,8 @@
       "route": null,
       "usedBy": [
         "lib/memory/recall-backfill.ts",
-        "lib/streaming/create-chat-stream-response.ts"
+        "lib/streaming/create-chat-stream-response.ts",
+        "scripts/backfill-narration.ts"
       ],
       "tests": [
         "lib/memory/__tests__/recall-backfill.test.ts",
@@ -13723,6 +13865,7 @@
         "lib/agents/__tests__/always-search.test.ts",
         "lib/agents/__tests__/citation-handles-e2e.test.ts",
         "lib/agents/__tests__/researcher-always-search.test.ts",
+        "lib/agents/__tests__/researcher-citation-reminder.test.ts",
         "lib/schema/__tests__/search.test.ts"
       ],
       "docs": []
@@ -13788,7 +13931,8 @@
       "tests": [
         "lib/redis/__tests__/caller-outage-semantics.test.ts",
         "lib/search/__tests__/basic-search-cache.test.ts",
-        "lib/tools/__tests__/search-advanced-timeout.test.ts"
+        "lib/tools/__tests__/search-advanced-timeout.test.ts",
+        "lib/tools/__tests__/search-round-cap-execute.test.ts"
       ],
       "docs": [
         {
@@ -14948,12 +15092,15 @@
         "components/render-message.tsx",
         "lib/streaming/create-chat-stream-response.ts",
         "lib/streaming/create-ephemeral-chat-stream-response.ts",
-        "lib/streaming/helpers/persist-stream-results.ts"
+        "lib/streaming/helpers/persist-stream-results.ts",
+        "scripts/backfill-narration-plan.ts",
+        "scripts/backfill-narration.ts"
       ],
       "tests": [
         "lib/streaming/helpers/__tests__/smooth-and-strip-narration-replay.test.ts",
         "lib/streaming/helpers/__tests__/strip-narration-from-message.test.ts",
-        "lib/streaming/helpers/__tests__/strip-narration-structural.test.ts"
+        "lib/streaming/helpers/__tests__/strip-narration-structural.test.ts",
+        "scripts/__tests__/backfill-narration-plan.test.ts"
       ],
       "docs": [
         {
@@ -14961,12 +15108,6 @@
           "title": "Decisions",
           "section": "D20. Narration strippers: strict at persist, best-effort live",
           "anchor": "d20-narration-strippers-strict-at-persist-best-effort-live"
-        },
-        {
-          "page": "/history/known-issues",
-          "title": "Known issues",
-          "section": "Old answers keep leaked narration in storage",
-          "anchor": "old-answers-with-leaked-reasoning-stay-leaked"
         },
         {
           "page": "/request-lifecycle/streaming",
@@ -14988,7 +15129,7 @@
       "area": "lib",
       "project": "ask",
       "kind": "lib-module",
-      "purpose": "Persist/render-time cleanup of a single text part: the English phrase and think-tag rules first (unchanged behaviour), then the language-agnostic glued-seam cut on what remains.",
+      "purpose": "Persist/render-time cleanup of a single text part.",
       "purposeSource": "jsdoc",
       "exports": [
         "shouldStripPreamble",
@@ -15010,6 +15151,7 @@
         "lib/streaming/create-chat-stream-response.ts",
         "lib/streaming/helpers/smooth-and-strip-narration.ts",
         "lib/streaming/helpers/strip-narration-from-message.ts",
+        "scripts/backfill-narration-plan.ts",
         "scripts/clean-narration-preambles.ts"
       ],
       "tests": [
@@ -15742,6 +15884,73 @@
       "docs": []
     },
     {
+      "path": "lib/tools/fetch-budget.ts",
+      "dir": "lib/tools",
+      "area": "lib",
+      "project": "ask",
+      "kind": "lib-module",
+      "purpose": "Per-turn fetch-call cap (FETCH_ROUNDS_MAX_QUALITY, default 8 in quality mode; FETCH_ROUNDS_MAX for other modes, unset = no cap) and the non-error notice a refused fetch returns.",
+      "purposeSource": "override",
+      "exports": [
+        "FETCH_ROUNDS_MAX_QUALITY_DEFAULT",
+        "resolveFetchRoundsBudget",
+        "buildFetchLimitNotice"
+      ],
+      "methods": [],
+      "route": null,
+      "usedBy": [
+        "lib/tools/fetch.ts",
+        "lib/tools/search.ts"
+      ],
+      "tests": [
+        "lib/tools/__tests__/fetch-rounds-cap.test.ts"
+      ],
+      "docs": [
+        {
+          "page": "/getting-started/repo-tour",
+          "title": "Repo tour",
+          "section": "lib/",
+          "anchor": "lib"
+        },
+        {
+          "page": "/history/decisions",
+          "title": "Decisions",
+          "section": "D40. Quality mode: read pages past the search cap",
+          "anchor": "d40-quality-mode-read-pages-past-the-search-cap"
+        },
+        {
+          "page": "/history/glossary",
+          "title": "Glossary",
+          "section": "Search",
+          "anchor": "search"
+        },
+        {
+          "page": "/history/known-issues",
+          "title": "Known issues",
+          "section": "The fetch-past-the-cap URL limit is advisory",
+          "anchor": "the-fetch-past-the-cap-url-limit-is-advisory"
+        },
+        {
+          "page": "/request-lifecycle/chat-turn",
+          "title": "Chat turn",
+          "section": "10. The tool loop and its caps",
+          "anchor": "_10-the-tool-loop-and-its-caps"
+        },
+        {
+          "page": "/search/models-reasoning",
+          "title": "Models & reasoning",
+          "section": "Limits to know about",
+          "anchor": "limits-to-know-about"
+        },
+        {
+          "page": "/search/pipeline",
+          "title": "Search pipeline",
+          "section": "1. The search tool entry: round cap and dedup",
+          "anchor": "round-cap"
+        }
+      ]
+    },
+    {
       "path": "lib/tools/fetch.ts",
       "dir": "lib/tools",
       "area": "lib",
@@ -15772,6 +15981,7 @@
         "lib/embeddings/__tests__/url-rag.test.ts",
         "lib/tools/__tests__/fetch-citation-handles.test.ts",
         "lib/tools/__tests__/fetch-retry-policy.test.ts",
+        "lib/tools/__tests__/fetch-rounds-cap.test.ts",
         "lib/tools/__tests__/fetch-tool-call-id.test.ts",
         "lib/tools/__tests__/fetch.test.ts"
       ],
@@ -15805,6 +16015,12 @@
           "title": "Services",
           "section": "FlareSolverr",
           "anchor": "flaresolverr"
+        },
+        {
+          "page": "/operations/telemetry",
+          "title": "Telemetry",
+          "section": "The lines",
+          "anchor": "the-lines"
         },
         {
           "page": "/request-lifecycle/frontend",
@@ -15962,6 +16178,7 @@
         "mapOllamaWebResults",
         "applyOllamaWebExcerpts",
         "resolveSearchRoundsBudget",
+        "buildSearchRoundCapNotice",
         "createSearchTool",
         "searchTool",
         "SearchUIToolInvocation",
@@ -15977,10 +16194,12 @@
       "tests": [
         "lib/agents/__tests__/citation-handles-e2e.test.ts",
         "lib/agents/__tests__/researcher-always-search.test.ts",
+        "lib/agents/__tests__/researcher-citation-reminder.test.ts",
         "lib/render/__tests__/llm-image-output.e2e.test.ts",
         "lib/tools/__tests__/search-advanced-timeout.test.ts",
         "lib/tools/__tests__/search-dedup.test.ts",
         "lib/tools/__tests__/search-depth-tiering.test.ts",
+        "lib/tools/__tests__/search-round-cap-execute.test.ts",
         "lib/tools/__tests__/search-round-cap.test.ts",
         "lib/tools/__tests__/search-speed-ollama-web.test.ts",
         "lib/tools/__tests__/search-to-model-output.test.ts"
@@ -16283,7 +16502,8 @@
         "lib/tools/search/basic-telemetry.ts"
       ],
       "tests": [
-        "lib/tools/__tests__/search-advanced-timeout.test.ts"
+        "lib/tools/__tests__/search-advanced-timeout.test.ts",
+        "lib/tools/__tests__/search-round-cap-execute.test.ts"
       ],
       "docs": [
         {
@@ -16492,12 +16712,15 @@
       "area": "lib",
       "project": "ask",
       "kind": "lib-module",
-      "purpose": "Factory for a session-scoped todoWrite tool that lets the agent maintain a task list with status and priority and reports completion counts.",
+      "purpose": "Factory for a session-scoped todoWrite tool that lets the agent maintain a task list with status and priority and reports completion counts; item id and timestamp are optional in the input and…",
       "purposeSource": "override",
       "exports": [
         "todoItemSchema",
         "TodoItem",
+        "todoItemInputSchema",
+        "TodoItemInput",
         "todoWriteInputSchema",
+        "completeTodos",
         "createTodoTools"
       ],
       "methods": [],
@@ -16507,13 +16730,27 @@
         "lib/types/agent.ts",
         "lib/types/ai.ts"
       ],
-      "tests": [],
+      "tests": [
+        "lib/tools/__tests__/todo.test.ts"
+      ],
       "docs": [
         {
           "page": "/getting-started/repo-tour",
           "title": "Repo tour",
           "section": "lib/",
           "anchor": "lib"
+        },
+        {
+          "page": "/history/known-issues",
+          "title": "Known issues",
+          "section": "todoWrite calls failed validation",
+          "anchor": "todowrite-calls-failed-validation"
+        },
+        {
+          "page": "/request-lifecycle/generative-ui",
+          "title": "Generative UI, specs and the Inspector",
+          "section": "4. ToolSection picks a component per tool",
+          "anchor": "_4-toolsection-picks-a-component-per-tool"
         }
       ]
     },
@@ -16598,7 +16835,8 @@
         "UITools",
         "ToolPart",
         "Part",
-        "TodoItem"
+        "TodoItem",
+        "TodoItemInput"
       ],
       "methods": [],
       "route": null,
@@ -16628,7 +16866,8 @@
         "lib/streaming/helpers/types.ts",
         "lib/types/message-persistence.ts",
         "lib/utils/citation.ts",
-        "lib/utils/message-mapping.ts"
+        "lib/utils/message-mapping.ts",
+        "scripts/backfill-narration-plan.ts"
       ],
       "tests": [
         "components/__tests__/render-message.test.tsx",
@@ -16796,7 +17035,8 @@
       "route": null,
       "usedBy": [
         "lib/db/actions.ts",
-        "lib/utils/message-mapping.ts"
+        "lib/utils/message-mapping.ts",
+        "scripts/backfill-narration-plan.ts"
       ],
       "tests": [
         "lib/utils/__tests__/message-mapping.test.ts"
@@ -16893,6 +17133,8 @@
         "lib/search-mode-availability.ts",
         "lib/streaming/helpers/persist-stream-results.ts",
         "lib/streaming/types.ts",
+        "lib/tools/fetch-budget.ts",
+        "lib/tools/fetch.ts",
         "lib/tools/search.ts",
         "lib/types/ai.ts",
         "lib/types/index.ts",
@@ -16953,6 +17195,7 @@
       "route": null,
       "usedBy": [
         "lib/agents/always-search.ts",
+        "lib/agents/citation-reminder.ts",
         "lib/agents/prompts/search-mode-prompts.ts",
         "lib/agents/researcher.ts",
         "lib/streaming/helpers/document-retrieval-part.ts",
@@ -17462,7 +17705,8 @@
         "lib/agents/query-classifier.ts",
         "lib/agents/query-expander.ts",
         "lib/agents/title-generator.ts",
-        "lib/utils/registry.ts"
+        "lib/utils/registry.ts",
+        "lib/voice/spoken-gist.ts"
       ],
       "tests": [
         "lib/agents/__tests__/memory-extractor.test.ts",
@@ -17826,7 +18070,8 @@
       "usedBy": [
         "lib/agents/memory-extractor.ts",
         "lib/agents/query-expander.ts",
-        "lib/agents/title-generator.ts"
+        "lib/agents/title-generator.ts",
+        "lib/voice/spoken-gist.ts"
       ],
       "tests": [],
       "docs": [
@@ -17877,12 +18122,15 @@
       "methods": [],
       "route": null,
       "usedBy": [
-        "lib/db/actions.ts"
+        "lib/db/actions.ts",
+        "scripts/backfill-narration-plan.ts",
+        "scripts/backfill-narration.ts"
       ],
       "tests": [
         "components/__tests__/message-actions-stopped.test.tsx",
         "lib/db/__tests__/upsert-message.test.ts",
-        "lib/utils/__tests__/message-mapping.test.ts"
+        "lib/utils/__tests__/message-mapping.test.ts",
+        "scripts/__tests__/backfill-narration-plan.test.ts"
       ],
       "docs": [
         {
@@ -18054,6 +18302,7 @@
         "app/api/advanced-search/__tests__/redis-resilience.test.ts",
         "app/api/advanced-search/__tests__/searxng-failure.test.ts",
         "lib/tools/__tests__/search-advanced-timeout.test.ts",
+        "lib/tools/__tests__/search-round-cap-execute.test.ts",
         "lib/tools/__tests__/search-speed-ollama-web.test.ts",
         "lib/utils/__tests__/ollama-search-client.test.ts"
       ],
@@ -18069,6 +18318,7 @@
       "purposeSource": "header",
       "exports": [
         "AnswerThink",
+        "AnswerTurnMode",
         "ANSWER_THINK_DEFAULT",
         "resolveAnswerThink",
         "thinkEnabledForOllama"
@@ -18212,6 +18462,7 @@
       "tests": [
         "lib/agents/__tests__/citation-handles-e2e.test.ts",
         "lib/agents/__tests__/researcher-always-search.test.ts",
+        "lib/agents/__tests__/researcher-citation-reminder.test.ts",
         "lib/agents/__tests__/title-generator.test.ts",
         "lib/model-selector/__tests__/get-model-selector-data.test.ts",
         "lib/models/__tests__/fetch-models.test.ts",
@@ -18528,6 +18779,7 @@
       "tests": [
         "lib/agents/__tests__/citation-handles-e2e.test.ts",
         "lib/tools/__tests__/fetch-citation-handles.test.ts",
+        "lib/tools/__tests__/fetch-rounds-cap.test.ts",
         "lib/tools/__tests__/fetch-tool-call-id.test.ts",
         "lib/utils/__tests__/legacy-fetch-html.test.ts",
         "lib/utils/__tests__/ssrf-guard.test.ts"
@@ -18672,9 +18924,11 @@
       "tests": [
         "lib/agents/__tests__/citation-handles-e2e.test.ts",
         "lib/tools/__tests__/fetch-citation-handles.test.ts",
+        "lib/tools/__tests__/fetch-rounds-cap.test.ts",
         "lib/tools/__tests__/fetch-tool-call-id.test.ts",
         "lib/tools/__tests__/fetch.test.ts",
-        "lib/tools/__tests__/search-advanced-timeout.test.ts"
+        "lib/tools/__tests__/search-advanced-timeout.test.ts",
+        "lib/tools/__tests__/search-round-cap-execute.test.ts"
       ],
       "docs": []
     },
@@ -18723,6 +18977,7 @@
         "app/api/voice/speak/route.ts",
         "app/api/voice/transcribe/route.ts",
         "lib/streaming/create-chat-stream-response.ts",
+        "lib/voice/spoken-gist.ts",
         "lib/voice/stt-client.ts",
         "lib/voice/tts-client.ts"
       ],
@@ -18809,6 +19064,39 @@
       ]
     },
     {
+      "path": "lib/voice/spoken-gist.ts",
+      "dir": "lib/voice",
+      "area": "lib",
+      "project": "ask",
+      "kind": "lib-module",
+      "purpose": "Condenses a finished answer into a 2-3 sentence read-aloud gist using a local Ollama model with a timeout, for voice read-aloud.",
+      "purposeSource": "override",
+      "exports": [
+        "buildGistPrompt",
+        "condenseForSpeech"
+      ],
+      "methods": [],
+      "route": null,
+      "usedBy": [],
+      "tests": [
+        "lib/voice/__tests__/spoken-gist.test.ts"
+      ],
+      "docs": [
+        {
+          "page": "/history/known-issues",
+          "title": "Known issues",
+          "section": "Other stale comments and docs",
+          "anchor": "other-stale-comments-and-docs"
+        },
+        {
+          "page": "/knowledge/media",
+          "title": "Media, voice, weather & Discover",
+          "section": "Read-aloud (Kokoro TTS)",
+          "anchor": "read-aloud-kokoro-tts"
+        }
+      ]
+    },
+    {
       "path": "lib/voice/strip-for-speech.ts",
       "dir": "lib/voice",
       "area": "lib",
@@ -18823,7 +19111,8 @@
       "methods": [],
       "route": null,
       "usedBy": [
-        "lib/voice/emit-spoken-gist.ts"
+        "lib/voice/emit-spoken-gist.ts",
+        "lib/voice/spoken-gist.ts"
       ],
       "tests": [
         "lib/voice/__tests__/strip-for-speech.test.ts"
@@ -19324,6 +19613,190 @@
       ]
     },
     {
+      "path": "scripts/backfill-narration-plan.ts",
+      "dir": "scripts",
+      "area": "scripts",
+      "project": "ask",
+      "kind": "script",
+      "purpose": "Pure planning logic for the narration storage backfill (`scripts/backfill-narration.ts`).",
+      "purposeSource": "header",
+      "exports": [
+        "PartRow",
+        "MessageRow",
+        "TextPartDrop",
+        "TextPartRewrite",
+        "MessageCleanupPlan",
+        "PlanOutcome",
+        "sortRowsLikeLoader",
+        "hashParts",
+        "indexablePartsOf",
+        "applyPlanToRows",
+        "planMessageCleanup",
+        "expectedRecallChunks",
+        "normalizeForChunkMatch",
+        "removedTextProbes",
+        "countChunksWithProbes",
+        "RecallAction",
+        "narrationOnlyInChunks",
+        "recallAction"
+      ],
+      "methods": [],
+      "route": null,
+      "usedBy": [
+        "scripts/backfill-narration.ts"
+      ],
+      "tests": [
+        "scripts/__tests__/backfill-narration-plan.test.ts"
+      ],
+      "docs": [
+        {
+          "page": "/getting-started/repo-tour",
+          "title": "Repo tour",
+          "section": "scripts/",
+          "anchor": "scripts"
+        },
+        {
+          "page": "/history/decisions",
+          "title": "Decisions",
+          "section": "D20. Narration strippers: strict at persist, best-effort live",
+          "anchor": "d20-narration-strippers-strict-at-persist-best-effort-live"
+        },
+        {
+          "page": "/operations/evaluation",
+          "title": "Evaluation harnesses & scripts",
+          "section": "Summary table",
+          "anchor": "summary-table"
+        }
+      ]
+    },
+    {
+      "path": "scripts/backfill-narration.sh",
+      "dir": "scripts",
+      "area": "scripts",
+      "project": "ask",
+      "kind": "script",
+      "purpose": "Run scripts/backfill-narration.ts against ONE environment's database.",
+      "purposeSource": "header",
+      "exports": [],
+      "methods": [],
+      "route": null,
+      "usedBy": [
+        "scripts/backfill-narration.ts"
+      ],
+      "tests": [],
+      "docs": [
+        {
+          "page": "/getting-started/local-dev",
+          "title": "Local development",
+          "section": "Repo commands (package.json scripts)",
+          "anchor": "repo-commands-package-json-scripts"
+        },
+        {
+          "page": "/getting-started/repo-tour",
+          "title": "Repo tour",
+          "section": "scripts/",
+          "anchor": "scripts"
+        },
+        {
+          "page": "/history/changelog",
+          "title": "Changelog",
+          "section": "2026-09 — September",
+          "anchor": "_2026-09-—-september"
+        },
+        {
+          "page": "/history/decisions",
+          "title": "Decisions",
+          "section": "D20. Narration strippers: strict at persist, best-effort live",
+          "anchor": "d20-narration-strippers-strict-at-persist-best-effort-live"
+        },
+        {
+          "page": "/infrastructure/data-layer",
+          "title": "Data layer",
+          "section": "Two database roles",
+          "anchor": "two-database-roles"
+        },
+        {
+          "page": "/operations/evaluation",
+          "title": "Evaluation harnesses & scripts",
+          "section": "Summary table",
+          "anchor": "summary-table"
+        },
+        {
+          "page": "/operations/runbooks",
+          "title": "Runbooks",
+          "section": "Re-run the narration backfill",
+          "anchor": "re-run-the-narration-backfill"
+        }
+      ]
+    },
+    {
+      "path": "scripts/backfill-narration.ts",
+      "dir": "scripts",
+      "area": "scripts",
+      "project": "ask",
+      "kind": "script",
+      "purpose": "Narration storage backfill (D20 addendum, 2026-09-28).",
+      "purposeSource": "header",
+      "exports": [],
+      "methods": [],
+      "route": null,
+      "usedBy": [
+        "scripts/backfill-narration-plan.ts",
+        "scripts/backfill-narration.sh"
+      ],
+      "tests": [],
+      "docs": [
+        {
+          "page": "/getting-started/repo-tour",
+          "title": "Repo tour",
+          "section": "scripts/",
+          "anchor": "scripts"
+        },
+        {
+          "page": "/history/changelog",
+          "title": "Changelog",
+          "section": "2026-09 — September",
+          "anchor": "_2026-09-—-september"
+        },
+        {
+          "page": "/history/decisions",
+          "title": "Decisions",
+          "section": "D20. Narration strippers: strict at persist, best-effort live",
+          "anchor": "d20-narration-strippers-strict-at-persist-best-effort-live"
+        },
+        {
+          "page": "/history/glossary",
+          "title": "Glossary",
+          "section": "A chat turn",
+          "anchor": "a-chat-turn"
+        },
+        {
+          "page": "/history/known-issues",
+          "title": "Known issues",
+          "section": "Old answers keep leaked narration in storage",
+          "anchor": "old-answers-with-leaked-reasoning-stay-leaked"
+        },
+        {
+          "page": "/infrastructure/data-layer",
+          "title": "Data layer",
+          "section": "Two database roles",
+          "anchor": "two-database-roles"
+        },
+        {
+          "page": "/operations/evaluation",
+          "title": "Evaluation harnesses & scripts",
+          "section": "Summary table",
+          "anchor": "summary-table"
+        },
+        {
+          "page": "/search/models-reasoning",
+          "title": "Models & reasoning",
+          "section": "Limits to know about",
+          "anchor": "limits-to-know-about"
+        }
+      ]
+    },
+    {
       "path": "scripts/chat-cli.ts",
       "dir": "scripts",
       "area": "scripts",
@@ -19393,6 +19866,12 @@
           "title": "Repo tour",
           "section": "scripts/",
           "anchor": "scripts"
+        },
+        {
+          "page": "/history/decisions",
+          "title": "Decisions",
+          "section": "D20. Narration strippers: strict at persist, best-effort live",
+          "anchor": "d20-narration-strippers-strict-at-persist-best-effort-live"
         },
         {
           "page": "/history/known-issues",
@@ -19654,6 +20133,35 @@
       ]
     },
     {
+      "path": "scripts/eval/harvest-pairs.py",
+      "dir": "scripts/eval",
+      "area": "scripts",
+      "project": "ask",
+      "kind": "script",
+      "purpose": "Harvest per-turn telemetry and answers for browser-driven staging/lab chats.",
+      "purposeSource": "header",
+      "exports": [
+        "sh",
+        "psql",
+        "turns",
+        "latency",
+        "summarise",
+        "main"
+      ],
+      "methods": [],
+      "route": null,
+      "usedBy": [],
+      "tests": [],
+      "docs": [
+        {
+          "page": "/operations/evaluation",
+          "title": "Evaluation harnesses & scripts",
+          "section": "Map of the harnesses",
+          "anchor": "map-of-the-harnesses"
+        }
+      ]
+    },
+    {
       "path": "scripts/eval/judge-flow-arms.py",
       "dir": "scripts/eval",
       "area": "scripts",
@@ -19668,7 +20176,8 @@
       "methods": [],
       "route": null,
       "usedBy": [
-        "scripts/eval/analyze-flow-arms.py"
+        "scripts/eval/analyze-flow-arms.py",
+        "scripts/eval/harvest-pairs.py"
       ],
       "tests": [],
       "docs": [

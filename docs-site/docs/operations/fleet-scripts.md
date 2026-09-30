@@ -24,9 +24,10 @@ branch checked out in `ask-prod`. The remote hosts run *deployed copies*
 development worktree.
 :::
 
-::: info All three copies match (checked 2026-09-27)
-`update-ask.sh`, `update-images.sh`, `memory-consolidate-nightly.sh` and `README.md` are
-identical in `ask-prod`, `ask` and `ask-flow`. The lab stack reached `dev`'s `update-ask.sh` and
+::: info All three copies match (checked 2026-09-30)
+Every file in `fleet-boot/` is identical in `ask-prod`, `ask` and `ask-flow`, and the deployed
+`~/ask-fleet-boot.sh` and `/etc/systemd/system/ask-fleet-boot.service` on all four hosts match
+the repo. The lab stack reached `dev`'s `update-ask.sh` and
 `update-images.sh` in `8976a6fb` (2026-09-24 UTC), and the 2026-09-27 app restart and Redis probe in
 `2f5eac13`. Check with
 `diff -q /home/nightfury/selfhosted/{ask-flow,ask-prod}/fleet-boot/update-images.sh`.
@@ -36,8 +37,8 @@ identical in `ask-prod`, `ask` and `ask-flow`. The lab stack reached `dev`'s `up
 
 | Script | Runs on | Trigger | Purpose |
 |---|---|---|---|
-| `ask-fleet-boot.sh` + `ask-fleet-boot.service` | .17, .160, .171, .231 (as `~/ask-fleet-boot.sh`) | systemd oneshot, once per boot | Reconcile compose stacks onto fresh networks, warm resident models |
-| `deploy.sh` | .17 (manual) | manual | Push the boot script + unit to all hosts; sync `~/fleet-boot` on .231 |
+| `ask-fleet-boot.sh` + `ask-fleet-boot.service` | .17, .160, .171, .231 (as `~/ask-fleet-boot.sh`) | systemd oneshot, once per boot: enabled at boot on .231; on the WSL hosts disabled and pulled in by `fleet-boot.timer` ~75 s after boot | Reconcile compose stacks onto fresh networks, warm resident models |
+| `deploy.sh` | .17 (manual) | manual | Push the boot script + unit to all hosts (enable it on bare metal only); sync `~/fleet-boot` on .231 |
 | `rebuild-ask.sh` | .17 | manual (every deploy) | Build + recreate one Ask app stack, health-check, reclaim |
 | `reclaim-space.sh` | .17 (also .231 copy) | called by `rebuild-ask.sh` / `update-images.sh`; manual | Prune all unused build cache + dangling images |
 | `docker-maintenance.sh` | .17 | cron `30 4 * * *` | Conservative daily prune, disk warning, btree `amcheck` |
@@ -58,8 +59,9 @@ identical in `ask-prod`, `ask` and `ask-flow`. The lab stack reached `dev`'s `up
 Not in `fleet-boot/` but part of the same automation: the crawl4ai RAM watchdog
 `~/selfhosted/crawl4ai/memory-watchdog.sh` (.231 cron `*/15`, see
 [Runbooks → crawl4ai](/operations/runbooks#crawl4ai-memory-saturation-slow-retrieval)) and the
-`lan_automation` units on .17/.231 (`fleet-boot.timer`, `fleet-sentinel.timer`,
-`fleet-update.timer`), which live in a separate repository.
+`lan_automation` units on every host (`fleet-boot.service`, started by `fleet-boot.timer` on the
+WSL hosts and enabled at boot on .231; `fleet-sentinel.timer`; `fleet-update.timer`), which live
+in a separate directory (`/home/nightfury/selfhosted/lan_automation`, not a git repository on .17).
 
 ### Nightly / weekly schedule
 
@@ -95,9 +97,26 @@ things that `restart: unless-stopped` cannot fix (`fleet-boot/ask-fleet-boot.sh:
 **Where / trigger.** Deployed as `/home/nightfury/ask-fleet-boot.sh` on .17, .160, .171 and
 .231 and run once per boot by the systemd oneshot `ask-fleet-boot.service`
 (`fleet-boot/ask-fleet-boot.service`: `Type=oneshot`, `RemainAfterExit=yes`,
-`User=nightfury`, `After=docker.service ollama.service network-online.target`). On .17 the
-`lan_automation` `fleet-boot.service` declares `After=ask-fleet-boot.service` and defers Ask
-recovery to it.
+`User=nightfury`, `After=docker.service ollama.service network-online.target`,
+`WantedBy=multi-user.target`). How it is started depends on the platform:
+
+| Host | Unit state | Started by |
+|---|---|---|
+| .231 (bare metal, real `docker.service`) | `enabled` | `multi-user.target` at boot (and `fleet-boot.service`) |
+| .17, .160, .171 (WSL2 + Docker Desktop) | **`disabled`** | `fleet-boot.timer` (`OnBootSec=75s`) → `fleet-boot.service`, which `Wants=` and `After=` `ask-fleet-boot.service` |
+| .171 only (additionally) | — | a host-local `ask-fleet-boot.timer` (`OnBootSec=45s`, enabled, not in this repo and not deployed by `deploy.sh`) also starts the unit after boot. Verified 2026-09-30; the other three hosts have no such timer. A timer is not on the boot path, so it does not break the WSL rule. |
+
+**Why not at boot on WSL.** Docker Desktop attaches its WSL integration only after systemd
+reports boot finished, so a unit in `multi-user.target` that waits for Docker deadlocks the
+boot. It hung Serenity for about 8 minutes on 2026-09-29, after `deploy.sh` had enabled the unit
+everywhere on 2026-09-23. Never enable it (or anything that waits for Docker) at boot on a WSL
+host ([D41](/history/decisions#d41-on-wsl-hosts-nothing-that-waits-for-docker-is-enabled-at-boot),
+[runbook](/operations/runbooks#wsl-host-hangs-at-boot)). The `lan_automation`
+`fleet-boot.service` defers Ask recovery to this unit: its `Wants=` pulls the unit into the same
+transaction, so `After=` really orders the two, and on a WSL host that `Wants=` is also what
+starts the disabled unit at all. Check with `systemctl is-enabled ask-fleet-boot.service`
+(`disabled` on .17/.160/.171, `enabled` on .231) and
+`systemctl show ask-fleet-boot.service -p WantedBy` (only `fleet-boot.service` on a WSL host).
 
 **Args / exit code.** None. Always exits `0` (`fleet-boot/ask-fleet-boot.sh:286`) — failures are
 reported only as log lines (`needs a human`, `STILL UNHEALTHY`, `warm FAILED`). Read them with
@@ -139,24 +158,35 @@ service is never reloaded:
 - The Serenity branch warms `granite4.2:8b`. `README.md` and `keep-warm.sh` named `granite4.1:8b`
   until 2026-09-24 and now agree with the script.
 - Re-run by hand: `sudo systemctl start ask-fleet-boot.service` (or `~/ask-fleet-boot.sh`).
+  Starting a disabled unit by hand is fine; only enabling it at boot is not.
 
 ## `deploy.sh`
 
-**Purpose.** Push `ask-fleet-boot.sh` and `ask-fleet-boot.service` to every host and enable
-the unit. Also syncs the .231-only job scripts.
+**Purpose.** Push `ask-fleet-boot.sh` and `ask-fleet-boot.service` to every host and set the
+unit's boot state **per platform**: enabled on bare metal, left disabled on WSL. Also syncs the
+.231-only job scripts.
 
 **Where / trigger.** Manual, from any worktree on .17. `HOSTS` is
-`192.168.50.17 .160 .171 .231` (`fleet-boot/deploy.sh:15`). A host whose IP appears in
+`192.168.50.17 .160 .171 .231` (`fleet-boot/deploy.sh:26`). A host whose IP appears in
 `hostname -I` is handled locally (`bash -c`) because .17 has no ssh key to itself
-(`:19-26`); the rest go over ssh as `nightfury` with passwordless sudo.
+(`:30-37`); the rest go over ssh as `nightfury` with passwordless sudo.
 
-**Args.** `./deploy.sh` pushes and enables; `./deploy.sh run` also starts the service on each
-host and prints its last 10 journal lines (`:55-59`).
+**Enablement by platform** (`:44-53`, since 2026-09-29). After installing the unit and
+`daemon-reload`, it runs `systemd-detect-virt --container` **on the host**: `wsl` → `systemctl
+disable` and prints `script + unit deployed, left disabled (WSL)`; anything else → `systemctl
+enable` and prints `script + unit deployed, enabled`. The decision is by platform, not IP, so a
+new WSL host is safe by default. Before this change the script enabled the unit on every host,
+which deadlocked Serenity's boot ([D41](/history/decisions#d41-on-wsl-hosts-nothing-that-waits-for-docker-is-enabled-at-boot)).
+A copy of `deploy.sh` older than prod `bbf936f8` (lab `8d59d2f1`, staging `d0fdba20`) still
+enables it everywhere: don't run one.
+
+**Args.** `./deploy.sh` pushes (and enables on bare metal); `./deploy.sh run` also starts the
+service on each host and prints its last 10 journal lines (`:70-74`).
 
 **Exit code.** `set -euo pipefail` — the first failing host aborts the loop non-zero; later
 hosts are not updated.
 
-**The .231 `~/fleet-boot` sync** (`:44-54`). .231 has no Ask worktree any more (the old
+**The .231 `~/fleet-boot` sync** (`:54-69`). .231 has no Ask worktree any more (the old
 checkouts were deleted 2026-09-23), yet it still runs jobs for the public SearXNG and
 degoog stacks. `deploy.sh` tars `rotate-daily.sh rotate-mullvad.sh update-public-search.sh
 update-images.sh reclaim-space.sh check-crawl4ai-version.sh` plus
@@ -332,14 +362,14 @@ hostname is not in Mullvad's list; `0` otherwise.
 **Purpose.** Pull newer images for the *sidecars* of a stack, recreate with the VPN overlay,
 restart the Ask app if a sidecar changed under it, verify, then reclaim. `--ignore-buildable`
 skips Ask's own image (built from source), so this never updates the app code
-(`fleet-boot/update-images.sh:145-154`).
+(`fleet-boot/update-images.sh:145-163`).
 
 **Args.** `./update-images.sh [--dry-run] [ask-prod|ask-staging|ask-lab|degoog|public-searxng|all]`.
 The `ask-lab` entry (added 2026-09-24, `fleet-boot/update-images.sh:52,64,74`) recreates the lab
 from its own `ask-flow` worktree with project `ask-stack-lab` and the lab VPN overlay. It exists
 so that lab experiments run on the same sidecar versions they will later be ported onto.
 
-**App restart after a sidecar recreate** (since 2026-09-27, `:81-132`, `:156-187`). `up -d`
+**App restart after a sidecar recreate** (since 2026-09-27, `:81-132`, `:170-201`). `up -d`
 recreates any sidecar whose image changed (redis, postgres, searxng, gluetun, kokoro) but leaves
 the running `ask` container alone, and the app keeps long-lived connections to those sidecars.
 On 2026-09-27 a recreated redis wedged the app's Redis clients and every balanced/quality first
@@ -359,7 +389,7 @@ attachments, while a recreate is what can strand prod off `ask-stack_default`
 drops any in-flight turn, which at 04:30 on a Sunday is acceptable. Postgres is a sidecar too,
 so a new `pgvector` image also restarts the app.
 
-**Verification** (`:189-233`): after a 20 s wait, each stack's URLs must return 200 (prod
+**Verification** (`:203-247`): after a 20 s wait, each stack's URLs must return 200 (prod
 `:3738` + its SearXNG UI `:3741`; staging `:3739` + `:3740`; lab `:3742` + `:3743`; degoog
 `:4444` + `nogoog.hbqnexus.win`; public SearXNG `:8127` + `search.hbqnexus.win`). For an Ask
 stack it then runs the **search-path Redis probe**: `docker exec <app> node -e …` fetches
@@ -371,11 +401,19 @@ verified`; anything else → `FAIL` and `<stack>:search-redis`. Finally, if the 
 gluetun, its egress must not be the residential IP. The homepage alone proves nothing about
 search: on 2026-09-27 it answered 200 while every first search hung.
 
-**Exit codes.** `0` all verified (or dry run); `1` any `nodir` / `up` / `app-restart` /
-`app-health` / URL / `search-redis` / `tunnel` failure, listed as `FAILED: …`. A failed
-**pull** is not detected: the pull's exit status is never checked (`:154`), so the stack is
-recreated from the images it already has and can still report success
+**A failed pull** (since 2026-09-29, `:153-168`). The pull runs as
+`docker compose … pull --ignore-buildable | grep … | sed …`, and the script reads compose's own
+exit status from `PIPESTATUS[0]` right after it (the pipeline's status would be `grep`'s, which
+is 1 on empty output). A non-zero status prints
+`   FAIL pull (docker compose pull exited N) — continuing with the images already present` and
+records `<stack>:pull`. The stack still goes through recreate and verification: images that did
+pull are applied, a failed one leaves the old image in place, and the checks confirm the stack
+still serves. Later stacks still run. Before this fix the status was never checked, so the lab's
+pull failure on 2026-09-27 ended with `All stacks updated and verified.`
 ([known issue](/history/known-issues#image-pull-failures-are-swallowed-by-update-images-sh)).
+
+**Exit codes.** `0` all verified (or dry run); `1` any `nodir` / `pull` / `up` / `app-restart` /
+`app-health` / URL / `search-redis` / `tunnel` failure, listed as `FAILED: …` (`:263-267`).
 
 **Does updating lose settings?** No — everything authored is on a bind mount or named
 volume; only anonymous volumes holding regenerated config/cache are discarded
@@ -405,8 +443,9 @@ restarts the app container when one of those changed under it (see above). Accep
 - `update-images.sh` runs a local `docker compose`, which is why each host has its own wrapper.
 - **Read the log after each run.** Per stack, expect `ok` for both URLs, for
   `search redis probe` and for the tunnel, and either `restarting ask…` + `healthy after
-  restart` or `no sidecar changed`. Also look under `-- pulling` for errors such as
-  `failed commit on ref` (2026-09-27, lab): a failed pull is not flagged.
+  restart` or `no sidecar changed`. A failed pull shows as `FAIL pull (docker compose pull
+  exited N)` and `FAILED: <stack>:pull` (since 2026-09-29; before that a failed pull, such as
+  the lab's `failed commit on ref` on 2026-09-27, was not flagged).
 
 ## `update-public-search.sh` + `fleet-update-public-search.{service,timer}`
 
@@ -534,6 +573,9 @@ or failed login, `0` otherwise.
 2. Scheduled jobs on .17 pick up the change once `ask-prod` is on the new `dev` — no rebuild.
 3. If you changed `ask-fleet-boot.sh`, its unit, or any file in the .231 sync list, run
    `./deploy.sh` (optionally `run`) so the hosts get the new copy.
-4. New cron entries: keep them pointing at `…/ask-prod/fleet-boot/`, export a full `PATH`
+4. Never add a systemd unit that waits for Docker to `multi-user.target` on a WSL host (.17,
+   .160, .171): it deadlocks the boot. Start it from a timer after boot, or pull it in from
+   `fleet-boot.service` ([D41](/history/decisions#d41-on-wsl-hosts-nothing-that-waits-for-docker-is-enabled-at-boot)).
+5. New cron entries: keep them pointing at `…/ask-prod/fleet-boot/`, export a full `PATH`
    (cron's is near-empty — see `fleet-boot/rotate-daily.sh:28`), log under
    `~/.local/state/fleet-boot/`, and bound the log with a `tail -n` trim.

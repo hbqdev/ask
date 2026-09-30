@@ -35,7 +35,7 @@ possible but needs its own Postgres/Redis and does not reach the fleet the same 
 | `bun run chat` | CLI client for `/api/chat` (`scripts/chat-cli.ts`; localhost only; needs a session cookie in `.env.local` for authed stacks). |
 | `bun run eval` / `eval:mine` | Answer-quality eval harness (`scripts/eval/run-eval.ts`) and question mining from prod history. See [Testing & QA](/operations/testing-qa). |
 | `bun run backfill:file-keys` | One-off backfill of private file object keys (`scripts/backfill-file-object-keys.ts`). |
-| `bun run clean:narration` | One-off cleanup of stored narration preambles (`scripts/clean-narration-preambles.ts`). |
+| `bun run clean:narration` | Older per-part preamble cleaner (`scripts/clean-narration-preambles.ts`). **Do not use it on stored history**: it rewrites user messages too and skips recall. Use `scripts/backfill-narration.sh <env>` ([evaluation](/operations/evaluation#narration-backfill)). |
 
 ::: warning `bun test` is the wrong command
 `bun test` runs bun's built-in test runner, which ignores `vitest.config.mts` (aliases,
@@ -130,7 +130,7 @@ generated [Env flags reference](/reference/env-flags).
 - `NEXT_PUBLIC_*` values are inlined into the client bundle by `next build`. Changing
   one in `.env` does nothing until the image is **rebuilt** (`rebuild-ask.sh`). Setting
   one in a compose `environment:` block is too late for the bundle (see the comment in
-  `docker-compose.lab.yaml:186-191`).
+  `docker-compose.lab.yaml:199-204`).
 - Server-side variables are read at container start. After editing `.env`, recreate
   the container: `docker compose … up -d --force-recreate ask` (or use the Model Manager
   for prod — see [Deploy](/operations/deploy#env-only-changes)).
