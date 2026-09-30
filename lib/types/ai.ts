@@ -4,11 +4,16 @@ import type { InferUITool, UIMessage as AIMessage } from 'ai'
 import { fetchTool } from '@/lib/tools/fetch'
 import { askQuestionTool } from '@/lib/tools/question'
 import { searchTool } from '@/lib/tools/search'
-import { createTodoTools, type TodoItem } from '@/lib/tools/todo'
+import {
+  createTodoTools,
+  type TodoItem,
+  type TodoItemInput
+} from '@/lib/tools/todo'
 import type { SearchMode } from '@/lib/types/search'
 
-// Re-export TodoItem for external use
-export type { TodoItem }
+// Re-export TodoItem (returned) and TodoItemInput (as the model sends it,
+// id/timestamp optional) for external use
+export type { TodoItem, TodoItemInput }
 
 // Define metadata type for messages
 export interface UIMessageMetadata {

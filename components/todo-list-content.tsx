@@ -6,11 +6,13 @@ import {
 } from '@tabler/icons-react'
 
 import { toPublicErrorPayload } from '@/lib/errors/public-error'
-import type { TodoItem } from '@/lib/types/ai'
+import type { TodoItemInput } from '@/lib/types/ai'
 import { cn } from '@/lib/utils'
 
 export type TodoListContentProps = {
-  todos?: TodoItem[]
+  // The input shape: a streamed todoWrite input may still lack the
+  // server-filled id/timestamp (a returned TodoItem always has them).
+  todos?: TodoItemInput[]
   message?: string
   summary?: string
   completedCount?: number
@@ -36,7 +38,7 @@ export function TodoListContent({
     completedCount ?? todos.filter(t => t.status === 'completed').length
   const total = totalCount ?? todos.length
 
-  const getStatusIcon = (status: TodoItem['status']) => {
+  const getStatusIcon = (status: TodoItemInput['status']) => {
     switch (status) {
       case 'completed':
         return <Check className="h-4 w-4 text-green-600 flex-shrink-0" />
