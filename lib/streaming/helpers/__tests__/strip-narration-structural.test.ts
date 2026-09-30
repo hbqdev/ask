@@ -197,6 +197,45 @@ describe('other languages', () => {
   })
 })
 
+describe('glued seam before a line-start heading (persist precedence == live)', () => {
+  // `narration.## A …\n## B …`: the phrase rule alone takes everything up to
+  // `\n## B` as the preamble, so section A went with it. The seam comes
+  // first in the text and decides, exactly as in smoothAndStripNarration.
+  const SECTION_A = '## Overview\n\nA short opening section of the answer.'
+  const SECTION_B = '\n\n## Details' + VI_BODY
+
+  it('cuts at the glued seam and keeps the first section', () => {
+    const text = 'I have enough info. Let me write it.' + SECTION_A + SECTION_B
+    expect(stripNarrationPreamble(text)).toBe(SECTION_A + SECTION_B)
+  })
+
+  it('keeps the whole text when the answer does not outweigh the glued prefix', () => {
+    // Live holds this to text-end and flushes it unchanged; persist must not
+    // fall back to the phrase rule and cut at `## Details` (eating Overview).
+    const text =
+      'I have enough info. ' +
+      'I will now go through each source one by one. '.repeat(8) +
+      'Done.## Overview\n\nShort.\n\n## Details\n\nAlso short.'
+    expect(stripNarrationPreamble(text)).toBe(text)
+  })
+
+  it('still cuts an English preamble at a proper heading when no seam precedes it', () => {
+    const answer = '## Overview\n\nBody.## Glued later inside the answer'
+    expect(stripNarrationPreamble('I have enough info.\n\n' + answer)).toBe(
+      answer
+    )
+  })
+
+  it('is idempotent and agrees at message level', () => {
+    const text = 'I have enough info. Let me write it.' + SECTION_A + SECTION_B
+    const once = stripNarrationPreamble(text)
+    expect(stripNarrationPreamble(once)).toBe(once)
+    expect(
+      texts(stripNarrationFromMessage(assistant([{ type: 'text', text }])))
+    ).toEqual([SECTION_A + SECTION_B])
+  })
+})
+
 describe('false-positive guards', () => {
   it('keeps a real intro paragraph before a proper "\\n\\n## " heading, in any language', () => {
     const en =
