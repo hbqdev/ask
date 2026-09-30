@@ -1181,7 +1181,10 @@ export async function createChatStreamResponse(
                   'assistant',
                   (cleanedMessage?.parts ?? []).map(p => ({
                     type: p.type,
-                    text: (p as any).text ?? null
+                    text: (p as any).text ?? null,
+                    // Lets the indexer strip this turn's own tool call ids
+                    // when the answer mentions them bare (and nothing else).
+                    toolCallId: (p as any).toolCallId ?? null
                   }))
                 )
                 if (answerText?.trim() && cleanedMessage?.id) {
