@@ -65,15 +65,24 @@ describe('resolveCitationReminderMinToolCalls', () => {
 
 describe('resolveCitationReminderMode', () => {
   it('is none below the threshold and answer-step from it', () => {
-    expect(resolveCitationReminderMode({ citableToolCalls: 7, env: {} })).toBe(
-      'none'
-    )
-    expect(resolveCitationReminderMode({ citableToolCalls: 8, env: {} })).toBe(
-      'answer-step'
-    )
-    expect(resolveCitationReminderMode({ citableToolCalls: 18, env: {} })).toBe(
-      'answer-step'
-    )
+    expect(
+      resolveCitationReminderMode({
+        citableToolCalls: 7,
+        env: { CITATION_REMINDER: 'on' }
+      })
+    ).toBe('none')
+    expect(
+      resolveCitationReminderMode({
+        citableToolCalls: 8,
+        env: { CITATION_REMINDER: 'on' }
+      })
+    ).toBe('answer-step')
+    expect(
+      resolveCitationReminderMode({
+        citableToolCalls: 18,
+        env: { CITATION_REMINDER: 'on' }
+      })
+    ).toBe('answer-step')
   })
 
   it('appends directly on the answer-deadline step whenever something is citable', () => {
@@ -81,14 +90,14 @@ describe('resolveCitationReminderMode', () => {
       resolveCitationReminderMode({
         citableToolCalls: 1,
         answerDeadlinePassed: true,
-        env: {}
+        env: { CITATION_REMINDER: 'on' }
       })
     ).toBe('append')
     expect(
       resolveCitationReminderMode({
         citableToolCalls: 20,
         answerDeadlinePassed: true,
-        env: {}
+        env: { CITATION_REMINDER: 'on' }
       })
     ).toBe('append')
     // Nothing to cite: no reminder, deadline or not.
@@ -96,9 +105,17 @@ describe('resolveCitationReminderMode', () => {
       resolveCitationReminderMode({
         citableToolCalls: 0,
         answerDeadlinePassed: true,
-        env: {}
+        env: { CITATION_REMINDER: 'on' }
       })
     ).toBe('none')
+  })
+
+  it('is OFF by default (unset) — enable only with CITATION_REMINDER=on', () => {
+    expect(isCitationReminderEnabled({})).toBe(false)
+    expect(isCitationReminderEnabled({ CITATION_REMINDER: 'on' })).toBe(true)
+    expect(resolveCitationReminderMode({ citableToolCalls: 30, env: {} })).toBe(
+      'none'
+    )
   })
 
   it('CITATION_REMINDER=off disables it entirely', () => {
@@ -114,11 +131,14 @@ describe('resolveCitationReminderMode', () => {
       })
     ).toBe('none')
     expect(isCitationReminderEnabled(env)).toBe(false)
-    expect(isCitationReminderEnabled({})).toBe(true)
+    expect(isCitationReminderEnabled({})).toBe(false)
   })
 
   it('follows CITATION_REMINDER_MIN_TOOL_CALLS', () => {
-    const env = { CITATION_REMINDER_MIN_TOOL_CALLS: '12' }
+    const env = {
+      CITATION_REMINDER: 'on',
+      CITATION_REMINDER_MIN_TOOL_CALLS: '12'
+    }
     expect(resolveCitationReminderMode({ citableToolCalls: 11, env })).toBe(
       'none'
     )

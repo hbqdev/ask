@@ -172,6 +172,7 @@ afterEach(() => {
 
 describe('createResearcher — citation reminder on the answer step', () => {
   it('research steps never see it; the answer step is re-run with it, once', async () => {
+    vi.stubEnv('CITATION_REMINDER', 'on')
     vi.stubEnv('CITATION_REMINDER_MIN_TOOL_CALLS', '3')
     const { steps, text } = await runTurn()
 
@@ -212,6 +213,7 @@ describe('createResearcher — citation reminder on the answer step', () => {
   it('on the answer-deadline step the reminder is appended directly (no re-run)', async () => {
     // Past the deadline from the 2nd model call on: steps from 2 have their
     // tools withdrawn, so each is an answer step by construction.
+    vi.stubEnv('CITATION_REMINDER', 'on')
     state.deadlineAfterCall = 2
     await runTurn()
     expect(reminderCount(state.prompts[0])).toBe(0)

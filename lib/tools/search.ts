@@ -317,7 +317,12 @@ async function searchExpansionVariants(
 // Env-overridable via SEARCH_ROUNDS_MAX / SEARCH_ROUNDS_MAX_QUALITY. Pure +
 // exported so the budget resolution is unit-testable without a tool context.
 const SEARCH_ROUNDS_MAX_DEFAULT = 3
-const SEARCH_ROUNDS_MAX_QUALITY_DEFAULT = 5
+// Quality 5 -> 10 (lab A/Bs 2026-09-29/30): cap 5 refused searches on every
+// quality turn; with fetch-past-cap allowed, cap 10 vs 5 showed no measurable
+// latency or quality difference and ties the cap-15 answers. 10 refused none of
+// the real searches the cap-15 arm made (7/5/10) once dedup skips stopped
+// counting.
+const SEARCH_ROUNDS_MAX_QUALITY_DEFAULT = 10
 
 export function resolveSearchRoundsBudget(searchMode?: SearchMode): number {
   if (searchMode === 'quality') {
