@@ -17,6 +17,7 @@ import {
   normalizeFetchUrls
 } from '@/lib/schema/fetch'
 import { SearchResults as SearchResultsType } from '@/lib/types'
+import type { SearchMode } from '@/lib/types/search'
 import {
   addCitationHandles,
   isCitationHandlesEnabled
@@ -35,6 +36,8 @@ import { retryWithBackoff } from '@/lib/utils/retry'
 import { assertUrlAllowed } from '@/lib/utils/ssrf-guard'
 import { logToolPayload } from '@/lib/utils/usage-logging'
 import { withDeadline } from '@/lib/utils/with-deadline'
+
+import { buildFetchLimitNotice, resolveFetchRoundsBudget } from './fetch-budget'
 
 const execFileAsync = promisify(execFile)
 
@@ -649,9 +652,22 @@ export type FetchToolOptions = {
   // here can never affect the fetch. Undefined (the default instance, the
   // url-rag driver) leaves fetch untimed exactly as before.
   onToolTiming?: (kind: 'fetch', stages: Record<string, number>) => void
+  // The turn's search tier. Present only on the per-turn instance the
+  // researcher builds; it selects the per-turn fetch cap
+  // (resolveFetchRoundsBudget: quality 8 calls by default, other modes
+  // uncapped unless FETCH_ROUNDS_MAX is set). Undefined (the default instance,
+  // the url-rag driver) is never capped: that instance is shared by the whole
+  // process, so a per-turn counter on it would trip permanently.
+  searchMode?: SearchMode
+  // Telemetry join key for the [fetch] cap log line.
+  chatId?: string
 }
 
 export function createFetchTool(options?: FetchToolOptions) {
+  // Per-turn fetch-call counter. createFetchTool is invoked once per turn by
+  // createResearcher, so this closure is per-turn state, like the search tool's
+  // round counter.
+  let fetchRounds = 0
   return tool({
     description:
       'Fetch content from any URL — HTML pages, JavaScript-rendered pages, bot-protected pages, and PDFs are all handled automatically via an internal fallback chain, so there is no need to choose a fetch strategy. The "type" param is accepted for backward compatibility but both values behave identically. For YouTube URLs (youtube.com/watch, youtube.com/shorts, youtu.be), the tool fetches the video\'s transcript/captions instead of the HTML page, so the video\'s actual spoken content becomes available to cite.',
@@ -670,6 +686,31 @@ export function createFetchTool(options?: FetchToolOptions) {
       // `fetched_<slug>`, or the page URL itself). Echo it like search does.
       const toolCallId = context?.toolCallId || undefined
       const urls = normalizeFetchUrls(url)
+
+      // Per-turn fetch cap (lib/tools/fetch-budget.ts). Past the budget the
+      // call returns a NON-error result with an instruction instead of
+      // fetching, the same shape the answer deadline's refusal uses. Checked
+      // before the "fetching" state so a refused call never looks like a fetch
+      // in progress, and outside the try below, so it reports no fetch_ms.
+      const fetchBudget =
+        options?.searchMode !== undefined
+          ? resolveFetchRoundsBudget(options.searchMode)
+          : null
+      if (fetchBudget !== null && fetchRounds >= fetchBudget) {
+        console.log(
+          `[fetch] fetch cap reached (${fetchRounds + 1} > ${fetchBudget}, mode=${options?.searchMode}, chatId=${options?.chatId ?? '-'}) — refusing ${urls.length} url(s)`
+        )
+        yield {
+          state: 'complete' as const,
+          results: [],
+          query: '',
+          images: [],
+          fetchLimitReached: true,
+          notice: buildFetchLimitNotice(fetchBudget)
+        }
+        return
+      }
+      fetchRounds += 1
 
       // Yield initial fetching state. `url` echoes the caller's shape so the UI
       // and persisted messages keep working for single-url calls.
