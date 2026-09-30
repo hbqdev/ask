@@ -142,6 +142,10 @@ services:
       # (e.g. SEARCH_ROUNDS_MAX=2 docker compose ... up -d --force-recreate ask).
       SEARCH_ROUNDS_MAX: ${SEARCH_ROUNDS_MAX:-3}
       SEARCH_ROUNDS_MAX_QUALITY: ${SEARCH_ROUNDS_MAX_QUALITY:-5}
+      # Per-turn cap on `fetch` calls (lib/tools/fetch-budget.ts). Empty = the
+      # code default: quality 8 calls, other modes uncapped. Past the search cap
+      # the quality notice still allows fetching pages already found.
+      FETCH_ROUNDS_MAX_QUALITY: ${FETCH_ROUNDS_MAX_QUALITY:-}
       # Shell-overridable for A/B arms (unset = on; only `off` disables).
       RECALL_ENABLED: ${RECALL_ENABLED:-}
       MEMORY_ENABLED: ${MEMORY_ENABLED:-}
@@ -162,6 +166,12 @@ services:
       # arms against ONE build:
       # CITATION_HANDLES=off docker compose ... up -d --force-recreate ask.
       CITATION_HANDLES: ${CITATION_HANDLES:-}
+      # Citation reminder on the answer step of a long research loop
+      # (lib/agents/citation-reminder.ts). Empty = on (only "off" disables);
+      # threshold empty = 8 search/fetch calls. Shell-overridable for A/B arms:
+      # CITATION_REMINDER=off docker compose ... up -d --force-recreate ask.
+      CITATION_REMINDER: ${CITATION_REMINDER:-}
+      CITATION_REMINDER_MIN_TOOL_CALLS: ${CITATION_REMINDER_MIN_TOOL_CALLS:-}
       # Pin the image EDIT model (registry.ts pickPinnedModel) to one consistent,
       # strong editor instead of round-robining the whole pool — edits kept
       # drifting in style/identity/resolution turn-to-turn. Generation still
