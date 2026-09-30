@@ -22,8 +22,8 @@ describe('resolveSearchRoundsBudget', () => {
     expect(resolveSearchRoundsBudget('speed')).toBe(3)
   })
 
-  it('gives quality a higher default ceiling of 5 rounds', () => {
-    expect(resolveSearchRoundsBudget('quality')).toBe(5)
+  it('gives quality a higher default ceiling of 10 rounds', () => {
+    expect(resolveSearchRoundsBudget('quality')).toBe(10)
   })
 
   it('honors SEARCH_ROUNDS_MAX for non-quality modes', () => {
@@ -31,7 +31,7 @@ describe('resolveSearchRoundsBudget', () => {
     expect(resolveSearchRoundsBudget('balanced')).toBe(2)
     expect(resolveSearchRoundsBudget('speed')).toBe(2)
     // Quality has its OWN knob and is unaffected by the general one.
-    expect(resolveSearchRoundsBudget('quality')).toBe(5)
+    expect(resolveSearchRoundsBudget('quality')).toBe(10)
   })
 
   it('honors SEARCH_ROUNDS_MAX_QUALITY only for quality mode', () => {
