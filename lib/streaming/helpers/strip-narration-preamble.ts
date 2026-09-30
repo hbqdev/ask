@@ -20,8 +20,15 @@ const NARRATION_STARTERS: RegExp[] = [
   // decides it has finished researching: "I have comprehensive data now", "I
   // now have good coverage", "I have detailed specs", "I've gathered enough".
   // Observed live from deepseek-v4-flash:cloud on round-capped/single-pass
-  // turns, emitted in the text part before the final `## ` heading.
-  /^(?:i (?:now )?have (?:now )?(?:enough|comprehensive|sufficient|solid|good|detailed|adequate|complete|thorough|plenty|everything|all\b|the\b)|i'?ve (?:now )?(?:got|gathered) (?:enough|comprehensive|sufficient|good|solid|plenty|all\b|the\b))/i,
+  // turns, emitted in the text part before the final `## ` heading. Also "I
+  // have converging evidence from the official docs…" (prod, 2026-09-08).
+  /^(?:i (?:now )?have (?:now )?(?:enough|comprehensive|sufficient|solid|good|detailed|adequate|complete|thorough|plenty|everything|all\b|the\b|converging|convergent|corroborating)|i'?ve (?:now )?(?:got|gathered) (?:enough|comprehensive|sufficient|good|solid|plenty|all\b|the\b))/i,
+  // "I'm ready to write the final answer." — the model announcing the answer
+  // it is about to write (prod, 2026-09-08). The object must be THE/MY
+  // answer/response/reply, so a user-facing offer ("I'm ready to help", "I'm
+  // ready to write your cover letter", "ready to answer any follow-ups") is
+  // never a match.
+  /^(?:(?:ok(?:ay)?|alright|now|so),?\s+)?i(?:['’]m| am) (?:now |finally )?ready to (?:write|compose|draft|synthesize|put together|deliver|give|provide) (?:up )?(?:the|my) (?:final |full |complete |comprehensive )?(?:answer|response|reply)\b/i,
   /^(?:i'?ll research|let me research|i'?ll (?:dig|look) into|i'?ve (?:finished|completed) (?:my|the) research)/i,
   /^(?:i (?:will|shall) now|now (?:i will|i'll|let me))/i,
   /^(?:let me (?:now )?(?:write|synthesize|construct|craft|provide|put together|consolidate|refine|compile))/i,
@@ -385,21 +392,40 @@ export function looksLikeInterStepChatter(text: string): boolean {
 }
 
 /**
- * Persist/render-time cleanup of a single text part: the English phrase and
- * think-tag rules first (unchanged behaviour), then the language-agnostic
+ * True when a qualifying glued seam (`findGluedPreambleSeam`) comes BEFORE
+ * the first line-start heading — the precedence the live transform
+ * (`smoothAndStripNarration`) applies. In `narration.## A …\n## B …` the
+ * seam, not `\n## B`, is where the answer begins: the phrase rule would take
+ * everything up to `## B` as the preamble and drop section A with it.
+ */
+function gluedSeamLeads(text: string): boolean {
+  const glued = findGluedPreambleSeam(text)
+  if (!glued) return false
+  const heading = findHeadingMatch(text)
+  return !heading || glued.seam < heading.index + heading.markerLength
+}
+
+/**
+ * Persist/render-time cleanup of a single text part. Leaked think-tag
+ * reasoning goes first. Then, exactly as the live transform decides: a glued
+ * seam that precedes the first line-start heading is decided by the glued
+ * rule ALONE (cut there, or keep the text) — never by the phrase rule, which
+ * would cut at the later heading and eat the glued first section. Otherwise
+ * the English phrase rule (heading-anchored), then the language-agnostic
  * glued-seam cut on what remains. Idempotent.
  */
 export function stripNarrationPreamble(text: string): string {
   if (!text || typeof text !== 'string') return text
-  return stripGluedHeadingPreamble(stripPhraseAnchoredPreamble(text))
-}
-
-function stripPhraseAnchoredPreamble(text: string): string {
   // First remove any leaked think-tag reasoning. This also handles the
   // no-heading case (reasoning closed by a stray tag with the answer after
   // it) that the heading-anchored logic below cannot reach.
   const cleaned = stripStrayThinkTags(text)
+  if (gluedSeamLeads(cleaned)) return stripGluedHeadingPreamble(cleaned)
+  return stripGluedHeadingPreamble(stripPhraseAnchoredPreamble(cleaned))
+}
 
+/** The heading-anchored English phrase rule, on think-tag-cleaned text. */
+function stripPhraseAnchoredPreamble(cleaned: string): string {
   // No heading at all → could be a refusal, short factual answer, or
   // single-line response. Leave it alone.
   const headingMatch = findHeadingMatch(cleaned)
