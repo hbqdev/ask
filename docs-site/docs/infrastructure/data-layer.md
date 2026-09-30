@@ -184,6 +184,12 @@ context. Every one of them sits behind a bearer token:
 - `app/api/ingest/complete` and `app/api/ingest/file/[id]`, where the worker reads any user's file
 - `lib/memory/recall-backfill.ts`, the cross-user recall re-index (cron secret)
 
+Outside the app, the maintenance script `scripts/backfill-narration.ts` also runs as the owner
+(it refuses to start with `DATABASE_RESTRICTED_URL` set or as a role that neither owns `parts` nor
+bypasses RLS). It runs in a throwaway container started by `scripts/backfill-narration.sh`, which
+reads `DATABASE_URL` from the env's running app container without printing it
+([evaluation › narration backfill](/operations/evaluation#narration-backfill)).
+
 If `DATABASE_RESTRICTED_URL` is unset, `db` falls back to `DATABASE_URL` and `dbAdmin` **is**
 `db`. RLS is then bypassed everywhere. The **fail-fast guard** in `lib/db/index.ts` refuses to
 serve (`process.exit(1)`) when `ENABLE_AUTH=true` and the runtime role has `rolsuper` or

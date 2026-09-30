@@ -28,13 +28,15 @@ probe is unavoidable, send one query, reuse it, and tell the team first.
 | `[latency]` | `LatencyTracker.emit` (`lib/streaming/latency-tracker.ts`), called from `onFinish` in `lib/streaming/create-chat-stream-response.ts` | chat turn | yes |
 | `[latency:search]` | `StageTimer` (`lib/telemetry/stage-timer.ts`) in `app/api/advanced-search/route.ts` **or** in `lib/tools/search.ts` | search call | yes |
 | `[latency:classify]` | `lib/agents/query-classifier-telemetry.ts` | classifier call | yes |
-| `[search] round cap reached (N > B, mode=…)` | `lib/tools/search.ts:410-412` | capped search | no (stdout only). The matching `[latency:search] kind:"round-cap"` line is stored |
+| `[search] round cap reached (N > B, mode=…) — no more searches, fetch of found URLs still allowed` (quality, or any mode with a fetch cap) / `… — instructing model to answer from gathered sources` (other modes) | `lib/tools/search.ts:456-458` | capped search | no (stdout only). The matching `[latency:search] kind:"round-cap"` line is stored |
+| `[fetch] fetch cap reached (N > B, mode=…, chatId=…) — refusing K url(s)` | `lib/tools/fetch.ts:700-702` | `fetch` call past the per-turn fetch cap (quality: `FETCH_ROUNDS_MAX_QUALITY`, 8; since 2026-09-30) | no (stdout only). The refused call has no `fetch_ms` |
+| `[citation-reminder] {"chatId","event":"armed","mode","step","citableToolCalls"}` / `{…,"event":"answer-step-rerun","detect_ms","aborted_text_chars"}` | `lib/agents/researcher.ts:1120-1122`, `:1009-1011` | only with `CITATION_REMINDER=on` (off in every env): the first step that gets the reminder (`mode` `answer-step` or `append`), and each answer step that was aborted and re-run with it | no |
 | `[crop-pos]`, `[cite-urls]` | `lib/search/crop-position.ts`, `create-chat-stream-response.ts` | advanced search / turn (only when `SEARCH_CROP_POSITION_SHADOW=true`) | no |
 | `[stop] {outcome}` | `create-chat-stream-response.ts` | user-stopped turn (`partial_saved` / `nothing_to_save` / `stale_skipped`) | no |
 | `[stall-suspect]` | `LatencyTracker.emit` | aborted turn that produced no text after ≥120s of silence (the signature of a provider stall, **or of a tool that never returned**: see [aborted turns](#aborted-turns-provider-stall-or-hung-tool)) | no |
-| `[search] advanced-search timed out (phase=…, limit=…, waited=…, mode=…) — falling back to basic SearXNG for "<query>"` | `lib/tools/search.ts:1020-1022` | first search whose call to `/api/advanced-search` hit its headers or total deadline (since 2026-09-27) | no (stdout only). The matching `[latency:search] kind:"advanced-fallback"` line is stored |
+| `[search] advanced-search timed out (phase=…, limit=…, waited=…, mode=…) — falling back to basic SearXNG for "<query>"` | `lib/tools/search.ts:1070-1072` | first search whose call to `/api/advanced-search` hit its headers or total deadline (since 2026-09-27) | no (stdout only). The matching `[latency:search] kind:"advanced-fallback"` line is stored |
 | `[redis:<label>] <error> — commands fail fast until it reconnects` / `[redis:<label>] reconnected` / `[redis:<label>] dropping client (<reason>); will rebuild` | `lib/redis/local-redis.ts:122-128`, `:239` | a local Redis client losing, regaining or discarding its connection; logged once per change, not per retry (since 2026-09-27). Labels: `advanced-search`, `basic-search-cache`, `brave-budget`, `ingest-heartbeat`, `imagegen-budget`, `imagegen-retry`, `imagegen-rotation` | no |
-| `[Researcher] always-search: step 0 forced to search "<first 80 chars of the query>" (turnMode=…, mode=…)` / `…the user supplied the source (url \| attachment-only \| attachment-reference) — first step not forced…` / `…nothing searchable in the resolved query…` | `lib/agents/researcher.ts:965-977` | research turn with `ALWAYS_SEARCH` on (logged-in **and** guest) | no. Guest turns have no `[latency]` line, so this is their only record |
+| `[Researcher] always-search: step 0 forced to search "<first 80 chars of the query>" (turnMode=…, mode=…)` / `…the user supplied the source (url \| attachment-only \| attachment-reference) — first step not forced…` / `…nothing searchable in the resolved query…` | `lib/agents/researcher.ts:1027-1039` | research turn with `ALWAYS_SEARCH` on (logged-in **and** guest) | no. Guest turns have no `[latency]` line, so this is their only record |
 | `[search-dedup]`, `[search-expansion]`, `[advanced-search] crawl4ai enriched X/Y…`, `[Researcher] <Mode> mode: maxSteps=…` | various | event | no |
 
 Read stdout with `docker logs <container>`. The containers are `ask` (prod),
@@ -214,11 +216,14 @@ the search tool emitted it** (a basic, speed, expansion, round-cap or advanced-f
 | *(absent)* | normal basic search, or a `type:"general"` Brave+SearXNG search | `provider` (`searxng`/`brave`), `depth`, `cache` hit/miss, `search_ms`, `variant_wait_ms`, `variant_found`, `variant_added`, `merged` (`brave+searxng`, …), `returned`, `images`, `videos`, `error` |
 | `expansion` | the classifier's variants, first search only | `variants`, `search_ms` (the slowest variant; they run concurrently), `cache_misses`, `failed`, `returned` |
 | `speed-ollama` | speed-mode fast path | `provider:"ollama-web"`, `search_ms`, `rerank_ms`, `passages`, `returned`, `fallthrough` (`empty`/`error` when it fell back to SearXNG), `rerank_error` |
-| `round-cap` | a search call that went over the per-turn budget | `search_round`, `search_round_budget`, `search_round_capped:true`, `total_ms:0` |
+| `round-cap` | a search call that went over the per-turn budget | `search_round` (the attempted round), `search_round_budget`, `search_round_capped:true`, `fetch_allowed` (since 2026-09-30: `true` when the mode has a fetch cap, so the notice still allowed fetching this turn's URLs; quality by default), `total_ms:0` |
 | `advanced-fallback` | since 2026-09-27: the first search's call to `/api/advanced-search` timed out and the tool ran a basic SearXNG search instead ([pipeline](/search/pipeline#advanced-search-deadline-and-fallback)) | `depth:"basic"`, `provider`, `advanced_timeout` (`headers` = no response headers within `ADVANCED_SEARCH_HEADERS_TIMEOUT_MS`, 20 s; `total` = not finished within `ADVANCED_SEARCH_TIMEOUT_MS`, 180 s), `advanced_wait_ms` (how long it waited), then the usual `cache`, `search_ms`, `returned`, `images`, `variant_*` |
 
-Round-cap example: `[latency:search] {"chatId":"…","provider":"none","kind":"round-cap","search_round":4,"search_round_budget":3,"search_round_capped":true,"total_ms":0}`,
+Round-cap example: `[latency:search] {"chatId":"…","provider":"none","kind":"round-cap","search_round":4,"search_round_budget":3,"search_round_capped":true,"fetch_allowed":false,"total_ms":0}`,
 with the stdout line `[search] round cap reached (4 > 3, mode=balanced) — instructing model to answer from gathered sources`.
+On a quality turn the budget is 10 and the line ends `— no more searches, fetch of found URLs still allowed`.
+Only a search that actually runs uses a round: a `[search-dedup] skipping …` line is not counted
+(since 2026-09-30).
 
 For an `advanced-fallback` search the turn's `[latency]` line takes its stages from the tool,
 not the route: its `search_ms` is the fallback's basic search (nothing on a cache hit), and
@@ -283,6 +288,7 @@ field **only the new code writes**:
 | ≥ 2026-09-12 (doc budget) | `doc_inject_clipped` on `[latency]` |
 | ≥ 2026-09-26 (every question searches) | `turn_mode` / `forced_search` on `[latency]`; `forced_skip` once the user-supplied-source exception is deployed |
 | ≥ 2026-09-27 (advanced-search deadline) | `kind:"advanced-fallback"` exists at all. The forced-search rewording (prod `facc98f3`) adds no field; split research turns by deploy time (`docker logs -t`) instead |
+| ≥ 2026-09-30 (quality: search cap 10, fetch past the cap, fetch cap 8) | `fetch_allowed` on a `kind:"round-cap"` line. The fetch cap itself logs only to stdout (`[fetch] fetch cap reached`) |
 
 For a change of your own, add a new field (or a new `kind`) so its lines can be
 picked out.
@@ -385,7 +391,9 @@ Observations from that sample worth watching:
      - `fetch_ms` high → the model deep-read pages; each fetch can take up to
        40s. It was 30s on one observed turn.
      - Many basic searches → look for `kind:"round-cap"` lines. The model looped
-       until the cap stopped it.
+       until the cap stopped it. On quality turns (cap 10) a long `fetch_ms` after the cap
+       is expected: the notice lets the model read pages it already found, up to 8 fetch calls
+       (`[fetch] fetch cap reached` in stdout when it hits that).
    - **Waiting for the answer** = `answer_wait_ms`. High together with a high
      `last_prompt_tokens` → prompt processing on a large prompt. The fix is a
      smaller payload (crop, source count, excerpts, rerank budget), not a

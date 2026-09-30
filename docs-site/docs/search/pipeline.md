@@ -63,9 +63,16 @@ protocol (`QUALITY MODE — DEEP RESEARCH PROTOCOL` in
 | Crawl in the advanced call | none | only Brave's top `BRAVE_CRAWL_MAX` (3) URLs | Brave's top 3 + every SearXNG/degoog URL |
 | Rerank | local bi-encoder (passage selection only) | remote cross-encoder, with fallbacks | remote cross-encoder, with fallbacks |
 | Follow-up searches in the turn | basic | basic (SearXNG basic) | basic (SearXNG basic) |
-| Search-round cap | `SEARCH_ROUNDS_MAX` (3) | `SEARCH_ROUNDS_MAX` (3) | `SEARCH_ROUNDS_MAX_QUALITY` (5) |
+| Search-round cap | `SEARCH_ROUNDS_MAX` (3) | `SEARCH_ROUNDS_MAX` (3) | `SEARCH_ROUNDS_MAX_QUALITY` (10; 5 before 2026-09-30) |
+| `fetch` calls per turn | no cap (`FETCH_ROUNDS_MAX` unset) | no cap (`FETCH_ROUNDS_MAX` unset) | `FETCH_ROUNDS_MAX_QUALITY` (8, since 2026-09-30) |
+| After the search cap | answer now | answer now | no more searches; `fetch` of this turn's URLs still allowed |
 | Agent `maxSteps` | 20 | 50 | 100 |
 | Prompt | `getQuickModePrompt()` | `getAdaptiveModePrompt()` | `getQualityModePrompt()` (≥15 searches, todo list, report) |
+
+The quality prompt still asks for "minimum 15 searches, target 20-30"
+(`lib/agents/prompts/search-mode-prompts.ts:500,518`), more than the cap allows. The cap wins:
+once 10 searches have run, every further `search` call returns the cap notice instead of results
+([round cap](#round-cap)).
 
 These are the *research* configurations. If the classifier decides the message
 is not a question (`skipSearch`, turn mode `direct`), the mode's research
@@ -108,11 +115,11 @@ is tiered.
 
 ```mermaid
 flowchart TD
-  A[search tool called:<br/>forced at step 0, then by the model] --> B{Round cap exceeded?<br/>SEARCH_ROUNDS_MAX}
-  B -- yes --> B1[Return empty result +<br/>'answer now' notice<br/>kind:round-cap telemetry]
+  A[search tool called:<br/>forced at step 0, then by the model] --> B{Rounds used ≥ budget?<br/>SEARCH_ROUNDS_MAX / _QUALITY}
+  B -- yes --> B1[Return empty result + cap notice<br/>quality: stop searching, fetch allowed<br/>others: answer now<br/>kind:round-cap telemetry]
   B -- no --> C{Near-duplicate query<br/>this turn? cos ≥ 0.92}
-  C -- yes --> C1[Return 'already searched' note]
-  C -- no --> D{searchMode = speed<br/>and Ollama-web configured?}
+  C -- yes --> C1[Return 'already searched' note<br/>no round used]
+  C -- no --> C2[Count one round] --> D{searchMode = speed<br/>and Ollama-web configured?}
   D -- yes --> S1[Ollama web search<br/>≤10 full pages]
   S1 --> S2[Local bi-encoder passage selection<br/>rerankByEmbedding + buildExcerptContent]
   S2 --> OUT[Tool result to model]
@@ -145,19 +152,33 @@ flowchart TD
 
 ## Stage by stage
 
-### 1. The `search` tool entry: round cap and dedup
+### 1. The `search` tool entry: round cap and dedup {#round-cap}
 
-`createSearchTool` (`lib/tools/search.ts:337`) is built **once per turn** by
+`createSearchTool` (`lib/tools/search.ts:371`) is built **once per turn** by
 `createResearcher`, so the counters in its closure are per-turn state.
 
-- **Round cap** (`lib/tools/search.ts:393-424`). Every executing search
-  increments `searchRounds`. When it exceeds `resolveSearchRoundsBudget(searchMode)`
-  (3, or 5 for quality), the tool returns a *valid, non-error* result with
-  `results: []`, `searchLimitReached: true`, and a `notice` telling the model
-  to answer now from what it already has and to start its reply with the `## `
-  heading. No fan-out and no crawl happen. It emits
-  `[latency:search] {kind:"round-cap", search_round, search_round_budget, search_round_capped:true}`
-  and a plain `[search] round cap reached (4 > 3, mode=balanced) …` log line.
+- **Round cap** (`lib/tools/search.ts:435-470`). Before anything else, the tool compares
+  the rounds already used (`searchRounds`) with `resolveSearchRoundsBudget(searchMode)`
+  (`:327-338`: `SEARCH_ROUNDS_MAX`, default 3, or `SEARCH_ROUNDS_MAX_QUALITY`, default
+  **10** since 2026-09-30, 5 before). When the budget is used up it returns a *valid,
+  non-error* result with `results: []`, `searchLimitReached: true` and a `notice`
+  (`buildSearchRoundCapNotice`, `:356-368`). No fan-out and no crawl happen. It emits
+  `[latency:search] {kind:"round-cap", search_round, search_round_budget, search_round_capped:true, fetch_allowed}`
+  and a plain `[search] round cap reached (11 > 10, mode=quality) — …` log line.
+  - **Which notice.** In a mode with a fetch cap (`resolveFetchRoundsBudget` is not null:
+    quality by default) the notice ends only the **searching**: further searches are
+    refused, but the model may still `fetch` URLs that appeared in this turn's earlier
+    results when a claim needs the full page, several URLs per call, and must otherwise
+    answer now. In a mode without a fetch cap (speed and balanced unless `FETCH_ROUNDS_MAX`
+    is set) the notice still says to answer now, because a fetch that nothing bounds except
+    the answer deadline is not offered. Both wordings forbid narrating the limit and require
+    the reply to start with its `## ` heading.
+  - **What counts as a round.** Only a search that actually runs. The counter is
+    incremented **after** the near-duplicate check below (`:561-563`), so a dedup-skipped
+    reformulation does not use a round. Before 2026-09-30 it was incremented first, and a
+    false-positive skip cost a quality turn one of its 5 rounds. The researcher's exact-repeat
+    and seen-URL short-circuits (`wrapSearchToolWithDedup`) return before this `execute` runs
+    at all.
 
   *Why inside the tool:* in AI SDK v6, `activeTools` only controls which tool
   definitions are *advertised* to the model. Execution resolves against the
@@ -167,20 +188,46 @@ flowchart TD
   reasoning between calls). On the lab, capping a looping turn cut
   `prompt_tokens` 93k→53k (−43%) and held the answer. The legacy module-level
   `searchTool` singleton (url-rag) passes no `toolOptions` and is exempt.
-- **Query dedup** (`:458-513`). Each query is embedded. A later query in the
+
+  *Why quality allows fetching past the cap (2026-09-30):* in a lab A/B the cap-5 arm hit
+  the cap on all 3 quality questions, then made 1 fetch across the 3 turns and answered
+  from snippets (it reported a trial result as null from a 401-character snippet); the
+  cap-15 arm fetched 34 pages and won on that page text. With fetching allowed past the cap,
+  cap 10 and cap 5 measured the same, and cap 10 tied the stored cap-15 answers
+  ([D40](/history/decisions#d40-quality-mode-read-pages-past-the-search-cap)).
+- **Fetch cap** (`lib/tools/fetch-budget.ts`, enforced in `lib/tools/fetch.ts:691-713`).
+  Quality turns may make at most `FETCH_ROUNDS_MAX_QUALITY` (default **8**) `fetch`
+  **calls**; each call can read up to 5 URLs. Other modes have no fetch cap unless
+  `FETCH_ROUNDS_MAX` is set. A call past the budget returns a non-error result with
+  `fetchLimitReached: true` and a notice to answer from what was gathered, logs
+  `[fetch] fetch cap reached (9 > 8, mode=quality, chatId=…) — refusing N url(s)` and
+  reports no `fetch_ms`. Only the per-turn instance the researcher builds is capped; the
+  shared default instance (url-rag) never is, because a counter on it would trip
+  permanently. *Why 8:* the cap-15 arm made 6, 3 and 7 fetch calls per quality turn, so 8
+  restricted none of them. Before this cap nothing bounded fetches per turn except
+  `FETCH_MAX_URLS` (5) per call, the 40 s per-URL deadline, the step ceiling (100 in quality)
+  and the 200 s answer deadline, and every page can add up to 50,000 characters of context.
+- **"URLs found this turn" is advisory.** Nothing checks that a fetched URL appeared in
+  the turn's results: the limit is only the notice's wording. In one lab test the model
+  fetched GitHub URLs it had constructed itself
+  ([known issue](/history/known-issues#the-fetch-past-the-cap-url-limit-is-advisory)).
+- **Query dedup** (`:492-559`). Each query is embedded. A later query in the
   same turn and same `search_mode` whose cosine similarity with an earlier one is
   ≥ `SEARCH_DEDUP_THRESHOLD` (0.92) returns a short "already searched" note
-  instead of searching. A query is recorded only after its search *succeeds*,
+  instead of searching, and logs `[search-dedup] skipping "<query>" — near-duplicate of
+  "<earlier query>"`. A query is recorded only after its search *succeeds*,
   so a failed search can be retried. The researcher's
   `wrapSearchToolWithDedup` short-circuits exact repeats and already-seen URLs
-  before this point, and those short-circuits are not counted against the
-  round cap.
+  before this point. None of these skips count against the round cap. At 0.92 the
+  embedding treats templated queries as duplicates: in the 2026-09-29/30 A/Bs 6 of 7
+  skips of "X GitHub features license"-style queries were false positives
+  ([known issue](/history/known-issues#near-duplicate-dedup-drops-templated-queries)).
 
 ### 2. Speed fast path (Ollama web search)
 
 When `shouldUseOllamaWebSpeed` holds (`searchMode === 'speed'`, an
 `OLLAMA_SEARCH_API_KEY` is configured, and `OLLAMA_SEARCH_ENABLED !== 'off'`),
-the tool (`:540-693`):
+the tool (`:590-743`):
 
 1. Calls Ollama's web-search API for ≤10 results (the API clamps at 10;
    `OLLAMA_SEARCH_MAX_RESULTS` can only lower it). Each result is a **full page
@@ -222,8 +269,8 @@ main results. Expansion is skipped for speed and skipped turns.
 `QUERY_EXPANSION_ENABLED=false` turns it off (`lib/agents/classifier-expansion.ts`).
 Telemetry: `[latency:search] {kind:"expansion", variants, cache_misses, failed, returned}`.
 
-The variants run **inside** that first `search` call (`lib/tools/search.ts:708-726`, merged at
-`:1143-1185`), so the UI shows a single search entry and the turn's `tool_calls` counts one call,
+The variants run **inside** that first `search` call (`lib/tools/search.ts:758-776`, merged at
+`:1193-1235`), so the UI shows a single search entry and the turn's `tool_calls` counts one call,
 although up to four queries ran. On a forced turn ([D37](/history/decisions#d37-always-search-every-question))
 that one entry is the forced search. It is only the first of the turn's searches: the forced-search
 prompt tells the model to go on searching with different queries as its mode's protocol
@@ -292,7 +339,7 @@ after every sidecar update; builds older than the fix answer 405.
 The search tool's `fetch` to this route had **no timeout** until 2026-09-27, so a route that
 never answered held the turn until undici's 300 s headers timeout. It is now bounded by
 `createAdvancedSearchDeadline` (`lib/tools/search/advanced-search-deadline.ts:93-141`, used at
-`lib/tools/search.ts:919-924`), with two limits because the route has two very different phases:
+`lib/tools/search.ts:969-974`), with two limits because the route has two very different phases:
 
 | Limit | Env var | Default | Applies | Why this value |
 |---|---|---|---|---|
@@ -303,7 +350,7 @@ Both are read per call; a non-numeric or non-positive value falls back to the de
 turn's own abort signal is combined in, so Stop still cancels the call at once and surfaces as
 a normal abort, not a timeout.
 
-On **either** timeout the tool (`lib/tools/search.ts:1010-1037`, `runBasicSearxng` at `:851-904`):
+On **either** timeout the tool (`lib/tools/search.ts:1060-1087`, `runBasicSearxng` at `:901-954`):
 
 1. logs `[search] advanced-search timed out (phase=headers|total, limit=<ms>ms, waited=<ms>ms, mode=<searchMode>) — falling back to basic SearXNG for "<query>"`;
 2. runs the same cached **basic** SearXNG search a follow-up search would run (SearXNG
@@ -510,7 +557,7 @@ The pool is sliced to `maxResults`, cached (if non-empty), and returned with a
 `timings` object. The search tool adds those timings to the turn's
 `[latency]` line. The tool output keeps `toolCallId` and `images`, and drops
 `state`/`citationMap` before the result is shown to the model (`toModelOutput`,
-`lib/tools/search.ts:1276-1289`).
+`lib/tools/search.ts:1326-1339`).
 
 **The citation contract.** A citation `[N](#toolCallId)` means result N of this call, where N is
 the result's 1-based position in this output's `results`, restarting at 1 for every call. The
@@ -536,15 +583,22 @@ earlier search of the turn already returned. Handles are never stored. Two conse
 Follow-up searches are basic, so to read a page in depth the model calls
 `fetch` (`lib/tools/fetch.ts`). It tries a chain of methods in order (plain
 fetch, crawl4ai, FlareSolverr, Tavily extract, Firecrawl, with Jina in the
-chain as well), fetches transcripts for YouTube URLs, and has an overall caller
-deadline of `FETCH_TOTAL_DEADLINE_MS` (40s). Its wall time is reported as
-`fetch_ms` on the turn line.
+chain as well), fetches transcripts for YouTube URLs, and bounds each URL with
+`FETCH_TOTAL_DEADLINE_MS` (40s; up to 5 URLs per call run concurrently). Its wall time is
+reported as `fetch_ms` on the turn line. Quality turns may make at most 8 fetch calls
+([fetch cap](#round-cap)).
 
-A successful fetch result carries the call's `toolCallId` (`fetch.ts:671,719`), like a search
+Fetched page text is what grounds a claim; a search result the model saw only as a snippet
+often is not. In the 2026-09-29/30 quality A/Bs, citations that pointed at a search snippet
+(at most about 1,000 characters) were judged unsupported 71 % of the time, against 23 % for
+citations of page text: the model read the fact on a fetched page and cited the snippet that
+led it there ([known issue](/history/known-issues#citations-point-at-a-snippet-instead-of-the-fetched-page)).
+
+A successful fetch result carries the call's `toolCallId` (`fetch.ts:687,760`), like a search
 result does, because the model cites `[N](#toolCallId)` and can only copy an id it can see.
 A fetch of one URL returns one result, so it is always cited as `[1]`; a fetch of several URLs
 numbers its pages in the order of its `results`. Since 2026-09-27 the fetch tool has its own
-`toModelOutput` (`fetch.ts:759-765`) that puts that ready-made citation on each fetched page
+`toModelOutput` (`fetch.ts:800-806`) that puts that ready-made citation on each fetched page
 (`cite`, [D38](/history/decisions#d38-ready-made-citation-handles)). Pages are numbered by
 their position in the merged `results`, from which URLs that failed in a multi-URL fetch are
 already left out; a `Fetch failed:` placeholder gets no handle. With `CITATION_HANDLES=off` the
@@ -557,7 +611,7 @@ invented ids for fetched pages instead. A failed fetch gets no id, since it has 
 See [frontend › Citations](/request-lifecycle/frontend#citations).
 
 Before any request, `assertUrlAllowed` (`lib/utils/ssrf-guard.ts`, called at
-`fetch.ts:611`) rejects non-http(s) schemes, literal loopback, private,
+`fetch.ts:614`) rejects non-http(s) schemes, literal loopback, private,
 link-local, and reserved IPs (v4, v6, and v4-mapped), the `localhost` family,
 and cloud metadata hostnames. Where DNS resolves, it also rejects public names
 that resolve to private addresses. **Documented gaps:** redirect-based SSRF
@@ -602,7 +656,10 @@ inlined at build time and do need a rebuild.
 | `CITATION_HANDLES` | Each citable search result, fetched page and attached-document excerpt the model sees carries a ready-made `cite` string, and the prompts say to copy it; only the literal `off` restores model-computed numbers ([D38](/history/decisions#d38-ready-made-citation-handles)). Editable in the Model Manager (Search tab) | on | unset (on) in all envs |
 | `SEARCH_API` | Provider for basic searches and the advanced route | `DEFAULT_PROVIDER` | `searxng` (all envs) |
 | `SEARCH_ROUNDS_MAX` | Max `search` calls per turn (speed/balanced) | 3 | |
-| `SEARCH_ROUNDS_MAX_QUALITY` | Same, quality | 5 | |
+| `SEARCH_ROUNDS_MAX_QUALITY` | Same, quality ([D40](/history/decisions#d40-quality-mode-read-pages-past-the-search-cap)) | 10 (5 before 2026-09-30) | unset on prod and staging; lab compose pins `${SEARCH_ROUNDS_MAX_QUALITY:-10}` |
+| `FETCH_ROUNDS_MAX_QUALITY` | Max `fetch` calls per quality turn; past the search cap, a quality turn may still fetch ([fetch cap](#round-cap)) | 8 | unset in all envs |
+| `FETCH_ROUNDS_MAX` | Same, for speed and balanced; setting it also switches their round-cap notice to the "fetch still allowed" wording | unset = no cap | unset in all envs |
+| `CITATION_REMINDER` / `CITATION_REMINDER_MIN_TOOL_CALLS` | Experiment: re-run the answer step of a long loop with a citation reminder ([D40](/history/decisions#d40-quality-mode-read-pages-past-the-search-cap)); only the literal `on` enables it | off / 8 | unset in all envs (off) |
 | `SEARCH_DEPTH_TIERING` | `off` disables one-advanced-per-turn | on | |
 | `SEARXNG_DEFAULT_DEPTH` | `advanced` forces advanced depth when tiering is off | `basic` | |
 | `SEARCH_DEDUP_ENABLED` / `SEARCH_DEDUP_THRESHOLD` | In-turn near-duplicate query skip | on / 0.92 | |
@@ -632,7 +689,7 @@ inlined at build time and do need a rebuild.
 | `PASSAGES_PER_SOURCE` | Top passages kept per source | 3 | |
 | `SEARCH_EXCERPTS_ENABLED` | Model reads excerpts instead of the full crop | off | |
 | `SEARCH_FULL_CONTENT_RERANK` | Two-stage whole-page rerank (experiment) | off | |
-| `FETCH_TOTAL_DEADLINE_MS` | `fetch` tool caller deadline | 40000 | |
+| `FETCH_TOTAL_DEADLINE_MS` | `fetch` tool deadline, per URL | 40000 | |
 
 ## What not to retry (negative results)
 
@@ -656,6 +713,11 @@ measurement plan than last time. Full records are in [Decisions](/history/decisi
 - **`MAX_ENRICH_URLS` 100→40**, **legacy crawl cap 8**, and **tighter legacy
   deadline (6s)**: each cut sources with no reliable latency gain.
 - **Raising crawl parallelism**: see the ceiling above.
+- **Answer-step citation reminder** (`CITATION_REMINDER`, 2026-09-30): re-running the answer
+  step of a long quality loop with the citation rules as a trailing user message. It fired on
+  every armed long turn, but running-count numbering still appeared in 2 of 3 of them, and each
+  re-run cost 58–104k extra prompt tokens. Shipped off
+  ([D40](/history/decisions#d40-quality-mode-read-pages-past-the-search-cap)).
 
 ## How to change things
 
@@ -674,4 +736,7 @@ needed.
 
 **Tune the round cap.** Set `SEARCH_ROUNDS_MAX` / `SEARCH_ROUNDS_MAX_QUALITY`
 and recreate the container. Check the effect with the `kind:"round-cap"` lines
-and `prompt_tokens` in [Telemetry](/operations/telemetry).
+and `prompt_tokens` in [Telemetry](/operations/telemetry). For quality, tune the search and
+fetch caps together: the 2026-09-30 A/B showed the answers come from fetched pages, so a low
+search cap is harmless only while fetching past it is allowed. Watch `fetch_allowed` on the
+`round-cap` lines and the `[fetch] fetch cap reached` log line.

@@ -168,7 +168,9 @@ flowchart LR
 
 1. **One build, arms as flags.** The lab overlay exposes toggles as `${VAR:-default}`
    (`SEARCH_QUALITY_FILTER`, `SEARCH_SNIPPET_GATE`, `SEARCH_ENRICH_MAX_CHARS`,
-   `SEARCH_ROUNDS_MAX`, `ANSWER_THINK`, `FLOW_VARIANT`, …). Switch arms with
+   `SEARCH_ROUNDS_MAX`, `SEARCH_ROUNDS_MAX_QUALITY`, `FETCH_ROUNDS_MAX_QUALITY`,
+   `CITATION_HANDLES`, `CITATION_REMINDER`, `ANSWER_THINK`, `FLOW_VARIANT`, and since
+   2026-09-28 `RECALL_ENABLED` / `MEMORY_ENABLED`, …). Switch arms with
    `VAR=value docker compose -p ask-stack-lab -f docker-compose.yaml -f docker-compose.lab.yaml -f docker-compose.vpn.lab.yaml up -d --force-recreate ask`
    and **confirm** the arm with `docker exec ask-lab printenv VAR` — a silent fallback
    mislabels a whole arm.
@@ -176,7 +178,10 @@ flowchart LR
    engine behaviour and cache state affect both arms equally.
 3. **Flush the search cache between turns** (`search:*` keys in `ask-redis-lab`, 1 h
    TTL), otherwise the second arm answers from the first arm's retrieval. Hold other
-   variables fixed: pin the chat model, and disable recall if it is not under test.
+   variables fixed: pin the chat model, and disable recall and memory if they are not under
+   test (`RECALL_ENABLED=off MEMORY_ENABLED=off`; only the literal `off` works). With recall on,
+   one arm's turns can recall the other arm's answers; the 2026-09-27 citation-handle A/B had
+   that caveat, the 2026-09-29/30 quality A/Bs ran with both off.
 4. **Measure only what the change can touch.** Identify the turns the change affects
    (e.g. only first turns that would have retrieved) and judge those; a pooled result
    dilutes or hides the effect.

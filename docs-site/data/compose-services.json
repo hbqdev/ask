@@ -251,6 +251,14 @@
               "value": "${CITATION_HANDLES:-}"
             },
             {
+              "key": "CITATION_REMINDER",
+              "value": "${CITATION_REMINDER:-}"
+            },
+            {
+              "key": "CITATION_REMINDER_MIN_TOOL_CALLS",
+              "value": "${CITATION_REMINDER_MIN_TOOL_CALLS:-}"
+            },
+            {
               "key": "CLASSIFIER_MODEL_ID",
               "value": "deepseek-v4-pro:cloud"
             },
@@ -283,12 +291,20 @@
               "value": "true"
             },
             {
+              "key": "FETCH_ROUNDS_MAX_QUALITY",
+              "value": "${FETCH_ROUNDS_MAX_QUALITY:-}"
+            },
+            {
               "key": "FLOW_ARCH",
               "value": "${FLOW_ARCH:-}"
             },
             {
               "key": "FLOW_VARIANT",
               "value": "${FLOW_VARIANT:-baseline}"
+            },
+            {
+              "key": "MEMORY_ENABLED",
+              "value": "${MEMORY_ENABLED:-}"
             },
             {
               "key": "OLLAMA_SEARCH_API_KEY",
@@ -301,6 +317,10 @@
             {
               "key": "PIPELINE_SOURCE_CHARS",
               "value": "${PIPELINE_SOURCE_CHARS:-}"
+            },
+            {
+              "key": "RECALL_ENABLED",
+              "value": "${RECALL_ENABLED:-}"
             },
             {
               "key": "RECALL_RERANK_POOL",
@@ -332,7 +352,7 @@
             },
             {
               "key": "SEARCH_ROUNDS_MAX_QUALITY",
-              "value": "${SEARCH_ROUNDS_MAX_QUALITY:-5}"
+              "value": "${SEARCH_ROUNDS_MAX_QUALITY:-10}"
             },
             {
               "key": "SEARCH_SNIPPET_GATE",
