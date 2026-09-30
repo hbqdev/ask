@@ -136,7 +136,13 @@ describe('extractIndexableText', () => {
     // Recall injected that text into an unrelated chat, the model saw what
     // looked like a live id and cited it, and every citation on that turn was
     // dropped as unresolvable.
+    // "search 1" is the message's own search: its id is on a tool part.
     const text = extractIndexableText('assistant', [
+      {
+        type: 'tool-search',
+        text: null,
+        toolCallId: '2ee2fc5b-5ca8-4f26-a149-d3f22358333d'
+      },
       {
         type: 'text',
         text:
@@ -150,6 +156,51 @@ describe('extractIndexableText', () => {
     // The prose itself must survive — only the id is removed.
     expect(text).toContain('Fossies')
     expect(text).toContain('Version 8.2')
+  })
+
+  it('keeps ordinary GUIDs that are not tool call ids of the message (prod hbTHdUV8uzmsmVYK, UfGktMa6H0CGZILT)', () => {
+    const answer =
+      '## Allow SSH into WSL\n\nGet the VMCreatorId (usually `{40E0AC32-46A5-438A-A0B2-2B479E8F2E90}`), then run ' +
+      "`Set-NetFirewallHyperVVMSetting -Name '{40E0AC32-46A5-438A-A0B2-2B479E8F2E90}' -DefaultInboundAction Allow`.\n\n" +
+      '![OpenClaw](https://cdn.example.com/uploads/asset/file/44dbbd2f-0d9d-46d4-99e0-9d3a88fd96b4/openclaw_1_.png)'
+    const text = extractIndexableText('assistant', [
+      {
+        type: 'tool-search',
+        text: null,
+        toolCallId: '9123e254-b0cd-470c-8fba-ceb8567cb050'
+      },
+      { type: 'text', text: answer }
+    ])
+    expect(text).toContain('{40E0AC32-46A5-438A-A0B2-2B479E8F2E90}')
+    expect(text).toContain(
+      '/44dbbd2f-0d9d-46d4-99e0-9d3a88fd96b4/openclaw_1_.png'
+    )
+    expect(text).toBe(answer)
+  })
+
+  it('strips own tool call ids in any case and ids left in citation-anchor position, keeping real GUIDs', () => {
+    const own = 'a4bb7072-8a35-4caf-b2e5-8f1e3db9ef46'
+    // Another turn's id, in anchor position but not a well-formed `[N](#id)`.
+    const other = '5da9c949-5383-454d-9296-6b09f9e8d6c6'
+    const real = '3414f740-b1a8-496e-986e-59ca9dc6c1ff'
+    const text = extractIndexableText('assistant', [
+      { type: 'tool-fetch', text: null, toolCallId: own },
+      {
+        type: 'text',
+        text:
+          `## Canberra\n\nThe fetch (toolCallId ${own.toUpperCase()}) confirms it [src](#${other}). ` +
+          `Saved to /uploads/${real}/generated/map.png.`
+      }
+    ])
+    expect(text.toLowerCase()).not.toContain(own)
+    expect(text).not.toContain(other)
+    expect(text).toContain(`/uploads/${real}/generated/map.png`)
+    expect(text).toContain('The fetch (toolCallId ) confirms it [src](#).')
+  })
+
+  it('does not strip a UUID from the user question', () => {
+    const q = 'What is VMCreatorId 40E0AC32-46A5-438A-A0B2-2B479E8F2E90 for?'
+    expect(extractIndexableText('user', [{ type: 'text', text: q }])).toBe(q)
   })
 })
 

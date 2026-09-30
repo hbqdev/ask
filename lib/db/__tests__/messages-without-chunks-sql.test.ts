@@ -92,6 +92,9 @@ describe('messagesWithoutChunks SQL generation', () => {
     const sql = findSelect(executedSql)
     expect(sql.toLowerCase()).toContain('json_agg')
     expect(sql.toLowerCase()).toContain('json_build_object')
+    // Each tool part's call id rides along, so extractIndexableText strips
+    // only the message's OWN tool call ids from the answer (not every UUID).
+    expect(sql).toContain("'toolCallId', p.tool_tool_call_id")
     expect(sql).toContain('ORDER BY p."order"')
     // The join must no longer restrict to type = 'text' — narration and
     // tool-call parts are needed too, to find the last tool-call boundary.

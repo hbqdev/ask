@@ -137,7 +137,7 @@ export async function clearChunks(userId: string) {
 
 /**
  * Backfill driver: the user's messages that have no chunks yet, with their
- * ordered parts (type + text) so the caller can apply the same
+ * ordered parts (type, text, tool call id) so the caller can apply the same
  * final-answer-only extraction rule (extractIndexableText) that the live
  * path uses — a naive text-parts-only aggregate here would re-pollute every
  * backfilled assistant message with inter-step narration. Resumable — call
@@ -193,7 +193,11 @@ export async function messagesWithoutChunks(
              m.chat_id AS "chatId",
              m.role AS "role",
              json_agg(
-               json_build_object('type', p.type, 'text', p.text_text)
+               json_build_object(
+                 'type', p.type,
+                 'text', p.text_text,
+                 'toolCallId', p.tool_tool_call_id
+               )
                ORDER BY p."order"
              ) AS "parts"
       FROM messages m
