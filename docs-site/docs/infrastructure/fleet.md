@@ -109,6 +109,17 @@ four hosts ran **0.34.2** on 2026-09-22.
 `docker.service`** in the WSL distro. .160 and .171 are the same (Docker Desktop). WSL has
 `systemd=true`, which is what runs `ollama` and `ask-fleet-boot` inside WSL.
 
+::: danger Nothing that waits for Docker may be enabled at boot on a WSL host
+Docker Desktop attaches its WSL integration only **after** systemd reports that boot has
+finished. A unit in `multi-user.target` that waits for Docker therefore deadlocks the boot: it
+waits for Docker, and Docker waits for it. This hung Serenity (.171) for about 8 minutes on
+2026-09-29. So on .17, .160 and .171 `ask-fleet-boot.service` is **disabled**, and the
+`lan_automation` `fleet-boot.timer` (`OnBootSec=75s`) pulls it in after boot. Only .231, bare
+metal with a real `docker.service`, has it enabled at boot
+([D41](/history/decisions#d41-on-wsl-hosts-nothing-that-waits-for-docker-is-enabled-at-boot),
+[runbook](/operations/runbooks#wsl-host-hangs-at-boot)).
+:::
+
 After a power loss or reboot, recovery is unattended. The chain is:
 
 ```mermaid
@@ -119,7 +130,10 @@ flowchart TD
   D --> E["Containers with restart: unless-stopped come back"]
   A --> W[WSL systemd]
   W --> O[ollama.service]
-  W --> F["ask-fleet-boot.service (oneshot)<br/>~/ask-fleet-boot.sh"]
+  W --> TM["boot finishes, then fleet-boot.timer<br/>(75 s after boot, lan_automation)"]
+  D -. WSL integration attaches<br/>after boot finishes .-> G
+  TM --> FB["fleet-boot.service<br/>Wants= / After= ask-fleet-boot"]
+  FB --> F["ask-fleet-boot.service (oneshot, disabled at boot)<br/>~/ask-fleet-boot.sh"]
   F --> G["wait_docker: poll until engine is ready"]
   G --> H["reconcile reranker, ingestors (prod/staging/lab), whisper<br/>warm qwen3-vl:4b + whisper model"]
   H --> I["sleep 15, then reconcile_app_stack × 3<br/>(prod / staging / lab, health-gated)"]
@@ -134,8 +148,13 @@ Why each step exists:
   after a user logs in. If either setting is switched off (a Windows hardening change, a Docker
   Desktop reset), every container stays down after a reboot until someone logs in. **Check these
   two first if boot recovery fails.**
+- **Timer, not `multi-user.target`.** On the WSL hosts the oneshot must not hold the boot
+  open (the warning above). It is started ~75 s after boot by `fleet-boot.timer` →
+  `fleet-boot.service`, which `Wants=` and `After=` it, so the Ask reconcile still runs first
+  and the two never race for the same stack. Until 2026-09-29 `fleet-boot/deploy.sh` enabled it
+  at boot everywhere.
 - **`wait_docker`.** On .160 the oneshot once ran 3 s after boot, before the engine was up, and
-  gave up. The embedder stayed down.
+  gave up. The embedder stayed down. It now polls `docker info` for up to 120 s.
 - **`reconcile_app_stack`.** WSL recreates Docker network IDs on reboot, which
   `restart: unless-stopped` can't repair. A known failure mode was the `ask` container coming back
   attached **only** to `shared-infra`, so it couldn't resolve `postgres` and crash-looped on the
@@ -160,8 +179,9 @@ on each host (unit file `fleet-boot/ask-fleet-boot.service`). It branches on `ho
 | MiniNightFury | reconcile `crawl4ai` and `flaresolverr` |
 
 ::: warning Gaps observed on 2026-09-22
-- `ask-fleet-boot` was **disabled** on Serenity (.171). Re-enabled on 2026-09-23; it is now
-  enabled on all four hosts.
+- `ask-fleet-boot` was **disabled** on Serenity (.171). Re-enabled on 2026-09-23 on all four
+  hosts, which deadlocked Serenity's next boot (2026-09-29). Since then it is disabled on
+  purpose on the WSL hosts and runs from `fleet-boot.timer`; only .231 has it enabled.
 - Only the **prod** ingestor was reconciled. Since 2026-09-23 `ingestor-staging` and
   `ingestor-lab` are reconciled too.
 - The per-env degoog stacks are commented out (`ensure_degoog`) because degoog is disabled in

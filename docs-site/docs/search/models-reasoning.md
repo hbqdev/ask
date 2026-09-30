@@ -139,7 +139,7 @@ first advanced search already runs without waiting on the variants.
 
 ### Turn modes
 
-`resolveTurnMode` (`lib/agents/researcher.ts:155-189`) maps the classifier's
+`resolveTurnMode` (`lib/agents/researcher.ts:170-204`) maps the classifier's
 output to one of three configurations. Which ones are reachable depends on
 `ALWAYS_SEARCH` (`lib/agents/always-search.ts:32-36`; default on, only the literal
 `off` disables it, read per call):
@@ -329,7 +329,7 @@ cleanup below anchors on that rule. Each leak shape is handled at a different la
 | **Reasoning parts** (the model's native thinking) | shown as a "Thinking…" pill; raw text not rendered | stored unchanged; the display is gated by `NEXT_PUBLIC_SHOW_REASONING` |
 | **Inter-step narration**: a separate text part, then a tool call, then later the answer | **hidden by the renderer**: while streaming, a text part renders as answer text only if it starts with a markdown heading (`components/render-message.tsx:237`); after the stream completes, only the last text part renders | **dropped**, in any language (the rules are below) |
 | **Fused preamble after a line break**: narration, then `\n## ` in the same part | **stripped by the stream transform** `smoothAndStripNarration()` (`lib/streaming/helpers/smooth-and-strip-narration.ts:75`) when it matches the English rules | stripped again by `stripNarrationPreamble` (English rules only) |
-| **Glued preamble**: `## ` directly after a sentence or a stray tag, e.g. `…breakdown.## `, `…câu trả lời.## ` or `…chương.</think>## ` | **cut by the transform** once the answer after the seam outweighs the prefix, held until then (`smooth-and-strip-narration.ts:98-127`, since 2026-09-28): the same cut persist makes, then streamed 1:1. This needs the part to still be buffered when the seam arrives (an English-looking preamble, or a seam in the first ~64 characters). A longer non-English preamble passes through, and the renderer's cleaned view makes the same cut at the same point (until then the part does not start with a heading, so it stays hidden). A `</think>## ` seam stays on the transform's English heading rule | **cut**, in any language (`stripGluedHeadingPreamble`) |
+| **Glued preamble**: `## ` directly after a sentence or a stray tag, e.g. `…breakdown.## `, `…câu trả lời.## ` or `…chương.</think>## ` | **cut by the transform** once the answer after the seam outweighs the prefix, held until then (`smooth-and-strip-narration.ts:98-127`, since 2026-09-28): the same cut persist makes, then streamed 1:1. This needs the part to still be buffered when the seam arrives (an English-looking preamble, or a seam in the first ~64 characters). A longer non-English preamble passes through, and the renderer's cleaned view makes the same cut at the same point (until then the part does not start with a heading, so it stays hidden). A `</think>## ` seam stays on the transform's English heading rule | **cut**, in any language (`stripGluedHeadingPreamble`); since 2026-09-29 a seam before the first line-start heading is decided by this rule alone, as live |
 
 Since 2026-09-28 the persist-time cleanup is also applied **at read time**, everywhere the
 text is read (table below). A message saved before a rule existed therefore displays clean
@@ -399,7 +399,7 @@ fires only when several independent signals agree, and both run **after** the En
 so English behaviour is unchanged ([D20 addendum](/history/decisions#addendum-2026-09-28-language-agnostic-structural-rules)).
 
 **Rule 1: inter-step chatter.** In `stripNarrationFromMessage`
-(`lib/streaming/helpers/strip-narration-from-message.ts:111-121`) a non-final text part is
+(`lib/streaming/helpers/strip-narration-from-message.ts:112-122`) a non-final text part is
 dropped when either:
 
 - it starts (or has a sentence that starts) with an English narration phrase, at any
@@ -409,9 +409,9 @@ dropped when either:
     text) is a **tool call** (`isFollowedByToolCall`, `:34`), so it was written before
     the tool ran and cannot be an answer grounded in that tool's result;
   - it is short, unstructured prose (`looksLikeInterStepChatter`,
-    `strip-narration-preamble.ts:376`): at most 600 characters (`INTER_STEP_CHATTER_MAX`,
-    `:366`), and no heading, table, code fence, list of 3 or more items, or citation marker;
-  - it is **not longer than the final answer** (`strip-narration-from-message.ts:93-96`).
+    `strip-narration-preamble.ts:383`): at most 600 characters (`INTER_STEP_CHATTER_MAX`,
+    `:373`), and no heading, table, code fence, list of 3 or more items, or citation marker;
+  - it is **not longer than the final answer** (`strip-narration-from-message.ts:94-97`).
     This guard keeps the shape
     "short real reply → side-effect tool (`remember`, `generateImage`) → shorter sign-off".
 
@@ -421,16 +421,16 @@ Vietnamese and Chinese one was 67–247. 600 covers the chatter with headroom an
 the ~700 characters D20 measured for genuine intro prose. A structured partial answer
 written before a tool call (a `## Key Findings` block) is kept by the structure checks.
 
-**Rule 2: the glued seam.** `findGluedHeadingSeam` (`strip-narration-preamble.ts:285`)
+**Rule 2: the glued seam.** `findGluedHeadingSeam` (`strip-narration-preamble.ts:292`)
 finds the first `## ` outside code (fences and inline code are blanked first, `maskCode`,
-`:257`) whose preceding character is not whitespace, not `#` (so `###` is never split) and
+`:264`) whose preceding character is not whitespace, not `#` (so `###` is never split) and
 not `\` (an escaped hash). A `## ` glued to text on the same line does not even render as a
 heading, so it is where narration ends and the answer begins. `stripGluedHeadingPreamble`
-(`:349`) cuts the prefix only when it has no heading and no citation marker of its own, is at
-most 2000 characters (`GLUED_PREAMBLE_MAX`, `:275`) and is shorter than what follows the seam.
+(`:356`) cuts the prefix only when it has no heading and no citation marker of its own, is at
+most 2000 characters (`GLUED_PREAMBLE_MAX`, `:282`) and is shorter than what follows the seam.
 It is built from two shared helpers that the live transform also uses:
-`findGluedPreambleSeam` (`:302`), the seam plus the prefix-only guards, which can be evaluated
-on a partial buffer; and `gluedAnswerOutweighsPreamble` (`:325`), the length guard, which is
+`findGluedPreambleSeam` (`:309`), the seam plus the prefix-only guards, which can be evaluated
+on a partial buffer; and `gluedAnswerOutweighsPreamble` (`:332`), the length guard, which is
 monotone in the answer. A proper `\n\n## ` heading after an intro paragraph is never a seam.
 
 *Why 2000:* the three Vietnamese preambles on prod were 613, 653 and 673 characters (6–9 % of
@@ -439,12 +439,16 @@ reasoning dumps start around 8 KB and carry English starters, which the phrase r
 handle. 2000 is about 3× the largest non-English preamble seen while staying far below the
 dump range.
 
-`stripNarrationPreamble` (`:392`) is the per-part entry point: the English phrase and
-think-tag rules first (`stripPhraseAnchoredPreamble`, `:397`), then the glued-seam cut on
-what remains. Both rules are pure and idempotent. The order leaves one gap open: with
-`narration.## A … \n## B`, the phrase rule cuts at `\n## B` before the glued rule can cut at
-`## A`, so section A is lost when that text reaches persist unstripped (the live transform
-lets the seam win; [known issue](/history/known-issues#a-glued-first-section-can-be-cut-at-persist)).
+`stripNarrationPreamble` (`:417-426`) is the per-part entry point. It removes stray
+think-tag reasoning first (`stripStrayThinkTags`). Then, if a qualifying glued seam comes
+before the first line-start heading (`gluedSeamLeads`, `:401-406`), the glued rule alone
+decides: cut at the seam, or keep the text. Otherwise the English phrase rule runs
+(`stripPhraseAnchoredPreamble`, `:428`), then the glued-seam cut on what remains. All rules are
+pure and idempotent. The seam-first check (2026-09-29, prod `d751352d`) closed a gap: with
+`narration.## A … \n## B` the phrase rule used to cut at `\n## B` and take section A with it
+whenever that text reached persist unstripped. The live transform already let the seam win, so
+live, persist and the render view now make the same cut
+([D20 › Decision 6](/history/decisions#decision-6-the-glued-seam-wins-at-persist-too)).
 
 ### Read time: one cleanup wherever text is read {#narration-read-time}
 
@@ -460,12 +464,12 @@ model is fed back and what search finds agree:
 | History fed to the classifier and the model | `lib/streaming/create-chat-stream-response.ts:258` | `stripNarrationFromMessages` |
 | Guest history (sent by the browser) | `lib/streaming/create-ephemeral-chat-stream-response.ts:62` | `stripNarrationFromMessages` |
 | Spoken gist (voice turns) | `lib/streaming/create-chat-stream-response.ts:959` | `stripNarrationPreamble` on the final step's text |
-| Recall indexing and the recall backfill | `lib/memory/extract-indexable-text.ts:96-103` | `stripNarrationPreamble` on each assistant text part |
+| Recall indexing and the recall backfill | `lib/memory/extract-indexable-text.ts:135-142` | `stripNarrationPreamble` on each assistant text part |
 | Sidebar and Library keyword-search snippets | `lib/db/keyword-search.ts:76-79` | `stripNarrationPreamble` on an assistant snippet |
 | Persist | `lib/streaming/create-chat-stream-response.ts:1072`, `lib/streaming/helpers/persist-stream-results.ts:39` | `stripNarrationFromMessage` |
 
-`narrationCleanView` (`strip-narration-from-message.ts:156`) is `stripNarrationFromMessage`
-memoized in a `WeakMap` keyed by the message object (`:147`). That is safe because
+`narrationCleanView` (`strip-narration-from-message.ts:157`) is `stripNarrationFromMessage`
+memoized in a `WeakMap` keyed by the message object (`:148`). That is safe because
 `@ai-sdk/react` `structuredClone()`s a message into state on every streamed update: a changed
 message is a new object and an unchanged one keeps its identity. The chat re-renders every
 message on each streamed delta, so the memo keeps that cost proportional to the messages that
@@ -494,14 +498,15 @@ preamble, because that preamble sits inside the final answer part.
   prefix + 1 characters, with the prefix ≤ 2000. The preamble never flashes. Before
   2026-09-28 (`6e19914f`) an English-looking glued preamble made the transform hold the whole
   answer until the part ended ([known issues](/history/known-issues#an-answer-with-a-glued-preamble-appears-late-while-streaming)).
-- **Persist runs the phrase rule before the glued rule.** Unstripped text shaped
-  `narration.## A … \n## B` can lose section A at persist (and in the render view, which runs
-  the same function). The transform avoids it when it makes the cut; open
-  ([known issues](/history/known-issues#a-glued-first-section-can-be-cut-at-persist)).
 - **The English phrase list is still model-specific.** Its families were collected from
   specific models (deepseek-v4-flash, glm-5.3-flash). A new English phrasing in front of a
-  proper heading needs its pattern in `NARRATION_STARTERS`, with a test in
-  `lib/streaming/helpers/__tests__`. Status notes before a tool call and glued preambles need
+  proper heading needs its pattern in `NARRATION_STARTERS`
+  (`lib/streaming/helpers/strip-narration-preamble.ts:18`), with a test in
+  `lib/streaming/helpers/__tests__`. The latest additions (2026-09-29) are "I have
+  converging / corroborating evidence…" and "I'm ready to write the (final) answer", whose
+  object must be *the/my answer/response/reply* so an offer such as "I'm ready to help" never
+  matches. Before shipping a new pattern, scan stored history for what it would change (that
+  scan changed exactly 1 message). Status notes before a tool call and glued preambles need
   no pattern.
 - **Live and persisted views can differ.** A leak that gets past the live
   transform (for example, glm narration that doesn't match a starter pattern
@@ -509,13 +514,18 @@ preamble, because that preamble sits inside the final answer part.
   streaming. Since 2026-09-28 the renderer also applies the persist-time rules to the
   streaming message, so anything those rules catch is hidden live as well. *(Reported for
   glm. The 2026-09-19 A/B saw 0 of 12 leaks on the current roster.)*
-- **Stored rows are not rewritten.** The display, copy, history and snippets are clean, but
-  the rows keep what was saved: keyword search still **matches** words that only occur in a
-  stored status note (and shows that note as the snippet), and recall chunks indexed before
-  2026-09-28 keep a glued preamble until the message is re-indexed. A backfill is an open
-  decision ([known issues](/history/known-issues#old-answers-with-leaked-reasoning-stay-leaked)).
+- **Stored rows are cleaned only by a backfill.** The persist-time rules apply to new
+  answers; older rows keep what was saved until `scripts/backfill-narration.ts` runs. It ran on
+  staging and prod on 2026-09-28/29 (and re-indexed the affected recall chunks), so stored
+  history there is clean under the rules of that date. A rule added later leaves older rows as
+  they are: the display, copy, history and snippets are still clean, but keyword search
+  **matches** the stored text until the backfill is re-run
+  ([runbook](/operations/runbooks#re-run-the-narration-backfill),
+  [D20 › Backfill](/history/decisions#backfill-2026-09-28-29)).
 - The round-cap notice itself tells the model not to restate the limit or
-  describe its sources, and to start with the heading (`lib/tools/search.ts:420`).
+  describe its sources, and to start with the heading (`buildSearchRoundCapNotice`,
+  `lib/tools/search.ts:356-368`); so does the fetch-cap notice (`buildFetchLimitNotice`,
+  `lib/tools/fetch-budget.ts:61-63`).
 
 ## Follow-up re-search prompt nudge
 
@@ -560,7 +570,7 @@ How Ask handles this:
 - **To force a tool call, override the step's model, not `toolChoice`.** The
   forced first search (`ALWAYS_SEARCH`) returns `model: <synthetic model>` from
   `prepareStep` for step 0; the AI SDK resolves that itself, so the Ollama
-  provider cannot drop it (`lib/agents/researcher.ts:1039-1041`).
+  provider cannot drop it (`lib/agents/researcher.ts:1136-1138`).
 - `applyAnswerDeadline` (`lib/agents/answer-deadline.ts`) returns
   `activeTools: []` after 200s together with a "TIME TO ANSWER" note. Because of
   the behavior above, that alone only stops *advertising* tools, so the deadline
