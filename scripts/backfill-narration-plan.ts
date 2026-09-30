@@ -103,7 +103,11 @@ export function hashParts(parts: unknown): string {
 
 /** Parts in the shape the recall backfill feeds `extractIndexableText`. */
 export function indexablePartsOf(rows: readonly PartRow[]): IndexablePart[] {
-  return rows.map(r => ({ type: r.type, text: r.text_text }))
+  return rows.map(r => ({
+    type: r.type,
+    text: r.text_text,
+    toolCallId: r.tool_toolCallId
+  }))
 }
 
 /**
@@ -281,9 +285,10 @@ export function planMessageCleanup(
 
 /**
  * The recall chunks the app's own backfill path would write for these rows:
- * `extractIndexableText` over `{type, text_text}` in `order` (the shape
- * `messagesWithoutChunks` returns), then `splitText` with the recall chunk
- * size (`indexMessage`, `lib/memory/recall-index.ts`). Empty text → no chunks.
+ * `extractIndexableText` over `{type, text_text, tool_tool_call_id}` in
+ * `order` (the shape `messagesWithoutChunks` returns), then `splitText` with
+ * the recall chunk size (`indexMessage`, `lib/memory/recall-index.ts`).
+ * Empty text → no chunks.
  */
 export function expectedRecallChunks(
   role: 'user' | 'assistant',
