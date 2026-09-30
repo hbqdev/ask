@@ -4,6 +4,12 @@ import { stripNarrationPreamble } from '../streaming/helpers/strip-narration-pre
 export interface IndexablePart {
   type: string
   text: string | null
+  /**
+   * A tool part's call id (UIMessage `toolCallId`, DB `tool_tool_call_id`).
+   * Only these ids — the message's OWN tool calls — are stripped when the
+   * answer text mentions them bare; see BARE_TOOL_CALL_ID_RE.
+   */
+  toolCallId?: string | null
 }
 
 // Citation markers the researcher emits inline, e.g. `[1](#selfhosting.sh)`
@@ -31,8 +37,41 @@ const CITATION_MARKER_RE = /\[\d+\]\(#[^)]*\)/g
 //
 // An id is only meaningful inside the turn that produced it, so it carries no
 // value for a future retrieval either — stripping costs nothing.
+//
+// But not every UUID in an answer is a tool call id. Stripping them all also
+// removed real content from recall (prod): a Hyper-V VMCreatorId
+// (`{40E0AC32-46A5-438A-A0B2-2B479E8F2E90}`, hbTHdUV8uzmsmVYK) and the UUID
+// inside image URLs (`/uploads/asset/file/44dbbd2f-…/openclaw_1_.png`,
+// UfGktMa6H0CGZILT). Measured across every stored assistant text part on
+// prod/staging/lab (2026-09-29): outside `[N](#id)` markers there were 33
+// UUID occurrences; 32 were such content and one was a tool call id — the
+// message's OWN ("It had toolCallId a4bb7072-…", staging GaGnrp44o1OQDL0r),
+// the same shape as the incident above ("search 1 ID …"). So a UUID is
+// stripped only when it is
+//   - one of the message's own tool call ids (`IndexablePart.toolCallId`), or
+//   - in citation-anchor position (`#<uuid>`) — a malformed or non-numeric
+//     citation (`(#id)`, `[src](#id)`) that CITATION_MARKER_RE does not match,
+//     which may point at another turn's tool call.
+// Any other UUID is content and is indexed.
 const BARE_TOOL_CALL_ID_RE =
   /\b[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\b/gi
+
+function stripToolCallIds(text: string, ownIds: ReadonlySet<string>): string {
+  return text.replace(BARE_TOOL_CALL_ID_RE, (id: string, offset: number) =>
+    ownIds.has(id.toLowerCase()) || text[offset - 1] === '#' ? '' : id
+  )
+}
+
+/** The message's own tool call ids, lowercased. */
+function toolCallIdsOf(parts: IndexablePart[]): Set<string> {
+  const ids = new Set<string>()
+  for (const p of parts) {
+    if (typeof p.toolCallId === 'string' && p.toolCallId) {
+      ids.add(p.toolCallId.toLowerCase())
+    }
+  }
+  return ids
+}
 
 function textOf(parts: IndexablePart[]): string[] {
   return parts
@@ -135,9 +174,6 @@ export function extractIndexableText(
   const selected = textOf(relevant)
   if (selected.length === 0) return ''
 
-  const joined = selected
-    .join('\n\n')
-    .replace(CITATION_MARKER_RE, '')
-    .replace(BARE_TOOL_CALL_ID_RE, '')
-  return collapseWhitespace(joined)
+  const joined = selected.join('\n\n').replace(CITATION_MARKER_RE, '')
+  return collapseWhitespace(stripToolCallIds(joined, toolCallIdsOf(rawParts)))
 }
