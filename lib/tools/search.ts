@@ -6,7 +6,6 @@ import {
   type RerankedDoc
 } from '@/lib/embeddings/rerank'
 import {
-  cosineSimilarity,
   embedTexts,
   getConfiguredModel
 } from '@/lib/embeddings/transformers-embedding'
@@ -59,6 +58,11 @@ import type {
   SearchModeOption
 } from './search/providers/base'
 import { mergeGeneralSearchResults } from './search/providers/merge-general'
+import {
+  findDuplicateQuery,
+  type PriorQuery,
+  resolveDedupThreshold
+} from './search/query-dedup'
 import { resolveFetchRoundsBudget } from './fetch-budget'
 
 export type SearchToolOptions = {
@@ -115,20 +119,6 @@ export type SearchToolOptions = {
 // silently ignored, so the value is clamped here instead — an operator who
 // sets OLLAMA_SEARCH_MAX_RESULTS=50 should see 10, not believe they get 50.
 const OLLAMA_SEARCH_HARD_MAX = 10
-
-// Returns the index of the first prior query embedding whose cosine
-// similarity to `embedding` meets/exceeds `threshold`, or -1 if none. Used to
-// skip near-duplicate query reformulations within a single research turn.
-export function findDuplicateQueryIndex(
-  embedding: number[],
-  priorEmbeddings: number[][],
-  threshold: number
-): number {
-  for (let i = 0; i < priorEmbeddings.length; i++) {
-    if (cosineSimilarity(embedding, priorEmbeddings[i]) >= threshold) return i
-  }
-  return -1
-}
 
 // Depth-tiering decision. When enabled (SEARCH_DEPTH_TIERING !== 'off'), the
 // FIRST searxng search of a turn uses firstSearchDepth (advanced in deep
@@ -389,11 +379,9 @@ export function createSearchTool(
   let searchRounds = 0
   // Per-turn search-intent dedup state, keyed within a search_mode so a web
   // search and an academic search of the same words aren't treated as dupes.
-  const executedQueries: {
-    mode: string
-    query: string
-    embedding: number[]
-  }[] = []
+  // embedding is null when the embedder failed: the query can still be
+  // matched as an exact repeat (see lib/tools/search/query-dedup.ts).
+  const executedQueries: PriorQuery[] = []
 
   return tool({
     description: getSearchToolDescription(),
@@ -489,39 +477,67 @@ export function createSearchTool(
         query
       }
 
-      // Search-intent dedup: skip a near-duplicate reformulation of a query
-      // already run this turn. Its results are already in the model's
-      // context, so return a short note instead of paying for another
-      // search+crawl+rerank. First search never dedups (nothing prior).
+      // Search-intent dedup: skip a repeat of a query already run this turn
+      // (same search_mode). Its results are already in the model's context,
+      // so return a short note instead of paying for another
+      // search+crawl+rerank. The rule lives in ./search/query-dedup.ts: an
+      // exact repeat (case/punctuation/quotes aside), or embedding cosine >=
+      // SEARCH_DEDUP_THRESHOLD AND no new content word — a query that names a
+      // different product, version, year or facet is never a repeat, however
+      // similar its embedding (templated queries scored >= 0.92 and were
+      // wrongly skipped under the old cosine-only rule).
+      //
+      // The embedding is computed for every search, the first included, so
+      // later searches this turn have something to compare against. An
+      // embedding failure only disables the cosine half (exact repeats are
+      // still caught) and never blocks the search.
       //
       // Recording into executedQueries is deferred until AFTER the search
-      // below actually succeeds (see the `currentQueryEmbedding` push near
-      // the end of this function) — computing the embedding here only
-      // decides duplicate-or-not. If we recorded eagerly and the search
-      // then threw, a later identical retry would be wrongly skipped with a
-      // "results are already above" note for results that were never
-      // produced.
+      // below actually succeeds (see the executedQueries pushes near the end
+      // of this function) — the work here only decides duplicate-or-not. If
+      // we recorded eagerly and the search then threw, a later identical
+      // retry would be wrongly skipped with a "results are already above"
+      // note for results that were never produced.
       const dedupEnabled = process.env.SEARCH_DEDUP_ENABLED !== 'off'
       let currentQueryEmbedding: number[] | null = null
-      if (dedupEnabled && executedQueries.length > 0) {
+      if (dedupEnabled) {
         try {
-          const threshold = Number(process.env.SEARCH_DEDUP_THRESHOLD ?? '0.92')
           const [queryEmbedding] = await embedTexts(
             [query],
             getConfiguredModel()
           )
-          const priorSameMode = executedQueries.filter(
-            e => e.mode === search_mode
+          currentQueryEmbedding = queryEmbedding ?? null
+        } catch (error) {
+          console.error(
+            '[search-dedup] embedding failed, exact-repeat check only:',
+            error
           )
-          const dupIdx = findDuplicateQueryIndex(
-            queryEmbedding,
-            priorSameMode.map(e => e.embedding),
-            Number.isFinite(threshold) ? threshold : 0.92
+        }
+        const priorSameMode = executedQueries.filter(
+          e => e.mode === search_mode
+        )
+        if (priorSameMode.length > 0) {
+          const tokenGuard = process.env.SEARCH_DEDUP_TOKEN_GUARD !== 'off'
+          const { duplicate, nearMiss } = findDuplicateQuery(
+            query,
+            currentQueryEmbedding,
+            priorSameMode,
+            {
+              threshold: resolveDedupThreshold(
+                process.env.SEARCH_DEDUP_THRESHOLD,
+                tokenGuard
+              ),
+              tokenGuard
+            }
           )
-          if (dupIdx !== -1) {
-            const priorQuery = priorSameMode[dupIdx].query
+          if (duplicate) {
+            const priorQuery = priorSameMode[duplicate.index].query
+            const how =
+              duplicate.similarity === undefined
+                ? duplicate.reason
+                : `${duplicate.reason}, cos=${duplicate.similarity.toFixed(3)}`
             console.log(
-              `[search-dedup] skipping "${query}" — near-duplicate of "${priorQuery}"`
+              `[search-dedup] skipping "${query}" — near-duplicate of "${priorQuery}" (${how})`
             )
             yield {
               state: 'complete' as const,
@@ -533,28 +549,13 @@ export function createSearchTool(
             }
             return
           }
-          // Not a duplicate — stash the embedding; recorded once the search
-          // below actually succeeds.
-          currentQueryEmbedding = queryEmbedding
-        } catch (error) {
-          // Embedding failure ⇒ treat as not-duplicate (search proceeds),
-          // never worse than today. Nothing is recorded for this query, so a
-          // later identical one simply gets its own embed attempt.
-          console.error('[search-dedup] embedding failed, not deduping:', error)
-        }
-      } else if (dedupEnabled) {
-        // First search of the turn: always compute one local embedding (no
-        // prior entries to compare against yet) so later searches this turn
-        // have something to compare against. Stashed here, not recorded
-        // yet — recorded once the search below actually succeeds.
-        try {
-          const [queryEmbedding] = await embedTexts(
-            [query],
-            getConfiguredModel()
-          )
-          currentQueryEmbedding = queryEmbedding
-        } catch (error) {
-          console.error('[search-dedup] initial embed failed:', error)
+          if (nearMiss) {
+            // Kept although the embedding alone would have skipped it: the
+            // evidence for tuning the threshold and word lists.
+            console.log(
+              `[search-dedup] kept "${query}" — cos=${nearMiss.similarity.toFixed(3)} to "${priorSameMode[nearMiss.index].query}" but ${nearMiss.why}`
+            )
+          }
         }
       }
 
@@ -704,7 +705,7 @@ export function createSearchTool(
             })
             // Record this query for later in-turn dedup, exactly as the normal
             // path does once its search succeeds.
-            if (currentQueryEmbedding) {
+            if (dedupEnabled) {
               executedQueries.push({
                 mode: search_mode,
                 query,
@@ -1296,8 +1297,9 @@ export function createSearchTool(
       // the search ran) so a thrown search never poisons executedQueries: a
       // later identical retry must be allowed to actually run, not get
       // skipped with a "results are already above" note for results that
-      // were never produced.
-      if (currentQueryEmbedding) {
+      // were never produced. Recorded even without an embedding, so an exact
+      // repeat is still caught when the embedder is down.
+      if (dedupEnabled) {
         executedQueries.push({
           mode: search_mode,
           query,
