@@ -99,7 +99,7 @@ beforeEach(() => {
   }))
   embedByQuery.clear()
   embedByQuery.set('alpha', [1, 0, 0, 0])
-  embedByQuery.set('alpha, reworded', [1, 0, 0, 0])
+  embedByQuery.set('alpha overview', [1, 0, 0, 0])
   embedByQuery.set('beta', [0, 1, 0, 0])
   embedByQuery.set('gamma', [0, 0, 1, 0])
   vi.stubEnv('SEARCH_API', 'searxng')
@@ -121,7 +121,7 @@ describe('search round cap — dedup-skipped searches do not consume a round', (
     expect(first.searchLimitReached).toBeUndefined()
 
     // Near-duplicate of "alpha": skipped with a note, no provider call.
-    const dup = await runSearch(tool, 'alpha, reworded', 2)
+    const dup = await runSearch(tool, 'alpha overview', 2)
     expect(String(dup.note)).toContain('near-duplicate')
     expect(searxngSearch).toHaveBeenCalledTimes(1)
 
