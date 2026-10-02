@@ -3,19 +3,19 @@
     "ask": "ask-flow",
     "ingestor": "ingestor"
   },
-  "count": 661,
+  "count": 662,
   "coverage": {
-    "files": 661,
-    "withPurpose": 661,
-    "header": 173,
+    "files": 662,
+    "withPurpose": 662,
+    "header": 174,
     "jsdoc": 38,
     "derived": 59,
     "override": 391,
-    "documented": 366
+    "documented": 368
   },
   "kinds": {
     "dockerfile": 3,
-    "lib-module": 251,
+    "lib-module": 252,
     "route-handler": 37,
     "page": 13,
     "stylesheet": 2,
@@ -11471,6 +11471,7 @@
         "lib/memory/write.ts",
         "lib/search/crop-position.ts",
         "lib/tools/search.ts",
+        "lib/tools/search/query-dedup.ts",
         "scripts/backfill-narration.ts"
       ],
       "tests": [
@@ -11484,6 +11485,7 @@
         "lib/memory/__tests__/recall-search.test.ts",
         "lib/memory/__tests__/save.test.ts",
         "lib/search/__tests__/crop-position.test.ts",
+        "lib/tools/__tests__/search-dedup.test.ts",
         "lib/tools/__tests__/search-round-cap-execute.test.ts"
       ],
       "docs": [
@@ -13932,6 +13934,7 @@
         "lib/redis/__tests__/caller-outage-semantics.test.ts",
         "lib/search/__tests__/basic-search-cache.test.ts",
         "lib/tools/__tests__/search-advanced-timeout.test.ts",
+        "lib/tools/__tests__/search-dedup.test.ts",
         "lib/tools/__tests__/search-round-cap-execute.test.ts"
       ],
       "docs": [
@@ -14559,6 +14562,12 @@
           "title": "Chat turn",
           "section": "3. Load chat and ownership",
           "anchor": "_3-load-chat-and-ownership"
+        },
+        {
+          "page": "/request-lifecycle/frontend",
+          "title": "Frontend",
+          "section": "Citation evidence (telemetry only)",
+          "anchor": "citation-evidence"
         },
         {
           "page": "/request-lifecycle/generative-ui",
@@ -16168,11 +16177,10 @@
       "area": "lib",
       "project": "ask",
       "kind": "lib-module",
-      "purpose": "Researcher search tool: queries SearXNG/Brave/degoog/Ollama providers, with caching, crawl, embedding rerank and excerpt building, round budgets and telemetry per search mode.",
+      "purpose": "Researcher search tool: SearXNG/Brave/degoog/Ollama providers with caching, crawl, rerank and excerpts, the in-turn repeat-query skip, round budgets and telemetry per search mode.",
       "purposeSource": "override",
       "exports": [
         "SearchToolOptions",
-        "findDuplicateQueryIndex",
         "resolveEffectiveDepth",
         "shouldUseOllamaWebSpeed",
         "mapOllamaWebResults",
@@ -16503,6 +16511,7 @@
       ],
       "tests": [
         "lib/tools/__tests__/search-advanced-timeout.test.ts",
+        "lib/tools/__tests__/search-dedup.test.ts",
         "lib/tools/__tests__/search-round-cap-execute.test.ts"
       ],
       "docs": [
@@ -16685,7 +16694,14 @@
       "tests": [
         "lib/tools/search/providers/__tests__/searxng.test.ts"
       ],
-      "docs": []
+      "docs": [
+        {
+          "page": "/request-lifecycle/frontend",
+          "title": "Frontend",
+          "section": "Citation evidence (telemetry only)",
+          "anchor": "citation-evidence"
+        }
+      ]
     },
     {
       "path": "lib/tools/search/providers/tavily.ts",
@@ -16705,6 +16721,68 @@
       ],
       "tests": [],
       "docs": []
+    },
+    {
+      "path": "lib/tools/search/query-dedup.ts",
+      "dir": "lib/tools/search",
+      "area": "lib",
+      "project": "ask",
+      "kind": "lib-module",
+      "purpose": "In-turn search-query dedup: decides whether a search the model is about to run repeats one it already ran this turn, so the tool can return a short \"reuse those results\" note instead of paying for…",
+      "purposeSource": "header",
+      "exports": [
+        "PriorQuery",
+        "DuplicateMatch",
+        "NearMiss",
+        "DedupDecision",
+        "DEFAULT_DEDUP_THRESHOLD",
+        "LEGACY_DEDUP_THRESHOLD",
+        "resolveDedupThreshold",
+        "normalizeQueryText",
+        "queryContentTokens",
+        "novelContentTokens",
+        "findDuplicateQuery"
+      ],
+      "methods": [],
+      "route": null,
+      "usedBy": [
+        "lib/tools/search.ts"
+      ],
+      "tests": [
+        "lib/tools/search/__tests__/query-dedup.test.ts"
+      ],
+      "docs": [
+        {
+          "page": "/history/changelog",
+          "title": "Changelog",
+          "section": "2026-10 — October",
+          "anchor": "_2026-10-—-october"
+        },
+        {
+          "page": "/history/decisions",
+          "title": "Decisions",
+          "section": "D42. Near-duplicate search skip only for true repeats",
+          "anchor": "d42-near-duplicate-search-skip-only-for-true-repeats"
+        },
+        {
+          "page": "/history/glossary",
+          "title": "Glossary",
+          "section": "Search",
+          "anchor": "search"
+        },
+        {
+          "page": "/history/known-issues",
+          "title": "Known issues",
+          "section": "Near-duplicate dedup drops templated queries",
+          "anchor": "near-duplicate-dedup-drops-templated-queries"
+        },
+        {
+          "page": "/search/pipeline",
+          "title": "Search pipeline",
+          "section": null,
+          "anchor": null
+        }
+      ]
     },
     {
       "path": "lib/tools/todo.ts",
@@ -17250,7 +17328,7 @@
       "area": "lib",
       "project": "ask",
       "kind": "lib-module",
-      "purpose": "Citation utilities: builds per-message citation maps from search/fetch/documentRetrieval outputs (N = result position within that call) and resolves every [N](#toolCallId) anchor through one…",
+      "purpose": "Citation utilities: per-message citation maps, the one anchor resolver shared by rendering, audit and cited-URL list, and evidence-only helpers (samePageKey, auditCitationEvidence) for telemetry.",
       "purposeSource": "override",
       "exports": [
         "isCitationLabel",
@@ -17267,6 +17345,12 @@
         "auditCitations",
         "extractCitationMaps",
         "extractCitedSourceUrls",
+        "SNIPPET_MAX_CHARS",
+        "samePageKey",
+        "CitationEvidence",
+        "findPageTextForUrl",
+        "CitationEvidenceAudit",
+        "auditCitationEvidence",
         "extractCitationMapsFromMessages",
         "processCitations",
         "stripIncompleteCitationTail",
@@ -17290,6 +17374,7 @@
         "lib/streaming/helpers/__tests__/document-retrieval-part.test.ts",
         "lib/tools/__tests__/fetch-citation-handles.test.ts",
         "lib/utils/__tests__/citation-cited-urls.test.ts",
+        "lib/utils/__tests__/citation-evidence.test.ts",
         "lib/utils/__tests__/citation-handles.test.ts",
         "lib/utils/__tests__/citation.test.ts",
         "lib/utils/citation.test.ts"
@@ -17310,8 +17395,8 @@
         {
           "page": "/history/changelog",
           "title": "Changelog",
-          "section": "2026-09 — September",
-          "anchor": "_2026-09-—-september"
+          "section": "2026-10 — October",
+          "anchor": "_2026-10-—-october"
         },
         {
           "page": "/history/decisions",
@@ -18302,6 +18387,7 @@
         "app/api/advanced-search/__tests__/redis-resilience.test.ts",
         "app/api/advanced-search/__tests__/searxng-failure.test.ts",
         "lib/tools/__tests__/search-advanced-timeout.test.ts",
+        "lib/tools/__tests__/search-dedup.test.ts",
         "lib/tools/__tests__/search-round-cap-execute.test.ts",
         "lib/tools/__tests__/search-speed-ollama-web.test.ts",
         "lib/utils/__tests__/ollama-search-client.test.ts"
@@ -18928,6 +19014,7 @@
         "lib/tools/__tests__/fetch-tool-call-id.test.ts",
         "lib/tools/__tests__/fetch.test.ts",
         "lib/tools/__tests__/search-advanced-timeout.test.ts",
+        "lib/tools/__tests__/search-dedup.test.ts",
         "lib/tools/__tests__/search-round-cap-execute.test.ts"
       ],
       "docs": []
