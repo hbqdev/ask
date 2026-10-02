@@ -44,8 +44,8 @@
     "actor": "postgres",
     "description": "For a follow-up (`isNewChat` false) the stream first waits (≤5s) for a just-Stopped turn to finish saving its partial, then reads the chat with `loadChatUncached` — never the cached `loadChat`, whose stale-while-revalidate snapshot can omit the previous answer. A chat that doesn't load, or belongs to someone else, gets 403 (fail closed). New chats skip the read.",
     "code": [
-      "lib/streaming/create-chat-stream-response.ts:178",
-      "lib/streaming/create-chat-stream-response.ts:181",
+      "lib/streaming/create-chat-stream-response.ts:182",
+      "lib/streaming/create-chat-stream-response.ts:185",
       "lib/actions/chat.ts:156"
     ],
     "link": "/request-lifecycle/chat-turn#_3-load-chat-and-ownership"
@@ -68,10 +68,10 @@
     "actor": "classifier",
     "description": "`classifyQuery` (fixed classifier model, soft budget `CLASSIFIER_BUDGET_MS`=4s, hard 10s) returns `skipSearch / needsSources / needsRecent / intent / standaloneQuery` plus fused `expandedQueries`. Since 2026-09-26 (`ALWAYS_SEARCH`, default on) `skipSearch` is true only for non-questions: greetings, thanks and venting, pure transforms of text already present, pure arithmetic, image requests, explicit remember/forget instructions. Every question searches, and `needsSources` is only logged. The classifier is bypassed when the message contains a URL, on Retry/regenerate, and in speed mode; those turns search the raw message. Alongside, `detectUserSuppliedSource` reads the message parts: a URL (inline or a link chip) or an attachment the text only points at means the user supplied the source, and the first search will not be forced. At the same moment `prefetchRecallCandidates` starts the cheap half of past-conversation recall on the raw message: the query embed and both DB arms, but **not** the rerank (skipped in speed mode). The GPU rerank waits until the turn knows which query it will use.",
     "code": [
-      "lib/streaming/create-chat-stream-response.ts:290",
       "lib/streaming/create-chat-stream-response.ts:294",
-      "lib/streaming/create-chat-stream-response.ts:297",
-      "lib/streaming/create-chat-stream-response.ts:334",
+      "lib/streaming/create-chat-stream-response.ts:298",
+      "lib/streaming/create-chat-stream-response.ts:301",
+      "lib/streaming/create-chat-stream-response.ts:338",
       "lib/agents/query-classifier.ts:350",
       "lib/agents/query-classifier.ts:234",
       "lib/memory/recall-inject.ts:74"
@@ -84,11 +84,11 @@
     "actor": "next-route",
     "description": "Everything after this runs inside `createUIMessageStream.execute`, so the browser gets a `start` chunk immediately and waits appear as visible steps (`data-attachments`, `data-classifier`). File parts are transformed (PDF/doc RAG excerpts, images to data URIs, ingest wait), then `convertToModelMessages` → `pruneMessages` (drops tool calls older than the last 2 messages, reasoning before the last message) → token-based truncation against the model's probed context window.",
     "code": [
-      "lib/streaming/create-chat-stream-response.ts:360",
-      "lib/streaming/create-chat-stream-response.ts:418",
-      "lib/streaming/create-chat-stream-response.ts:446",
-      "lib/streaming/create-chat-stream-response.ts:451",
-      "lib/streaming/create-chat-stream-response.ts:465"
+      "lib/streaming/create-chat-stream-response.ts:364",
+      "lib/streaming/create-chat-stream-response.ts:422",
+      "lib/streaming/create-chat-stream-response.ts:450",
+      "lib/streaming/create-chat-stream-response.ts:455",
+      "lib/streaming/create-chat-stream-response.ts:469"
     ],
     "link": "/request-lifecycle/chat-turn#_6-inside-the-stream-attachments-pruning-truncation"
   },
@@ -98,7 +98,7 @@
     "actor": "model",
     "description": "For a new chat, `generateChatTitle` runs in parallel on a small local model (8s timeout, falls back to 'Untitled'). The moment it resolves it is streamed as a `data-title` part so the header and sidebar can show it; it is persisted only in `onFinish`.",
     "code": [
-      "lib/streaming/create-chat-stream-response.ts:481",
+      "lib/streaming/create-chat-stream-response.ts:485",
       "lib/agents/title-generator.ts:36"
     ]
   },
@@ -108,9 +108,9 @@
     "actor": "classifier",
     "description": "The classification is awaited (`classify_ms`). `chooseRecall` decides: `gated` (skipSearch → no recall, no rerank), `speculative` (standalone query equals the raw text → rerank the prefetched candidates) or `refetch` (rewritten query → embed + DB + rerank on the resolved query). The rerank runs exactly once per turn, on `RECALL_RERANK_POOL` (10) passages at `RECALL_RERANK_MAX_LENGTH` (384) tokens, about 1.3 s. The recall work is raced against `RECALL_BUDGET_MS` (1.5 s); on expiry the turn proceeds with no recall and `recall_budget_hit=true` is logged.",
     "code": [
-      "lib/streaming/create-chat-stream-response.ts:512",
+      "lib/streaming/create-chat-stream-response.ts:516",
       "lib/streaming/helpers/choose-recall.ts:13",
-      "lib/streaming/create-chat-stream-response.ts:558",
+      "lib/streaming/create-chat-stream-response.ts:562",
       "lib/memory/recall-search.ts:28"
     ],
     "link": "/request-lifecycle/chat-turn#_7-recall-race"
@@ -121,10 +121,10 @@
     "actor": "rerank",
     "description": "Ranked document chunks (from `transformFileParts`) and this turn's pasted URLs (`retrieveUrlChunks`) are deduped, capped at 8 sources, token-budgeted against the remaining context window (`budgetDocumentSources`), and injected as synthetic `documentRetrieval` tool calls: a UI part streamed to the browser plus a model-message pair appended AFTER truncation, so the answer can cite `[1](#<toolCallId>)`.",
     "code": [
-      "lib/streaming/create-chat-stream-response.ts:651",
-      "lib/streaming/create-chat-stream-response.ts:678",
-      "lib/streaming/create-chat-stream-response.ts:740",
-      "lib/streaming/create-chat-stream-response.ts:760"
+      "lib/streaming/create-chat-stream-response.ts:655",
+      "lib/streaming/create-chat-stream-response.ts:682",
+      "lib/streaming/create-chat-stream-response.ts:744",
+      "lib/streaming/create-chat-stream-response.ts:764"
     ],
     "link": "/knowledge/rag-uploads"
   },
@@ -149,8 +149,8 @@
     "actor": "search",
     "description": "The `ToolLoopAgent` streams: after the forced step 0, each step either calls tools or emits the final text (no `toolChoice`; the loop ends on plain text). The forced search is round 1. `search` fans out to providers, crawls and reranks (see Search pipeline); after `SEARCH_ROUNDS_MAX` rounds (3; quality 10 since 2026-09-30, and a near-duplicate skip does not count) it returns an empty result telling the model to answer; in quality mode the model may still `fetch` pages this turn found, up to 8 fetch calls (`FETCH_ROUNDS_MAX_QUALITY`). Its call to `/api/advanced-search` is bounded (20 s to response headers, 180 s in total) and falls back to a basic SearXNG search on timeout, so a stuck route costs a turn about 20 s instead of the whole 300 s. The answer deadline (200 s from the start of the turn) is applied twice: `prepareStep` stops advertising tools and tells the model to answer now, and `enforceAnswerDeadline` wraps every tool's `execute` so a call the model emits anyway is refused with an \"answer now\" result (`[deadline] refused <tool> call`). The 300 s ceiling therefore never produces a blank turn.",
     "code": [
-      "lib/tools/search.ts:327",
-      "lib/tools/search.ts:437",
+      "lib/tools/search.ts:317",
+      "lib/tools/search.ts:425",
       "lib/tools/fetch-budget.ts:43",
       "lib/tools/search/advanced-search-deadline.ts:93",
       "lib/agents/researcher.ts:1058",
@@ -165,8 +165,8 @@
     "actor": "crawl",
     "description": "Depending on mode, a search call crawls link-only results via crawl4ai and reranks passages (remote cross-encoder, or local bi-encoder in speed mode) before excerpting. Stage timings (`search_ms`, `crawl_ms`, `rerank_ms`) are folded into the turn's `[latency]` line via `onToolTiming`. Full crawled text is kept aside in `fullContentSink` for persistence.",
     "code": [
-      "lib/streaming/create-chat-stream-response.ts:838",
-      "lib/streaming/create-chat-stream-response.ts:358"
+      "lib/streaming/create-chat-stream-response.ts:842",
+      "lib/streaming/create-chat-stream-response.ts:362"
     ],
     "link": "/search/pipeline"
   },
@@ -176,9 +176,9 @@
     "actor": "model",
     "description": "`researchAgent.stream({ experimental_transform: smoothAndStripNarration() })` buffers the start of each text part until the answer's `## ` heading appears, drops English 'thinking out loud' preambles, and cuts a preamble glued to the heading (`…breakdown.## Title`) once the answer after it outweighs it (exactly the cut persist makes); the browser renders the message through the same cleanup the saved message gets (`narrationCleanView`), which also drops status notes and glued preambles in any language. The agent's UI stream is merged into the response (`sendStart:false`). The response is SSE with `Cache-Control: no-cache, no-transform`; a tee'd copy is mirrored to Redis for resume. The browser throttles re-renders to 100ms.",
     "code": [
-      "lib/streaming/create-chat-stream-response.ts:898",
-      "lib/streaming/create-chat-stream-response.ts:938",
-      "lib/streaming/create-chat-stream-response.ts:1219",
+      "lib/streaming/create-chat-stream-response.ts:902",
+      "lib/streaming/create-chat-stream-response.ts:942",
+      "lib/streaming/create-chat-stream-response.ts:1226",
       "lib/streaming/helpers/smooth-and-strip-narration.ts:75",
       "components/render-message.tsx:158"
     ],
@@ -190,7 +190,7 @@
     "actor": "redis",
     "description": "`consumeSseStream` sets the pointer `ask:chat:{chatId}:activeStream` (TTL 300s) and hands the stream to `resumable-stream`, which publishes it over Redis pub/sub. A reconnecting client (`GET /api/chat/{id}/stream`) replays a still-live turn from its first chunk; a finished turn yields 204 and the client reloads the saved conversation.",
     "code": [
-      "lib/streaming/create-chat-stream-response.ts:1236",
+      "lib/streaming/create-chat-stream-response.ts:1243",
       "lib/streaming/resumable-stream-context.ts:17",
       "app/api/chat/[chatId]/stream/route.ts:18"
     ],
@@ -202,9 +202,9 @@
     "actor": "persist",
     "description": "`onFinish` unregisters the kill controller, emits the `[latency]` line (including `turn_mode`, `forced_search` and `forced_skip`), then: aborted-but-not-user-Stop → discard; user Stop → sanitize the partial and skip if a newer turn already exists; otherwise strip narration, rehydrate full crawled content, and `persistStreamResults` (strips live-only `data-recall` chips, waits for the initial chat row, upserts with retry, writes the title).",
     "code": [
-      "lib/streaming/create-chat-stream-response.ts:973",
-      "lib/streaming/create-chat-stream-response.ts:1032",
-      "lib/streaming/create-chat-stream-response.ts:1072",
+      "lib/streaming/create-chat-stream-response.ts:977",
+      "lib/streaming/create-chat-stream-response.ts:1039",
+      "lib/streaming/create-chat-stream-response.ts:1079",
       "lib/streaming/helpers/persist-stream-results.ts:14"
     ],
     "link": "/request-lifecycle/streaming#persistence"
@@ -215,8 +215,8 @@
     "actor": "postgres",
     "description": "Fire-and-forget after persistence: `extractMemories` + `saveCandidates` write durable user facts (unless `MEMORY_ENABLED=off` or the user disabled memory; one `[memory]` log line per turn), and `indexMessage` embeds the user question and the final answer text into `conversation_chunks` for future recall (unless `RECALL_ENABLED=off`). Neither can fail the turn.",
     "code": [
-      "lib/streaming/create-chat-stream-response.ts:1103",
-      "lib/streaming/create-chat-stream-response.ts:1161",
+      "lib/streaming/create-chat-stream-response.ts:1110",
+      "lib/streaming/create-chat-stream-response.ts:1168",
       "lib/memory/recall-index.ts:36"
     ],
     "link": "/knowledge/memory-recall"
