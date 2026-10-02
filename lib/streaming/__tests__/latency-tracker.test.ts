@@ -38,6 +38,61 @@ describe('LatencyTracker', () => {
     expect('citations_recovered' in obj2).toBe(false)
   })
 
+  it('emits the citation evidence split (auditCitationEvidence)', () => {
+    const emitWith = (
+      audit: Parameters<LatencyTracker['markCitations']>[0]
+    ) => {
+      const lines: string[] = []
+      const t = new LatencyTracker(
+        { chatId: 'c1', mode: 'quality' },
+        fakeClock([0, 100, 200]),
+        l => lines.push(l)
+      )
+      t.markCitations(audit)
+      t.emit({})
+      return JSON.parse(lines[0].slice('[latency] '.length))
+    }
+
+    const obj = emitWith({
+      total: 10,
+      unresolved: 1,
+      recovered: 0,
+      snippet: 4,
+      snippetRead: 2,
+      fetchedPagesUncited: 3
+    })
+    expect(obj).toMatchObject({
+      citations_total: 10,
+      citations_snippet: 4,
+      citations_snippet_read: 2,
+      fetch_pages_uncited: 3
+    })
+
+    // zero snippet citations is a real measurement and is logged; the
+    // optional counters stay off the line when zero
+    const clean = emitWith({
+      total: 2,
+      unresolved: 0,
+      snippet: 0,
+      snippetRead: 0,
+      fetchedPagesUncited: 0
+    })
+    expect(clean.citations_snippet).toBe(0)
+    expect('citations_snippet_read' in clean).toBe(false)
+    expect('fetch_pages_uncited' in clean).toBe(false)
+
+    // a turn that fetched pages and cited nothing still reports them
+    const none = emitWith({
+      total: 0,
+      unresolved: 0,
+      snippet: 0,
+      snippetRead: 0,
+      fetchedPagesUncited: 4
+    })
+    expect('citations_total' in none).toBe(false)
+    expect(none.fetch_pages_uncited).toBe(4)
+  })
+
   it('emits one [latency] line with marks, ttft, total, and meta', () => {
     const lines: string[] = []
     // start=0, markFirstToken reads 800, emit reads 1500
