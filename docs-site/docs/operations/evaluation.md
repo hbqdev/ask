@@ -213,10 +213,10 @@ The output is real user text from prod. Review it before committing.
 These measure **control-flow variants**, the registry in `lib/agents/flows/variants.ts`
 (`baseline`, `adaptive`, `react-gap`, `plan-execute`, `wide-once`, `router`;
 default `baseline`, `variants.ts:352`). The running variant is chosen by the
-`FLOW_VARIANT` env var (`lib/streaming/create-chat-stream-response.ts:854`, `lib/agents/researcher.ts:962`), which the
+`FLOW_VARIANT` env var (`lib/streaming/create-chat-stream-response.ts:858`, `lib/agents/researcher.ts:962`), which the
 lab overlay exposes as `${FLOW_VARIANT:-baseline}` (`docker-compose.lab.yaml:24`), and
 it is written into every `[latency]` line as `variant`
-(`lib/streaming/latency-tracker.ts:257`). An unknown value degrades to `baseline`
+(`lib/streaming/latency-tracker.ts:269`). An unknown value degrades to `baseline`
 rather than erroring (`lib/agents/flows/__tests__/variants.test.ts:21`).
 
 **Why a separate runner from `run-eval.ts`:** the arms differ first in the retrieval

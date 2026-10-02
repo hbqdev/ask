@@ -32,7 +32,7 @@ always share a process.
 
 ## The SSE response {#sse-response}
 
-`createUIMessageStreamResponse` (`create-chat-stream-response.ts:1219`) returns the AI
+`createUIMessageStreamResponse` (`create-chat-stream-response.ts:1226`) returns the AI
 SDK UI-message stream as Server-Sent Events. Headers: `Cache-Control: no-cache,
 no-transform` — `no-transform` stops Cloudflare-style proxies from buffering the body
 to minify it (which made progress appear only at the end); `no-cache` is restated
@@ -75,7 +75,7 @@ The rules themselves, their thresholds and their limits are in
 [Models & reasoning › Narration](/search/models-reasoning#narration-and-chain-of-thought-leak-handling).
 
 **Stream path** — `smoothAndStripNarration()` (`helpers/smooth-and-strip-narration.ts:75`),
-passed as `experimental_transform` to the agent stream (`create-chat-stream-response.ts:901`).
+passed as `experimental_transform` to the agent stream (`create-chat-stream-response.ts:905`).
 Per text part:
 
 - buffer `text-delta`s until the answer's heading appears;
@@ -121,7 +121,7 @@ the answer appears a moment later instead of showing the preamble. (When the str
 already cut the seam, the part arrives starting with its heading.)
 
 **Persist path** — `stripNarrationFromMessage` (`helpers/strip-narration-from-message.ts:73`),
-applied in `onFinish` (`create-chat-stream-response.ts:1072`) and again inside
+applied in `onFinish` (`create-chat-stream-response.ts:1079`) and again inside
 `persistStreamResults`:
 
 1. per text part, `stripNarrationPreamble`: stray think-tag reasoning first; then, when a
@@ -135,8 +135,8 @@ applied in `onFinish` (`create-chat-stream-response.ts:1072`) and again inside
    answer.
 
 The same cleanup is used for the history sent back to the classifier and the model
-(`create-chat-stream-response.ts:258`, and `create-ephemeral-chat-stream-response.ts:62` for
-guests), the spoken gist (`create-chat-stream-response.ts:959`), copy, recall indexing and search snippets
+(`create-chat-stream-response.ts:262`, and `create-ephemeral-chat-stream-response.ts:62` for
+guests), the spoken gist (`create-chat-stream-response.ts:963`), copy, recall indexing and search snippets
 ([full list](/search/models-reasoning#narration-read-time)).
 
 Residual by design: a final answer with fused narration but **no** heading is kept
@@ -200,7 +200,7 @@ sequenceDiagram
     end
 ```
 
-**Producer** (`create-chat-stream-response.ts:1236`): `consumeSseStream` gets a tee'd
+**Producer** (`create-chat-stream-response.ts:1243`): `consumeSseStream` gets a tee'd
 copy of the SSE. With a resumable context it generates a `streamId`, **first** writes
 the pointer `ask:chat:{chatId}:activeStream` (TTL 300s = the generation timeout, so a
 crashed server never leaves a dangling pointer), then `rsc.createNewResumableStream`.
@@ -292,7 +292,7 @@ reason surfaces as a stream error.
 | 300s generation timeout | timeout | discarded |
 | Client disconnect (authenticated) | — no abort — | turn completes normally |
 
-**Saving the partial** (`create-chat-stream-response.ts:1032-1092`):
+**Saving the partial** (`create-chat-stream-response.ts:1039-1099`):
 
 1. `wasStoppedByUser(stopController)` is checked independently of `isAborted` — a Stop
    during the classifier/recall phase fails `execute` instead of emitting an abort chunk,
@@ -335,7 +335,7 @@ label. See [frontend](/request-lifecycle/frontend#message-actions) for the layou
 
 ## Persistence {#persistence}
 
-The authenticated `onFinish` (`create-chat-stream-response.ts:973`) ends in:
+The authenticated `onFinish` (`create-chat-stream-response.ts:977`) ends in:
 
 ```text
 stripNarrationFromMessage → rehydrateFullContent → persistStreamResults
