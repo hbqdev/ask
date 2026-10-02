@@ -168,7 +168,9 @@ A native systemd service on every host (not Docker). See
 - **Failure:** `Qwen3-Embedding-0.6B` is `remoteOnly`. When the service is down, embedding
   **throws** instead of falling back to a local model, because a local approximation would poison
   the vector store. Recall and memory injection return nothing, and new uploads can't be indexed.
-  Search rerank's bi-encoder tier uses local ONNX MiniLM and is unaffected.
+  Search rerank's bi-encoder tier uses local ONNX MiniLM and is unaffected. The search dedup gate
+  loses only its near-repeat half: exact repeats are still skipped (since 2026-10-01,
+  [pipeline › dedup](/search/pipeline#round-cap)).
 
 ::: danger Data-locked model
 The stored `vector(1024)` rows in `user_memories` and `conversation_chunks` were produced by

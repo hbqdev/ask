@@ -55,18 +55,18 @@ flowchart TD
 Tools are AI SDK tools defined under `lib/tools/`. A tool's `execute` may be an async
 generator; each `yield` is streamed to the client as a new output for the same
 `toolCallId`. The search tool uses this to show progress: it first yields
-`{ state: 'searching' }` (`lib/tools/search.ts:488`) and later
-`{ state: 'complete', …results }` (`lib/tools/search.ts:459`, `lib/tools/search.ts:527`).
+`{ state: 'searching' }` (`lib/tools/search.ts:476`) and later
+`{ state: 'complete', …results }` (`lib/tools/search.ts:447`, `lib/tools/search.ts:543`).
 
 Separately from the UI, `toModelOutput` trims what the *model* sees. The `images` array
 must survive that trim because the image-spec prompt tells the model to copy image URLs
-verbatim from it (`lib/tools/search.ts:1317`); removing it once made inline images
+verbatim from it (`lib/tools/search.ts:1319`); removing it once made inline images
 impossible.
 
 Non-tool progress uses **data parts** written directly to the stream with
 `writer.write({ type: 'data-…' })` (for example `data-attachments` and
-`data-classifier`, `lib/streaming/create-chat-stream-response.ts:401`,
-`lib/streaming/create-chat-stream-response.ts:443`). Their payload types are declared in
+`data-classifier`, `lib/streaming/create-chat-stream-response.ts:405`,
+`lib/streaming/create-chat-stream-response.ts:447`). Their payload types are declared in
 `UIDataTypes` (`lib/types/ai.ts:33`).
 
 ### 2. The client sees parts with a lifecycle state
@@ -336,7 +336,7 @@ removed wherever the text leaves the renderer:
 
 | Where | Why | Code |
 |---|---|---|
-| Before prior turns are sent back to the model | Old spec JSON would waste context on every subsequent turn | `stripSpecFromMessages` (`lib/streaming/helpers/strip-spec-from-messages.ts:11`), called at `lib/streaming/create-chat-stream-response.ts:382` and `lib/streaming/create-ephemeral-chat-stream-response.ts:133` |
+| Before prior turns are sent back to the model | Old spec JSON would waste context on every subsequent turn | `stripSpecFromMessages` (`lib/streaming/helpers/strip-spec-from-messages.ts:11`), called at `lib/streaming/create-chat-stream-response.ts:386` and `lib/streaming/create-ephemeral-chat-stream-response.ts:133` |
 | Copy / share from message actions | Users should not paste JSONL | `components/message-actions.tsx:119`, `components/message-actions.tsx:137` |
 | Copy shortcut in the chat | Same | `components/chat.tsx:694` |
 

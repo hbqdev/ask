@@ -70,6 +70,8 @@ names the lab original. See [deploy](/operations/deploy) for the flow.
 | [D39](#d39-every-local-redis-client-goes-through-local-redis-ts) | Every local Redis client goes through `lib/redis/local-redis.ts` | adopted | 2026-09-27 |
 | [D40](#d40-quality-mode-read-pages-past-the-search-cap) | Quality mode: read pages past the search cap (fetch cap 8, search cap 10); the answer-step citation reminder stays off | adopted (reminder **shelved**) | 2026-09-30 |
 | [D41](#d41-on-wsl-hosts-nothing-that-waits-for-docker-is-enabled-at-boot) | On WSL hosts, nothing that waits for Docker is enabled into `multi-user.target` | adopted | 2026-09-29 |
+| [D42](#d42-near-duplicate-search-skip-only-for-true-repeats) | Near-duplicate search skip only for true repeats: exact, or cosine ≥ 0.90 with no new word or number (was cosine ≥ 0.92 alone) | adopted | 2026-10-01 |
+| [D43](#d43-snippet-citations-measured-not-re-pointed) | Snippet citations: evidence telemetry only; in-page cite markers and automatic re-pointing measured and dropped | adopted (telemetry); two fixes **rejected** | 2026-10-01 |
 
 ---
 
@@ -288,7 +290,7 @@ names the lab original. See [deploy](/operations/deploy) for the flow.
   fan-outs plus ~57 s of inter-call model reasoning).
 - **Decision.** `SEARCH_ROUNDS_MAX` (default 3) and `SEARCH_ROUNDS_MAX_QUALITY` (default 5; 10
   since 2026-09-30, see the update below). The
-  cap is enforced **inside the search tool's `execute`** (`lib/tools/search.ts:317-446`) with a
+  cap is enforced **inside the search tool's `execute`** (`lib/tools/search.ts:307-434`) with a
   per-turn counter in the `createSearchTool` closure. Past the budget it returns a non-error
   "answer from what you have" result (no fan-out, no crawl) and logs `kind:'round-cap'`.
 - **Why inside the tool.** In AI SDK v6, `activeTools` only filters which tool **definitions** are
@@ -306,12 +308,16 @@ names the lab original. See [deploy](/operations/deploy) for the flow.
 - **Revisit if** multi-hop questions start failing because 3 rounds are not enough (raise the env,
   don't remove the cap).
 - **Update 2026-09-30** ([D40](#d40-quality-mode-read-pages-past-the-search-cap)). The quality cap
-  is **10** (`lib/tools/search.ts:325`), and a round is now counted only for a search that
-  runs: a near-duplicate skip no longer uses one (`:561-563`). In quality mode the cap ends the
+  is **10** (`lib/tools/search.ts:315`), and a round is now counted only for a search that
+  runs: a near-duplicate skip no longer uses one (`:562-564`). In quality mode the cap ends the
   searching, not the reading: the notice lets the model `fetch` URLs this turn already found,
   bounded by a per-turn fetch cap (`FETCH_ROUNDS_MAX_QUALITY`, 8). Speed and balanced keep 3
   rounds and the "answer now" notice. Commits: prod `a6db72f1` + `30838a61` (lab `49379e09` +
   `98ba1d36`; staging `4b5f6fd3` + `7a2d74ba`).
+- **Update 2026-10-01** ([D42](#d42-near-duplicate-search-skip-only-for-true-repeats)). The
+  near-duplicate skip now fires only on true repeats (exact, or cosine ≥ 0.90 with no new word
+  or number). About three in four true repeats it used to skip now run, and each uses a round
+  of this cap; the old rule's false skips, which dropped real searches, are gone.
 
 ### D10. Answering-model reasoning OFF by default
 
@@ -395,7 +401,7 @@ bounded by the ~4–10% stable prefix.
 - **Status:** **rejected** — already done · **Date:** 2026-09-11
 - **Finding.** `pruneMessages({ reasoning: 'before-last-message', toolCalls:
   'before-last-2-messages', emptyMessages: 'remove' })` in
-  `lib/streaming/create-chat-stream-response.ts:456` already strips earlier turns' crawled pages
+  `lib/streaming/create-chat-stream-response.ts:460` already strips earlier turns' crawled pages
   from the live prompt from the next turn onward. A three-turn searching chat does **not** balloon
   to 120–270k tokens. The only residual slice maps onto the excerpts idea that already lost (D15).
 - **Consequence.** The real lever is the **volatile suffix**: crop size, source count, rerank
@@ -595,9 +601,9 @@ non-determinism, the agent's search-or-not choice and the ceiling swamp live A/B
     chat view and the "research still running" indicator (`narrationCleanView`, memoized per
     message object, `components/render-message.tsx:54,158`), the copy shortcut
     (`components/chat.tsx:686`), the model and classifier history
-    (`lib/streaming/create-chat-stream-response.ts:258`; guests
+    (`lib/streaming/create-chat-stream-response.ts:262`; guests
     `lib/streaming/create-ephemeral-chat-stream-response.ts:62`), the spoken gist
-    (`lib/streaming/create-chat-stream-response.ts:959`), recall extraction
+    (`lib/streaming/create-chat-stream-response.ts:963`), recall extraction
     (`lib/memory/extract-indexable-text.ts:135-142`) and keyword-search snippets
     (`lib/db/keyword-search.ts:76-79`). Stored messages therefore display clean without a DB
     rewrite. The live stream transform was left unchanged by this commit: it decides from a
@@ -790,6 +796,81 @@ non-determinism, the agent's search-or-not choice and the ceiling swamp live A/B
 …sub-agents can gather at least as many sources as single-agent quality. The extra search *is*
 the depth.
 :::
+
+### D42. Near-duplicate search skip only for true repeats
+
+- **Status:** adopted · **Date:** 2026-10-01 (lab, staging and prod; deployed 10-01/02) ·
+  **Commit:** `befe76fe` (lab `e57724a5`, staging `9249eec9`).
+- **Context.** The search tool skipped a later search of the turn whose query embedding
+  (Qwen3-Embedding-0.6B) had cosine ≥ 0.92 with an earlier query of the same search mode, and
+  returned a "reuse those results" note instead.
+  The point is to save a fan-out on a rephrasing whose results are already in context. The
+  2026-09-29/30 quality A/Bs showed it skipping templated queries about different projects
+  ([D40](#d40-quality-mode-read-pages-past-the-search-cap), findings). A review of the 76 skips
+  stored in lab, staging and prod found 34 (45 %) that had dropped a real search: another
+  product, model, version, source or facet (two different projects' "GitHub features" queries;
+  a spec query against a price-and-warranty query). A dropped search is a hole in the answer; a
+  repeated one costs one search round.
+- **Evidence.** 446 real query pairs (a later query and an earlier query of the same turn, from
+  lab, staging and prod) labelled blind by two independent annotators (kappa 0.916): 245
+  repeats, 115 drill-downs, 86 different searches. A skip counts as correct only on a repeat.
+
+  | Rule | Skips | Not repeats among them | Precision | Recall |
+  |---|---|---|---|---|
+  | cosine ≥ 0.92 alone (old) | 332 | 137 | 0.587 | 0.796 |
+  | exact, or cosine ≥ 0.90 and the word check (new) | 61 | 0 | 1.000 | 0.249 |
+
+  **Cosine alone cannot separate them.** The share of labelled pairs that are not repeats is
+  11 % at cosine ≥ 0.97, 27 % at 0.95–0.97, 46 % at 0.93–0.95 and 67 % at 0.92–0.93: even the
+  closest band holds one non-repeat in nine, so no threshold gives zero false skips. What does
+  separate them is in the words: a templated query about something else names a different
+  product, number, version, year, site or facet.
+- **Decision.** Keep the skip and change what counts as a repeat
+  (`findDuplicateQuery`, `lib/tools/search/query-dedup.ts:248-288`, wired at
+  `lib/tools/search.ts:480-560`):
+  1. **Exact:** equal once case, punctuation, quotes and spacing are ignored, word order kept.
+     No embedding is needed, so this rule also works while the embedding service is down
+     (before, an embedding failure switched dedup off for that search).
+  2. **Near:** cosine ≥ `SEARCH_DEDUP_THRESHOLD` (now **0.90**) **and** the later query adds no
+     content word (English stopwords removed, plurals folded; a short list of generic search
+     words such as best, latest, review, explained, guide, official and vs may be added; facet
+     words such as price, specs, features, benchmark and reddit deliberately may not; Han and
+     kana text compared as character bigrams; versions and domains kept whole) **and** drops no
+     number other than a year **and** does not reverse the word order around to, from, into,
+     than, before, after or over.
+
+  Dropping words is allowed (a restatement with fewer words is covered by the earlier results),
+  so the cosine gate is what keeps a bare generalisation running. With the word check no
+  labelled pair is wrongly skipped at 0.90 (nor at 0.89); 0.92 is kept for the old rule. The
+  researcher's exact-repeat guard (`wrapSearchToolWithDedup`, lowercase and collapsed spaces)
+  still runs first, unchanged. The rule depends only on the queries, not on the answering model
+  ([D1](#d1-optimise-the-pipeline-not-the-answering-model)).
+- **Rejected variant: a second tier of word swaps.** Also treating a query as a repeat when it
+  swaps one or two ordinary words caught more repeats (recall 0.314, still no false skip) but
+  was left out. Telling an ordinary word from a product name relies on capital letters, and
+  models write product names in lowercase.
+- **Trade-off.** About three in four true repeats now run, and each uses a search round (3 in
+  speed and balanced, [D9](#d9-search-round-cap-enforced-inside-the-tool)). The rule prefers an
+  extra round to a missing search.
+- **Telemetry.** A skip line now ends with `(exact)` or `(near, cos=…)`. Every kept search whose
+  cosine to an earlier query is ≥ 0.92 logs
+  `[search-dedup] kept "<q>" — cos=… to "<earlier>" but adds: … | drops: … | reverses word order`
+  (one of the three reasons), so every search the old rule would have skipped stays visible as
+  tuning evidence ([telemetry](/operations/telemetry#the-lines)).
+- **Side fixes.** A query is recorded even when its embedding failed, so an exact repeat is still
+  caught. An empty or invalid `SEARCH_DEDUP_THRESHOLD` now falls back to the default
+  (`resolveDedupThreshold`, `query-dedup.ts:74-82`); before, an empty value read as 0, which
+  would have skipped nearly every later search in the mode.
+- **Revert.** `SEARCH_DEDUP_TOKEN_GUARD=off` restores the old rule exactly (cosine ≥ threshold
+  alone, default 0.92, no exact rule) on a container recreate; `SEARCH_DEDUP_ENABLED=off`
+  disables the skip. Tests: `lib/tools/search/__tests__/query-dedup.test.ts` (the rule) and
+  `lib/tools/__tests__/search-dedup.test.ts` (the tool's wiring). The labelled pair set is not
+  in `scripts/eval/`.
+- **Do not retry** a threshold-only rule, at any threshold, without a labelled pair set that
+  shows zero false skips; the bands above say it will not.
+- **Revisit if** `kept` lines show many searches kept for a generic word (extend
+  `GENERIC_SEARCH_WORDS` with a test per word, never a facet word), or the share of true repeats
+  that run costs measurable rounds on balanced turns.
 
 ---
 
@@ -1160,7 +1241,7 @@ turn-based loop (`git revert b0ff56ad`) brings back the same latency.
   largest class (146 of 655 over all history; 70 of 158 in the 11 flagged recent turns) was
   anchors copied from **earlier answers**. The model-bound history still carried every earlier
   answer's `[N](#<old toolCallId>)` text, while `pruneMessages` (`toolCalls:
-  'before-last-2-messages'`, `lib/streaming/create-chat-stream-response.ts:456-459`) had already
+  'before-last-2-messages'`, `lib/streaming/create-chat-stream-response.ts:460-463`) had already
   removed those turns' tool calls and results. Follow-up turns that ran no search had every
   anchor unresolved.
 - **Decision.**
@@ -1279,7 +1360,7 @@ turn-based loop (`git revert b0ff56ad`) brings back the same latency.
      would not survive the anchor regexes (`ANCHOR_SAFE_ID_RE`, `citation-handles.ts:42`). A
      legacy output with a `citationMap` is left alone, and the input is never mutated.
   2. **Where it is added: only in model-facing output.** The `search` tool's `toModelOutput`
-     (`lib/tools/search.ts:1326-1339`) numbers the results **after** the researcher's per-turn
+     (`lib/tools/search.ts:1328-1341`) numbers the results **after** the researcher's per-turn
      URL dedup, because the dedup wrapper yields the trimmed list and keeps the tool's
      `toModelOutput` (`lib/agents/researcher.ts:272-369`). `fetch` gained a `toModelOutput`
      (`lib/tools/fetch.ts:800-806`) that numbers the merged `results`, from which failed URLs
@@ -1293,7 +1374,7 @@ turn-based loop (`git revert b0ff56ad`) brings back the same latency.
      is the id the UI part and persistence store, including for the forced step-0 search.
   3. **Never stored, so it cannot leak across turns.** The UI part, the database and the
      browser get the raw output. Chat history is converted without `tools`
-     (`convertToModelMessages`, `lib/streaming/create-chat-stream-response.ts:451-453`), so
+     (`convertToModelMessages`, `lib/streaming/create-chat-stream-response.ts:455-457`), so
      `toModelOutput` does not run on replayed tool results and an earlier turn's results carry
      no handle. Earlier answers' anchors are still stripped from history (D36).
   4. **Prompts: copy, never compute.** With the flag on, `getCitationFormatGuidance()`
@@ -1362,6 +1443,77 @@ turn-based loop (`git revert b0ff56ad`) brings back the same latency.
 - **Revisit if** judged prod answers show the support rate slipping back, near-miss id copies
   become common (then shorten the ids, with a lab A/B), or the extra deepseek fetches are
   confirmed on prod and cost more latency than the citations are worth.
+
+### D43. Snippet citations: measured, not re-pointed
+
+- **Status:** adopted (evidence telemetry); two fixes **rejected** · **Date:** 2026-10-01 (lab,
+  staging and prod; deployed 10-01/02) · **Commit:** `01f07ef9` (lab `8922368d`, staging `f18717ab`).
+- **Context.** In the 2026-09-30 quality re-test, citations of a search snippet (at most 1,000
+  characters) were judged unsupported by their stored text 71 % of the time, against 23 % for
+  citations of page text ([D40](#d40-quality-mode-read-pages-past-the-search-cap), findings).
+  The working theory was "the model read the fact on a page it fetched and cited the snippet of
+  that same page", and the proposed fix was to point such a citation at the fetched page.
+- **Diagnosis.** The theory explains almost none of them. All 68 snippet citations judged
+  unsupported or partly supported cite a URL that was **not** fetched that turn (the original
+  judge had already merged in the page text of the same URL where it existed), and on prod 1 of
+  133 snippet citations since 2026-09-28 had its own URL fetched in the same turn. Each of the 68
+  was re-judged against the cited page fetched live and against every other page of the turn:
+
+  | Verdict | Share | Detail |
+  |---|---|---|
+  | Right for the reader | 28 % (19) | the snippet itself supports the claim (2); the same page was read under another URL (1); the live cited page supports it (16; caveat: fetched one to two days later, and 5 of the 16 are also supported elsewhere) |
+  | Wrong page | 32 % (22) | another page of the turn supports it and the cited one does not; in 21 of 22 that page was page text (a fetched page or a page crawled in the first search) |
+  | Nothing retrieved fully supports it | 40 % (27) | 20 partly supported, 7 not at all; 9 of the 27 are table rows assembled from several sources |
+
+  The real problems are **wrong-page attribution** and **numbers the model assembled**. How
+  common snippet citations are: of 567 rendered citations in the re-test, 55 % cite page text,
+  5 % a snippet whose page the turn read, 40 % a snippet only; on prod since 2026-09-28, 290
+  rendered, 54 % page and 46 % snippet only.
+- **Decision.** Measure on every turn and change nothing the reader or the model sees. Evidence
+  helpers in `lib/utils/citation.ts` ([frontend › Citation evidence](/request-lifecycle/frontend#citation-evidence)):
+  `SNIPPET_MAX_CHARS` = 1000 (`:478`); `samePageKey()` (`:501-530`), which treats as one page
+  the spellings that differ in scheme, `www.` / `m.`, case, trailing slash, fragment, tracker or
+  empty parameters and parameter order, and a GitHub repository page, its `?tab=` views and its
+  `/blob/<branch>/README`; `findPageTextForUrl()` (`:597-611`), message-scoped, never crossing
+  turns ([D36](#d36-strip-historical-citation-anchors-resolve-citations-per-turn-only)); and
+  `auditCitationEvidence()` (`:647-707`), which sorts the rendered citations into page /
+  snippet-read / snippet and counts fetched pages nothing cites. They become `citations_snippet`,
+  `citations_snippet_read` and `fetch_pages_uncited` on the `[latency]` line
+  ([telemetry](/operations/telemetry#tokens-citations-and-totals)). Rendering, the hover preview
+  and the model-facing output are unchanged.
+- **Rejected 1: repeated in-page cite markers.** Each page's citation handle repeated every
+  ~2,000 characters inside its text, so a fact read deep in a page has its handle next to it.
+  Built on the lab behind `CITATION_PAGE_MARKERS` and removed; it is in no commit. Measured on
+  17 answers:
+  - Citations moved: snippet 35 % → 23 %, page 60 % → 74 %.
+  - Support did not improve: supported 42 % → 36 %, unsupported 26 % → 29 %, and unsupported
+    **page** citations 10 % → 17 %.
+  - 2 of the 17 answers dropped the `#` from every anchor, so not one of their citations rendered.
+  - Prompt +3–5 %.
+
+  **Do not retry** unless a judged comparison shows support improving, not just citations moving
+  onto pages, and no answer losing its anchors.
+- **Rejected 2: automatic re-pointing.** Move each snippet citation to the page of the turn whose
+  text best matches the claim (word overlap). Replayed offline on the 68: it would fire on 54,
+  the new page supports the claim in only 19, and it would move 9 of the 16 correct citations to
+  pages that do not support them. A silent re-point is a guess the reader cannot see, the same
+  reason the resolver never guesses a wrong number on a multi-result call
+  ([D36](#d36-strip-historical-citation-anchors-resolve-citations-per-turn-only)). **Do not
+  retry** without a matcher that, on a judged set, fixes clearly more citations than it breaks.
+- **Method for the next model-facing variant.** Replay stored turns offline before any live A/B:
+  apply the variant to what the model is shown, re-run the answer step on the stored tool
+  results (as the D40 reminder replays did), and judge every citation against the cited result
+  **and** every page of the turn. It isolates the variant from search non-determinism and fires
+  no live searches. Then confirm with a judged lab A/B
+  ([D4](#d4-judge-answers-not-source-counts)). Judge support, never the snippet share alone:
+  rejected fix 1 lowered the share and lowered support with it. The judged sets and the replay
+  harness are not in `scripts/eval/`.
+- **Tests.** `lib/utils/__tests__/citation-evidence.test.ts`,
+  `lib/streaming/__tests__/latency-tracker.test.ts`.
+- **Revisit if** the prod snippet share (`citations_snippet` over rendered citations, 46 % before
+  the build) moves after a prompt or tool-output change, or when a fix for wrong-page attribution
+  or assembled numbers is proposed (evaluate it with the method above). Open issue:
+  [known issues](/history/known-issues#citations-point-at-a-snippet-instead-of-the-fetched-page).
 
 ## Retrieval policy
 
@@ -1456,8 +1608,8 @@ turn-based loop (`git revert b0ff56ad`) brings back the same latency.
     user-supplied-source check.
 - **Telemetry.** The `[latency]` line gains `turn_mode`, `forced_search` and (with the
   follow-up) `forced_skip`, the user-supplied-source reason
-  (`lib/streaming/latency-tracker.ts:313-317`, set from `onTurnPlan` at
-  `lib/streaming/create-chat-stream-response.ts:840-842`). The container log also gets
+  (`lib/streaming/latency-tracker.ts:335-339`, set from `onTurnPlan` at
+  `lib/streaming/create-chat-stream-response.ts:844-846`). The container log also gets
   `[Researcher] always-search: step 0 forced to search "<query>"`. On a forced turn the synthetic
   step emits at once, so `ttft_ms` and `first_step_ms` measure only the pre-work (about 2 s). Use
   `stream["text-start"]` for the time to first prose. Guest turns write no `[latency]` line.
@@ -1572,15 +1724,15 @@ turn-based loop (`git revert b0ff56ad`) brings back the same latency.
   also used up a round.
 - **Decision.**
   1. **A round counts only for a search that runs.** The counter moved after the
-     near-duplicate check (`lib/tools/search.ts:561-563`).
+     near-duplicate check (`lib/tools/search.ts:562-564`).
   2. **The cap ends the searching, not the reading.** In a mode that has a fetch cap, the cap
-     notice (`buildSearchRoundCapNotice`, `lib/tools/search.ts:356-368`) refuses further
+     notice (`buildSearchRoundCapNotice`, `lib/tools/search.ts:346-358`) refuses further
      searches but lets the model `fetch` URLs that this turn's searches returned when a claim
      needs the page's full text. Modes without a fetch cap keep the "answer now" wording.
   3. **A per-turn fetch cap.** `FETCH_ROUNDS_MAX_QUALITY` (default 8 calls) for quality,
      `FETCH_ROUNDS_MAX` for the other modes (unset = no cap), in `lib/tools/fetch-budget.ts`
      and enforced in `lib/tools/fetch.ts:691-713`. A refused call returns a non-error notice.
-  4. **Quality search cap 5 → 10** (`SEARCH_ROUNDS_MAX_QUALITY`, `lib/tools/search.ts:325`).
+  4. **Quality search cap 5 → 10** (`SEARCH_ROUNDS_MAX_QUALITY`, `lib/tools/search.ts:315`).
      Speed and balanced stay at 3.
   5. **The answer-step citation reminder stays off** (`CITATION_REMINDER=on` enables it).
 - **Evidence** (lab A/Bs, kimi-k2.6, recall and memory off; the raw runs are internal, only
@@ -1631,12 +1783,16 @@ turn-based loop (`git revert b0ff56ad`) brings back the same latency.
 - **Findings left open** (in [known issues](/history/known-issues)):
   - **Snippet citations.** Citations to a search **snippet** (at most about 1,000
     characters) were judged unsupported 71 % of the time, against 23 % for citations of page
-    text: the model cites the snippet for a fact it read on a fetched page
-    ([known issue](/history/known-issues#citations-point-at-a-snippet-instead-of-the-fetched-page)).
+    text. The first explanation, a fact read on a fetched page and credited to that page's
+    snippet, turned out to be rare; re-judged on 2026-10-01, they are mostly the wrong page or
+    a number the model assembled. Measured on every turn since, not fixed
+    ([D43](#d43-snippet-citations-measured-not-re-pointed),
+    [known issue](/history/known-issues#citations-point-at-a-snippet-instead-of-the-fetched-page)).
   - **Dedup false positives.** At threshold 0.92, 6 of 7 skips of templated
-    "X GitHub features license" queries were false positives; the search is still dropped,
-    though no longer counted as a round
-    ([known issue](/history/known-issues#near-duplicate-dedup-drops-templated-queries)).
+    "X GitHub features license" queries were false positives; the search was still dropped,
+    though no longer counted as a round. **Fixed 2026-10-01**: a skip now needs an exact or a
+    word-checked near repeat ([D42](#d42-near-duplicate-search-skip-only-for-true-repeats),
+    [known issue](/history/known-issues#near-duplicate-dedup-drops-templated-queries)).
   - **The URL limit is advisory.** Nothing checks that a URL fetched past the cap came from
     this turn's results; in one test the model fetched GitHub URLs it constructed
     ([known issue](/history/known-issues#the-fetch-past-the-cap-url-limit-is-advisory)).

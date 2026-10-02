@@ -16,6 +16,42 @@ behind the change. Lab-first work lives on `flow-design`. `git cherry-pick -x` l
 `(cherry picked from commit …)` trailer that points back to the lab original.
 :::
 
+## 2026-10 — October
+
+**A near-duplicate search skip with no false skips on labelled pairs, and citation evidence on every turn**
+
+- **10-01** — **Near-duplicate search skip only for true repeats** (prod `befe76fe`; lab
+  `e57724a5`; staging `9249eec9`;
+  [D42](/history/decisions#d42-near-duplicate-search-skip-only-for-true-repeats)).
+  - New module `lib/tools/search/query-dedup.ts`. A later search of the turn (same search mode)
+    is skipped only when it is an **exact** repeat (equal once case, punctuation and quotes are
+    ignored; no embedding needed, so it works with the embedder down) or a **near** repeat:
+    cosine ≥ `SEARCH_DEDUP_THRESHOLD` (default 0.92 → **0.90**) and the later query adds no
+    content word, drops no number other than a year and does not reverse the word order around
+    to/from/than.
+  - Evidence: on 446 real query pairs labelled blind (kappa 0.916), the old cosine-only rule made
+    332 skips, 137 of them not repeats (precision 0.587, recall 0.796); the new rule makes 61, all
+    repeats (precision 1.000, recall 0.249). Of the 76 skips stored before the change, 34 had
+    dropped a real search. Trade-off: more true repeats run, each using a search round.
+  - Logs: a skip line ends with `(exact)` or `(near, cos=…)`; a kept search with cosine ≥ 0.92
+    logs `[search-dedup] kept … but adds: … / drops: … / reverses word order`.
+  - `SEARCH_DEDUP_TOKEN_GUARD=off` restores the old rule (cosine ≥ 0.92 alone); an empty or
+    invalid threshold now falls back to the default.
+    → [pipeline › dedup](/search/pipeline#round-cap), [known issue (fixed)](/history/known-issues#near-duplicate-dedup-drops-templated-queries)
+- **10-01** — **Citation evidence telemetry** (prod `01f07ef9`; lab `8922368d`; staging
+  `f18717ab`; [D43](/history/decisions#d43-snippet-citations-measured-not-re-pointed)).
+  - Evidence-only helpers in `lib/utils/citation.ts` (`SNIPPET_MAX_CHARS`, `samePageKey`,
+    `findPageTextForUrl`, `auditCitationEvidence`) and three new `[latency]` fields:
+    `citations_snippet`, `citations_snippet_read`, `fetch_pages_uncited`. No rendering, hover or
+    prompt change.
+  - Diagnosis of the 71 % unsupported snippet citations (68 re-judged): 28 % right for the
+    reader, 32 % the wrong page, 40 % supported by nothing retrieved (mostly assembled numbers and
+    table rows). Same-URL fetches, the first theory, account for almost none (prod: 1 of 133).
+  - Measured and rejected: repeated in-page cite markers (citations moved onto pages, support did
+    not improve, 2 of 17 answers lost every anchor) and automatic re-pointing (would move 9 of 16
+    correct citations to unsupporting pages).
+    → [telemetry](/operations/telemetry#tokens-citations-and-totals), [frontend › Citation evidence](/request-lifecycle/frontend#citation-evidence), [known issue (open)](/history/known-issues#citations-point-at-a-snippet-instead-of-the-fetched-page)
+
 ## 2026-09 — September
 
 **Streaming lifecycle, mobile QA, the end of the latency campaign, a fleet clean-up, every
@@ -43,8 +79,9 @@ research that reads pages past the search cap**
   - The prod and staging ports call `getModel` with two arguments; the lab's turn-mode argument
     (for `ANSWER_THINK=targeted`) exists only on the lab.
   - Open: citations of search snippets were unsupported 71 % of the time against 23 % for page
-    text; the 0.92 dedup threshold dropped 6 of 7 templated queries falsely; the "URLs found
-    this turn" limit is advisory ([known issues](/history/known-issues)).
+    text (re-diagnosed 10-01, D43); the 0.92 dedup threshold dropped 6 of 7 templated queries
+    falsely (fixed 10-01, D42); the "URLs found this turn" limit is advisory
+    ([known issues](/history/known-issues)).
     → [pipeline](/search/pipeline#round-cap), [telemetry](/operations/telemetry#emitted-by-the-search-tool)
 - **09-29** — **Four small fixes** (lab `faacfd18`, `0cb22cf9`, `418193e9`, `9cb61e63`; prod
   `507cd044`, `d751352d`, `dfccc08c`, `3e715f2b`; staging `50c7e577`, `95c73f74`, `f197f24a`,

@@ -5,7 +5,7 @@ title: Known issues
 # Known issues and gotchas
 
 Open problems, pending operator actions and traps a maintainer needs to know about, as of
-**2026-09-30**. Each entry gives the **symptom**, its **impact**, a **workaround** and a **fix
+**2026-10-01**. Each entry gives the **symptom**, its **impact**, a **workaround** and a **fix
 sketch**. Resolved history lives in the [changelog](/history/changelog). Rationale for deliberate
 trade-offs lives in [decisions](/history/decisions).
 
@@ -41,9 +41,9 @@ thing.
 | [Old answers keep leaked narration in storage](#old-answers-with-leaked-reasoning-stay-leaked) | data | ~~Low~~ fixed 2026-09-28/29 (staging and prod backfilled, recall re-indexed) | done |
 | [An answer with a glued preamble appears late while streaming](#an-answer-with-a-glued-preamble-appears-late-while-streaming) | UI | ~~Low~~ fixed 2026-09-28 (lab, staging, prod) | done (the remaining short delay is by design) |
 | [A glued first section can be cut at persist](#a-glued-first-section-can-be-cut-at-persist) | chat | ~~Low~~ fixed 2026-09-29 (lab, staging, prod) | done |
-| [Citations point at a snippet instead of the fetched page](#citations-point-at-a-snippet-instead-of-the-fetched-page) | chat | Med | code (open) |
+| [Snippet citations: wrong page and assembled numbers](#citations-point-at-a-snippet-instead-of-the-fetched-page) | chat | Med | code (open; measured on every turn since 2026-10-01) |
 | [todoWrite calls failed validation](#todowrite-calls-failed-validation) | chat | ~~Low~~ fixed 2026-09-29 (lab, staging, prod) | done |
-| [Near-duplicate dedup drops templated queries](#near-duplicate-dedup-drops-templated-queries) | search | Low | code (threshold, needs an A/B) |
+| [Near-duplicate dedup drops templated queries](#near-duplicate-dedup-drops-templated-queries) | search | ~~Low~~ fixed 2026-10-01 (lab, staging, prod; 0 false skips on 446 labelled pairs) | watch `[search-dedup] kept` lines |
 | [The fetch-past-the-cap URL limit is advisory](#the-fetch-past-the-cap-url-limit-is-advisory) | search | Low | watch |
 | [Older recall chunks lack UUIDs the answer contained](#older-recall-chunks-lack-uuids-the-answer-contained) | memory | Low | optional re-index |
 | [Narration the structural rules keep by design](#narration-the-structural-rules-keep-by-design) | chat | Low | by design (watch) |
@@ -255,7 +255,7 @@ On NightFuryX (.17) these container names do not resolve, so each silently degra
      (a failed fetch has nothing to cite and gets none).
   2. `stripCitationAnchorsFromHistory` (`lib/streaming/helpers/strip-citation-anchors-from-history.ts`)
      removes anchors from **prior** assistant turns before they reach the model. It runs in
-     `create-chat-stream-response.ts:381` and `create-ephemeral-chat-stream-response.ts:132`. The
+     `create-chat-stream-response.ts:385` and `create-ephemeral-chat-stream-response.ts:132`. The
      stored and displayed text keeps its anchors.
   3. `resolveByUrlFragment` (`lib/utils/citation.ts:66`) resolves an anchor whose id is a
      fragment of **exactly one** of this message's source URLs. UUID-shaped ids, fragments shorter
@@ -631,7 +631,7 @@ These are decisions still pending, not bugs:
 - **Status: fixed 2026-09-26** (lab `dbbbc376`; cherry-picked to `dev` as `0bd8f8cc` and to
   `admin-feature` as `7af2beff`).
   1. **One resolver.** `resolveCitationAnchor` (`lib/utils/citation.ts:279-307`) decides every
-     anchor, and `processCitations` (rendering, `:501-525`), `auditCitations` (telemetry,
+     anchor, and `processCitations` (rendering, `:741-765`), `auditCitations` (telemetry,
      `:346-371`) and `extractCitedSourceUrls` (`[cite-urls]`, `:453-467`) all call it, so the
      counter reports exactly what the reader sees. It repairs an anchor only when the intended
      source is unambiguous: a real id of this message wrapped in `<id-…>` / `<…>` is unwrapped
@@ -937,26 +937,58 @@ These are decisions still pending, not bugs:
   `lib/streaming/helpers/__tests__/strip-narration-structural.test.ts`, and re-run the
   false-positive review before shipping. Don't raise the 600 / 2000 thresholds on a single case.
 
-### Citations point at a snippet instead of the fetched page
+### Snippet citations: wrong page and assembled numbers {#citations-point-at-a-snippet-instead-of-the-fetched-page}
 
 - **Symptom.** A citation chip opens a real result of the turn's search, but the sentence it
-  backs is not on that result's text: the model read the fact on a page it fetched and cited
-  the **search snippet** that led it to that page.
-- **Measured** (2026-09-29/30 quality A/Bs on the lab, kimi-k2.6, judged support of each
-  citation against the stored source text). Citations to a search snippet (at most about 1,000
-  characters) were unsupported **71 %** of the time, citations to page text **23 %**. The
-  quality changes of 2026-09-30 make this more visible, because quality turns now fetch more
-  ([D40](/history/decisions#d40-quality-mode-read-pages-past-the-search-cap)).
-- **Why no counter sees it.** The anchor resolves (it names a real result of the turn), so
-  `citations_unresolved` stays 0. Only a support judge finds it
+  backs is not in that result's text, which is only a search snippet (at most 1,000
+  characters, `SNIPPET_MAX_CHARS`).
+- **Measured** (2026-09-30 quality re-test on the lab; each citation judged against
+  the stored source text, with the page text of the same URL merged in when the turn had
+  fetched it). Citations of a snippet were unsupported **71 %** of the time, citations of page
+  text **23 %**. The quality changes of 2026-09-30 make this more visible, because quality turns
+  now fetch more ([D40](/history/decisions#d40-quality-mode-read-pages-past-the-search-cap)).
+- **What it is (corrected 2026-10-01).** The first reading, "the model read the fact on a page it
+  fetched and cited the snippet of that same page", is rare. All 68 snippet citations judged
+  unsupported or partly supported in the re-test cite a URL that was **not** fetched that turn,
+  and on prod 1 of 133 snippet citations had its own URL fetched in the same turn. Re-judged one
+  by one, against the cited page fetched live and against every other page of the turn:
+  - **28 % right for the reader (19).** The snippet itself supports the claim (2), the same page
+    was read under another URL (1), or the live cited page supports it (16; caveat: that page was
+    fetched one to two days later, and 5 of the 16 are also supported by another page of the
+    turn).
+  - **32 % the wrong page (22).** Another page of the turn supports the claim and the cited one
+    does not. In 21 of the 22 that page was page text: a fetched page or a page crawled in the
+    first search.
+  - **40 % supported by nothing retrieved (27).** 20 partly supported, 7 not at all; 9 of the 27
+    are table rows assembled from several sources.
+
+  So the real problems are **wrong-page attribution** and **numbers the model assembled**; the
+  snippet is where they show, not their cause.
+- **How common.** Of 567 rendered citations in the re-test, 55 % cite page text, 5 % a snippet
+  whose page the turn read, 40 % a snippet only. On prod since 2026-09-28: 290 rendered, 54 %
+  page, 46 % snippet only.
+- **Visibility.** The anchor resolves (it names a real result of the turn), so
+  `citations_unresolved` stays 0. Since 2026-10-01 the `[latency]` line carries
+  `citations_snippet`, `citations_snippet_read` and `fetch_pages_uncited`
+  ([telemetry](/operations/telemetry#tokens-citations-and-totals)), which track the rate, not
+  the support: only a support judge measures that
   ([D4](/history/decisions#d4-judge-answers-not-source-counts)).
 - **Impact.** Med: the answer is often right, but its citation does not show where the fact came
-  from.
-- **Fix sketch (open).** Make the fetched page the natural thing to cite, for example by pointing
-  the snippet's handle at the fetch once the same URL has been fetched this turn, or by telling
-  the model in the fetch result which search result it supersedes. Measure with a support judge,
-  not with `citations_unresolved`. The answer-step citation reminder did not address this and is
-  off (D40).
+  from, and 4 in 10 of the unsupported or partly supported snippet citations back a claim that
+  nothing retrieved fully states.
+- **Tried and rejected (2026-10-01).** Repeating the cite marker inside page text moved citations
+  from snippets onto pages without making them better supported, and broke every anchor in 2 of
+  17 answers. Re-pointing each snippet citation to the best-matching page of the turn, replayed
+  offline, would have moved 9 of the 16 correct citations to pages that do not support them.
+  Details and numbers: [D43](/history/decisions#d43-snippet-citations-measured-not-re-pointed).
+  The answer-step citation reminder did not address it either and is off (D40).
+- **Fix sketch (open, untested).** Treat the two problems separately: wrong-page attribution
+  needs a change in what the model is shown or told about which result holds which fact;
+  assembled numbers need the answer to cite every source a derived figure or table row comes
+  from, or say that it is derived. Evaluate any model-facing variant first by replaying stored
+  turns offline and judging support against every page of the turn, then with a judged lab A/B.
+  Do not judge it by `citations_snippet` alone: in the marker experiment a lower snippet share
+  came with worse support.
 
 ### todoWrite calls failed validation
 
@@ -989,29 +1021,51 @@ These are decisions still pending, not bugs:
 
 ### Near-duplicate dedup drops templated queries
 
-- **Symptom.** A quality turn that researches several products with the same query template
-  ("X GitHub features license", "Y GitHub features license") gets a "Skipped: this search is a
-  near-duplicate…" note instead of results for some of them, and the answer covers those items
+- **Symptom.** A quality turn that researched several products with the same query template
+  ("X GitHub features license", "Y GitHub features license") got a "Skipped: this search is a
+  near-duplicate…" note instead of results for some of them, and the answer covered those items
   from other sources or not at all.
-- **Cause.** The in-turn dedup (`lib/tools/search.ts:492-559`) embeds each query and skips one
-  whose cosine similarity to an earlier query of the turn is ≥ `SEARCH_DEDUP_THRESHOLD` (0.92).
+- **Cause.** The in-turn dedup embedded each query and skipped one whose cosine similarity to an
+  earlier query of the turn was ≥ `SEARCH_DEDUP_THRESHOLD` (0.92), with nothing else checked.
   Queries that share a long template and differ in one name score above that. In the
   2026-09-29/30 lab A/Bs, 6 of 7 such skips were false positives (for example "Scira" matched
-  "Morphic").
-- **Since 2026-09-30** a skip no longer uses a search round
-  ([D40](/history/decisions#d40-quality-mode-read-pages-past-the-search-cap)), so it cannot
-  exhaust the cap; the search itself is still dropped.
-- **Workaround.** None for users. Logs show each skip:
-  `docker logs ask 2>&1 | grep '\[search-dedup\] skipping'`.
-- **Fix sketch.** Raise the threshold or compare the query minus its shared words, and check on
-  stored skips that real duplicates are still caught. Needs a lab A/B; the knob is
-  `SEARCH_DEDUP_THRESHOLD` (`SEARCH_DEDUP_ENABLED=off` disables the check).
+  "Morphic"). Since 2026-09-30 a skip no longer used a search round
+  ([D40](/history/decisions#d40-quality-mode-read-pages-past-the-search-cap)), but the search
+  itself was still dropped.
+- **How big it was.** Of the 76 skips stored in lab, staging and prod by 2026-10-01, 34 (45 %)
+  had dropped a real search: another product, model, version, source or facet (two different
+  projects' "GitHub features" queries; a spec query against a price-and-warranty query). On 446
+  real query pairs labelled blind by two independent annotators (kappa 0.916; 245 repeats, 115
+  drill-downs, 86 different searches), the cosine-only rule made 332 skips, 137 of them not
+  repeats: precision 0.587, recall 0.796. No threshold fixes it: among labelled non-repeats,
+  11 % of pairs score ≥ 0.97.
+- **Status: fixed 2026-10-01** (prod `befe76fe`, lab `e57724a5`, staging `9249eec9`). A skip now
+  needs an exact repeat (equal once case, punctuation and quotes are ignored) or a near repeat:
+  cosine ≥ 0.90 **and** the later query adds no content word, drops no number other than a year
+  and does not reverse the word order around to/from/than (`lib/tools/search/query-dedup.ts`,
+  wired at `lib/tools/search.ts:480-560`). On the labelled pairs: 61 skips, all true repeats
+  (precision 1.000, recall 0.249). Rule, logs and knobs:
+  [pipeline › dedup](/search/pipeline#round-cap); evidence:
+  [D42](/history/decisions#d42-near-duplicate-search-skip-only-for-true-repeats).
+- **Trade-off, by design.** About three quarters of true repeats now run, and each uses a search
+  round (3 in speed and balanced). The answer pays one extra round rather than losing a search it
+  needed.
+- **Watch.** `docker logs ask 2>&1 | grep '\[search-dedup\]'`: `skipping … (exact)` /
+  `(near, cos=…)` are skips, `kept …` lines are searches the old rule would have skipped. A
+  `kept` line whose added word is generic (a synonym of "best" or "guide") is a candidate for
+  the generic-word list; label a batch first. `SEARCH_DEDUP_TOKEN_GUARD=off` restores the old
+  rule exactly; `SEARCH_DEDUP_ENABLED=off` disables the check.
+- **Folding quirk — fixed 2026-10-02.** The generic-word list was checked after plurals were
+  folded, so `versus`/`docs`/`basics` never matched and an added `news` folded to the generic
+  `new` (so "`<topic>` news" could be skipped as a repeat of "`<topic>`"). The list is now stored
+  folded and `news` is exempt from folding (`NO_FOLD` in `lib/tools/search/query-dedup.ts`);
+  covered by tests in `lib/tools/search/__tests__/query-dedup.test.ts`.
 
 ### The fetch-past-the-cap URL limit is advisory
 
 - **What.** After the quality search cap, the notice lets the model fetch "URLs that appeared in
   this turn's earlier search results" (`buildSearchRoundCapNotice`,
-  `lib/tools/search.ts:356-368`). Nothing enforces that: `fetch` accepts any URL. In one lab test
+  `lib/tools/search.ts:346-358`). Nothing enforces that: `fetch` accepts any URL. In one lab test
   the model fetched GitHub URLs it had constructed.
 - **Bounds that do hold.** The fetch cap (8 calls per quality turn, `lib/tools/fetch-budget.ts`),
   5 URLs per call, 40 s per URL, the SSRF guard, the 100-step ceiling and the 200 s answer
@@ -1033,7 +1087,7 @@ These are decisions still pending, not bugs:
   `f197f24a`). `extractIndexableText` strips only the message's **own** tool-call ids and a
   UUID in citation-anchor position (`#<uuid>`), and indexes any other UUID
   (`lib/memory/extract-indexable-text.ts:56-74`). The live indexer passes each part's
-  `toolCallId` (`lib/streaming/create-chat-stream-response.ts:1187`), and the recall backfill's
+  `toolCallId` (`lib/streaming/create-chat-stream-response.ts:1194`), and the recall backfill's
   query returns `tool_tool_call_id` (`lib/db/recall-actions.ts:196-201`).
 - **Still affected.** 25 older messages on prod and staging keep chunks indexed under the old
   rule until they are re-indexed. Impact is low: only a search for that UUID misses them.
