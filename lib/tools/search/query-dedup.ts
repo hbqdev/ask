@@ -96,16 +96,25 @@ const STOPWORDS = new Set(
   ).split(' ')
 )
 
+// Words ending in -s that are not plurals and whose folded form would collide
+// with a generic search word: "news" must not fold to "new" (generic), or
+// "<topic> news" would be skipped as a repeat of "<topic>".
+const NO_FOLD = new Set(['news'])
+
 // Generic search words. A query may add these to an earlier one and still be
 // a repeat. Kept short on purpose: facet words (price, specs, features,
 // benchmark, license, reddit) are not here.
+// Stored in the same folded form as query tokens (see stem()), so plural or
+// -s spellings ("versus", "docs", "basics") match too.
 const GENERIC_SEARCH_WORDS = new Set(
   (
     'best top latest new newest current recent today now review guide ' +
     'tutorial explained explanation explain overview compare comparison ' +
     'compared difference vs versus list official documentation docs info ' +
     'information detail example summary introduction intro basics'
-  ).split(' ')
+  )
+    .split(' ')
+    .map(w => stem(w))
 )
 
 // Words whose arguments are ordered: "USD to EUR" is not "EUR to USD", and
@@ -138,7 +147,7 @@ const HAS_DIGIT = /\p{N}/u
 function stem(word: string): string {
   // Strip a possessive, then fold plurals of letter-only words.
   const w = word.replace(/['’]s$/u, '')
-  if (!/^\p{L}+$/u.test(w)) return w
+  if (!/^\p{L}+$/u.test(w) || NO_FOLD.has(w)) return w
   if (w.length > 4 && w.endsWith('ies')) return `${w.slice(0, -3)}y`
   if (w.length > 3 && w.endsWith('s') && !w.endsWith('ss')) {
     return w.slice(0, -1)

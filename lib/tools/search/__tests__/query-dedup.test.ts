@@ -437,3 +437,25 @@ describe('resolveDedupThreshold', () => {
     expect(resolveDedupThreshold('0')).toBe(0.9)
   })
 })
+
+describe('novelContentTokens: folding vs the generic-word list', () => {
+  it('"news" is a new facet, not the generic word "new"', () => {
+    expect(
+      novelContentTokens('Tesla Powerwall news', 'Tesla Powerwall')
+    ).toEqual(['news'])
+  })
+
+  it('still treats "new" itself as generic', () => {
+    expect(
+      novelContentTokens('new Tesla Powerwall', 'Tesla Powerwall')
+    ).toEqual([])
+  })
+
+  it('matches -s generic words after folding (versus, docs, basics)', () => {
+    expect(novelContentTokens('Podman versus Docker', 'Podman Docker')).toEqual(
+      []
+    )
+    expect(novelContentTokens('Podman docs', 'Podman')).toEqual([])
+    expect(novelContentTokens('Podman basics', 'Podman')).toEqual([])
+  })
+})
