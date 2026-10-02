@@ -45,10 +45,19 @@ export class LatencyTracker {
   // invented id, or — since 2026-09-26 — a real id with an out-of-range
   // number). `recovered` = anchors rendered only through a repair (URL
   // fragment, wrapped or placeholder id, a number past a one-page fetch).
+  // The evidence split (auditCitationEvidence, lib/utils/citation.ts) says
+  // what the RENDERED ones rest on: `snippet` = a search snippet nothing this
+  // turn read beyond, `snippetRead` = a snippet whose page this turn read in
+  // full, and `fetchedPagesUncited` = fetched pages no citation points to.
+  // The 2026-09-30 re-test found snippet-backed citations 71% unsupported by
+  // their stored text vs 23% for page text; no other counter can see it.
   private citations: {
     total: number
     unresolved: number
     recovered?: number
+    snippet?: number
+    snippetRead?: number
+    fetchedPagesUncited?: number
   } | null = null
   // Per-turn SUM of tool stage timings (ms), folded in from the search and
   // fetch tools so the turn line is self-contained for step attribution
@@ -120,6 +129,9 @@ export class LatencyTracker {
     total: number
     unresolved: number
     recovered?: number
+    snippet?: number
+    snippetRead?: number
+    fetchedPagesUncited?: number
   }): void {
     this.citations = audit
   }
@@ -291,8 +303,17 @@ export class LatencyTracker {
               citations_unresolved: this.citations.unresolved,
               ...(this.citations.recovered
                 ? { citations_recovered: this.citations.recovered }
+                : {}),
+              ...(typeof this.citations.snippet === 'number' && {
+                citations_snippet: this.citations.snippet
+              }),
+              ...(this.citations.snippetRead
+                ? { citations_snippet_read: this.citations.snippetRead }
                 : {})
             }),
+          ...(this.citations?.fetchedPagesUncited
+            ? { fetch_pages_uncited: this.citations.fetchedPagesUncited }
+            : {}),
           total_ms: total,
           // Present only on aborted turns. blank_abort distinguishes "the user
           // stopped it mid-answer" from "nothing was ever written".

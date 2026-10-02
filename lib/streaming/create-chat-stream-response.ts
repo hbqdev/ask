@@ -44,7 +44,11 @@ import {
   rehydrateFullContent
 } from '../search/rehydrate-full-content'
 import { durableLatencySink } from '../telemetry/latency-store'
-import { auditCitations, extractCitedSourceUrls } from '../utils/citation'
+import {
+  auditCitationEvidence,
+  auditCitations,
+  extractCitedSourceUrls
+} from '../utils/citation'
 import {
   getMaxAllowedTokens,
   shouldTruncateMessages,
@@ -992,7 +996,10 @@ export async function createChatStreamResponse(
           // Audited before the isAborted guard below so a turn that was cut
           // short still reports the citations it had already written.
           if (responseMessage) {
-            latency.markCitations(auditCitations(responseMessage))
+            latency.markCitations({
+              ...auditCitations(responseMessage),
+              ...auditCitationEvidence(responseMessage)
+            })
             // Shadow (SEARCH_CROP_POSITION_SHADOW): log which source URLs the
             // answer actually CITED, so the crawl-time [crop-pos] per-source
             // detail can be joined offline (by chatId) to a CITATION-scoped crop
