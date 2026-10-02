@@ -467,6 +467,246 @@ export function extractCitedSourceUrls(message: UIMessage): string[] {
 }
 
 /**
+ * Search-result text at or under this many characters is a provider snippet,
+ * not page text. Basic-tier results (SearXNG / degoog snippets, Ollama web
+ * truncated to 400 in providers/searxng.ts) are 150-401 chars. Crawled
+ * advanced-tier results and fetched pages run to thousands. 1000 is the split
+ * the 2026-09-30 quality re-test judged support by: citations whose evidence
+ * was a snippet of 1000 chars or less were 71% unsupported by that text, vs
+ * 23% for page text.
+ */
+export const SNIPPET_MAX_CHARS = 1000
+
+// Query parameters that never select different page content: click/campaign
+// trackers and feed markers. A search engine hands back
+// `…/fulltext?rss=yes` while the model fetches `…/fulltext`; both are the
+// same page.
+const NON_CONTENT_QUERY_PARAM_RE =
+  /^(?:utm_[a-z0-9_]*|fbclid|gclid|dclid|msclkid|mc_cid|mc_eid|igshid|ref|ref_src|rss)$/i
+
+/**
+ * A key under which two URLs of the SAME page compare equal. Null for
+ * anything that is not an http(s) URL.
+ *
+ * Normalizes what does not change the document: scheme, a `www.` / `m.`
+ * host prefix, letter case, a trailing slash, the fragment, tracker and
+ * empty-valued query parameters, and query-parameter order. Two GitHub forms
+ * are the same page too: the repository page renders its README, so
+ * `github.com/o/r`, `github.com/o/r?tab=…` and
+ * `github.com/o/r/blob/<branch>/README.md` share a key (lab 2026-09-30: a
+ * turn fetched three READMEs and cited the repo pages' 400-char snippets 22
+ * times). Every other query parameter is kept, so `watch?v=a` and
+ * `watch?v=b` stay different pages.
+ */
+export function samePageKey(url: string): string | null {
+  let u: URL
+  try {
+    u = new URL(url.trim())
+  } catch {
+    return null
+  }
+  if (u.protocol !== 'http:' && u.protocol !== 'https:') return null
+  const host = u.hostname.toLowerCase().replace(/^(?:www|m)\./, '')
+  let path = u.pathname.toLowerCase().replace(/\/+$/, '')
+  const github = host === 'github.com'
+  if (github) {
+    const readme =
+      /^(\/[^/]+\/[^/]+)\/blob\/[^/]+\/readme(?:\.(?:md|markdown|rst|txt))?$/.exec(
+        path
+      )
+    if (readme) path = readme[1]
+  }
+  const params = [...u.searchParams]
+    .filter(
+      ([k, v]) =>
+        v !== '' &&
+        !NON_CONTENT_QUERY_PARAM_RE.test(k) &&
+        // the repo page's tabs (README / license / code of conduct)
+        !(github && k === 'tab')
+    )
+    .map(([k, v]) => `${k}=${v}`)
+    .sort()
+  return `${host}${path}${params.length ? `?${params.join('&')}` : ''}`
+}
+
+/**
+ * Where a citation's support comes from — what the answer could have been
+ * written from, given the result it cites.
+ *
+ *   page           the cited result itself is page text: a fetched page, an
+ *                  attached-document excerpt, or a search result carrying
+ *                  crawled content (longer than SNIPPET_MAX_CHARS)
+ *   snippet-read   the cited result is a search snippet, but this same message
+ *                  also read that page in full (a fetch of it, or a crawled
+ *                  copy in another search) — the chip links the very page
+ *                  that was read; only the snippet stored under it is thin
+ *   snippet        a search snippet, and nothing in this message read the page
+ *                  behind it
+ */
+export type CitationEvidence = 'page' | 'snippet-read' | 'snippet'
+
+type CitableIndexEntry = { type: string; item: SearchResultItem }
+
+function citableResults(message: {
+  parts?: unknown[] | null
+}): CitableIndexEntry[] {
+  const out: CitableIndexEntry[] = []
+  for (const raw of message?.parts ?? []) {
+    const part = raw as {
+      type?: string
+      state?: string
+      toolCallId?: string
+      output?: { results?: unknown }
+    } | null
+    if (
+      !part?.type ||
+      !CITABLE_TOOL_PART_TYPES.has(part.type) ||
+      part.state !== 'output-available' ||
+      !part.toolCallId ||
+      !Array.isArray(part.output?.results)
+    ) {
+      continue
+    }
+    for (const item of part.output.results as SearchResultItem[]) {
+      if (item && typeof item === 'object') {
+        out.push({ type: part.type, item })
+      }
+    }
+  }
+  return out
+}
+
+function isPageText(entry: CitableIndexEntry): boolean {
+  // A failed fetch's placeholder is a note, not the page.
+  if (!isCitableResult(entry.item)) return false
+  if (entry.type !== 'tool-search') return true
+  return (entry.item.content ?? '').length > SNIPPET_MAX_CHARS
+}
+
+/**
+ * The page text THIS message read for `url`: the longest fetched page or
+ * crawled search result with the same samePageKey. Undefined when the message
+ * only ever saw a snippet of it. Message-scoped like every other resolution
+ * here — another turn's fetch is never consulted.
+ *
+ * Rendering does not use this: the chip still links the cited result's own
+ * URL and its hover still shows that result's snippet. It is the evidence a
+ * support check (the telemetry below, an offline judge) should read for a
+ * snippet citation.
+ */
+export function findPageTextForUrl(
+  url: string,
+  message: { parts?: unknown[] | null }
+): SearchResultItem | undefined {
+  const key = samePageKey(url)
+  if (!key) return undefined
+  let best: SearchResultItem | undefined
+  for (const entry of citableResults(message)) {
+    if (!isPageText(entry) || samePageKey(entry.item.url) !== key) continue
+    if ((entry.item.content ?? '').length > (best?.content ?? '').length) {
+      best = entry.item
+    }
+  }
+  return best
+}
+
+export interface CitationEvidenceAudit {
+  /** Rendered anchors whose cited result is itself page text. */
+  page: number
+  /** Rendered anchors on a snippet whose page this message read in full. */
+  snippetRead: number
+  /** Rendered anchors on a snippet nothing in this message read beyond. */
+  snippet: number
+  /**
+   * Pages this message fetched (failed placeholders excluded) that no
+   * rendered anchor points to, directly or through a same-page snippet
+   * citation. A turn that fetched pages, cited none of them and cited
+   * snippets instead is the shape of "read in a page, cited to a snippet".
+   */
+  fetchedPagesUncited: number
+}
+
+/**
+ * Classify every RENDERED anchor of one finished assistant message by the
+ * evidence behind it (CitationEvidence), with the same resolution rendering
+ * uses (resolveCitationAnchor). Unresolved anchors are not counted — they
+ * render nothing; auditCitations counts them.
+ *
+ * Why: a citation to a 400-char search snippet looks the same as one to a
+ * fetched page in every other counter, yet the 2026-09-30 re-test found
+ * snippet-backed citations 71% unsupported by their stored text. Re-judged
+ * one by one (2026-10-01, 68 of them, against the cited page fetched live and
+ * every other page of the turn): 28% were right for the reader (the snippet,
+ * the same page read under another URL, or the live cited page supports the
+ * claim), 32% were the wrong page (another page the turn read supports it,
+ * the cited one does not), 40% were supported by nothing retrieved. So
+ * `snippet` is the share of citations the stored evidence cannot vouch for,
+ * `snippetRead` the share it can after all, and `fetchedPagesUncited` the
+ * pages read but credited to nothing.
+ */
+export function auditCitationEvidence(message: {
+  parts?: unknown[] | null
+}): CitationEvidenceAudit {
+  const audit: CitationEvidenceAudit = {
+    page: 0,
+    snippetRead: 0,
+    snippet: 0,
+    fetchedPagesUncited: 0
+  }
+  const index = citableResults(message)
+  if (index.length === 0) return audit
+  const typeOf = new Map<SearchResultItem, CitableIndexEntry>()
+  // Pages this message read in full, by samePageKey (findPageTextForUrl's
+  // test, computed once instead of per anchor).
+  const readPages = new Set<string>()
+  for (const entry of index) {
+    typeOf.set(entry.item, entry)
+    const key = isPageText(entry) ? samePageKey(entry.item.url) : null
+    if (key) readPages.add(key)
+  }
+  const maps = extractCitationMaps(message as UIMessage)
+  const citedPages = new Set<string>()
+
+  for (const raw of message?.parts ?? []) {
+    const part = raw as { type?: string; text?: unknown } | null
+    if (part?.type !== 'text' || typeof part.text !== 'string') continue
+    for (const match of part.text.matchAll(CITATION_ANCHOR_RE)) {
+      const resolution = resolveCitationAnchor(
+        parseInt(match[1], 10),
+        match[2],
+        maps
+      )
+      if (resolution.status === 'unresolved') continue
+      const source = resolution.source
+      // The resolved item is the very object in the part's results
+      // (extractCitationMaps indexes them by reference); a legacy output
+      // resolving through its own citationMap is matched by URL instead.
+      const entry =
+        typeOf.get(source) ?? index.find(e => e.item.url === source.url)
+      const key = samePageKey(source.url)
+      if (key) citedPages.add(key)
+      if (!entry || isPageText(entry)) {
+        audit.page++
+      } else if (key && readPages.has(key)) {
+        audit.snippetRead++
+      } else {
+        audit.snippet++
+      }
+    }
+  }
+
+  const fetched = new Set<string>()
+  for (const entry of index) {
+    if (entry.type !== 'tool-fetch' || !isPageText(entry)) continue
+    const key = samePageKey(entry.item.url)
+    if (key) fetched.add(key)
+  }
+  for (const key of fetched)
+    if (!citedPages.has(key)) audit.fetchedPagesUncited++
+  return audit
+}
+
+/**
  * Extract citation maps from multiple messages
  * Returns a combined map of toolCallId to citation map
  *
