@@ -307,9 +307,9 @@ helpers use that: `boolIsOn(spec, value)` (`:94-104`) decides what the switch sh
 
 | Key | `boolSense` | App reads it as | Unset means | Switch writes | Validator |
 |---|---|---|---|---|---|
-| `RECALL_ENABLED` | `not-off` | `!== 'off'` (`lib/streaming/create-chat-stream-response.ts:1161`, `lib/db/recall-actions.ts:229`) | on | `on` / `off` | `on` or `off` |
-| `MEMORY_ENABLED` | `not-off` | `!== 'off'` (`create-chat-stream-response.ts:1103`, `lib/db/memory-actions.ts:161`) | on | `on` / `off` | `on` or `off` |
-| `OLLAMA_SEARCH_ENABLED` | `not-off` | `!== 'off'` (`lib/tools/search.ts:182,838`) | on | `on` / `off` | `on` or `off` |
+| `RECALL_ENABLED` | `not-off` | `!== 'off'` (`lib/streaming/create-chat-stream-response.ts:1168`, `lib/db/recall-actions.ts:229`) | on | `on` / `off` | `on` or `off` |
+| `MEMORY_ENABLED` | `not-off` | `!== 'off'` (`create-chat-stream-response.ts:1110`, `lib/db/memory-actions.ts:161`) | on | `on` / `off` | `on` or `off` |
+| `OLLAMA_SEARCH_ENABLED` | `not-off` | `!== 'off'` (`lib/tools/search.ts:172,839`) | on | `on` / `off` | `on` or `off` |
 | `ALWAYS_SEARCH` | `not-off` | `!== 'off'` (`isAlwaysSearchEnabled`, `lib/agents/always-search.ts:32-36`; spec `lib/env-schema.ts:462-473`, Search tab) | on | `on` / `off` | `on` or `off` |
 | `CITATION_HANDLES` | `not-off` | `!== 'off'` (`isCitationHandlesEnabled`, `lib/utils/citation-handles.ts:24-28`; spec `lib/env-schema.ts:474-485`, Search tab, label "Ready-made citation handles") | on | `on` / `off` | `on` or `off` |
 | `ENABLE_AUTH` | `not-false` | `=== 'false'` → anonymous mode (`lib/auth/get-current-user.ts:21`, `lib/supabase/middleware.ts:82`) | on | `true` / `false` | `true` or `false` |

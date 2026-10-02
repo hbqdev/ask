@@ -191,7 +191,7 @@ and gate rates describe what Ask did. They do not show whether the answer was
 better.** Judge the answers before deciding a gate is right or wrong.
 
 The classifier is **bypassed** when the message contains a URL, when the user hits
-Retry, and in **speed mode** (`create-chat-stream-response.ts:282-318`). A
+Retry, and in **speed mode** (`create-chat-stream-response.ts:286-322`). A
 bypassed turn gets a fixed classification: `skipSearch:false`,
 `needsSources:true`, `standaloneQuery` = the raw message, no expansions. A
 classifier failure, empty reply or soft-budget timeout falls back to the same
@@ -461,12 +461,12 @@ model is fed back and what search finds agree:
 | "Research still running" indicator (`endsInActiveResearch`) | `components/render-message.tsx:54` | `narrationCleanView` |
 | Copy shortcut (Mod+Shift+C) | `components/chat.tsx:686` | `narrationCleanView` |
 | Copy and Save in the answer's action row | `components/answer-section.tsx:320` | receives the rendered (cleaned) answer text |
-| History fed to the classifier and the model | `lib/streaming/create-chat-stream-response.ts:258` | `stripNarrationFromMessages` |
+| History fed to the classifier and the model | `lib/streaming/create-chat-stream-response.ts:262` | `stripNarrationFromMessages` |
 | Guest history (sent by the browser) | `lib/streaming/create-ephemeral-chat-stream-response.ts:62` | `stripNarrationFromMessages` |
-| Spoken gist (voice turns) | `lib/streaming/create-chat-stream-response.ts:959` | `stripNarrationPreamble` on the final step's text |
+| Spoken gist (voice turns) | `lib/streaming/create-chat-stream-response.ts:963` | `stripNarrationPreamble` on the final step's text |
 | Recall indexing and the recall backfill | `lib/memory/extract-indexable-text.ts:135-142` | `stripNarrationPreamble` on each assistant text part |
 | Sidebar and Library keyword-search snippets | `lib/db/keyword-search.ts:76-79` | `stripNarrationPreamble` on an assistant snippet |
-| Persist | `lib/streaming/create-chat-stream-response.ts:1072`, `lib/streaming/helpers/persist-stream-results.ts:39` | `stripNarrationFromMessage` |
+| Persist | `lib/streaming/create-chat-stream-response.ts:1079`, `lib/streaming/helpers/persist-stream-results.ts:39` | `stripNarrationFromMessage` |
 
 `narrationCleanView` (`strip-narration-from-message.ts:157`) is `stripNarrationFromMessage`
 memoized in a `WeakMap` keyed by the message object (`:148`). That is safe because
@@ -524,7 +524,7 @@ preamble, because that preamble sits inside the final answer part.
   [D20 › Backfill](/history/decisions#backfill-2026-09-28-29)).
 - The round-cap notice itself tells the model not to restate the limit or
   describe its sources, and to start with the heading (`buildSearchRoundCapNotice`,
-  `lib/tools/search.ts:356-368`); so does the fetch-cap notice (`buildFetchLimitNotice`,
+  `lib/tools/search.ts:346-358`); so does the fetch-cap notice (`buildFetchLimitNotice`,
   `lib/tools/fetch-budget.ts:61-63`).
 
 ## Follow-up re-search prompt nudge
