@@ -207,9 +207,9 @@ mid-anchor went through the same repair on every load.
 
 **Fix.** Two independent parts:
 
-- `stripIncompleteCitationTail()` (`lib/utils/citation.ts:551`) removes an unfinished
+- `stripIncompleteCitationTail()` (`lib/utils/citation.ts:791`) removes an unfinished
   citation anchor from the very end of the text before anything else runs. Its pattern
-  (`INCOMPLETE_CITATION_TAIL_RE`, `:533-534`) matches `[`, `[1`, `[1](`, `[1](#` and
+  (`INCOMPLETE_CITATION_TAIL_RE`, `:773-774`) matches `[`, `[1`, `[1](`, `[1](#` and
   `[1](#<partial id>` at the end of the string (up to three digits). A complete bracket with
   no link part (`[1]`) is left alone, because a finished answer may legitimately end with it;
   so are a named link (`[Python docs`) and an external one (`[1](https://…`), which the
@@ -263,7 +263,7 @@ or in range but pointing at a different result of the same search
 ([known issue](/history/known-issues#running-count-citation-numbers-can-point-at-the-wrong-result)).
 
 **One resolver.** `resolveCitationAnchor(N, id, maps)` (`lib/utils/citation.ts:279-307`)
-decides every anchor. Rendering (`processCitations`, `citation.ts:501-525`), the telemetry
+decides every anchor. Rendering (`processCitations`, `citation.ts:741-765`), the telemetry
 audit (`auditCitations`, `citation.ts:346-371`) and the cited-URL list
 (`extractCitedSourceUrls`, `citation.ts:453-467`) all call it, so `citations_unresolved`
 counts exactly the anchors a reader loses. The copy and save-note text of an answer goes
@@ -338,6 +338,52 @@ an outside tap closes it. The pointer type is tracked per gesture, so a mouse on
 touchscreen laptop keeps hover behaviour. The chip gets a larger hit area on coarse
 pointers (`pointer-coarse:before:-inset-y-3`, ~40px). Preview titles/snippets pass through
 `snippetText` (strips provider highlight markup like `<strong>` and decodes entities).
+
+### Citation evidence (telemetry only) {#citation-evidence}
+
+Since 2026-10-01 `lib/utils/citation.ts` can also say **what each rendered citation rests on**:
+a page the turn read, or only a search snippet. These helpers change nothing a reader or the
+model sees. The chip still links the cited result's own URL and its hover still shows that
+result's text; no prompt or tool output changed. They exist so that the share of citations
+the stored evidence cannot vouch for can be measured on prod.
+
+- **`SNIPPET_MAX_CHARS` = 1000** (`citation.ts:478`). A search result whose text is at most this
+  long counts as a provider snippet, not page text. Basic-tier results (SearXNG and degoog
+  snippets, Ollama web cut to 400 characters in `lib/tools/search/providers/searxng.ts:47`)
+  are 150–401 characters; crawled advanced results and fetched pages run to thousands. 1000 is
+  the split the 2026-09-30 quality re-test judged support by.
+- **`samePageKey(url)`** (`:501-530`): one key for every spelling of the same page. It ignores
+  the scheme, a `www.` or `m.` host prefix, letter case, a trailing slash, the fragment,
+  tracker parameters (`utm_*`, `fbclid`, `gclid`, `ref`, `rss` and a few more) and empty
+  parameters, and parameter order. On GitHub the repository page, its `?tab=…` views and
+  `/blob/<branch>/README(.md)` share a key, because the repository page renders the README.
+  Every other parameter is kept, so `watch?v=a` and `watch?v=b` stay different pages. Null for
+  anything that is not http(s).
+- **`findPageTextForUrl(url, message)`** (`:597-611`): the longest page text **this message**
+  read for that page, from a fetch or a crawled copy in another search. Message-scoped like
+  every resolution here: another turn's fetch is never consulted. Rendering does not call it;
+  it is the text an offline support judge should read for a snippet citation.
+- **`auditCitationEvidence(message)`** (`:647-707`): classifies every **rendered** anchor, with
+  the resolver rendering uses (unresolved anchors are skipped), as `page` (the cited result is
+  page text: a fetched page, an attached-document excerpt, or a search result longer than
+  1000 characters), `snippetRead` (a snippet whose page this message read in full under a
+  same-page URL) or `snippet` (nothing in the message read past it). It also counts
+  `fetchedPagesUncited`: successful fetches of pages that no rendered anchor points to,
+  directly or through a same-page snippet citation. `onFinish` calls it next to
+  `auditCitations` (`lib/streaming/create-chat-stream-response.ts:999-1002`), and the counts
+  become `citations_snippet`, `citations_snippet_read` and `fetch_pages_uncited` on the
+  `[latency]` line ([telemetry](/operations/telemetry#tokens-citations-and-totals)). An
+  anchor whose result cannot be matched to a tool part is counted as `page`.
+
+*Why measure instead of fix:* the obvious repair, crediting the fetched page instead of the
+snippet of the same URL, would almost never apply (on prod 1 of 133 snippet citations had its
+own URL fetched that turn). Re-judged one by one, unsupported snippet citations were mostly the
+wrong page or a number the model assembled; repeated cite markers inside page text and
+automatic re-pointing were both measured and rejected
+([D43](/history/decisions#d43-snippet-citations-measured-not-re-pointed),
+[known issue](/history/known-issues#citations-point-at-a-snippet-instead-of-the-fetched-page)).
+Tests: `lib/utils/__tests__/citation-evidence.test.ts`,
+`lib/streaming/__tests__/latency-tracker.test.ts`.
 
 ## Composer and toolbar {#composer}
 

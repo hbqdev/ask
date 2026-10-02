@@ -131,7 +131,7 @@ for why that matters.
 
 ## 3. Load chat and ownership {#_3-load-chat-and-ownership}
 
-`lib/streaming/create-chat-stream-response.ts:174`. Only for follow-ups:
+`lib/streaming/create-chat-stream-response.ts:178`. Only for follow-ups:
 
 - `waitForStoppedTurn(chatId)` — if the previous turn in this chat was just Stopped,
   wait (bounded, 5s) for its partial to be saved, so the new turn's history contains
@@ -160,7 +160,7 @@ New chats skip the read entirely.
 ## 5. Classifier {#_5-classifier}
 
 Kicked off **before** the stream opens and awaited only just before the agent is
-built (`create-chat-stream-response.ts:282-318`), so it overlaps message prep.
+built (`create-chat-stream-response.ts:286-322`), so it overlaps message prep.
 
 `classifyQuery` (`lib/agents/query-classifier.ts:350`) runs a fixed model (not the
 user's chat model) on the last ~20 messages and returns:
@@ -193,7 +193,7 @@ are forced on the raw message with its URLs removed, unless the message carries 
 it only points at. The guest path bypasses only for a URL.
 
 **User-supplied source.** Next to the bypass check, `detectUserSuppliedSource`
-(`lib/agents/always-search.ts:118-137`, called at `create-chat-stream-response.ts:290-292`)
+(`lib/agents/always-search.ts:118-137`, called at `create-chat-stream-response.ts:294-296`)
 reads the latest message's **parts**: a URL in the text or a pasted link chip (`url`), an
 attachment with no typed text (`attachment-only`), or an attachment whose text only points at
 it (`attachment-reference`, e.g. "what is this", "summarise this file"). It is read from the
@@ -211,7 +211,7 @@ generate the fused expansions ran a ~4.6s median before the soft budget existed.
 ## 6. Inside the stream: attachments, pruning, truncation {#_6-inside-the-stream-attachments-pruning-truncation}
 
 From here on everything runs inside `createUIMessageStream({ execute })`
-(`create-chat-stream-response.ts:360`). That is a deliberate UX choice: the browser
+(`create-chat-stream-response.ts:364`). That is a deliberate UX choice: the browser
 receives a `start` chunk immediately and the pre-answer waits are rendered as
 steps instead of dead air.
 
@@ -234,7 +234,7 @@ steps instead of dead air.
    model). On a model failure, an empty reply or a reply longer than a title, the generator
    returns the first 75 characters of the question (`lib/agents/title-generator.ts:69`);
    `"Untitled"` is used only if the call itself rejects
-   (`lib/streaming/create-chat-stream-response.ts:486-489`). The reply is cleaned first: the
+   (`lib/streaming/create-chat-stream-response.ts:490-493`). The reply is cleaned first: the
    first non-empty line that does **not** end with `:` is taken, and a leading `Title:` label
    is dropped (`lib/agents/title-generator.ts:113-117`, since 2026-09-25). That skips lead-ins
    such as "Here is the short, concise title (4 words):", which a lab chat once stored as its
@@ -243,7 +243,7 @@ steps instead of dead air.
 
 ## 7. Recall race {#_7-recall-race}
 
-`create-chat-stream-response.ts:507-590`. After `await classificationPromise`:
+`create-chat-stream-response.ts:511-594`. After `await classificationPromise`:
 
 - `chooseRecall` (`helpers/choose-recall.ts`): `gated` if `skipSearch` (no rerank);
   `speculative` if the effective query equals the raw text (rerank the candidates
@@ -273,7 +273,7 @@ is rewritten as `done` with the decision and duration.
 
 ## 8. Attached documents and pasted URLs {#_8-attached-documents-and-pasted-urls}
 
-`create-chat-stream-response.ts:645-801`. Document chunks from step 6 and **this turn's**
+`create-chat-stream-response.ts:649-805`. Document chunks from step 6 and **this turn's**
 pasted URLs (`data-sourceUrl` parts, fetched + ranked by `retrieveUrlChunks`, top 10)
 are merged, deduped by a deterministic `sourceId`, relative URLs dropped, capped at
 `MAX_INJECTED_DOC_SOURCES = 8` (newest kept), then **token-budgeted**
@@ -369,7 +369,7 @@ Other per-turn wiring:
 
 ## 10. The tool loop and its caps {#_10-the-tool-loop-and-its-caps}
 
-`researchAgent.stream(...)` (`create-chat-stream-response.ts:898`). No `toolChoice`
+`researchAgent.stream(...)` (`create-chat-stream-response.ts:902`). No `toolChoice`
 and no "done" tool: apart from the forced step 0 of a research turn (above), every
 step is the model's own choice, and the loop ends when the model replies with plain
 text. The forced search is round 1 of the search-round cap. These independent limits
@@ -378,7 +378,7 @@ keep it bounded:
 | Cap | Where | Default | Effect |
 |---|---|---|---|
 | Step cap | `stopWhen: stepCountIs(maxSteps)` | 10 / 20 / 50 / 100 | hard stop (can end on a tool step — rarely reached in practice) |
-| Search-round cap | `lib/tools/search.ts:317-338` | `SEARCH_ROUNDS_MAX`=3, `SEARCH_ROUNDS_MAX_QUALITY`=10 (5 before 2026-09-30) | further `search` calls return an empty result with a notice: "answer now, begin with the `## ` heading", or in quality "no more searches; you may still fetch URLs found this turn". Dedup short-circuits and near-duplicate skips don't count ([pipeline](/search/pipeline#round-cap)) |
+| Search-round cap | `lib/tools/search.ts:307-328` | `SEARCH_ROUNDS_MAX`=3, `SEARCH_ROUNDS_MAX_QUALITY`=10 (5 before 2026-09-30) | further `search` calls return an empty result with a notice: "answer now, begin with the `## ` heading", or in quality "no more searches; you may still fetch URLs found this turn". Dedup short-circuits and near-duplicate skips don't count ([pipeline](/search/pipeline#round-cap)) |
 | Fetch cap (since 2026-09-30) | `lib/tools/fetch-budget.ts` | quality `FETCH_ROUNDS_MAX_QUALITY`=8 calls; other modes none (`FETCH_ROUNDS_MAX` unset) | a further `fetch` call returns an empty result with an "answer from what you have" notice |
 | Answer deadline | `prepareStep` → `applyAnswerDeadline` (`lib/agents/answer-deadline.ts:40`) | 200s | tools no longer advertised + a "TIME TO ANSWER" note appended to the system prompt, and every tool's `execute` refuses with an "answer now" result (`enforceAnswerDeadline`), so the model writes before the 300s abort (which would persist nothing) |
 | Advanced-search call (since 2026-09-27) | `createAdvancedSearchDeadline` (`lib/tools/search/advanced-search-deadline.ts:93`) | 20s to response headers, 180s total (`ADVANCED_SEARCH_HEADERS_TIMEOUT_MS`, `ADVANCED_SEARCH_TIMEOUT_MS`) | the first search falls back to a basic SearXNG search instead of hanging ([pipeline](/search/pipeline#advanced-search-deadline-and-fallback)) |
@@ -409,12 +409,12 @@ is detailed in [Streaming](/request-lifecycle/streaming).
 
 ## 12. onFinish: persist, then learn {#_12-onfinish-persist-then-learn}
 
-`create-chat-stream-response.ts:973`, in order:
+`create-chat-stream-response.ts:977`, in order:
 
 1. `unregisterGeneration` (only removes the entry if it is still this turn's controller).
 2. Wait ≤1s for token usage; audit citations (`auditCitations`, `:995`: own / recovered /
    unresolved, by the same resolver rendering uses); emit the `[latency]` line
-   (with `turn_mode`, `forced_search` and `forced_skip`, `create-chat-stream-response.ts:1014-1021`).
+   (with `turn_mode`, `forced_search` and `forced_skip`, `create-chat-stream-response.ts:1021-1028`).
 3. Abort handling: aborted and not a user Stop → **discard**. User Stop → sanitize +
    newer-turn guard (see [Streaming → Stop](/request-lifecycle/streaming#stop)).
 4. `stripNarrationFromMessage` → `rehydrateFullContent` (swap excerpts back to full

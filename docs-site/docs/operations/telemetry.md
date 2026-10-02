@@ -28,16 +28,18 @@ probe is unavoidable, send one query, reuse it, and tell the team first.
 | `[latency]` | `LatencyTracker.emit` (`lib/streaming/latency-tracker.ts`), called from `onFinish` in `lib/streaming/create-chat-stream-response.ts` | chat turn | yes |
 | `[latency:search]` | `StageTimer` (`lib/telemetry/stage-timer.ts`) in `app/api/advanced-search/route.ts` **or** in `lib/tools/search.ts` | search call | yes |
 | `[latency:classify]` | `lib/agents/query-classifier-telemetry.ts` | classifier call | yes |
-| `[search] round cap reached (N > B, mode=…) — no more searches, fetch of found URLs still allowed` (quality, or any mode with a fetch cap) / `… — instructing model to answer from gathered sources` (other modes) | `lib/tools/search.ts:456-458` | capped search | no (stdout only). The matching `[latency:search] kind:"round-cap"` line is stored |
+| `[search] round cap reached (N > B, mode=…) — no more searches, fetch of found URLs still allowed` (quality, or any mode with a fetch cap) / `… — instructing model to answer from gathered sources` (other modes) | `lib/tools/search.ts:444-446` | capped search | no (stdout only). The matching `[latency:search] kind:"round-cap"` line is stored |
 | `[fetch] fetch cap reached (N > B, mode=…, chatId=…) — refusing K url(s)` | `lib/tools/fetch.ts:700-702` | `fetch` call past the per-turn fetch cap (quality: `FETCH_ROUNDS_MAX_QUALITY`, 8; since 2026-09-30) | no (stdout only). The refused call has no `fetch_ms` |
 | `[citation-reminder] {"chatId","event":"armed","mode","step","citableToolCalls"}` / `{…,"event":"answer-step-rerun","detect_ms","aborted_text_chars"}` | `lib/agents/researcher.ts:1120-1122`, `:1009-1011` | only with `CITATION_REMINDER=on` (off in every env): the first step that gets the reminder (`mode` `answer-step` or `append`), and each answer step that was aborted and re-run with it | no |
 | `[crop-pos]`, `[cite-urls]` | `lib/search/crop-position.ts`, `create-chat-stream-response.ts` | advanced search / turn (only when `SEARCH_CROP_POSITION_SHADOW=true`) | no |
 | `[stop] {outcome}` | `create-chat-stream-response.ts` | user-stopped turn (`partial_saved` / `nothing_to_save` / `stale_skipped`) | no |
 | `[stall-suspect]` | `LatencyTracker.emit` | aborted turn that produced no text after ≥120s of silence (the signature of a provider stall, **or of a tool that never returned**: see [aborted turns](#aborted-turns-provider-stall-or-hung-tool)) | no |
-| `[search] advanced-search timed out (phase=…, limit=…, waited=…, mode=…) — falling back to basic SearXNG for "<query>"` | `lib/tools/search.ts:1070-1072` | first search whose call to `/api/advanced-search` hit its headers or total deadline (since 2026-09-27) | no (stdout only). The matching `[latency:search] kind:"advanced-fallback"` line is stored |
+| `[search] advanced-search timed out (phase=…, limit=…, waited=…, mode=…) — falling back to basic SearXNG for "<query>"` | `lib/tools/search.ts:1071-1073` | first search whose call to `/api/advanced-search` hit its headers or total deadline (since 2026-09-27) | no (stdout only). The matching `[latency:search] kind:"advanced-fallback"` line is stored |
 | `[redis:<label>] <error> — commands fail fast until it reconnects` / `[redis:<label>] reconnected` / `[redis:<label>] dropping client (<reason>); will rebuild` | `lib/redis/local-redis.ts:122-128`, `:239` | a local Redis client losing, regaining or discarding its connection; logged once per change, not per retry (since 2026-09-27). Labels: `advanced-search`, `basic-search-cache`, `brave-budget`, `ingest-heartbeat`, `imagegen-budget`, `imagegen-retry`, `imagegen-rotation` | no |
 | `[Researcher] always-search: step 0 forced to search "<first 80 chars of the query>" (turnMode=…, mode=…)` / `…the user supplied the source (url \| attachment-only \| attachment-reference) — first step not forced…` / `…nothing searchable in the resolved query…` | `lib/agents/researcher.ts:1027-1039` | research turn with `ALWAYS_SEARCH` on (logged-in **and** guest) | no. Guest turns have no `[latency]` line, so this is their only record |
-| `[search-dedup]`, `[search-expansion]`, `[advanced-search] crawl4ai enriched X/Y…`, `[Researcher] <Mode> mode: maxSteps=…` | various | event | no |
+| `[search-dedup] skipping "<q>" — near-duplicate of "<earlier>" (exact)` / `… (near, cos=0.934)` | `lib/tools/search.ts:539-541` | search skipped as a repeat of one this turn already ran in the same mode; the suffix says which rule fired (since 2026-10-01; before that every skip was cosine-only and had no suffix) | no |
+| `[search-dedup] kept "<q>" — cos=0.958 to "<earlier>" but adds: <words>` / `… but drops: <numbers>` / `… but reverses word order` | `lib/tools/search.ts:555-557` | search that **ran** although its cosine to an earlier query of the turn is ≥ 0.92 (the pre-2026-10-01 cut-off): every one is a search the old rule would have skipped, with the word that kept it. The evidence for tuning the word lists ([pipeline › dedup](/search/pipeline#round-cap)) | no |
+| `[search-expansion]`, `[advanced-search] crawl4ai enriched X/Y…`, `[Researcher] <Mode> mode: maxSteps=…`, `[search-dedup] embedding failed, exact-repeat check only:` | various | event | no |
 
 Read stdout with `docker logs <container>`. The containers are `ask` (prod),
 `ask-admin-feature` (staging), and `ask-lab` (lab). Add `-t` to get timestamps:
@@ -58,9 +60,9 @@ the moment the tracker was created, which is right before `prepareMessages`.
 | `variant` | `FLOW_VARIANT` (lab control-flow arm). `baseline` everywhere else |
 | `modelId` | **The model that actually answered**, e.g. `ollama:deepseek-v4.1-flash:cloud`. Use this, not the picker. See [Models & reasoning](/search/models-reasoning#how-the-picker-chooses-a-model-and-why-a-saved-choice-beats-the-default) |
 | `skipSearch`, `needsRecent`, `needsSources` | The classifier's output. Before 2026-09-26 they alone determined the turn mode (`skipSearch` → direct; neither need → stable-knowledge; otherwise research). With `ALWAYS_SEARCH` on, `needsSources` gates nothing and is kept for analysis; read `turn_mode` instead |
-| `turn_mode` | Since 2026-09-26. The mode `resolveTurnMode` actually chose: `direct`, `research`, or (only with `ALWAYS_SEARCH=off`) `stable-knowledge`. `null` if the turn failed before the researcher was built (`lib/streaming/latency-tracker.ts:313`) |
-| `forced_search` | Since 2026-09-26. `true` when step 0 was the guaranteed web search on the classifier's query ([D37](/history/decisions#d37-always-search-every-question)). `false` on `direct` turns, on research turns where the user supplied the source (see `forced_skip`) or nothing searchable was left, and on every turn with `ALWAYS_SEARCH=off` (`latency-tracker.ts:314`) |
-| `forced_skip` | Since 2026-09-26 (added with the user-supplied-source exception). Why a research turn was **not** forced: `url` (a URL in the text or a pasted link chip), `attachment-only` (an attachment with no typed text), `attachment-reference` (an attachment whose text only points at it, e.g. "what is this"). `null` on forced turns, `direct` turns and with `ALWAYS_SEARCH=off` (`latency-tracker.ts:317`) |
+| `turn_mode` | Since 2026-09-26. The mode `resolveTurnMode` actually chose: `direct`, `research`, or (only with `ALWAYS_SEARCH=off`) `stable-knowledge`. `null` if the turn failed before the researcher was built (`lib/streaming/latency-tracker.ts:335`) |
+| `forced_search` | Since 2026-09-26. `true` when step 0 was the guaranteed web search on the classifier's query ([D37](/history/decisions#d37-always-search-every-question)). `false` on `direct` turns, on research turns where the user supplied the source (see `forced_skip`) or nothing searchable was left, and on every turn with `ALWAYS_SEARCH=off` (`latency-tracker.ts:336`) |
+| `forced_skip` | Since 2026-09-26 (added with the user-supplied-source exception). Why a research turn was **not** forced: `url` (a URL in the text or a pasted link chip), `attachment-only` (an attachment with no typed text), `attachment-reference` (an attachment whose text only points at it, e.g. "what is this"). `null` on forced turns, `direct` turns and with `ALWAYS_SEARCH=off` (`latency-tracker.ts:339`) |
 
 ### Pre-work, before the agent starts
 
@@ -105,7 +107,10 @@ the moment the tracker was created, which is right before `prepareMessages`.
 | `last_prompt_tokens` | Input tokens of the **final** step, i.e. the answering prompt. **Use this to judge a change to prompt size** |
 | `completion_tokens` | Output tokens summed across steps, **including reasoning**. Use this to judge a change to reasoning or `ANSWER_THINK` |
 | `citations_total`, `citations_unresolved` | Citation anchors (`[N](#id)`) in the answer, and how many of them **render as nothing**: an id from another turn, an invented id, an ambiguous placeholder, or a real id with a number that is not one of that call's results. Counted by `auditCitations` (`lib/utils/citation.ts:346-371`) with the resolver rendering uses (`resolveCitationAnchor`, `:279-307`), so it equals what the reader loses. Only written when the answer has at least one anchor. **Since 2026-09-26** out-of-range numbers are included; before that they were scored as resolved although they rendered nothing (see the warning below) |
-| `citations_recovered` | Anchors rendered only through a repair: since 2026-09-24 an id that is a fragment of exactly one of the turn's source URLs (`resolveByUrlFragment`, `lib/utils/citation.ts:66`); since 2026-09-26 also a real id of the turn wrapped in `<id-…>` / `<…>`, a placeholder id in a turn with exactly one citable call, and a too-high number on a fetch that returned one page. Not counted in `citations_unresolved`. **Omitted when 0** (`lib/streaming/latency-tracker.ts:292-294`), so its absence is normal. Anchors rendered as written ("own") are not logged: own = `citations_total` − `citations_recovered` − `citations_unresolved` |
+| `citations_recovered` | Anchors rendered only through a repair: since 2026-09-24 an id that is a fragment of exactly one of the turn's source URLs (`resolveByUrlFragment`, `lib/utils/citation.ts:66`); since 2026-09-26 also a real id of the turn wrapped in `<id-…>` / `<…>`, a placeholder id in a turn with exactly one citable call, and a too-high number on a fetch that returned one page. Not counted in `citations_unresolved`. **Omitted when 0** (`lib/streaming/latency-tracker.ts:304-306`), so its absence is normal. Anchors rendered as written ("own") are not logged: own = `citations_total` − `citations_recovered` − `citations_unresolved` |
+| `citations_snippet` | Since 2026-10-01. Rendered anchors whose cited result is a search **snippet** (text of at most 1,000 characters) and whose page nothing in the turn read: not fetched, not crawled in another search, under any spelling of the URL. Counted by `auditCitationEvidence` (`lib/utils/citation.ts:647-707`, see [frontend › Citation evidence](/request-lifecycle/frontend#citation-evidence)). Written, possibly as `0`, on every line that has `citations_total` (`latency-tracker.ts:307-309`) |
+| `citations_snippet_read` | Since 2026-10-01. Rendered anchors on a snippet whose page the turn **did** read in full under a same-page URL; the stored evidence under the chip is thin, the page behind it was read. **Omitted when 0** (`latency-tracker.ts:310-312`). Rendered anchors on page text are not logged: page = `citations_total` − `citations_unresolved` − `citations_snippet` − `citations_snippet_read` |
+| `fetch_pages_uncited` | Since 2026-10-01. Pages the turn fetched successfully that no rendered anchor points to, directly or through a same-page snippet citation. **Omitted when 0**, and written even when the answer has no citation at all (`latency-tracker.ts:314-316`). A turn with a high value and a high `citations_snippet` read pages and credited snippets of other pages: the shape of wrong-page attribution |
 | `total_ms` | Wall time from tracker creation to `onFinish`. Always present |
 | `abort_silence_ms`, `blank_abort` | Only on aborted turns: how long the turn was silent before the abort, and whether any prose had been written. Silence ≥120s with no prose looks like a provider stall; a short silence is a user pressing Stop or a disconnect |
 
@@ -148,6 +153,44 @@ and watch on lines from that build:
 - **Prompt size.** Expect `last_prompt_tokens` about +370 on a balanced call with a 27-result
   search (handles +783, shorter citation guidance about −400).
 - **Revert** with `CITATION_HANDLES=off` and a container recreate; no rebuild.
+:::
+
+::: tip Tracking snippet citations (2026-10-01)
+A citation of a search snippet is the citation the stored evidence cannot vouch for: in the
+2026-09-30 lab re-test such citations were unsupported by their text 71 % of the time, against
+23 % for page text. Track two numbers over many turns, never per turn:
+
+- **Snippet share** = `sum(citations_snippet) / sum(citations_total − citations_unresolved)`,
+  the share of **rendered** citations that rest on a snippet only. `citations_snippet /
+  citations_total` is close enough while `citations_unresolved` stays small. Reference values,
+  measured on stored answers before the build: lab re-test
+  567 rendered citations, 40 % snippet-only (5 % snippet whose page was read, 55 % page); prod
+  since 2026-09-28, 290 rendered, **46 %** snippet-only (54 % page). A change meant to improve
+  citations should lower it; a rise means more answers are written from snippets.
+- **Uncited reading** = the share of turns with `fetch_pages_uncited`, and its sum against the
+  number of fetched pages. Pages fetched and then credited to nothing mean the reading did not
+  reach the citations.
+
+A lower snippet share does **not** prove better support. In the rejected in-page-marker
+experiment the snippet share fell from 35 % to 23 % while supported citations fell from 42 %
+to 36 % ([D43](/history/decisions#d43-snippet-citations-measured-not-re-pointed)). Judge a
+sample of answers ([D4](/history/decisions#d4-judge-answers-not-source-counts)) before
+calling a change a win.
+
+```bash
+docker exec ask-redis redis-cli LRANGE latency:log 0 4999 > /tmp/lat.txt
+python3 - <<'EOF'
+import json
+t = [json.loads(l.split(' ', 1)[1]) for l in open('/tmp/lat.txt') if l.startswith('[latency] ')]
+c = [x for x in t if 'citations_snippet' in x]          # lines from the 2026-10-01 build on
+rendered = sum(x['citations_total'] - x['citations_unresolved'] for x in c)
+snip = sum(x['citations_snippet'] for x in c)
+read = sum(x.get('citations_snippet_read', 0) for x in c)
+print(len(c), 'turns', rendered, 'rendered', 'snippet %.0f%%' % (100 * snip / max(rendered, 1)),
+      'snippet-read %.0f%%' % (100 * read / max(rendered, 1)),
+      'turns with uncited fetches', sum(1 for x in t if x.get('fetch_pages_uncited')))
+EOF
+```
 :::
 
 Example (prod, balanced, a research turn; `chatId` omitted):
@@ -289,6 +332,7 @@ field **only the new code writes**:
 | ≥ 2026-09-26 (every question searches) | `turn_mode` / `forced_search` on `[latency]`; `forced_skip` once the user-supplied-source exception is deployed |
 | ≥ 2026-09-27 (advanced-search deadline) | `kind:"advanced-fallback"` exists at all. The forced-search rewording (prod `facc98f3`) adds no field; split research turns by deploy time (`docker logs -t`) instead |
 | ≥ 2026-09-30 (quality: search cap 10, fetch past the cap, fetch cap 8) | `fetch_allowed` on a `kind:"round-cap"` line. The fetch cap itself logs only to stdout (`[fetch] fetch cap reached`) |
+| ≥ 2026-10-01 (citation evidence; near-duplicate rule) | `citations_snippet` on `[latency]` (present on every line that has `citations_total`). The near-duplicate rule adds no stored field: its `[search-dedup]` lines are stdout only, and a skip line ending in `(exact)` or `(near, cos=…)` comes from the new rule |
 
 For a change of your own, add a new field (or a new `kind`) so its lines can be
 picked out.

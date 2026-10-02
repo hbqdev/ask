@@ -247,16 +247,21 @@ do not loosen the sanitize schema to hide it.
 → [Frontend › Half-streamed links and the "[blocked]" flash](/request-lifecycle/frontend#blocked-flash),
 [Security › XSS pipeline](/infrastructure/security#xss-pipeline)
 
-### Quality mode stops searching, or a quality answer cites a snippet
+### Quality mode stops searching, skips a search, or a quality answer cites a snippet
 
 **First check.** The turn's `[latency:search]` lines: a `kind:"round-cap"` line with
 `search_round_budget:10` and `fetch_allowed:true` means the search cap was reached. That is by
 design since 2026-09-30: after 10 searches a quality turn may still fetch pages it found (up to 8
 fetch calls, `[fetch] fetch cap reached` in stdout). A citation that opens a search result whose
-text does not hold the claim is often a snippet cited for a fact read on a fetched page, an open
-issue.
+text (a snippet) does not hold the claim is an open issue: most such citations credit the wrong
+page of the turn, or back a number the model assembled from several sources, rather than a page
+of the same URL the turn fetched. `citations_snippet` on the turn's `[latency]` line counts
+them. A "Skipped: near-duplicate" search is a repeat of one the turn already ran
+(`[search-dedup] skipping … (exact)` or `(near, cos=…)` in stdout); since 2026-10-01 a search
+that names a different product, number or facet is never skipped.
 → [Pipeline › round cap](/search/pipeline#round-cap),
-[Known issues › snippet citations](/history/known-issues#citations-point-at-a-snippet-instead-of-the-fetched-page)
+[Known issues › snippet citations](/history/known-issues#citations-point-at-a-snippet-instead-of-the-fetched-page),
+[Pipeline › dedup](/search/pipeline#round-cap)
 
 ### Citations missing or pointing nowhere
 

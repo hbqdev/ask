@@ -35,6 +35,7 @@ attachment the message only points at. See
 | Mode labels + UI time hints | `lib/config/search-modes.ts` |
 | Mode → prompt, tools, `maxSteps`, first-search depth | `lib/agents/researcher.ts` (`createResearcher`, `resolveTurnMode`) |
 | The `search` tool (round cap, dedup, speed fast path, expansion, depth tiering, provider routing) | `lib/tools/search.ts` |
+| The in-turn repeat-query rule (exact / near repeat, word check) | `lib/tools/search/query-dedup.ts` |
 | Advanced pipeline (fan-out, pool, crawl, quality filter, rerank, crop) | `app/api/advanced-search/route.ts` |
 | Provider clients | `lib/utils/{ollama-search,tavily-search,brave-search,langsearch,searxng,degoog}-client.ts`, `lib/tools/search/providers/*` |
 | Crawl sidecar client | `lib/utils/crawl4ai.ts` |
@@ -117,7 +118,7 @@ is tiered.
 flowchart TD
   A[search tool called:<br/>forced at step 0, then by the model] --> B{Rounds used ≥ budget?<br/>SEARCH_ROUNDS_MAX / _QUALITY}
   B -- yes --> B1[Return empty result + cap notice<br/>quality: stop searching, fetch allowed<br/>others: answer now<br/>kind:round-cap telemetry]
-  B -- no --> C{Near-duplicate query<br/>this turn? cos ≥ 0.92}
+  B -- no --> C{Repeat of a query this turn?<br/>exact, or cos ≥ 0.90<br/>with no new word or number}
   C -- yes --> C1[Return 'already searched' note<br/>no round used]
   C -- no --> C2[Count one round] --> D{searchMode = speed<br/>and Ollama-web configured?}
   D -- yes --> S1[Ollama web search<br/>≤10 full pages]
@@ -154,15 +155,15 @@ flowchart TD
 
 ### 1. The `search` tool entry: round cap and dedup {#round-cap}
 
-`createSearchTool` (`lib/tools/search.ts:371`) is built **once per turn** by
+`createSearchTool` (`lib/tools/search.ts:361`) is built **once per turn** by
 `createResearcher`, so the counters in its closure are per-turn state.
 
-- **Round cap** (`lib/tools/search.ts:435-470`). Before anything else, the tool compares
+- **Round cap** (`lib/tools/search.ts:424-458`). Before anything else, the tool compares
   the rounds already used (`searchRounds`) with `resolveSearchRoundsBudget(searchMode)`
-  (`:327-338`: `SEARCH_ROUNDS_MAX`, default 3, or `SEARCH_ROUNDS_MAX_QUALITY`, default
+  (`:317-328`: `SEARCH_ROUNDS_MAX`, default 3, or `SEARCH_ROUNDS_MAX_QUALITY`, default
   **10** since 2026-09-30, 5 before). When the budget is used up it returns a *valid,
   non-error* result with `results: []`, `searchLimitReached: true` and a `notice`
-  (`buildSearchRoundCapNotice`, `:356-368`). No fan-out and no crawl happen. It emits
+  (`buildSearchRoundCapNotice`, `:346-358`). No fan-out and no crawl happen. It emits
   `[latency:search] {kind:"round-cap", search_round, search_round_budget, search_round_capped:true, fetch_allowed}`
   and a plain `[search] round cap reached (11 > 10, mode=quality) — …` log line.
   - **Which notice.** In a mode with a fetch cap (`resolveFetchRoundsBudget` is not null:
@@ -174,7 +175,7 @@ flowchart TD
     the answer deadline is not offered. Both wordings forbid narrating the limit and require
     the reply to start with its `## ` heading.
   - **What counts as a round.** Only a search that actually runs. The counter is
-    incremented **after** the near-duplicate check below (`:561-563`), so a dedup-skipped
+    incremented **after** the near-duplicate check below (`:562-564`), so a dedup-skipped
     reformulation does not use a round. Before 2026-09-30 it was incremented first, and a
     false-positive skip cost a quality turn one of its 5 rounds. The researcher's exact-repeat
     and seen-URL short-circuits (`wrapSearchToolWithDedup`) return before this `execute` runs
@@ -211,23 +212,75 @@ flowchart TD
   the turn's results: the limit is only the notice's wording. In one lab test the model
   fetched GitHub URLs it had constructed itself
   ([known issue](/history/known-issues#the-fetch-past-the-cap-url-limit-is-advisory)).
-- **Query dedup** (`:492-559`). Each query is embedded. A later query in the
-  same turn and same `search_mode` whose cosine similarity with an earlier one is
-  ≥ `SEARCH_DEDUP_THRESHOLD` (0.92) returns a short "already searched" note
-  instead of searching, and logs `[search-dedup] skipping "<query>" — near-duplicate of
-  "<earlier query>"`. A query is recorded only after its search *succeeds*,
-  so a failed search can be retried. The researcher's
-  `wrapSearchToolWithDedup` short-circuits exact repeats and already-seen URLs
-  before this point. None of these skips count against the round cap. At 0.92 the
-  embedding treats templated queries as duplicates: in the 2026-09-29/30 A/Bs 6 of 7
-  skips of "X GitHub features license"-style queries were false positives
-  ([known issue](/history/known-issues#near-duplicate-dedup-drops-templated-queries)).
+- **Query dedup** (`lib/tools/search.ts:480-560`; the rule is `findDuplicateQuery` in
+  `lib/tools/search/query-dedup.ts:248-288`). A later search is skipped only when it repeats
+  one this turn already ran **in the same `search_mode`**. The skipped call returns
+  `results: []` and a note ("Skipped: this search is a near-duplicate of an earlier search
+  this turn … reuse them, or search a materially different angle"), with no fan-out, no
+  crawl and no round used. Since 2026-10-01 a skip needs one of two things:
+  1. **Exact repeat.** The queries are equal once case, punctuation, quotes and spacing are
+     ignored; word order is kept (`normalizeQueryText`, `query-dedup.ts:154-156`). No
+     embedding is needed, so this still works while the embedding service is down.
+  2. **Near repeat.** Cosine similarity ≥ `SEARCH_DEDUP_THRESHOLD` (default **0.90**,
+     `DEFAULT_DEDUP_THRESHOLD`, `query-dedup.ts:65`; embeddings from `EMBEDDING_MODEL`,
+     Qwen3-Embedding-0.6B in every env) **and** nothing in the words makes it a different
+     search (`distinguishingDifference`, `:231-240`):
+     - it **adds no content word** the earlier query lacks. Content words are what is left
+       after English stopwords are removed (`STOPWORDS`, `:86-97`) and plurals and
+       possessives are folded (`stem`, `:138-147`). Han and kana text is compared as
+       overlapping character bigrams (`:124-128`). A version (`14.0`), a domain or `node.js`
+       stays one word; hyphens split words (`WORD`, `:134`). A short list of generic search
+       words may be added without counting (`GENERIC_SEARCH_WORDS`, `:102-109`: best, top,
+       latest, new, current, recent, review, guide, tutorial, explained, overview, compare,
+       comparison, difference, vs, list, official, documentation, info, example, summary
+       and a few more). Facet words such as price, specs, features, benchmark, license and
+       reddit are deliberately **not** on it: "`<product>` price warranty" after
+       "`<product>` specs" is a different search. A new year counts as a new word. The list is
+       stored in the same folded form as query tokens, so `versus`, `docs` and `basics` match;
+       `news` is exempt from folding (`NO_FOLD`), so "`<topic>` news" is never a repeat of
+       "`<topic>`" (fixed 2026-10-02 — earlier it folded to the generic `new`).
+     - it **drops no number** other than a year (`YEAR`, `:135`). Dropping a model number
+       or a version broadens the question.
+     - it does not **reverse the word order** around to, from, into, than, before, after or
+       over (`DIRECTIONAL_WORDS`, `:114-122`): "USD to EUR" is not "EUR to USD".
+
+  Dropping ordinary words is allowed: "`<product> 2` features" after "`<product> 2` new
+  features release notes" is covered by the earlier results. The cosine gate is what keeps a
+  bare generalisation (fewer words, cosine below 0.90) running.
+
+  Logs (stdout only): a skip ends with its reason,
+  `[search-dedup] skipping "<query>" — near-duplicate of "<earlier query>" (exact)` or
+  `… (near, cos=0.934)` (`search.ts:539-541`). Every search that is **kept** although its
+  cosine to an earlier query is ≥ 0.92, the old cut-off, gets
+  `[search-dedup] kept "<query>" — cos=0.958 to "<earlier query>" but adds: <words>` (or
+  `but drops: <numbers>`, or `but reverses word order`) (`search.ts:555-557`), so everything
+  the old rule would have skipped stays visible. One line per search, for the closest such
+  earlier query, giving the first reason found in that order. An embedding failure logs
+  `[search-dedup] embedding failed, exact-repeat check only:` and the search runs.
+
+  A query is recorded only after its search *succeeds* (`search.ts:1302-1308`, and
+  `:708-714` on the speed path), with or without an embedding, so a failed search can be
+  retried and an exact repeat is still caught without one. Before this check runs, the
+  researcher's `wrapSearchToolWithDedup` (`lib/agents/researcher.ts:272`, unchanged)
+  short-circuits an exact repeat by lowercase and collapsed spaces (`normalizeQuery`,
+  `researcher.ts:246-248`; logs `[search] duplicate query short-circuited`) and routes a bare
+  URL to `fetch`; after the search it removes URLs the turn already returned. None of these
+  skips count against the round cap.
+
+  *Why words and not a higher threshold:* cosine alone cannot tell a rephrasing from a
+  templated query about something else. On 446 real query pairs labelled blind, the old rule
+  (cosine ≥ 0.92 alone) made 332 skips, 137 of which were not repeats; the new rule makes 61,
+  all of them true repeats. Of the 76 skips stored in lab, staging and prod before the change,
+  34 had dropped a real search (two different projects' "GitHub features" queries, a spec
+  query against a price-and-warranty query). The cost: more true repeats now run, and each
+  uses a search round. `SEARCH_DEDUP_TOKEN_GUARD=off` restores the old rule exactly
+  ([D42](/history/decisions#d42-near-duplicate-search-skip-only-for-true-repeats)).
 
 ### 2. Speed fast path (Ollama web search)
 
 When `shouldUseOllamaWebSpeed` holds (`searchMode === 'speed'`, an
 `OLLAMA_SEARCH_API_KEY` is configured, and `OLLAMA_SEARCH_ENABLED !== 'off'`),
-the tool (`:590-743`):
+the tool (`:591-744`):
 
 1. Calls Ollama's web-search API for ≤10 results (the API clamps at 10;
    `OLLAMA_SEARCH_MAX_RESULTS` can only lower it). Each result is a **full page
@@ -249,7 +302,7 @@ sometimes got zero usable results. Sending whole Ollama bodies grew the prompt
 to 73–89k tokens. With passage selection, a lab turn went from 24.7s (broken)
 to ~6.9s, and the prompt from 89k to ~16k tokens. The remote cross-encoder was
 deliberately left out: it adds 5–7s, and Ollama's results are already ranked.
-Speed also **bypasses the classifier and recall** (`create-chat-stream-response.ts:293-335`),
+Speed also **bypasses the classifier and recall** (`create-chat-stream-response.ts:297-339`),
 because the researcher agent rewrites its own follow-up queries into
 standalone form, so the classifier's rewrite is redundant. One consequence since
 2026-09-26: the forced first search of a speed turn runs on the **raw** message,
@@ -269,8 +322,8 @@ main results. Expansion is skipped for speed and skipped turns.
 `QUERY_EXPANSION_ENABLED=false` turns it off (`lib/agents/classifier-expansion.ts`).
 Telemetry: `[latency:search] {kind:"expansion", variants, cache_misses, failed, returned}`.
 
-The variants run **inside** that first `search` call (`lib/tools/search.ts:758-776`, merged at
-`:1193-1235`), so the UI shows a single search entry and the turn's `tool_calls` counts one call,
+The variants run **inside** that first `search` call (`lib/tools/search.ts:759-777`, merged at
+`:1194-1236`), so the UI shows a single search entry and the turn's `tool_calls` counts one call,
 although up to four queries ran. On a forced turn ([D37](/history/decisions#d37-always-search-every-question))
 that one entry is the forced search. It is only the first of the turn's searches: the forced-search
 prompt tells the model to go on searching with different queries as its mode's protocol
@@ -278,7 +331,7 @@ describes ([D37 addendum](/history/decisions#addendum-2026-09-27-the-forced-sear
 
 ### 4. Depth tiering: one advanced search per turn
 
-`resolveEffectiveDepth` (`:138`) decides the depth for each search. With
+`resolveEffectiveDepth` (`:128`) decides the depth for each search. With
 tiering on (`SEARCH_DEPTH_TIERING !== 'off'`, the default) and
 `SEARCH_API=searxng`, the first search uses the researcher's `firstSearchDepth`
 (`advanced` for balanced/quality, `basic` for speed, skip, and academic- or
@@ -339,7 +392,7 @@ after every sidecar update; builds older than the fix answer 405.
 The search tool's `fetch` to this route had **no timeout** until 2026-09-27, so a route that
 never answered held the turn until undici's 300 s headers timeout. It is now bounded by
 `createAdvancedSearchDeadline` (`lib/tools/search/advanced-search-deadline.ts:93-141`, used at
-`lib/tools/search.ts:969-974`), with two limits because the route has two very different phases:
+`lib/tools/search.ts:970-975`), with two limits because the route has two very different phases:
 
 | Limit | Env var | Default | Applies | Why this value |
 |---|---|---|---|---|
@@ -350,7 +403,7 @@ Both are read per call; a non-numeric or non-positive value falls back to the de
 turn's own abort signal is combined in, so Stop still cancels the call at once and surfaces as
 a normal abort, not a timeout.
 
-On **either** timeout the tool (`lib/tools/search.ts:1060-1087`, `runBasicSearxng` at `:901-954`):
+On **either** timeout the tool (`lib/tools/search.ts:1061-1088`, `runBasicSearxng` at `:902-955`):
 
 1. logs `[search] advanced-search timed out (phase=headers|total, limit=<ms>ms, waited=<ms>ms, mode=<searchMode>) — falling back to basic SearXNG for "<query>"`;
 2. runs the same cached **basic** SearXNG search a follow-up search would run (SearXNG
@@ -557,7 +610,7 @@ The pool is sliced to `maxResults`, cached (if non-empty), and returned with a
 `timings` object. The search tool adds those timings to the turn's
 `[latency]` line. The tool output keeps `toolCallId` and `images`, and drops
 `state`/`citationMap` before the result is shown to the model (`toModelOutput`,
-`lib/tools/search.ts:1326-1339`).
+`lib/tools/search.ts:1328-1341`).
 
 **The citation contract.** A citation `[N](#toolCallId)` means result N of this call, where N is
 the result's 1-based position in this output's `results`, restarting at 1 for every call. The
@@ -589,10 +642,19 @@ reported as `fetch_ms` on the turn line. Quality turns may make at most 8 fetch 
 ([fetch cap](#round-cap)).
 
 Fetched page text is what grounds a claim; a search result the model saw only as a snippet
-often is not. In the 2026-09-29/30 quality A/Bs, citations that pointed at a search snippet
-(at most about 1,000 characters) were judged unsupported 71 % of the time, against 23 % for
-citations of page text: the model read the fact on a fetched page and cited the snippet that
-led it there ([known issue](/history/known-issues#citations-point-at-a-snippet-instead-of-the-fetched-page)).
+often is not. In the 2026-09-30 quality re-test, citations of a search snippet (at most 1,000
+characters, `SNIPPET_MAX_CHARS`) were judged unsupported by that text 71 % of the time, against
+23 % for citations of page text. The obvious explanation, a fact read on a fetched page and
+credited to the snippet of the same URL, is rare: on prod 1 of 133 snippet citations had its
+own URL fetched in the same turn. Re-judged one by one, the unsupported snippet citations were
+mostly the **wrong page** (another page of the turn holds the fact) or a **number the model
+assembled** that no retrieved text fully states
+([known issue](/history/known-issues#citations-point-at-a-snippet-instead-of-the-fetched-page),
+[D43](/history/decisions#d43-snippet-citations-measured-not-re-pointed)). Since 2026-10-01
+the `[latency]` line counts them (`citations_snippet`, `citations_snippet_read`,
+`fetch_pages_uncited`; [telemetry](/operations/telemetry#tokens-citations-and-totals)). The
+helpers behind those counters are evidence only: nothing the model sees or the reader is shown
+changed ([frontend › Citations](/request-lifecycle/frontend#citation-evidence)).
 
 A successful fetch result carries the call's `toolCallId` (`fetch.ts:687,760`), like a search
 result does, because the model cites `[N](#toolCallId)` and can only copy an id it can see.
@@ -662,7 +724,9 @@ inlined at build time and do need a rebuild.
 | `CITATION_REMINDER` / `CITATION_REMINDER_MIN_TOOL_CALLS` | Experiment: re-run the answer step of a long loop with a citation reminder ([D40](/history/decisions#d40-quality-mode-read-pages-past-the-search-cap)); only the literal `on` enables it | off / 8 | unset in all envs (off) |
 | `SEARCH_DEPTH_TIERING` | `off` disables one-advanced-per-turn | on | |
 | `SEARXNG_DEFAULT_DEPTH` | `advanced` forces advanced depth when tiering is off | `basic` | |
-| `SEARCH_DEDUP_ENABLED` / `SEARCH_DEDUP_THRESHOLD` | In-turn near-duplicate query skip | on / 0.92 | |
+| `SEARCH_DEDUP_ENABLED` | In-turn repeat-query skip ([dedup](#round-cap)); only the literal `off` disables it (and its embedding call) | on | unset in all envs |
+| `SEARCH_DEDUP_THRESHOLD` | Cosine gate of the near-repeat rule; a value outside (0, 1] falls back to the default (`resolveDedupThreshold`, `lib/tools/search/query-dedup.ts:74-82`) | 0.90 (0.92 with `SEARCH_DEDUP_TOKEN_GUARD=off`; 0.92 for everyone before 2026-10-01) | unset in all envs |
+| `SEARCH_DEDUP_TOKEN_GUARD` | The word check of the near-repeat rule and the exact-repeat rule. Only the literal `off` restores the pre-2026-10-01 rule exactly: cosine ≥ threshold alone, no exact rule ([D42](/history/decisions#d42-near-duplicate-search-skip-only-for-true-repeats)). An on/off switch; the generated reference marks it secret-named only because its name contains `TOKEN` | on | unset in all envs |
 | `QUERY_EXPANSION_ENABLED` | `false` disables expansion variants | on | |
 | `SEARCH_STREAM_PREVIEW` | `false` disables the NDJSON preview line (and with it the headers deadline below) | on | |
 | `ADVANCED_SEARCH_HEADERS_TIMEOUT_MS` | Search tool gives up on `/api/advanced-search` if no response headers arrive, then falls back to basic SearXNG ([deadline](#advanced-search-deadline-and-fallback)) | 20000 | unset in all envs |
@@ -718,6 +782,19 @@ measurement plan than last time. Full records are in [Decisions](/history/decisi
   every armed long turn, but running-count numbering still appeared in 2 of 3 of them, and each
   re-run cost 58–104k extra prompt tokens. Shipped off
   ([D40](/history/decisions#d40-quality-mode-read-pages-past-the-search-cap)).
+- **A cosine threshold alone for the near-duplicate skip** (replaced 2026-10-01): no threshold
+  separates repeats from templated queries about something else. Among labelled non-repeats,
+  11 % of pairs score ≥ 0.97 and 67 % of the pairs at 0.92–0.93 are not repeats. A looser word
+  rule that also allowed one or two ordinary words to be swapped caught more repeats (recall
+  0.314 against 0.249, still no false skip) but was left out: telling an ordinary word from a
+  product name relies on capitals, and models write product names in lowercase
+  ([D42](/history/decisions#d42-near-duplicate-search-skip-only-for-true-repeats)).
+- **Repeated in-page citation markers** (`CITATION_PAGE_MARKERS`, 2026-10-01) and **automatic
+  re-pointing of snippet citations** to the best-matching page: the first moved citations from
+  snippets to pages without making them better supported, and broke every anchor in 2 of 17
+  answers; the second, replayed offline, would have moved 9 of 16 correct citations to pages
+  that do not support them
+  ([D43](/history/decisions#d43-snippet-citations-measured-not-re-pointed)).
 
 ## How to change things
 
@@ -740,3 +817,14 @@ and `prompt_tokens` in [Telemetry](/operations/telemetry). For quality, tune the
 fetch caps together: the 2026-09-30 A/B showed the answers come from fetched pages, so a low
 search cap is harmless only while fetching past it is allowed. Watch `fetch_allowed` on the
 `round-cap` lines and the `[fetch] fetch cap reached` log line.
+
+**Tune the near-duplicate skip.** Collect the `[search-dedup] kept …` lines (each is a search
+the old rule would have skipped, with the word that kept it) and the `skipping … (near, …)`
+lines, and label the pairs (repeat / drill-down / different) before changing anything. Change
+the word lists in `lib/tools/search/query-dedup.ts` (`GENERIC_SEARCH_WORDS`, `STOPWORDS`,
+`DIRECTIONAL_WORDS`) with a test case per change in
+`lib/tools/search/__tests__/query-dedup.test.ts`, and re-check that no labelled non-repeat
+becomes a skip: a false skip drops a search the answer needed, while a missed repeat costs one
+search round. Do not add facet words (price, specs, features, benchmark, license, reddit) to
+the generic list. `SEARCH_DEDUP_THRESHOLD` and `SEARCH_DEDUP_TOKEN_GUARD` take effect on a
+container recreate.
