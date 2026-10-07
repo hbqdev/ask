@@ -5,7 +5,7 @@ title: Known issues
 # Known issues and gotchas
 
 Open problems, pending operator actions and traps a maintainer needs to know about, as of
-**2026-10-01**. Each entry gives the **symptom**, its **impact**, a **workaround** and a **fix
+**2026-10-07**. Each entry gives the **symptom**, its **impact**, a **workaround** and a **fix
 sketch**. Resolved history lives in the [changelog](/history/changelog). Rationale for deliberate
 trade-offs lives in [decisions](/history/decisions).
 
@@ -46,6 +46,7 @@ thing.
 | [todoWrite calls failed validation](#todowrite-calls-failed-validation) | chat | ~~Low~~ fixed 2026-09-29 (lab, staging, prod) | done |
 | [Near-duplicate dedup drops templated queries](#near-duplicate-dedup-drops-templated-queries) | search | ~~Low~~ fixed 2026-10-01 (lab, staging, prod; 0 false skips on 446 labelled pairs) | watch `[search-dedup] kept` lines |
 | [The fetch-past-the-cap URL limit is advisory](#the-fetch-past-the-cap-url-limit-is-advisory) | search | Low | watch |
+| [Parallel search calls can overshoot the round cap](#parallel-search-calls-can-overshoot-the-round-cap) | search | Low (seen: budget 3, 5 searches ran) | code (open) |
 | [Older recall chunks lack UUIDs the answer contained](#older-recall-chunks-lack-uuids-the-answer-contained) | memory | Low | optional re-index |
 | [Narration the structural rules keep by design](#narration-the-structural-rules-keep-by-design) | chat | Low | by design (watch) |
 | [Serenity (.171) Ollama intermittently unreachable](#serenity-171-ollama-intermittently-unreachable) | fleet | Low (cause fixed 2026-09-23) | watch |
@@ -189,7 +190,7 @@ On NightFuryX (.17) these container names do not resolve, so each silently degra
   `[deadline] refused <tool> call`. The note now says further calls are refused. Tests drive the real
   SDK with a mock model calling `fetch` under `activeTools: []`
   (`lib/agents/__tests__/answer-deadline.test.ts`). The deadline clock now starts when the
-  researcher is built for the turn (`turnStartedAt`, `lib/agents/researcher.ts:917`), not at the
+  researcher is built for the turn (`turnStartedAt`, `lib/agents/researcher.ts:925`), not at the
   first step.
 
 
@@ -770,7 +771,7 @@ These are decisions still pending, not bugs:
   excerpts. It replaced the whole `results` list with the recorded full list. In practice only
   the speed fast path records one (the advanced route's `fullResults` needs
   `SEARCH_EXCERPTS_ENABLED`, off everywhere), and it records the list **before** the researcher's
-  per-turn URL dedup (`wrapSearchToolWithDedup`, `lib/agents/researcher.ts:272-369`) removed
+  per-turn URL dedup (`wrapSearchToolWithDedup`, `lib/agents/researcher.ts:280-377`) removed
   results an earlier search of the turn had already returned. So on a speed turn with more than
   one search, a later search's saved list could contain the removed duplicates again, every
   position after them shifted, and a stored `[N](#id)` resolved to a different result.
@@ -1118,6 +1119,31 @@ These are decisions still pending, not bugs:
   not return, which is usually harmless.
 - **Fix sketch** (only if it becomes a problem). Record the turn's result URLs (the researcher
   already keeps `seenUrls`) and refuse, past the cap, a fetch of a URL outside that set.
+
+### Parallel search calls can overshoot the round cap
+
+- **Symptom.** A turn runs more searches than its budget. Prod chat `cznh8gc1gz41vq2lwjb560br`
+  (mistral-large-4, balanced, `SEARCH_ROUNDS_MAX` 3) ran 5 real searches before the cap refused
+  any.
+- **Cause.** A check-then-act race in `createSearchTool` (`lib/tools/search.ts`). The budget is
+  checked at the top of `execute` (`searchRounds >= roundsBudget`, `:426`), but `searchRounds` is
+  incremented only at `:564`, after the first `yield` (`:475`) and the near-duplicate check's
+  embedding call (`await embedTexts`, `:505`). The AI SDK starts the parallel tool calls of one
+  step concurrently, so every call that reaches the check before the first increment passes it.
+- **Impact.** Low. The overshoot is bounded by the number of parallel `search` calls in the step
+  that crosses the budget, and each extra search is a real fan-out and crawl (cost and context,
+  not a wrong answer). Once the counter is past the budget, later calls are refused as designed.
+- **Not the search loop.** The same prod turn also had 80 further `search` calls refused over
+  about 30 steps. That part is fixed separately (2026-10-07, lab and staging; prod pending): after
+  the first refusal `search` is no longer offered, and a model that keeps calling it gets
+  answer-only steps ([pipeline › round cap](/search/pipeline#round-cap),
+  [D45](/history/decisions#d45-search-withdrawn-after-the-round-cap-then-answer-only-steps)).
+  The overshoot was left as is.
+- **Fix sketch.** Reserve the round synchronously when the check passes (increment before the
+  first `yield` or `await`) and give it back when the near-duplicate check skips the search,
+  which must not use a round
+  ([D40](/history/decisions#d40-quality-mode-read-pages-past-the-search-cap)). Add a test that
+  starts several calls of one step concurrently.
 
 ### Older recall chunks lack UUIDs the answer contained
 
