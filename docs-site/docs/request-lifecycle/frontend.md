@@ -58,7 +58,7 @@ flowchart TD
 | Chat | `components/chat.tsx` | `useChat`, sections, submit/pushState, Stop, resume, edit/retry guards |
 | Messages | `components/chat-messages.tsx` | Scroll container (`pt-14` under the header) with an opaque sticky strip behind the header band, sections, latest-section min-height, per-message citation maps, footer glyph |
 | RenderMessage | `components/render-message.tsx` | Splits an assistant message into research-process segments, answer text and standalone image cards |
-| Research process | `components/research-process-section.tsx` | Collapsible "Working on it… / Completed N steps" accordion, `WaitingQuote` while live |
+| Research process | `components/research-process-section.tsx` | Collapsible "Working on it… / Completed N steps" accordion, `WaitingQuote` while live; refused search/fetch calls fold into one "skipped" row (`components/skipped-tool-calls-section.tsx`, [below](#refused-calls-fold-into-one-line)) |
 | Tool sections | `components/tool-section.tsx` (+ `search-section`, `fetch-section`, `recall-tool-section`, `tool-todo-display`, `question-confirmation`) | One renderer per typed tool part |
 | Reasoning | `components/reasoning-section.tsx` | Compact "Thinking…/Thought" pill; raw chain-of-thought hidden unless `NEXT_PUBLIC_SHOW_REASONING=true` (build-time) |
 | Answer | `components/answer-section.tsx` → `components/message.tsx` | Markdown rendering, message actions, a text-selection toolbar (Save / quote into the composer), read-aloud |
@@ -128,6 +128,45 @@ a database rewrite. It then walks the view's parts in order and buffers non-text
   a cut preamble ends the research phase too.
 - **Copy.** The action row copies the rendered (cleaned) answer text; the copy shortcut
   (Mod+Shift+C) copies the text parts of the same view (`components/chat.tsx:686`).
+
+### Refused calls fold into one line {#refused-calls-fold-into-one-line}
+
+Since 2026-10-07 (lab and staging; prod pending), `search` and `fetch` calls that were refused
+without running no longer render as ordinary steps. In each research-process segment they fold
+into **one** muted row, placed where the first refusal was:
+"Search limit reached — 12 extra searches skipped", or "… — 4 extra searches and 2 page reads
+skipped" (`skippedToolCallsLabel`, `lib/utils/skipped-tool-calls.ts:166-182`). The lead is
+"Research limit reached" when no search was refused by the round cap itself (only answer-now or
+fetch-cap refusals). The row has nothing to expand and a tooltip saying no search or page read
+was done for these calls (`components/skipped-tool-calls-section.tsx`).
+
+- **Why.** The pipeline refuses calls past the search round cap, past the fetch cap and on
+  answer-only steps ([pipeline › round cap](/search/pipeline#round-cap)) with an empty,
+  non-error result, and each one rendered as one more search row. On a prod turn the user
+  counted 18 "searches" where 5 ran and 12 were refused.
+- **What counts as refused** (`collapseSkippedToolCalls`, `skipped-tool-calls.ts:109-151`). A
+  finished `tool-search` / `tool-fetch` part whose output carries the flag its refusal sets,
+  never the notice text: `searchLimitReached: true` (round cap), `fetchLimitReached: true`
+  (fetch cap) or `answerNow: true` (the answer-deadline wrapper, which also serves the search
+  cap's answer-only steps). Also an `output-error` part whose error is "Invalid input for tool
+  search" (or `fetch`), a model inventing arguments for a tool it no longer sees, but only after
+  a flagged refusal earlier in the same segment; without one it is an ordinary failed call and
+  renders as the error it is. A near-duplicate or exact-repeat search, a provider error and a
+  call still in flight are never folded.
+- **Live and on reload.** It is a pure function recomputed on every render
+  (`research-process-section.tsx:440`), so a live call shows as usual until its refused result
+  arrives and then joins the row; the row is keyed per segment (`:464-467`), so only its count
+  changes and nothing below it jumps. The flags are stored in the tool output, so a reloaded
+  chat folds the same way. When nothing was refused the parts come back unchanged (same array),
+  and such turns render exactly as before.
+- **The step count is unchanged.** "Working on it — N steps so far" / "Completed N steps" still
+  counts every part of the segment, refused calls included (`totalParts = seg.length`,
+  `research-process-section.tsx:447`): it counts steps, not searches.
+- **Where.** `RenderPart` dispatches the folded entry to `SkippedToolCallsSection`
+  (`research-process-section.tsx:254-256`). Tests: `lib/utils/__tests__/skipped-tool-calls.test.ts`,
+  `components/__tests__/research-process-skipped-calls.test.tsx` and
+  `research-process-section.test.tsx`. Checked in the lab UI on a capped turn: 5 search rows,
+  then "Search limit reached — 4 extra searches skipped".
 
 ## Message actions and the "Stopped" label {#message-actions}
 

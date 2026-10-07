@@ -3,26 +3,26 @@
     "ask": "ask-prod",
     "ingestor": "ingestor"
   },
-  "count": 661,
+  "count": 664,
   "coverage": {
-    "files": 661,
-    "withPurpose": 661,
-    "header": 174,
+    "files": 664,
+    "withPurpose": 664,
+    "header": 176,
     "jsdoc": 38,
     "derived": 59,
-    "override": 390,
-    "documented": 367
+    "override": 391,
+    "documented": 370
   },
   "kinds": {
     "dockerfile": 3,
-    "lib-module": 252,
+    "lib-module": 254,
     "route-handler": 37,
     "page": 13,
     "stylesheet": 2,
     "layout": 2,
     "route-boundary": 1,
     "config": 22,
-    "component": 120,
+    "component": 121,
     "ui-primitive": 47,
     "data": 37,
     "compose": 10,
@@ -1645,7 +1645,8 @@
       ],
       "tests": [
         "components/__tests__/chat-panel.test.tsx",
-        "components/__tests__/reasoning-section.test.tsx"
+        "components/__tests__/reasoning-section.test.tsx",
+        "components/__tests__/research-process-skipped-calls.test.tsx"
       ],
       "docs": [
         {
@@ -3247,7 +3248,8 @@
       ],
       "tests": [
         "components/__tests__/render-message.test.tsx",
-        "components/__tests__/research-process-section.test.tsx"
+        "components/__tests__/research-process-section.test.tsx",
+        "components/__tests__/research-process-skipped-calls.test.tsx"
       ],
       "docs": [
         {
@@ -3255,6 +3257,12 @@
           "title": "Repo tour",
           "section": "components/",
           "anchor": "components"
+        },
+        {
+          "page": "/history/decisions",
+          "title": "Decisions",
+          "section": "D45. Search withdrawn after the round cap, then answer-only steps",
+          "anchor": "d45-search-withdrawn-after-the-round-cap-then-answer-only-steps"
         },
         {
           "page": "/infrastructure/services",
@@ -3832,6 +3840,45 @@
           "title": "Auth & accounts",
           "section": "Pages under app/auth/",
           "anchor": "pages-under-app-auth"
+        }
+      ]
+    },
+    {
+      "path": "components/skipped-tool-calls-section.tsx",
+      "dir": "components",
+      "area": "components",
+      "project": "ask",
+      "kind": "component",
+      "purpose": "One muted research-process row standing in for a turn's refused search/fetch calls (round cap, fetch cap, answer-now), labelled by skippedToolCallsLabel; nothing to expand.",
+      "purposeSource": "override",
+      "exports": [
+        "SkippedToolCallsSection",
+        "SkippedToolCallsSection (default)"
+      ],
+      "methods": [],
+      "route": null,
+      "usedBy": [
+        "components/research-process-section.tsx"
+      ],
+      "tests": [],
+      "docs": [
+        {
+          "page": "/history/changelog",
+          "title": "Changelog",
+          "section": "2026-10 — October",
+          "anchor": "_2026-10-—-october"
+        },
+        {
+          "page": "/history/decisions",
+          "title": "Decisions",
+          "section": "D45. Search withdrawn after the round cap, then answer-only steps",
+          "anchor": "d45-search-withdrawn-after-the-round-cap-then-answer-only-steps"
+        },
+        {
+          "page": "/request-lifecycle/frontend",
+          "title": "Frontend",
+          "section": "Main components",
+          "anchor": "main-components"
         }
       ]
     },
@@ -9660,18 +9707,21 @@
       "area": "lib",
       "project": "ask",
       "kind": "lib-module",
-      "purpose": "Stop ADVERTISING `search` once the per-turn search round cap has fired (stage 1), and switch the turn to answer-now if the model keeps calling it anyway (stage 2, searchCalledAfterWithdrawal below)…",
+      "purpose": "Stop ADVERTISING `search` as soon as this turn's search budget is spent (stage 1), and switch the turn to answer-now if the model keeps calling it anyway (stage 2, searchCalledAfterWithdrawal below)…",
       "purposeSource": "header",
       "exports": [
         "SearchCapStep",
         "searchCapReached",
+        "searchBudgetSpent",
         "withdrawSearchAfterCap",
         "searchCalledAfterWithdrawal",
         "answerNowOnSearchEvasion",
         "POST_CAP_TOOL_STEPS_MAX_DEFAULT",
         "resolvePostCapToolStepsLimit",
-        "toolStepsAfterCap",
-        "answerNowAfterPostCapToolSteps"
+        "toolStepsAfterWithdrawal",
+        "answerNowAfterPostCapToolSteps",
+        "resolveSearchWithdrawnNote",
+        "withSearchWithdrawnNote"
       ],
       "methods": [],
       "route": null,
@@ -16267,6 +16317,83 @@
       ]
     },
     {
+      "path": "lib/tools/search-rounds.ts",
+      "dir": "lib/tools",
+      "area": "lib",
+      "project": "ask",
+      "kind": "lib-module",
+      "purpose": "The per-turn search-ROUND budget, its counter, and the texts that tell the model it is spent.",
+      "purposeSource": "header",
+      "exports": [
+        "resolveSearchRoundsBudget",
+        "SearchRoundCounter",
+        "buildSearchRoundCapNotice",
+        "buildSearchWithdrawnNote"
+      ],
+      "methods": [],
+      "route": null,
+      "usedBy": [
+        "lib/agents/researcher.ts",
+        "lib/agents/search-cap.ts",
+        "lib/tools/search.ts"
+      ],
+      "tests": [
+        "lib/agents/__tests__/researcher-search-cap.test.ts",
+        "lib/agents/__tests__/search-cap.test.ts",
+        "lib/tools/__tests__/search-round-cap-execute.test.ts"
+      ],
+      "docs": [
+        {
+          "page": "/getting-started/repo-tour",
+          "title": "Repo tour",
+          "section": "lib/",
+          "anchor": "lib"
+        },
+        {
+          "page": "/history/changelog",
+          "title": "Changelog",
+          "section": "2026-10 — October",
+          "anchor": "_2026-10-—-october"
+        },
+        {
+          "page": "/history/decisions",
+          "title": "Decisions",
+          "section": "D9. Search round cap, enforced inside the tool",
+          "anchor": "d9-search-round-cap-enforced-inside-the-tool"
+        },
+        {
+          "page": "/history/glossary",
+          "title": "Glossary",
+          "section": "Search",
+          "anchor": "search"
+        },
+        {
+          "page": "/history/known-issues",
+          "title": "Known issues",
+          "section": "The fetch-past-the-cap URL limit is advisory",
+          "anchor": "the-fetch-past-the-cap-url-limit-is-advisory"
+        },
+        {
+          "page": "/request-lifecycle/chat-turn",
+          "title": "Chat turn",
+          "section": "10. The tool loop and its caps",
+          "anchor": "_10-the-tool-loop-and-its-caps"
+        },
+        {
+          "page": "/search/models-reasoning",
+          "title": "Models & reasoning",
+          "section": "Limits to know about",
+          "anchor": "limits-to-know-about"
+        },
+        {
+          "page": "/search/pipeline",
+          "title": "Search pipeline",
+          "section": "1. The search tool entry: round cap and dedup",
+          "anchor": "round-cap"
+        }
+      ]
+    },
+    {
       "path": "lib/tools/search.ts",
       "dir": "lib/tools",
       "area": "lib",
@@ -16280,12 +16407,12 @@
         "shouldUseOllamaWebSpeed",
         "mapOllamaWebResults",
         "applyOllamaWebExcerpts",
-        "resolveSearchRoundsBudget",
-        "buildSearchRoundCapNotice",
         "createSearchTool",
         "searchTool",
         "SearchUIToolInvocation",
-        "search"
+        "search",
+        "buildSearchRoundCapNotice",
+        "resolveSearchRoundsBudget"
       ],
       "methods": [],
       "route": null,
@@ -16299,7 +16426,6 @@
         "lib/agents/__tests__/researcher-always-search.test.ts",
         "lib/agents/__tests__/researcher-citation-reminder.test.ts",
         "lib/agents/__tests__/researcher-search-cap.test.ts",
-        "lib/agents/__tests__/search-cap.test.ts",
         "lib/render/__tests__/llm-image-output.e2e.test.ts",
         "lib/tools/__tests__/search-advanced-timeout.test.ts",
         "lib/tools/__tests__/search-dedup.test.ts",
@@ -16351,12 +16477,6 @@
           "title": "Generative UI, specs and the Inspector",
           "section": "1. The tool streams typed states",
           "anchor": "_1-the-tool-streams-typed-states"
-        },
-        {
-          "page": "/search/models-reasoning",
-          "title": "Models & reasoning",
-          "section": "Limits to know about",
-          "anchor": "limits-to-know-about"
         },
         {
           "page": "/search/pipeline",
@@ -17047,6 +17167,7 @@
       "tests": [
         "components/__tests__/render-message.test.tsx",
         "components/__tests__/research-process-section.test.tsx",
+        "components/__tests__/research-process-skipped-calls.test.tsx",
         "components/__tests__/tool-section.test.tsx",
         "lib/actions/__tests__/chat.test.ts",
         "lib/db/__tests__/rls-policies.integration.test.ts",
@@ -17311,6 +17432,7 @@
         "lib/streaming/types.ts",
         "lib/tools/fetch-budget.ts",
         "lib/tools/fetch.ts",
+        "lib/tools/search-rounds.ts",
         "lib/tools/search.ts",
         "lib/types/ai.ts",
         "lib/types/index.ts",
@@ -18914,6 +19036,56 @@
           "title": "Repo tour",
           "section": "lib/",
           "anchor": "lib"
+        }
+      ]
+    },
+    {
+      "path": "lib/utils/skipped-tool-calls.ts",
+      "dir": "lib/utils",
+      "area": "lib",
+      "project": "ask",
+      "kind": "lib-module",
+      "purpose": "Search/fetch calls that were REFUSED without running, folded into one entry for the research-process step list.",
+      "purposeSource": "header",
+      "exports": [
+        "SkippedToolCalls",
+        "collapseSkippedToolCalls",
+        "isSkippedToolCalls",
+        "skippedToolCallsLabel"
+      ],
+      "methods": [],
+      "route": null,
+      "usedBy": [
+        "components/research-process-section.tsx",
+        "components/skipped-tool-calls-section.tsx"
+      ],
+      "tests": [
+        "lib/utils/__tests__/skipped-tool-calls.test.ts"
+      ],
+      "docs": [
+        {
+          "page": "/getting-started/repo-tour",
+          "title": "Repo tour",
+          "section": "lib/",
+          "anchor": "lib"
+        },
+        {
+          "page": "/history/changelog",
+          "title": "Changelog",
+          "section": "2026-10 — October",
+          "anchor": "_2026-10-—-october"
+        },
+        {
+          "page": "/history/decisions",
+          "title": "Decisions",
+          "section": "D45. Search withdrawn after the round cap, then answer-only steps",
+          "anchor": "d45-search-withdrawn-after-the-round-cap-then-answer-only-steps"
+        },
+        {
+          "page": "/request-lifecycle/frontend",
+          "title": "Frontend",
+          "section": "Refused calls fold into one line",
+          "anchor": "refused-calls-fold-into-one-line"
         }
       ]
     },
