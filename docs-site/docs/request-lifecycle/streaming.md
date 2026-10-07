@@ -118,14 +118,23 @@ streaming, a text part is shown as the answer only if it starts with a heading
 therefore never flashes on screen. A preamble glued to the heading is cut once the text after
 the seam is longer than the preamble; until then the part does not start with a heading, so
 the answer appears a moment later instead of showing the preamble. (When the stream path has
-already cut the seam, the part arrives starting with its heading.)
+already cut the seam, the part arrives starting with its heading.) A planning draft that opens
+with its own `## ` outline is the exception: it starts with a heading, so it **is** shown while
+streaming, until the answer after its glued seam has 400 prose characters and a heading that
+restates the outline; then the view drops it ([known issue](/history/known-issues#a-planning-draft-shows-while-the-answer-streams)).
 
-**Persist path** — `stripNarrationFromMessage` (`helpers/strip-narration-from-message.ts:73`),
+**Persist path** — `stripNarrationFromMessage` (`helpers/strip-narration-from-message.ts:76`),
 applied in `onFinish` (`create-chat-stream-response.ts:1079`) and again inside
 `persistStreamResults`:
 
-1. per text part, `stripNarrationPreamble`: stray think-tag reasoning first; then, when a
-   qualifying **glued seam** (a `## ` directly after a non-space character) comes before the
+1. per text part, `stripNarrationPreamble`: stray think-tag reasoning first; then (since
+   2026-10-06, lab and staging; prod pending) a **planning draft** in front of an answer that
+   restarts at a glued `## ` (`stripDraftBeforeRestart`: an outline plus notes in the prompt's
+   own vocabulary, cut only when the answer after the seam has 400 prose characters and
+   restates the outline, or the heading-less notes use two vocabulary families and cite
+   nothing; see
+   [D20 › Decision 7](/history/decisions#decision-7-a-planning-draft-in-front-of-a-glued-restart-is-cut));
+   then, when a qualifying **glued seam** (a `## ` directly after a non-space character) comes before the
    first line-start heading, the glued rule alone decides (since 2026-09-29, the same
    precedence as the stream path); otherwise the English phrase rules for a preamble in front
    of a heading, then the language-agnostic glued-seam cut on what remains;
@@ -404,5 +413,6 @@ readers re-sign upload URLs at read time.
 | `STOPPED_TURN_SETTLE_TIMEOUT_MS` (constant) | 5,000 | max wait for a stopped partial save |
 | `experimental_throttle` (`chat.tsx`) | 100 ms | client render batching |
 | `NARRATION_HARD_MAX` / `NARRATION_SNIFF_LIMIT` (constants, `smooth-and-strip-narration.ts:24,15`) | 16,000 / 64 chars | narration buffering |
-| `INTER_STEP_CHATTER_MAX` / `GLUED_PREAMBLE_MAX` (constants, `strip-narration-preamble.ts:373,282`) | 600 / 2,000 chars | language-agnostic narration rules (persist + read time; `GLUED_PREAMBLE_MAX` also bounds the live glued-seam cut) |
+| `INTER_STEP_CHATTER_MAX` / `GLUED_PREAMBLE_MAX` (constants, `strip-narration-preamble.ts:585,282`) | 600 / 2,000 chars | language-agnostic narration rules (persist + read time; `GLUED_PREAMBLE_MAX` also bounds the live glued-seam cut) |
+| `DRAFT_ANSWER_MIN` / `HEADING_RESTATED_MIN` / `HEADING_COMPARE_MIN_CHARS` / `NO_OUTLINE_MIN_FAMILIES` (constants, `strip-narration-preamble.ts:433,440,441,425`) | 400 non-space prose chars / Dice 0.8 / 8 chars / 2 families | planning-draft cut at a glued restart (persist + read time only; since 2026-10-06, lab and staging, prod pending): the kept answer's minimum size, the heading similarity that counts as restating the outline, the shortest heading compared, and the vocabulary families (`SCRATCH_TOKEN_FAMILIES`, `:408-419`) a heading-less draft must use ([D20 › Decision 7](/history/decisions#decision-7-a-planning-draft-in-front-of-a-glued-restart-is-cut)) |
 | `ENABLE_GUEST_CHAT` | off | enables the ephemeral guest path |

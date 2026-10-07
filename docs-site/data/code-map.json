@@ -14983,7 +14983,8 @@
       ],
       "tests": [
         "lib/streaming/helpers/__tests__/smooth-and-strip-narration-replay.test.ts",
-        "lib/streaming/helpers/__tests__/smooth-and-strip-narration.test.ts"
+        "lib/streaming/helpers/__tests__/smooth-and-strip-narration.test.ts",
+        "lib/streaming/helpers/__tests__/strip-narration-draft.test.ts"
       ],
       "docs": [
         {
@@ -15107,6 +15108,7 @@
       ],
       "tests": [
         "lib/streaming/helpers/__tests__/smooth-and-strip-narration-replay.test.ts",
+        "lib/streaming/helpers/__tests__/strip-narration-draft.test.ts",
         "lib/streaming/helpers/__tests__/strip-narration-from-message.test.ts",
         "lib/streaming/helpers/__tests__/strip-narration-structural.test.ts",
         "scripts/__tests__/backfill-narration-plan.test.ts"
@@ -15149,6 +15151,8 @@
         "findGluedPreambleSeam",
         "gluedAnswerOutweighsPreamble",
         "stripGluedHeadingPreamble",
+        "findDraftRestartSeam",
+        "stripDraftBeforeRestart",
         "looksLikeInterStepChatter",
         "stripNarrationPreamble"
       ],
@@ -15166,6 +15170,7 @@
       "tests": [
         "lib/streaming/helpers/__tests__/smooth-and-strip-narration-replay.test.ts",
         "lib/streaming/helpers/__tests__/smooth-and-strip-narration.test.ts",
+        "lib/streaming/helpers/__tests__/strip-narration-draft.test.ts",
         "lib/streaming/helpers/__tests__/strip-narration-preamble.test.ts",
         "lib/streaming/helpers/__tests__/strip-narration-structural.test.ts"
       ],
