@@ -18,8 +18,32 @@ behind the change. Lab-first work lives on `flow-design`. `git cherry-pick -x` l
 
 ## 2026-10 — October
 
-**A near-duplicate search skip with no false skips on labelled pairs, and citation evidence on every turn**
+**A near-duplicate search skip with no false skips on labelled pairs, citation evidence on every
+turn, shortened citation ids that resolve, and a planning draft cut from the answer**
 
+- **10-06** — **Shortened and one-character-off citation ids resolve; a planning draft in front
+  of a glued restart is cut** (lab `6b779bfe` + `a6a9d6c0`; staging `5ab6760f` + `1a43ef1c`;
+  **lab and staging; prod pending**, including the backfill of the 4 affected prod answers;
+  [D44](/history/decisions#d44-shortened-and-one-character-off-citation-ids-resolve),
+  [D20 › Decision 7](/history/decisions#decision-7-a-planning-draft-in-front-of-a-glued-restart-is-cut)).
+  - `resolveCitationAnchor` gains two repairs, both counted as `citations_recovered`:
+    `id-prefix` (at least 8 hex/dash characters, after trimming a trailing `...` / `…` and
+    dashes, that start exactly one of the message's citable call ids) and `id-typo` (one
+    substitution, insertion or deletion from exactly one UUID-shaped call id). Trigger:
+    glm-5.3-flash wrote `[3](#17d98f5d)` / `[1](#71cee5ba...)`, and 48 of its 121 prod citations
+    rendered as nothing. Replay over every stored answer: unresolved prod 750 → 700, staging
+    1048 → 1044, lab 323 → 289; 0 previously rendered citations changed.
+  - The recovered glm anchors sat in planning text leaked in front of the answer, so the draft
+    cut ships with the repair. `stripDraftBeforeRestart`, inside `stripNarrationPreamble`, cuts
+    at the first glued `## ` after the prompt's internal vocabulary ("toolCallIds", "cite
+    strings", "spec block", elided anchors) when the kept answer has at least 400 prose
+    characters and either restates an outline heading or, with no outline, the notes use two
+    vocabulary families and cite nothing. Replay over every stored assistant text part (prod
+    495, staging 522, lab 425): exactly the 4 leaked prod answers cut (one glm-5.3-flash chat,
+    drafts 2.0–15.1 KB), 0 elsewhere.
+  - The live transform is unchanged, so an outline draft is shown while the answer streams
+    until the answer after the seam qualifies; the render view then drops it.
+    → [telemetry](/operations/telemetry#tokens-citations-and-totals), [frontend › Citations](/request-lifecycle/frontend#citations), [models & reasoning › planning draft](/search/models-reasoning#narration-planning-draft), [known issue](/history/known-issues#a-planning-draft-shows-while-the-answer-streams)
 - **10-01** — **Near-duplicate search skip only for true repeats** (prod `befe76fe`; lab
   `e57724a5`; staging `9249eec9`;
   [D42](/history/decisions#d42-near-duplicate-search-skip-only-for-true-repeats)).

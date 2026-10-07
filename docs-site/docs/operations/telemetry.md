@@ -60,9 +60,9 @@ the moment the tracker was created, which is right before `prepareMessages`.
 | `variant` | `FLOW_VARIANT` (lab control-flow arm). `baseline` everywhere else |
 | `modelId` | **The model that actually answered**, e.g. `ollama:deepseek-v4.1-flash:cloud`. Use this, not the picker. See [Models & reasoning](/search/models-reasoning#how-the-picker-chooses-a-model-and-why-a-saved-choice-beats-the-default) |
 | `skipSearch`, `needsRecent`, `needsSources` | The classifier's output. Before 2026-09-26 they alone determined the turn mode (`skipSearch` → direct; neither need → stable-knowledge; otherwise research). With `ALWAYS_SEARCH` on, `needsSources` gates nothing and is kept for analysis; read `turn_mode` instead |
-| `turn_mode` | Since 2026-09-26. The mode `resolveTurnMode` actually chose: `direct`, `research`, or (only with `ALWAYS_SEARCH=off`) `stable-knowledge`. `null` if the turn failed before the researcher was built (`lib/streaming/latency-tracker.ts:335`) |
-| `forced_search` | Since 2026-09-26. `true` when step 0 was the guaranteed web search on the classifier's query ([D37](/history/decisions#d37-always-search-every-question)). `false` on `direct` turns, on research turns where the user supplied the source (see `forced_skip`) or nothing searchable was left, and on every turn with `ALWAYS_SEARCH=off` (`latency-tracker.ts:336`) |
-| `forced_skip` | Since 2026-09-26 (added with the user-supplied-source exception). Why a research turn was **not** forced: `url` (a URL in the text or a pasted link chip), `attachment-only` (an attachment with no typed text), `attachment-reference` (an attachment whose text only points at it, e.g. "what is this"). `null` on forced turns, `direct` turns and with `ALWAYS_SEARCH=off` (`latency-tracker.ts:339`) |
+| `turn_mode` | Since 2026-09-26. The mode `resolveTurnMode` actually chose: `direct`, `research`, or (only with `ALWAYS_SEARCH=off`) `stable-knowledge`. `null` if the turn failed before the researcher was built (`lib/streaming/latency-tracker.ts:336`) |
+| `forced_search` | Since 2026-09-26. `true` when step 0 was the guaranteed web search on the classifier's query ([D37](/history/decisions#d37-always-search-every-question)). `false` on `direct` turns, on research turns where the user supplied the source (see `forced_skip`) or nothing searchable was left, and on every turn with `ALWAYS_SEARCH=off` (`latency-tracker.ts:337`) |
+| `forced_skip` | Since 2026-09-26 (added with the user-supplied-source exception). Why a research turn was **not** forced: `url` (a URL in the text or a pasted link chip), `attachment-only` (an attachment with no typed text), `attachment-reference` (an attachment whose text only points at it, e.g. "what is this"). `null` on forced turns, `direct` turns and with `ALWAYS_SEARCH=off` (`latency-tracker.ts:340`) |
 
 ### Pre-work, before the agent starts
 
@@ -106,11 +106,11 @@ the moment the tracker was created, which is right before `prepareMessages`.
 | `prompt_tokens` | Input tokens **summed across all steps** (cost) |
 | `last_prompt_tokens` | Input tokens of the **final** step, i.e. the answering prompt. **Use this to judge a change to prompt size** |
 | `completion_tokens` | Output tokens summed across steps, **including reasoning**. Use this to judge a change to reasoning or `ANSWER_THINK` |
-| `citations_total`, `citations_unresolved` | Citation anchors (`[N](#id)`) in the answer, and how many of them **render as nothing**: an id from another turn, an invented id, an ambiguous placeholder, or a real id with a number that is not one of that call's results. Counted by `auditCitations` (`lib/utils/citation.ts:346-371`) with the resolver rendering uses (`resolveCitationAnchor`, `:279-307`), so it equals what the reader loses. Only written when the answer has at least one anchor. **Since 2026-09-26** out-of-range numbers are included; before that they were scored as resolved although they rendered nothing (see the warning below) |
-| `citations_recovered` | Anchors rendered only through a repair: since 2026-09-24 an id that is a fragment of exactly one of the turn's source URLs (`resolveByUrlFragment`, `lib/utils/citation.ts:66`); since 2026-09-26 also a real id of the turn wrapped in `<id-…>` / `<…>`, a placeholder id in a turn with exactly one citable call, and a too-high number on a fetch that returned one page. Not counted in `citations_unresolved`. **Omitted when 0** (`lib/streaming/latency-tracker.ts:304-306`), so its absence is normal. Anchors rendered as written ("own") are not logged: own = `citations_total` − `citations_recovered` − `citations_unresolved` |
-| `citations_snippet` | Since 2026-10-01. Rendered anchors whose cited result is a search **snippet** (text of at most 1,000 characters) and whose page nothing in the turn read: not fetched, not crawled in another search, under any spelling of the URL. Counted by `auditCitationEvidence` (`lib/utils/citation.ts:647-707`, see [frontend › Citation evidence](/request-lifecycle/frontend#citation-evidence)). Written, possibly as `0`, on every line that has `citations_total` (`latency-tracker.ts:307-309`) |
-| `citations_snippet_read` | Since 2026-10-01. Rendered anchors on a snippet whose page the turn **did** read in full under a same-page URL; the stored evidence under the chip is thin, the page behind it was read. **Omitted when 0** (`latency-tracker.ts:310-312`). Rendered anchors on page text are not logged: page = `citations_total` − `citations_unresolved` − `citations_snippet` − `citations_snippet_read` |
-| `fetch_pages_uncited` | Since 2026-10-01. Pages the turn fetched successfully that no rendered anchor points to, directly or through a same-page snippet citation. **Omitted when 0**, and written even when the answer has no citation at all (`latency-tracker.ts:314-316`). A turn with a high value and a high `citations_snippet` read pages and credited snippets of other pages: the shape of wrong-page attribution |
+| `citations_total`, `citations_unresolved` | Citation anchors (`[N](#id)`) in the answer, and how many of them **render as nothing**: an id from another turn, an invented id, an ambiguous placeholder, or a real id with a number that is not one of that call's results. Counted by `auditCitations` (`lib/utils/citation.ts:450-475`) with the resolver rendering uses (`resolveCitationAnchor`, `:376-411`), so it equals what the reader loses. Only written when the answer has at least one anchor. **Since 2026-09-26** out-of-range numbers are included; before that they were scored as resolved although they rendered nothing (see the warning below) |
+| `citations_recovered` | Anchors rendered only through a repair (`resolveCitationAnchor`, `lib/utils/citation.ts:376-411`): since 2026-09-24 an id that is a fragment of exactly one of the turn's source URLs (`resolveByUrlFragment`, `:66`); since 2026-09-26 also a real id of the turn wrapped in `<id-…>` / `<…>`, a placeholder id in a turn with exactly one citable call, and a too-high number on a fetch that returned one page; since 2026-10-06 (lab and staging; prod pending) also a **shortened** id, at least 8 hex characters with an optional trailing `...`, that starts exactly one of the turn's call ids (`id-prefix`, `findMapByIdPrefix`, `:256-276`), and a full-length id **one character off** exactly one of them (`id-typo`, `findMapByIdTypo`, `:300-315`) ([D44](/history/decisions#d44-shortened-and-one-character-off-citation-ids-resolve)). Not counted in `citations_unresolved`. **Omitted when 0** (`lib/streaming/latency-tracker.ts:305-307`), so its absence is normal. Anchors rendered as written ("own") are not logged: own = `citations_total` − `citations_recovered` − `citations_unresolved` |
+| `citations_snippet` | Since 2026-10-01. Rendered anchors whose cited result is a search **snippet** (text of at most 1,000 characters) and whose page nothing in the turn read: not fetched, not crawled in another search, under any spelling of the URL. Counted by `auditCitationEvidence` (`lib/utils/citation.ts:751-811`, see [frontend › Citation evidence](/request-lifecycle/frontend#citation-evidence)). Written, possibly as `0`, on every line that has `citations_total` (`latency-tracker.ts:308-310`) |
+| `citations_snippet_read` | Since 2026-10-01. Rendered anchors on a snippet whose page the turn **did** read in full under a same-page URL; the stored evidence under the chip is thin, the page behind it was read. **Omitted when 0** (`latency-tracker.ts:311-313`). Rendered anchors on page text are not logged: page = `citations_total` − `citations_unresolved` − `citations_snippet` − `citations_snippet_read` |
+| `fetch_pages_uncited` | Since 2026-10-01. Pages the turn fetched successfully that no rendered anchor points to, directly or through a same-page snippet citation. **Omitted when 0**, and written even when the answer has no citation at all (`latency-tracker.ts:315-317`). A turn with a high value and a high `citations_snippet` read pages and credited snippets of other pages: the shape of wrong-page attribution |
 | `total_ms` | Wall time from tracker creation to `onFinish`. Always present |
 | `abort_silence_ms`, `blank_abort` | Only on aborted turns: how long the turn was silent before the abort, and whether any prose had been written. Silence ≥120s with no prose looks like a provider stall; a short silence is a user pressing Stop or a disconnect |
 
@@ -136,8 +136,8 @@ and watch on lines from that build:
 
 - **`citations_unresolved` should fall.** A copied handle always resolves, so the out-of-range
   numbers of running-count models largely disappear. What still counts as unresolved is mostly
-  an id copied with a character missing (seen with kimi-k2.6: the resolver has no typo repair)
-  or an invented id. A share that stays near the older level is worth a look: it would mean
+  an id copied with a character missing (seen with kimi-k2.6; the resolver had no typo repair
+  until 2026-10-06, see the next box) or an invented id. A share that stays near the older level is worth a look: it would mean
   models are not copying the handles.
 - **`citations_recovered` should be rare**, since a copied handle needs no repair.
 - **The main effect is invisible here.** The change cuts citations that resolve to the
@@ -153,6 +153,18 @@ and watch on lines from that build:
 - **Prompt size.** Expect `last_prompt_tokens` about +370 on a balanced call with a 27-result
   search (handles +783, shorter citation guidance about −400).
 - **Revert** with `CITATION_HANDLES=off` and a container recreate; no rebuild.
+:::
+
+::: tip Shortened and one-character-off ids (2026-10-06) move anchors from unresolved to recovered
+Builds with lab `6b779bfe` / staging `5ab6760f` (prod pending) resolve an anchor whose id is cut
+to at least 8 hex characters (`[1](#71cee5ba...)`) or is one character off a full id, when it
+names exactly one call of the turn
+([D44](/history/decisions#d44-shortened-and-one-character-off-citation-ids-resolve)). For the
+same answers, such a line reports a lower `citations_unresolved` and a higher
+`citations_recovered` than a line from an older build; `citations_total` is unchanged. The
+replay of every stored answer moved unresolved anchors prod 750 → 700, staging 1048 → 1044, lab
+323 → 289. A model that shortens ids (glm-5.3-flash) now shows up in `citations_recovered`, not
+`citations_unresolved`. Compare rates only between lines of one build.
 :::
 
 ::: tip Tracking snippet citations (2026-10-01)

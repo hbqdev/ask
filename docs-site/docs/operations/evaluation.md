@@ -216,7 +216,7 @@ default `baseline`, `variants.ts:352`). The running variant is chosen by the
 `FLOW_VARIANT` env var (`lib/streaming/create-chat-stream-response.ts:858`, `lib/agents/researcher.ts:962`), which the
 lab overlay exposes as `${FLOW_VARIANT:-baseline}` (`docker-compose.lab.yaml:24`), and
 it is written into every `[latency]` line as `variant`
-(`lib/streaming/latency-tracker.ts:269`). An unknown value degrades to `baseline`
+(`lib/streaming/latency-tracker.ts:271`). An unknown value degrades to `baseline`
 rather than erroring (`lib/agents/flows/__tests__/variants.test.ts:21`).
 
 **Why a separate runner from `run-eval.ts`:** the arms differ first in the retrieval
@@ -508,7 +508,7 @@ wrapper and safety checks ([below](#narration-backfill)).
 | `backfill-embeddings.ts` | Re-embeds every row of `user_memories` and `conversation_chunks` (`backfill-embeddings.ts:78`) through the GPU embedding service, 32 per batch, asserting 1024 dims | Written for the mxbai → Qwen3-Embedding-0.6B migration (same dimension, so only values change). `--model=` overrides the model. Self-contained (no `lib/` imports) because it runs **inside** the app container: `docker exec ask bun scripts/backfill-embeddings.ts --apply`. Needs `EMBEDDING_SERVICE_URL` and `EMBEDDING_SERVICE_TOKEN`. Flip `EMBEDDING_MODEL` first so rows written during the run are already in the new space. See [Memory & recall](/knowledge/memory-recall) and why `EMBEDDING_MODEL` is locked in the [Model Manager](/infrastructure/model-manager). |
 | `backfill-file-object-keys.ts` (`bun run backfill:file-keys`) | Derives object-storage keys from stored public file URLs | Base URL from `--base-url=`, `R2_PUBLIC_URL` or `LEGACY_R2_PUBLIC_URL`; `--allow-skipped` tolerates rows it cannot map. Inherited from upstream. |
 | `backfill-narration.ts` (via `backfill-narration.sh <env>`) | Deletes leaked narration text parts and rewrites answers with a glued preamble in stored **assistant** messages; re-indexes their recall chunks | The tool used for the 2026-09-28/29 backfill. See [below](#narration-backfill). |
-| `clean-narration-preambles.ts` (`bun run clean:narration`) | Strips "thinking out loud" preambles from stored `parts.text_text` | **Never use it for stored narration.** It applies `stripNarrationPreamble` (`lib/streaming/helpers/strip-narration-preamble.ts:417`), the per-part half of the persist-time cleanup, to **every** `type='text'` part, user messages included (`clean-narration-preambles.ts:37-49`). It never drops a status-note part, never re-indexes recall and takes no backup. Use `backfill-narration.ts` instead ([known issue](/history/known-issues#old-answers-with-leaked-reasoning-stay-leaked)). |
+| `clean-narration-preambles.ts` (`bun run clean:narration`) | Strips "thinking out loud" preambles from stored `parts.text_text` | **Never use it for stored narration.** It applies `stripNarrationPreamble` (`lib/streaming/helpers/strip-narration-preamble.ts:631`), the per-part half of the persist-time cleanup, to **every** `type='text'` part, user messages included (`clean-narration-preambles.ts:37-49`). It never drops a status-note part, never re-indexes recall and takes no backup. Use `backfill-narration.ts` instead ([known issue](/history/known-issues#old-answers-with-leaked-reasoning-stay-leaked)). |
 
 Run data scripts against a single environment's database at a time, and take a
 backup first ([Data layer](/infrastructure/data-layer)).

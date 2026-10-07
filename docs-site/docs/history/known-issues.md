@@ -41,6 +41,7 @@ thing.
 | [Old answers keep leaked narration in storage](#old-answers-with-leaked-reasoning-stay-leaked) | data | ~~Low~~ fixed 2026-09-28/29 (staging and prod backfilled, recall re-indexed) | done |
 | [An answer with a glued preamble appears late while streaming](#an-answer-with-a-glued-preamble-appears-late-while-streaming) | UI | ~~Low~~ fixed 2026-09-28 (lab, staging, prod) | done (the remaining short delay is by design) |
 | [A glued first section can be cut at persist](#a-glued-first-section-can-be-cut-at-persist) | chat | ~~Low~~ fixed 2026-09-29 (lab, staging, prod) | done |
+| [A planning draft shows while the answer streams](#a-planning-draft-shows-while-the-answer-streams) | chat | Low (the draft in the saved answer is cut since 2026-10-06: lab and staging; prod pending) | ops: prod rollout + backfill of the 4 prod answers; the flash while streaming is by design |
 | [Snippet citations: wrong page and assembled numbers](#citations-point-at-a-snippet-instead-of-the-fetched-page) | chat | Med | code (open; measured on every turn since 2026-10-01) |
 | [todoWrite calls failed validation](#todowrite-calls-failed-validation) | chat | ~~Low~~ fixed 2026-09-29 (lab, staging, prod) | done |
 | [Near-duplicate dedup drops templated queries](#near-duplicate-dedup-drops-templated-queries) | search | ~~Low~~ fixed 2026-10-01 (lab, staging, prod; 0 false skips on 446 labelled pairs) | watch `[search-dedup] kept` lines |
@@ -630,15 +631,15 @@ These are decisions still pending, not bugs:
   - The audit agreed with rendering in 333 of 374 messages before the fix, 374 of 374 after.
 - **Status: fixed 2026-09-26** (lab `dbbbc376`; cherry-picked to `dev` as `0bd8f8cc` and to
   `admin-feature` as `7af2beff`).
-  1. **One resolver.** `resolveCitationAnchor` (`lib/utils/citation.ts:279-307`) decides every
-     anchor, and `processCitations` (rendering, `:741-765`), `auditCitations` (telemetry,
-     `:346-371`) and `extractCitedSourceUrls` (`[cite-urls]`, `:453-467`) all call it, so the
+  1. **One resolver.** `resolveCitationAnchor` (`lib/utils/citation.ts:376-411`) decides every
+     anchor, and `processCitations` (rendering, `:845-869`), `auditCitations` (telemetry,
+     `:450-475`) and `extractCitedSourceUrls` (`[cite-urls]`, `:557-571`) all call it, so the
      counter reports exactly what the reader sees. It repairs an anchor only when the intended
      source is unambiguous: a real id of this message wrapped in `<id-…>` / `<…>` is unwrapped
      (`unwrapTemplateId`, `:148-154`); a placeholder resolves only when the message made exactly
      **one** citable call (`isPlaceholderAnchorId`, `:128-139`); a number past the end of a fetch
      whose output holds exactly one page, and is not a `Fetch failed:` result, resolves to that
-     page (`resolveWithinCall`, `:224-258`). Everything else is still dropped, and nothing is
+     page (`resolveWithinCall`, `:317-351`). Everything else is still dropped, and nothing is
      resolved across turns
      ([D36](/history/decisions#d36-strip-historical-citation-anchors-resolve-citations-per-turn-only)).
   2. **One numbering rule in every prompt.** `getCitationFormatGuidance()`
@@ -720,10 +721,14 @@ These are decisions still pending, not bugs:
   ([D4](/history/decisions#d4-judge-answers-not-source-counts)).
 - **Follow-ups.**
   1. **Near-miss id copies.** kimi-k2.6 lost 3 citations in the on arm by copying the 36-character
-     id with one character missing. The resolver has no typo repair, so a near-miss renders as
-     nothing and counts in `citations_unresolved`. The 60-day replay showed the same shape before
-     handles: 12 anchors in 2 messages within 1–2 characters of a real id. Possible fix:
-     shorter ids in the handles (needs a lab A/B).
+     id with one character missing. The resolver had no typo repair, so a near-miss rendered as
+     nothing and counted in `citations_unresolved`. The 60-day replay showed the same shape before
+     handles: 12 anchors in 2 messages within 1–2 characters of a real id. **Since 2026-10-06**
+     (lab and staging; prod pending) an id one character off exactly one call of the turn
+     resolves (`id-typo`), and so does an id shortened to at least 8 hex characters that starts
+     exactly one call (`id-prefix`, the glm-5.3-flash shape); both count as
+     `citations_recovered`. An id two characters off is still dropped
+     ([D44](/history/decisions#d44-shortened-and-one-character-off-citation-ids-resolve)).
   2. **deepseek fetch latency (open).** In the A/B, deepseek-v4.1-flash fetched a page on 4 of 4
      turns with handles on and 0 of 4 with them off, about +30 s per turn. This is confounded
      with recall and not explained. Watch prod `tool_calls` and the share of turns with
@@ -895,9 +900,9 @@ These are decisions still pending, not bugs:
   section is missing.
 - **When.** Text shaped `narration.## A … \n## B` that reaches the persist-time cleanup with the
   preamble still in place. `stripNarrationPreamble`
-  (`lib/streaming/helpers/strip-narration-preamble.ts:417-420`) runs the English phrase rule
-  first: it takes `\n## B` as the heading and, when the text before it reads as narration, cuts
-  everything up to it, section A included. The glued rule, which would cut at `## A`, runs
+  (now `lib/streaming/helpers/strip-narration-preamble.ts:631-640`) ran the English phrase rule
+  first until the fix: it takes `\n## B` as the heading and, when the text before it reads as
+  narration, cuts everything up to it, section A included. The glued rule, which would cut at `## A`, runs
   second and finds nothing left to cut. The live transform handles this shape (a seam before a
   later heading wins, `lib/streaming/helpers/smooth-and-strip-narration.ts:100-104`), so it only
   reaches persist when the transform released the text unchanged:
@@ -911,12 +916,48 @@ These are decisions still pending, not bugs:
 - **Status: fixed 2026-09-29** (prod `d751352d`, lab `0cb22cf9`, staging `95c73f74`;
   [D20 › Decision 6](/history/decisions#decision-6-the-glued-seam-wins-at-persist-too)).
   `stripNarrationPreamble` now asks `gluedSeamLeads`
-  (`lib/streaming/helpers/strip-narration-preamble.ts:401-406`) first: a qualifying glued seam
+  (`lib/streaming/helpers/strip-narration-preamble.ts:613-618`) first: a qualifying glued seam
   before the first line-start heading is decided by the glued rule alone, as the live transform
   does, so the phrase rule can no longer cut at `\n## B`. A scan of every stored message on
   prod, staging and lab with the new rules changed exactly 1 message and removed no real
   content. Test: the `## A … \n## B` shape in
   `lib/streaming/helpers/__tests__/strip-narration-structural.test.ts`.
+
+### A planning draft shows while the answer streams {#a-planning-draft-shows-while-the-answer-streams}
+
+- **Symptom.** While an answer streams, the reader first sees an outline of it followed by
+  notes on citations and tool-call ids ("Available cite strings (toolCallIds) in this turn…",
+  "Related questions spec block? … skip"); a moment later the outline and notes disappear and
+  the answer shows from its first heading. On a build without the fix the draft stays: in the
+  saved answer, after a reload, in copy and in recall.
+- **Cause.** glm-5.3-flash wrote its plan into the final text part and glued the real answer to
+  the last note (`…at end.## Why…`). Seen on prod in 4 answers of one chat
+  (`mzwbeqoe15wgh12et66fybzo`, 2026-10-06); the drafts were 2.0–15.1 KB. The glued-seam rule
+  refuses such a prefix, because it has headings of its own and is longer than 2,000
+  characters.
+- **Status: the saved and displayed answer is fixed 2026-10-06 on lab and staging** (lab
+  `a6a9d6c0`, staging `1a43ef1c`); **prod pending**: the prod rollout and the backfill of the 4
+  stored prod answers ([runbook](/operations/runbooks#re-run-the-narration-backfill)). Persist,
+  the render view and every other reader cut the draft at the glued seam
+  (`stripDraftBeforeRestart`, `lib/streaming/helpers/strip-narration-preamble.ts:571-574`).
+  The four conditions, the thresholds and the replay evidence (exactly those 4 answers cut
+  across all stored history, 0 elsewhere) are in
+  [D20 › Decision 7](/history/decisions#decision-7-a-planning-draft-in-front-of-a-glued-restart-is-cut).
+- **What remains, by design: the draft shows while streaming.** The live transform is
+  unchanged. An outline draft opens with `## ` like any answer, so the transform could not hold
+  it without holding every answer, and the cut depends on text after the seam that has not
+  streamed yet. The render view (`narrationCleanView`) shows the draft until the answer after
+  the seam has 400 non-space prose characters (`DRAFT_ANSWER_MIN`, `:433`) and, for an outline
+  draft, a heading that restates the outline has arrived; then it shows only the answer. A
+  heading-less draft that opens with English narration is held by the transform as before and
+  appears, already cut, when the part ends.
+- **Also not cut:** a draft followed by a proper `\n\n## ` restart instead of a glued one (0
+  cases in stored history). There the prompt vocabulary alone would have to decide, and an
+  answer about Ask's own citations can use it.
+- **Impact.** Low: a flash of scratch notes from a model that writes them; on a build with the
+  fix the saved answer is clean.
+- **Tests.** `lib/streaming/helpers/__tests__/strip-narration-draft.test.ts` (including the
+  live transform passing the draft through unchanged).
 
 ### Narration the structural rules keep by design {#narration-the-structural-rules-keep-by-design}
 
@@ -932,6 +973,9 @@ These are decisions still pending, not bugs:
     **6** such narration parts. After the turn they are hidden anyway (only the last text part
     is the answer); they still reach the history sent to the model and search.
   - **A final answer with fused narration and no heading** (unchanged since D20).
+  - **A planning draft followed by a proper `\n\n## ` restart** (since 2026-10-06 a draft
+    glued to its answer is cut; 0 cases of the newline shape in stored history). See
+    [A planning draft shows while the answer streams](#a-planning-draft-shows-while-the-answer-streams).
 - **Impact.** Low.
 - **Fix sketch.** Only with a corpus: collect the new shape, add a rule with tests in
   `lib/streaming/helpers/__tests__/strip-narration-structural.test.ts`, and re-run the
