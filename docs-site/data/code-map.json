@@ -3,19 +3,19 @@
     "ask": "ask-flow",
     "ingestor": "ingestor"
   },
-  "count": 662,
+  "count": 663,
   "coverage": {
-    "files": 662,
-    "withPurpose": 662,
-    "header": 174,
+    "files": 663,
+    "withPurpose": 663,
+    "header": 175,
     "jsdoc": 38,
     "derived": 59,
     "override": 391,
-    "documented": 368
+    "documented": 369
   },
   "kinds": {
     "dockerfile": 3,
-    "lib-module": 252,
+    "lib-module": 253,
     "route-handler": 37,
     "page": 13,
     "stylesheet": 2,
@@ -8891,6 +8891,7 @@
         "ANSWER_DEADLINE_MS",
         "ANSWER_NOW_NOTE",
         "AnswerDeadlineOverrides",
+        "answerNowOverrides",
         "applyAnswerDeadline",
         "ANSWER_NOW_TOOL_NOTICE",
         "answerNowResult",
@@ -8899,10 +8900,13 @@
       "methods": [],
       "route": null,
       "usedBy": [
-        "lib/agents/researcher.ts"
+        "lib/agents/researcher.ts",
+        "lib/agents/search-cap.ts"
       ],
       "tests": [
-        "lib/agents/__tests__/answer-deadline.test.ts"
+        "lib/agents/__tests__/answer-deadline.test.ts",
+        "lib/agents/__tests__/researcher-search-cap.test.ts",
+        "lib/agents/__tests__/search-cap.test.ts"
       ],
       "docs": [
         {
@@ -8924,6 +8928,12 @@
           "anchor": "_2026-09-—-september"
         },
         {
+          "page": "/history/decisions",
+          "title": "Decisions",
+          "section": "D45. Search withdrawn after the round cap, then answer-only steps",
+          "anchor": "d45-search-withdrawn-after-the-round-cap-then-answer-only-steps"
+        },
+        {
           "page": "/history/known-issues",
           "title": "Known issues",
           "section": "Answer deadline does not block tools",
@@ -8940,6 +8950,12 @@
           "title": "Models & reasoning",
           "section": "activeTools does not block a tool",
           "anchor": "activetools-does-not-block-a-tool"
+        },
+        {
+          "page": "/search/pipeline",
+          "title": "Search pipeline",
+          "section": "1. The search tool entry: round cap and dedup",
+          "anchor": "round-cap"
         }
       ]
     },
@@ -9011,7 +9027,8 @@
       ],
       "tests": [
         "lib/agents/__tests__/citation-reminder.test.ts",
-        "lib/agents/__tests__/researcher-citation-reminder.test.ts"
+        "lib/agents/__tests__/researcher-citation-reminder.test.ts",
+        "lib/agents/__tests__/researcher-search-cap.test.ts"
       ],
       "docs": [
         {
@@ -9094,6 +9111,7 @@
         "lib/streaming/flow-progress.ts"
       ],
       "tests": [
+        "lib/agents/__tests__/search-cap.test.ts",
         "lib/agents/flows/__tests__/variants.test.ts",
         "lib/streaming/__tests__/flow-progress.test.ts"
       ],
@@ -9119,6 +9137,7 @@
         "lib/streaming/create-chat-stream-response.ts"
       ],
       "tests": [
+        "lib/agents/__tests__/search-cap.test.ts",
         "lib/agents/flows/__tests__/variants.test.ts"
       ],
       "docs": [
@@ -9538,6 +9557,7 @@
         "lib/agents/__tests__/citation-handles-e2e.test.ts",
         "lib/agents/__tests__/researcher-always-search.test.ts",
         "lib/agents/__tests__/researcher-citation-reminder.test.ts",
+        "lib/agents/__tests__/researcher-search-cap.test.ts",
         "lib/agents/__tests__/researcher.test.ts",
         "lib/streaming/__tests__/create-ephemeral-chat-stream-response.test.ts"
       ],
@@ -9625,6 +9645,72 @@
           "title": "Models & reasoning",
           "section": "Turn modes",
           "anchor": "turn-modes"
+        },
+        {
+          "page": "/search/pipeline",
+          "title": "Search pipeline",
+          "section": null,
+          "anchor": null
+        }
+      ]
+    },
+    {
+      "path": "lib/agents/search-cap.ts",
+      "dir": "lib/agents",
+      "area": "lib",
+      "project": "ask",
+      "kind": "lib-module",
+      "purpose": "Stop ADVERTISING `search` once the per-turn search round cap has fired (stage 1), and switch the turn to answer-now if the model keeps calling it anyway (stage 2, searchCalledAfterWithdrawal below)…",
+      "purposeSource": "header",
+      "exports": [
+        "SearchCapStep",
+        "searchCapReached",
+        "withdrawSearchAfterCap",
+        "searchCalledAfterWithdrawal",
+        "answerNowOnSearchEvasion",
+        "POST_CAP_TOOL_STEPS_MAX_DEFAULT",
+        "resolvePostCapToolStepsLimit",
+        "toolStepsAfterCap",
+        "answerNowAfterPostCapToolSteps"
+      ],
+      "methods": [],
+      "route": null,
+      "usedBy": [
+        "lib/agents/researcher.ts"
+      ],
+      "tests": [
+        "lib/agents/__tests__/search-cap.test.ts"
+      ],
+      "docs": [
+        {
+          "page": "/getting-started/repo-tour",
+          "title": "Repo tour",
+          "section": "lib/",
+          "anchor": "lib"
+        },
+        {
+          "page": "/history/changelog",
+          "title": "Changelog",
+          "section": "2026-10 — October",
+          "anchor": "_2026-10-—-october"
+        },
+        {
+          "page": "/history/decisions",
+          "title": "Decisions",
+          "section": "D45. Search withdrawn after the round cap, then answer-only steps",
+          "anchor": "d45-search-withdrawn-after-the-round-cap-then-answer-only-steps"
+        },
+        {
+          "page": "/request-lifecycle/chat-turn",
+          "title": "Chat turn",
+          "section": "10. The tool loop and its caps",
+          "anchor": "_10-the-tool-loop-and-its-caps"
+        },
+        {
+          "page": "/search/models-reasoning",
+          "title": "Models & reasoning",
+          "section": "activeTools does not block a tool",
+          "anchor": "activetools-does-not-block-a-tool"
         },
         {
           "page": "/search/pipeline",
@@ -12633,6 +12719,7 @@
         "lib/agents/__tests__/citation-handles-e2e.test.ts",
         "lib/agents/__tests__/researcher-always-search.test.ts",
         "lib/agents/__tests__/researcher-citation-reminder.test.ts",
+        "lib/agents/__tests__/researcher-search-cap.test.ts",
         "lib/agents/__tests__/researcher.test.ts",
         "lib/memory/__tests__/inject.test.ts"
       ],
@@ -13868,6 +13955,7 @@
         "lib/agents/__tests__/citation-handles-e2e.test.ts",
         "lib/agents/__tests__/researcher-always-search.test.ts",
         "lib/agents/__tests__/researcher-citation-reminder.test.ts",
+        "lib/agents/__tests__/researcher-search-cap.test.ts",
         "lib/schema/__tests__/search.test.ts"
       ],
       "docs": []
@@ -15913,6 +16001,7 @@
       "methods": [],
       "route": null,
       "usedBy": [
+        "lib/agents/search-cap.ts",
         "lib/tools/fetch.ts",
         "lib/tools/search.ts"
       ],
@@ -15992,6 +16081,7 @@
         "lib/types/ai.ts"
       ],
       "tests": [
+        "lib/agents/__tests__/researcher-search-cap.test.ts",
         "lib/embeddings/__tests__/url-rag.test.ts",
         "lib/tools/__tests__/fetch-citation-handles.test.ts",
         "lib/tools/__tests__/fetch-retry-policy.test.ts",
@@ -16208,6 +16298,8 @@
         "lib/agents/__tests__/citation-handles-e2e.test.ts",
         "lib/agents/__tests__/researcher-always-search.test.ts",
         "lib/agents/__tests__/researcher-citation-reminder.test.ts",
+        "lib/agents/__tests__/researcher-search-cap.test.ts",
+        "lib/agents/__tests__/search-cap.test.ts",
         "lib/render/__tests__/llm-image-output.e2e.test.ts",
         "lib/tools/__tests__/search-advanced-timeout.test.ts",
         "lib/tools/__tests__/search-dedup.test.ts",
@@ -17208,6 +17300,7 @@
         "components/search-mode-selector.tsx",
         "components/source-selector.tsx",
         "lib/agents/researcher.ts",
+        "lib/agents/search-cap.ts",
         "lib/config/load-models-config.ts",
         "lib/config/model-types.ts",
         "lib/config/search-modes.ts",
@@ -18554,6 +18647,7 @@
         "lib/agents/__tests__/citation-handles-e2e.test.ts",
         "lib/agents/__tests__/researcher-always-search.test.ts",
         "lib/agents/__tests__/researcher-citation-reminder.test.ts",
+        "lib/agents/__tests__/researcher-search-cap.test.ts",
         "lib/agents/__tests__/title-generator.test.ts",
         "lib/model-selector/__tests__/get-model-selector-data.test.ts",
         "lib/models/__tests__/fetch-models.test.ts",
