@@ -264,7 +264,7 @@ do not loosen the sanitize schema to hide it.
 **First check.** The turn's `[latency:search]` lines: a `kind:"round-cap"` line with
 `search_round_budget:10` and `fetch_allowed:true` means the search cap refused a search. A turn
 that spent its 10 rounds without a refused search shows only `[search-cap] search withdrawn …
-(rounds 10/10, …)` in stdout (lab and staging; prod pending). That is by
+(rounds 10/10, …)` in stdout (lab, staging and prod). That is by
 design since 2026-09-30: after 10 searches a quality turn may still fetch pages it found (up to 8
 fetch calls, `[fetch] fetch cap reached` in stdout). A citation that opens a search result whose
 text (a snippet) does not hold the claim is an open issue: most such citations credit the wrong
@@ -279,7 +279,7 @@ that names a different product, number or facet is never skipped.
 
 ### The research steps show more searches than the cap allows
 
-**First check.** Which rows ran. Since 2026-10-07 (lab and staging; prod pending) a call the
+**First check.** Which rows ran. Since 2026-10-07 (lab, staging and prod) a call the
 pipeline refused, past the round cap, past the fetch cap or on an answer-only step, is not a
 search row: refused calls fold into one muted "Search limit reached — N extra searches skipped"
 row, and only the search rows above it ran. "Completed N steps" still counts every call, the

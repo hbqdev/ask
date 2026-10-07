@@ -23,7 +23,7 @@ turn, shortened citation ids that resolve, a planning draft cut from the answer,
 cap that stops a model that ignores it**
 
 - **10-07** — **`search` withdrawn as soon as the budget is spent; refused calls shown as one
-  line** (lab `c306b08f` + `9e5cfec3`; staging `8eba5e5f` + `a930c2c7`; **prod pending**;
+  line** (lab `c306b08f` + `9e5cfec3`; staging `8eba5e5f` + `a930c2c7`; prod `7cadcf03` + `8520e44d`;
   [D45 addendum](/history/decisions#addendum-2026-10-07-search-withdrawn-as-soon-as-the-budget-is-spent)).
   - Trigger: on a later turn of prod chat `cznh8gc1gz41vq2lwjb560br`, with the three stages
     below shipped, mistral-large-4 was still offered `search` on the step after its budget ran

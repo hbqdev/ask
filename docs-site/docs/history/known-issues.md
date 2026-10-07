@@ -1139,7 +1139,7 @@ These are decisions still pending, not bugs:
   the first refusal `search` is no longer offered, and a model that keeps calling it gets
   answer-only steps ([pipeline › round cap](/search/pipeline#round-cap),
   [D45](/history/decisions#d45-search-withdrawn-after-the-round-cap-then-answer-only-steps)).
-  Since the D45 addendum (lab and staging; prod pending) `search` is withdrawn as soon as the
+  Since the D45 addendum (lab, staging and prod) `search` is withdrawn as soon as the
   shared counter reaches the budget, and the withdrawal line can then show more rounds than the
   budget (`rounds 5/3` in a lab test). The overshoot itself was left as is. The research steps in the UI show
   only the searches that ran; refused calls fold into one "skipped" line.
