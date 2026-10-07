@@ -31,17 +31,20 @@ inherited from the upstream project), and they activate only if their API keys a
 
 The picker is populated from **`OLLAMA_MODELS`**, a comma-separated list
 (`lib/models/fetch-models.ts:393`). It is read when the container starts, so
-changing it needs a `--force-recreate`, not a rebuild. As of 2026-09-22 the three
+changing it needs a `--force-recreate`, not a rebuild. As of 2026-10-07 the three
 envs run the same list:
 
 ```
 kimi-k3:cloud, minimax-m3:cloud, deepseek-v4-pro:cloud, kimi-k2.6:cloud,
-qwen3.5:397b:cloud, glm-5.3-flash:cloud, kimi-k2.7-code:cloud, deepseek-v4.1-flash:cloud
+mistral-large-4:cloud, glm-5.3-flash:cloud, kimi-k2.7-code:cloud, deepseek-v4.1-flash:cloud
 ```
 
 `deepseek-v4-flash:cloud` was **delisted** on 2026-09-11 (replaced by
-`deepseek-v4.1-flash`). Older telemetry and some saved preferences still
-reference it (see the next section).
+`deepseek-v4.1-flash`), and `qwen3.5:397b:cloud` on 2026-10-07 (replaced by
+`mistral-large-4:cloud`: tools, thinking and vision, a 1,048,576-token context; one
+real tool-calling generation succeeded before it was listed; no account had qwen3.5
+saved as its model). Older telemetry and some saved preferences still
+reference `deepseek-v4-flash` (see the next section).
 
 The sanctioned way to edit the list or `DEFAULT_CHAT_MODEL` is the **Ask Model
 Manager** UI (`http://localhost:3939` on NightFuryX, LAN-only, password-gated).
