@@ -279,7 +279,7 @@ rate reads higher than older lines for the same answers
 ([telemetry](/operations/telemetry#tokens-citations-and-totals)). Since 2026-09-27 models copy a
 ready-made citation from each result, so out-of-range numbers should be rare. The typical
 leftover was an id copied with one character missing or cut short (`[1](#71cee5ba...)`); builds
-since 2026-10-06 (lab and staging; prod pending) resolve both when the id names exactly one call
+since 2026-10-06 (lab, staging and prod) resolve both when the id names exactly one call
 of the turn and count them in `citations_recovered`
 ([D44](/history/decisions#d44-shortened-and-one-character-off-citation-ids-resolve)). A rate
 that stays high on live turns of one build is worth a look.
