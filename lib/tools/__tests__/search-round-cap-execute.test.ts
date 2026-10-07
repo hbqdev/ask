@@ -49,6 +49,10 @@ vi.mock('../search/providers', async importOriginal => {
 })
 
 import { buildSearchRoundCapNotice, createSearchTool } from '../search'
+import {
+  buildSearchWithdrawnNote,
+  type SearchRoundCounter
+} from '../search-rounds'
 
 type Chunk = Record<string, unknown> & { state?: string }
 
@@ -75,11 +79,12 @@ async function runSearch(
   return last
 }
 
-function qualityTool() {
+function qualityTool(searchRounds?: SearchRoundCounter) {
   return createSearchTool('ollama:test-model', {
     searchMode: 'quality',
     firstSearchDepth: 'basic',
-    chatId: 'chat-round-cap-test'
+    chatId: 'chat-round-cap-test',
+    searchRounds
   })
 }
 
@@ -169,6 +174,33 @@ describe('search round cap — dedup-skipped searches do not consume a round', (
     expect(capped.notice).toBe(buildSearchRoundCapNotice(1, false))
   })
 
+  it("counts into the turn's counter: only searches that actually run", async () => {
+    // The researcher reads this counter to stop offering `search` once the
+    // budget is spent (lib/agents/search-cap.ts), so it must be the cap's own.
+    const rounds: SearchRoundCounter = { used: 0 }
+    const tool = qualityTool(rounds)
+
+    await runSearch(tool, 'alpha', 1)
+    expect(rounds.used).toBe(1)
+    // Near-duplicate skip: no round.
+    await runSearch(tool, 'alpha overview', 2)
+    expect(rounds.used).toBe(1)
+    await runSearch(tool, 'beta', 3)
+    expect(rounds.used).toBe(2)
+    // Budget 2 spent: the cap refuses, and the refusal is not a round either.
+    const capped = await runSearch(tool, 'gamma', 4)
+    expect(capped.searchLimitReached).toBe(true)
+    expect(rounds.used).toBe(2)
+    expect(searxngSearch).toHaveBeenCalledTimes(2)
+  })
+
+  it('the cap reads the shared counter, so a spent counter refuses at once', async () => {
+    const rounds: SearchRoundCounter = { used: 2 }
+    const capped = await runSearch(qualityTool(rounds), 'alpha', 1)
+    expect(capped.searchLimitReached).toBe(true)
+    expect(searxngSearch).not.toHaveBeenCalled()
+  })
+
   it('the process-wide instance (no toolOptions) is never capped', async () => {
     vi.stubEnv('SEARCH_ROUNDS_MAX', '1')
     const tool = createSearchTool('ollama:test-model')
@@ -195,5 +227,26 @@ describe('buildSearchRoundCapNotice', () => {
     expect(buildSearchRoundCapNotice(3, false)).toBe(
       "Search limit reached (3 rounds). Answer the user's question directly now using the sources already gathered. Do not search again. Do NOT restate that a limit was reached, do NOT describe what each source gave you, and do NOT narrate that you are stopping or promise another search — begin your reply immediately with its `## ` heading."
     )
+  })
+})
+
+describe('buildSearchWithdrawnNote', () => {
+  it("without fetch allowed: the cap notice's answer-now wording, for a step that no longer offers search", () => {
+    expect(buildSearchWithdrawnNote(3, false)).toBe(
+      "Search limit reached (3 rounds): `search` is no longer available this turn, and a call to it is refused and returns nothing. Answer the user's question directly now using the sources already gathered. Do NOT restate that a limit was reached, do NOT describe what each source gave you, and do NOT narrate that you are stopping or promise another search — begin your reply immediately with its `## ` heading."
+    )
+  })
+
+  it('with fetch allowed: no more searches, fetch of URLs already found, answer format kept', () => {
+    const n = buildSearchWithdrawnNote(10, true)
+    expect(n).toContain('Search limit reached (10 rounds)')
+    expect(n).toContain('`search` is no longer available this turn')
+    expect(n).toContain(
+      "You may still call `fetch` on URLs that appeared in this turn's earlier search results"
+    )
+    expect(n).toContain('begin your reply immediately with its `## ` heading')
+    expect(n).not.toContain("Answer the user's question directly now")
+    // Nothing was refused on this step, unlike the cap notice.
+    expect(n).not.toContain('this search was not run')
   })
 })
