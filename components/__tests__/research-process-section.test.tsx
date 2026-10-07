@@ -281,6 +281,188 @@ describe('ResearchProcessSection', () => {
     })
   })
 
+  describe('Refused (skipped) search/fetch calls', () => {
+    // Prod chat cznh8gc1gz41vq2lwjb560br: 5 searches ran and 12 more were
+    // refused (round cap / answer-now); every refusal rendered as an ordinary
+    // search row, so the user counted 18 searches. Refusals must collapse into
+    // ONE muted line; real searches render as before.
+    const realSearch = (id: string) => ({
+      type: 'tool-search',
+      toolCallId: id,
+      state: 'output-available',
+      input: { query: `q-${id}` },
+      output: {
+        state: 'complete',
+        query: `q-${id}`,
+        images: [],
+        results: [{ title: 't', url: `https://e.com/${id}`, content: 'c' }]
+      }
+    })
+    const capRefused = (id: string) => ({
+      type: 'tool-search',
+      toolCallId: id,
+      state: 'output-available',
+      input: { query: `capped-${id}` },
+      output: {
+        state: 'complete',
+        results: [],
+        images: [],
+        query: `capped-${id}`,
+        number_of_results: 0,
+        searchLimitReached: true,
+        notice: 'Search limit reached'
+      }
+    })
+    const answerNowFetch = (id: string) => ({
+      type: 'tool-fetch',
+      toolCallId: id,
+      state: 'output-available',
+      input: { url: 'https://e.com/x' },
+      output: {
+        state: 'complete',
+        results: [],
+        images: [],
+        query: '',
+        answerNow: true,
+        notice: 'Research time for this turn is over'
+      }
+    })
+
+    const renderParts = (parts: any[], extra: Record<string, unknown> = {}) =>
+      render(
+        <ResearchProcessSection
+          message={{ id: 'm', role: 'assistant', parts } as UIMessage}
+          messageId="skipped"
+          getIsOpen={mockGetIsOpen}
+          onOpenChange={mockOnOpenChange}
+          parts={parts}
+          {...extra}
+        />
+      )
+
+    test('renders real searches as before and the refusals as one line', () => {
+      renderParts([
+        realSearch('s1'),
+        realSearch('s2'),
+        capRefused('x1'),
+        { type: 'reasoning', text: 'more?' },
+        capRefused('x2'),
+        capRefused('x3')
+      ])
+
+      // Only the two searches that ran are search rows.
+      expect(screen.getAllByTestId('tool-section')).toHaveLength(2)
+      expect(
+        screen.getByText('Search limit reached — 3 extra searches skipped')
+      ).toBeInTheDocument()
+      // The step count is not labelled as searches, so it is unchanged.
+      expect(screen.getByText('Completed 6 steps')).toBeInTheDocument()
+    })
+
+    test('places the line where the first refusal was', () => {
+      renderParts([
+        realSearch('s1'),
+        capRefused('x1'),
+        { type: 'reasoning', text: 'after the cap' },
+        capRefused('x2')
+      ])
+
+      const line = screen.getByText(
+        'Search limit reached — 2 extra searches skipped'
+      )
+      const reasoningRow = screen.getByTestId('reasoning-section')
+      const searchRow = screen.getByTestId('tool-section')
+      // search row -> skipped line -> reasoning, in document order.
+      expect(
+        searchRow.compareDocumentPosition(line) &
+          Node.DOCUMENT_POSITION_FOLLOWING
+      ).toBeTruthy()
+      expect(
+        line.compareDocumentPosition(reasoningRow) &
+          Node.DOCUMENT_POSITION_FOLLOWING
+      ).toBeTruthy()
+    })
+
+    test('includes refused page reads in the same line', () => {
+      renderParts([
+        realSearch('s1'),
+        capRefused('x1'),
+        answerNowFetch('f1'),
+        answerNowFetch('f2')
+      ])
+
+      expect(screen.getAllByTestId('tool-section')).toHaveLength(1)
+      expect(
+        screen.getByText(
+          'Search limit reached — 1 extra search and 2 page reads skipped'
+        )
+      ).toBeInTheDocument()
+    })
+
+    test('a section of only refusals shows just the line', () => {
+      renderParts([capRefused('x1'), capRefused('x2')])
+
+      expect(screen.queryByTestId('tool-section')).not.toBeInTheDocument()
+      expect(
+        screen.getByText('Search limit reached — 2 extra searches skipped')
+      ).toBeInTheDocument()
+    })
+
+    test('no refusals: no line', () => {
+      renderParts([realSearch('s1'), realSearch('s2')])
+
+      expect(screen.getAllByTestId('tool-section')).toHaveLength(2)
+      expect(screen.queryByText(/limit reached/)).not.toBeInTheDocument()
+    })
+
+    test('live streaming: the line appears once and its count grows in place', () => {
+      const streamProps = {
+        status: 'streaming',
+        isLatestMessage: true,
+        hasSubsequentText: false
+      }
+      const first = [realSearch('s1'), capRefused('x1')]
+      const { rerender } = renderParts(first, streamProps)
+
+      expect(
+        screen.getByText('Search limit reached — 1 extra search skipped')
+      ).toBeInTheDocument()
+
+      const more = [
+        ...first,
+        { type: 'reasoning', text: 'trying again' },
+        capRefused('x2'),
+        // Still in flight: renders as a pending search until its result says
+        // it was refused.
+        {
+          type: 'tool-search',
+          toolCallId: 'p1',
+          state: 'input-available',
+          input: { query: 'pending' }
+        }
+      ]
+      rerender(
+        <ResearchProcessSection
+          message={{ id: 'm', role: 'assistant', parts: more } as UIMessage}
+          messageId="skipped"
+          getIsOpen={mockGetIsOpen}
+          onOpenChange={mockOnOpenChange}
+          parts={more as any[]}
+          status="streaming"
+          isLatestMessage={true}
+          hasSubsequentText={false}
+        />
+      )
+
+      expect(screen.getAllByText(/limit reached/)).toHaveLength(1)
+      expect(
+        screen.getByText('Search limit reached — 2 extra searches skipped')
+      ).toBeInTheDocument()
+      // s1 + the pending call.
+      expect(screen.getAllByTestId('tool-section')).toHaveLength(2)
+    })
+  })
+
   describe('Summary line wrapping', () => {
     test('always wraps the step list behind a single summary trigger, regardless of count', () => {
       // A single reasoning part used to render unwrapped; it must now be
