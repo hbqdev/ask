@@ -227,8 +227,7 @@ flowchart TD
   balanced, cap 3) ran 5 real searches, then had **80** more `search` calls refused over about 30
   steps, with `search` still advertised on every step: 36 steps, 89 tool calls, 2,066,500 prompt
   tokens, 259 s. The answer itself was fine (77 citations, 0 unresolved); the turn was the
-  problem. Three stages now follow, applied in this order (lab, staging and prod; the
-  proactive trigger in stage 1 is lab and staging only, prod pending):
+  problem. Three stages now follow, applied in this order (lab, staging and prod):
   1. **Stop offering `search`** (`withdrawSearchAfterCap`, `search-cap.ts:126-144`). Before
      every step the researcher asks `searchBudgetSpent` (`:101-106`) whether another search
      could still run: true once the search tool's own counter has reached the mode's budget
@@ -243,7 +242,7 @@ flowchart TD
      other tool stays offered, `fetch` included, which quality's notice still allows. Logged
      once per turn: `[search-cap] search withdrawn at step N after the round cap (rounds U/B,
      chat=…)`, where U can exceed B after a parallel overshoot.
-     - **Proactive, not after a refusal** (lab `c306b08f`, staging `8eba5e5f`; prod pending).
+     - **Proactive, not after a refusal** (lab `c306b08f`, staging `8eba5e5f`, prod `7cadcf03`).
        Stage 1 first fired only from the step after a refused search, so every capped turn
        spent one step calling `search` just to discover the cap. Prod chat
        `cznh8gc1gz41vq2lwjb560br`, a later turn (mistral-large-4, balanced, with all three
