@@ -178,7 +178,7 @@ following it (max 5 redirects). It fetches search-result URLs, not user-named on
   (raw HTML → `rehype-sanitize` default schema → harden) in `components/message.tsx`.
 - **Half-streamed links are not a reason to loosen that chain.** Since 2026-09-25 an unfinished
   citation anchor at the stream tail is dropped before rendering (`stripIncompleteCitationTail`,
-  `lib/utils/citation.ts:791`), and Streamdown's `remend` step shows any other unfinished link
+  `lib/utils/citation.ts:895`), and Streamdown's `remend` step shows any other unfinished link
   as plain text (`linkMode: 'text-only'`) instead of completing it with a placeholder
   `streamdown:` href. That placeholder was what sanitize stripped and harden labelled
   "[blocked]". Sanitize and harden themselves are unchanged, so `javascript:`, `data:` and
