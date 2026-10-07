@@ -66,8 +66,11 @@ import {
   withCitationReminder
 } from './citation-reminder'
 import {
+  answerNowAfterPostCapToolSteps,
   answerNowOnSearchEvasion,
+  resolvePostCapToolStepsLimit,
   type SearchCapStep,
+  toolStepsAfterCap,
   withdrawSearchAfterCap
 } from './search-cap'
 
@@ -922,11 +925,14 @@ Treat each exactly like a \`search\` or \`fetch\` result from this turn: ${docCi
     const turnStartedAt = Date.now()
     const pastAnswerDeadline = () =>
       Date.now() - turnStartedAt >= ANSWER_DEADLINE_MS
-    // Set by prepareStep once the model called `search` after it was withdrawn
-    // (lib/agents/search-cap.ts, stage 2): from then on the turn is
-    // answer-now, and the execute wrapper below refuses tool calls exactly as
-    // it does past the deadline.
-    let answerNowAfterSearchEvasion = false
+    // Set by prepareStep once the search cap switches the turn to answer-now
+    // (lib/agents/search-cap.ts): stage 2, the model called `search` after it
+    // was withdrawn; stage 3, too many tool steps after the cap in a mode
+    // whose cap notice says "answer now". From then on the execute wrapper
+    // below refuses tool calls exactly as it does past the deadline.
+    let searchCapAnswerNow = false
+    // Stage 3's limit for this turn's mode; null (quality) = no limit.
+    const postCapToolStepsLimit = resolvePostCapToolStepsLimit(searchMode)
 
     // Build tools object with proper typing
     const rawTools: ResearcherTools = {
@@ -963,12 +969,12 @@ Treat each exactly like a \`search\` or \`fetch\` result from this turn: ${docCi
     // deadline — or past the search cap's answer-now switch (same refusal).
     const tools = enforceAnswerDeadline(
       rawTools,
-      () => pastAnswerDeadline() || answerNowAfterSearchEvasion,
+      () => pastAnswerDeadline() || searchCapAnswerNow,
       name =>
         console.log(
           pastAnswerDeadline()
             ? `[deadline] refused ${name} call at ${Math.round((Date.now() - turnStartedAt) / 1000)}s — answering from gathered sources`
-            : `[search-cap] refused ${name} call after the model kept calling search — answering from gathered sources (chat=${currentChatId ?? '?'})`
+            : `[search-cap] refused ${name} call on an answer-now step after the round cap — answering from gathered sources (chat=${currentChatId ?? '?'})`
         )
     )
 
@@ -1110,21 +1116,32 @@ Treat each exactly like a \`search\` or \`fetch\` result from this turn: ${docCi
           steps: steps as readonly SearchCapStep[],
           systemPrompt: effectiveSystemPrompt
         })
-        if (evaded !== capped && !answerNowAfterSearchEvasion) {
-          answerNowAfterSearchEvasion = true
+        // Stage 3 (modes without a fetch budget): enough tool steps since the
+        // cap, so the rest of the turn is answer-now too.
+        const postCap = answerNowAfterPostCapToolSteps(evaded, {
+          steps: steps as readonly SearchCapStep[],
+          systemPrompt: effectiveSystemPrompt,
+          maxToolSteps: postCapToolStepsLimit
+        })
+        // One answer-now switch per turn, logged under whichever stage fired
+        // first; the other then has nothing left to withdraw.
+        if (postCap !== capped && !searchCapAnswerNow) {
+          searchCapAnswerNow = true
           console.log(
-            `[search-cap] model kept calling search after withdrawal at step ${stepNumber} — tools withdrawn, answering now (chat=${currentChatId ?? '?'})`
+            evaded !== capped
+              ? `[search-cap] model kept calling search after withdrawal at step ${stepNumber} — tools withdrawn, answering now (chat=${currentChatId ?? '?'})`
+              : `[search-cap] ${toolStepsAfterCap(steps as readonly SearchCapStep[])} tool steps after the round cap — tools withdrawn, answering now (chat=${currentChatId ?? '?'})`
           )
         }
         // Applied LAST so it wins over a variant's own activeTools (and over
-        // both search-cap stages): which tools are visible mid-loop is a
-        // preference, having a step left to answer in is not. `o !== evaded`
+        // every search-cap stage): which tools are visible mid-loop is a
+        // preference, having a step left to answer in is not. `o !== postCap`
         // below means the TIME deadline fired, nothing else.
-        const o = applyAnswerDeadline(evaded, {
+        const o = applyAnswerDeadline(postCap, {
           elapsedMs: Date.now() - turnStartedAt,
           systemPrompt: effectiveSystemPrompt
         })
-        if (o !== evaded) {
+        if (o !== postCap) {
           console.log(
             `[deadline] ${Math.round((Date.now() - turnStartedAt) / 1000)}s elapsed at step ${stepNumber} — tools withdrawn, answering now`
           )
@@ -1154,8 +1171,8 @@ Treat each exactly like a \`search\` or \`fetch\` result from this turn: ${docCi
                 citableToolCalls,
                 // Tools withdrawn and the answer-now note in force, so this
                 // step writes the answer by construction: the time deadline,
-                // or the search cap's answer-now stage (same override).
-                answerDeadlinePassed: o !== evaded || evaded !== capped
+                // or a search-cap answer-now stage (same override).
+                answerDeadlinePassed: o !== postCap || postCap !== capped
               })
             : 'none'
         if (reminderMode === 'append' && !Array.isArray(messages)) {

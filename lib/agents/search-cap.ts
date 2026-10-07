@@ -1,7 +1,9 @@
 /**
  * Stop ADVERTISING `search` once the per-turn search round cap has fired
  * (stage 1), and switch the turn to answer-now if the model keeps calling it
- * anyway (stage 2, searchCalledAfterWithdrawal below).
+ * anyway (stage 2, searchCalledAfterWithdrawal below) or, in modes whose cap
+ * notice says "answer now", keeps using other tools for more than a few steps
+ * (stage 3, answerNowAfterPostCapToolSteps below).
  *
  * THE BUG THIS FIXES. Prod chat cznh8gc1gz41vq2lwjb560br (mistral-large-4,
  * balanced, cap 3): the cap in lib/tools/search.ts refused 80 search calls over
@@ -22,6 +24,9 @@
  * lib/tools/search.ts stays the backstop for a model that calls search anyway,
  * and such a call is what triggers stage 2.
  */
+
+import { resolveFetchRoundsBudget } from '../tools/fetch-budget'
+import type { SearchMode } from '../types/search'
 
 import {
   type AnswerDeadlineOverrides,
@@ -154,5 +159,94 @@ export function answerNowOnSearchEvasion<T extends AnswerDeadlineOverrides>(
   }
 ): T {
   if (!searchCalledAfterWithdrawal(steps)) return overrides
+  return answerNowOverrides(overrides, systemPrompt)
+}
+
+/**
+ * STAGE 3: tool steps after the cap, in modes whose cap notice says "answer
+ * now".
+ *
+ * Stages 1-2 stop the searching, not the turn. Lab chat
+ * jcckydan2uqv7l4qelyjq1ob, follow-up turn (mistral-large-4, balanced): cap at
+ * step 2, search withdrawn at step 3, no search call after it, then one
+ * `fetch` per step on steps 3-15 (several 404s on constructed URLs) and the
+ * answer at step 16: 17 steps, 1.21M prompt tokens, 268s. Balanced has no
+ * fetch budget (lib/tools/fetch-budget.ts), and there the cap notice already
+ * says "answer the user's question directly now" — nothing bounded the fetching
+ * except the step ceiling and the 200s deadline.
+ *
+ * Stored history, steps that made tool calls after the first refused search
+ * (all envs, balanced): deepseek-v4.1-flash 11 turns all 0, glm-5.3-flash 5
+ * all 0, kimi-k2.6 5 all 0, deepseek-v4-pro 2 max 1, the delisted
+ * deepseek-v4-flash 36 turns p90 4 max 6; mistral-large-4 32, 13 and 5. So 4
+ * leaves every currently listed model's observed turns alone.
+ *
+ * Quality (a finite fetch budget, and a cap notice that deliberately allows
+ * fetching found URLs) is not limited: there fetch-after-cap is the point.
+ */
+export const POST_CAP_TOOL_STEPS_MAX_DEFAULT = 4
+
+/** Same rule as lib/tools/fetch-budget.ts: invalid or non-positive -> null. */
+function positiveInt(raw: string | undefined): number | null {
+  if (raw === undefined || raw.trim() === '') return null
+  const n = Number(raw)
+  return Number.isFinite(n) && n > 0 ? Math.floor(n) : null
+}
+
+/**
+ * How many tool-using steps a turn may take after the cap fired, or null for
+ * no limit. Limited exactly where the cap notice says "answer now": modes with
+ * no fetch budget (the same resolveFetchRoundsBudget test search.ts uses to
+ * word the notice). POST_CAP_TOOL_STEPS_MAX overrides the default; an invalid
+ * value falls back to it.
+ */
+export function resolvePostCapToolStepsLimit(
+  searchMode?: SearchMode,
+  env: Record<string, string | undefined> = process.env
+): number | null {
+  if (resolveFetchRoundsBudget(searchMode, env) !== null) return null
+  return (
+    positiveInt(env.POST_CAP_TOOL_STEPS_MAX) ?? POST_CAP_TOOL_STEPS_MAX_DEFAULT
+  )
+}
+
+/**
+ * Steps after the first capped one that made any tool call (an invalid-input
+ * call included). A step with no tool call ends the loop, so in practice
+ * these are the consecutive steps since the cap. 0 until the cap fires.
+ */
+export function toolStepsAfterCap(steps: readonly SearchCapStep[]): number {
+  const capped = firstCappedStep(steps)
+  if (capped === -1) return 0
+  return steps
+    .slice(capped + 1)
+    .filter(step => (step.toolCalls ?? []).length > 0).length
+}
+
+/**
+ * Fold stage 3 into the step's overrides: once `maxToolSteps` tool-using steps
+ * have followed the cap, this step and every later one is answer-now (the
+ * deadline's override; researcher.ts refuses calls exactly as for stage 2).
+ * `maxToolSteps` null (resolvePostCapToolStepsLimit for quality) never
+ * applies. Returns `overrides` itself until it applies.
+ */
+export function answerNowAfterPostCapToolSteps<
+  T extends AnswerDeadlineOverrides
+>(
+  overrides: T,
+  {
+    steps,
+    systemPrompt,
+    maxToolSteps
+  }: {
+    steps: readonly SearchCapStep[]
+    /** The turn's system prompt, as for applyAnswerDeadline. */
+    systemPrompt: string
+    maxToolSteps: number | null
+  }
+): T {
+  if (maxToolSteps === null || toolStepsAfterCap(steps) < maxToolSteps) {
+    return overrides
+  }
   return answerNowOverrides(overrides, systemPrompt)
 }
