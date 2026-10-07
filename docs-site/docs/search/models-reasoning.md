@@ -142,7 +142,7 @@ first advanced search already runs without waiting on the variants.
 
 ### Turn modes
 
-`resolveTurnMode` (`lib/agents/researcher.ts:170-204`) maps the classifier's
+`resolveTurnMode` (`lib/agents/researcher.ts:178-212`) maps the classifier's
 output to one of three configurations. Which ones are reachable depends on
 `ALWAYS_SEARCH` (`lib/agents/always-search.ts:32-36`; default on, only the literal
 `off` disables it, read per call):
@@ -629,7 +629,7 @@ How Ask handles this:
 - **To force a tool call, override the step's model, not `toolChoice`.** The
   forced first search (`ALWAYS_SEARCH`) returns `model: <synthetic model>` from
   `prepareStep` for step 0; the AI SDK resolves that itself, so the Ollama
-  provider cannot drop it (`lib/agents/researcher.ts:1136-1138`).
+  provider cannot drop it (`lib/agents/researcher.ts:1202-1204`).
 - `applyAnswerDeadline` (`lib/agents/answer-deadline.ts`) returns
   `activeTools: []` after 200s together with a "TIME TO ANSWER" note. Because of
   the behavior above, that alone only stops *advertising* tools, so the deadline
@@ -640,6 +640,21 @@ How Ask handles this:
   real SDK with a mock model that emits a `fetch` call under `activeTools: []` and
   checks the tool never runs. (Fixed 2026-09-23; before that a late `fetch` still
   ran.)
+- **Measured: a withdrawn tool still gets called** (2026-10-07). Once the search round
+  cap has refused a search, `prepareStep` stops offering `search`
+  ([pipeline › round cap](/search/pipeline#round-cap)). Before that change,
+  mistral-large-4 had 80 `search` calls refused over about 30 steps of one prod turn
+  while `search` was still advertised. With `search` withdrawn, it still called it on 4
+  later steps of a lab turn: 12 calls refused by the cap, and 3 that failed input
+  validation because it guessed the arguments of a tool it could no longer see
+  (`search_mode`, `recent`, `type`). Replayed directly against Ollama, offered only
+  `fetch`, it emitted `search` calls in 1 of 2 runs; offered **no tools plus the
+  answer-now note**, it wrote the answer in 2 of 2. So withdrawal alone does not hold:
+  a `search` call after the withdrawal switches the rest of the turn to the answer
+  deadline's answer-only step (`activeTools: []` plus `ANSWER_NOW_NOTE`), and the same
+  `execute` wrapper refuses whatever the model still calls
+  (`lib/agents/search-cap.ts:150-163`, `lib/agents/researcher.ts:966-979`;
+  [D45](/history/decisions#d45-search-withdrawn-after-the-round-cap-then-answer-only-steps)).
 
 ## Optimize the pipeline, not the model
 

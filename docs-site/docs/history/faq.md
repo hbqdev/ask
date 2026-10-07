@@ -102,6 +102,11 @@ mode, not against a different mode.
   [rerank contention limit](/history/known-issues#recall-misses-the-budget-under-rerank-contention)
   (expected, harmless).
 - Large `last_prompt_tokens` or many `fetch` calls → pipeline levers, not a model swap.
+- Many steps after a `[search] round cap reached` line → check the turn's `[search-cap]` lines
+  (`docker logs ask 2>&1 | grep '\[search-cap\]'`): `search` should be withdrawn from the next
+  step, and a model that keeps calling it, or in speed/balanced keeps using tools, gets
+  answer-only steps ([pipeline › round cap](/search/pipeline#round-cap); since 2026-10-07, lab and
+  staging, prod pending).
 
 → [Telemetry › Diagnosing "slow answers", step by step](/operations/telemetry#diagnosing-slow-answers-step-by-step)
 
