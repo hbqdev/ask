@@ -30,6 +30,9 @@ type Action = 'search' | 'search-invalid' | 'fetch' | 'answer'
 
 const state = vi.hoisted(() => ({
   script: [] as string[],
+  // Like mistral-large-4 in a direct Ollama replay: offered NO tools (plus the
+  // answer-now note), it writes the answer instead of following its script.
+  answersWithoutTools: false,
   calls: 0,
   searchCalls: 0,
   fetchCalls: 0,
@@ -71,7 +74,10 @@ vi.mock('../../utils/registry', () => ({
           state.lastMessages.push(prompt[prompt.length - 1])
           if (state.deadlineAfterCall !== null && n >= state.deadlineAfterCall)
             state.clockOffsetMs = 250_000
-          const action = state.script[n - 1] ?? 'answer'
+          const action =
+            state.answersWithoutTools && (tools ?? []).length === 0
+              ? 'answer'
+              : (state.script[n - 1] ?? 'answer')
           const call =
             action === 'search'
               ? {
@@ -197,11 +203,14 @@ vi.mock('../../tools/fetch', async () => {
   }
 })
 
-async function runTurn(script: Action[]) {
+async function runTurn(
+  script: Action[],
+  searchMode: 'balanced' | 'quality' = 'balanced'
+) {
   state.script = script
   const agent = await createResearcher({
     model: 'ollama:mistral-large-4:cloud',
-    searchMode: 'balanced',
+    searchMode,
     alwaysSearch: false,
     skipSearch: false,
     needsSources: true,
@@ -229,6 +238,7 @@ let log: MockInstance<typeof console.log>
 
 beforeEach(() => {
   state.script = []
+  state.answersWithoutTools = false
   state.calls = 0
   state.searchCalls = 0
   state.fetchCalls = 0
@@ -388,5 +398,66 @@ describe('createResearcher — search round cap: withdraw, then answer-now', () 
     expect(
       logLines(log, '[deadline]').some(l => l.includes('elapsed at step 4'))
     ).toBe(true)
+  })
+
+  // Lab chat jcckydan2uqv7l4qelyjq1ob, follow-up turn (mistral-large-4,
+  // balanced): after the cap it never searched again but fetched one URL per
+  // step on steps 3-15 and answered at step 16 (17 steps, 1.21M prompt
+  // tokens, 268s). Balanced has no fetch budget, so the cap notice already
+  // says "answer now".
+  const LAB_TURN: Action[] = [
+    'search',
+    'search',
+    'search',
+    ...Array.from({ length: 13 }, () => 'fetch' as const),
+    'answer'
+  ]
+  const POST_CAP_LOG =
+    '[search-cap] 4 tool steps after the round cap — tools withdrawn, answering now (chat=chat-search-cap-test)'
+
+  it('balanced: after 4 tool steps past the cap the turn is answer-now and ends with text', async () => {
+    state.answersWithoutTools = true
+    const { steps, text } = await runTurn(LAB_TURN)
+    // Steps 0-2 search (step 2 capped), steps 3-6 fetch, step 7 answers.
+    expect(steps).toHaveLength(8)
+    expect(text).toBe('## Answer')
+    expect(state.fetchCalls).toBe(4)
+    const withoutSearch = state.advertised[0].filter(t => t !== 'search')
+    for (const i of [3, 4, 5, 6]) {
+      expect(state.advertised[i]).toEqual(withoutSearch)
+      expect(noteCount(state.systems[i])).toBe(0)
+    }
+    expect(state.advertised[7]).toEqual([])
+    expect(noteCount(state.systems[7])).toBe(1)
+    expect(logLines(log, '[search-cap] 4 tool steps')).toEqual([POST_CAP_LOG])
+    expect(logLines(log, '[search-cap] model kept calling')).toEqual([])
+    expect(logLines(log, '[deadline]')).toEqual([])
+  })
+
+  it('balanced: a fetch the model emits anyway on the answer-now step is refused', async () => {
+    // This model keeps following its script with no tools offered.
+    const { steps, text } = await runTurn(LAB_TURN)
+    expect(text).toBe('## Answer')
+    // Only the 4 fetches on offered steps ran; every later one was refused.
+    expect(state.fetchCalls).toBe(4)
+    expect(steps[7].toolResults[0]?.output).toMatchObject({ answerNow: true })
+    for (const tools of state.advertised.slice(7)) {
+      expect(tools).toEqual([])
+    }
+    expect(logLines(log, '[search-cap] 4 tool steps')).toEqual([POST_CAP_LOG])
+  })
+
+  it('quality: fetching after the cap stays allowed (it has a fetch budget)', async () => {
+    const { steps, text } = await runTurn(LAB_TURN, 'quality')
+    expect(steps).toHaveLength(LAB_TURN.length)
+    expect(text).toBe('## Answer')
+    expect(state.fetchCalls).toBe(13)
+    const withoutSearch = state.advertised[0].filter(t => t !== 'search')
+    for (const i of LAB_TURN.keys()) {
+      if (i < 3) continue
+      expect(state.advertised[i]).toEqual(withoutSearch)
+      expect(noteCount(state.systems[i])).toBe(0)
+    }
+    expect(logLines(log, '[search-cap] 4 tool steps')).toEqual([])
   })
 })

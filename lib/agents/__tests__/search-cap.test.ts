@@ -10,10 +10,14 @@ import {
 import type { FlowStepOverrides } from '../flows/types'
 import { FLOW_VARIANTS } from '../flows/variants'
 import {
+  answerNowAfterPostCapToolSteps,
   answerNowOnSearchEvasion,
+  POST_CAP_TOOL_STEPS_MAX_DEFAULT,
+  resolvePostCapToolStepsLimit,
   searchCalledAfterWithdrawal,
   searchCapReached,
   type SearchCapStep,
+  toolStepsAfterCap,
   withdrawSearchAfterCap
 } from '../search-cap'
 
@@ -480,5 +484,211 @@ describe('answerNowOnSearchEvasion', () => {
     expect(
       applyAnswerDeadline(stage2, { elapsedMs: 0, systemPrompt: SYS })
     ).toBe(stage2)
+  })
+})
+
+// ── Stage 3: tool steps after the cap, in modes whose notice says answer now ──
+
+describe('resolvePostCapToolStepsLimit', () => {
+  it('is POST_CAP_TOOL_STEPS_MAX (default 4) in modes without a fetch budget', () => {
+    expect(POST_CAP_TOOL_STEPS_MAX_DEFAULT).toBe(4)
+    for (const mode of ['balanced', 'speed', undefined] as const) {
+      expect(resolvePostCapToolStepsLimit(mode, {})).toBe(4)
+    }
+  })
+
+  it('is null (no limit) where the cap notice still offers fetch', () => {
+    // Quality has a finite fetch budget (fetch-budget.ts), and its cap notice
+    // deliberately allows fetching found URLs after the cap.
+    expect(resolvePostCapToolStepsLimit('quality', {})).toBeNull()
+    // So does any mode once FETCH_ROUNDS_MAX gives it a fetch budget.
+    expect(
+      resolvePostCapToolStepsLimit('balanced', { FETCH_ROUNDS_MAX: '6' })
+    ).toBeNull()
+  })
+
+  it('honours a valid POST_CAP_TOOL_STEPS_MAX and ignores an invalid one', () => {
+    expect(
+      resolvePostCapToolStepsLimit('balanced', { POST_CAP_TOOL_STEPS_MAX: '6' })
+    ).toBe(6)
+    expect(
+      resolvePostCapToolStepsLimit('balanced', {
+        POST_CAP_TOOL_STEPS_MAX: '2.7'
+      })
+    ).toBe(2)
+    for (const raw of ['', ' ', 'abc', '0', '-3', 'Infinity']) {
+      expect(
+        resolvePostCapToolStepsLimit('balanced', {
+          POST_CAP_TOOL_STEPS_MAX: raw
+        })
+      ).toBe(4)
+    }
+    // The override never turns the limit on in quality.
+    expect(
+      resolvePostCapToolStepsLimit('quality', { POST_CAP_TOOL_STEPS_MAX: '2' })
+    ).toBeNull()
+  })
+})
+
+// Lab chat jcckydan2uqv7l4qelyjq1ob, follow-up turn (mistral-large-4,
+// balanced): cap at step 2, search withdrawn at step 3, then one fetch per
+// step on steps 3-15, answer at step 16.
+const fetchSteps = (n: number) =>
+  Array.from({ length: n }, () => sdkStep(fetchCall))
+
+describe('toolStepsAfterCap', () => {
+  it('counts the steps after the capped one that made any tool call', () => {
+    expect(toolStepsAfterCap(CAPPED_TURN)).toBe(0)
+    expect(toolStepsAfterCap([...CAPPED_TURN, ...fetchSteps(3)])).toBe(3)
+    expect(
+      toolStepsAfterCap([
+        ...CAPPED_TURN,
+        sdkStep(fetchCall, fetchCall),
+        sdkStep(invalidSearch),
+        sdkStep({ toolName: 'calculate', output: { result: 2 } }),
+        answerStep
+      ])
+    ).toBe(3)
+  })
+
+  it('is 0 before the cap, whatever the turn did', () => {
+    expect(toolStepsAfterCap([])).toBe(0)
+    expect(
+      toolStepsAfterCap([
+        sdkStep({ toolName: 'search', output: realOutput }),
+        ...fetchSteps(8)
+      ])
+    ).toBe(0)
+  })
+})
+
+describe('answerNowAfterPostCapToolSteps', () => {
+  const opts = (steps: SearchCapStep[], maxToolSteps: number | null) => ({
+    steps,
+    systemPrompt: SYS,
+    maxToolSteps
+  })
+
+  it('balanced: 4 tool steps after the cap stay offered, the 5th step is answer-now', () => {
+    // prepareStep for the k-th step after the capped one sees k-1 tool steps.
+    for (let done = 0; done < 4; done++) {
+      const overrides = none()
+      expect(
+        answerNowAfterPostCapToolSteps(
+          overrides,
+          opts([...CAPPED_TURN, ...fetchSteps(done)], 4)
+        )
+      ).toBe(overrides)
+    }
+    for (const done of [4, 5, 13]) {
+      expect(
+        answerNowAfterPostCapToolSteps(
+          none(),
+          opts([...CAPPED_TURN, ...fetchSteps(done)], 4)
+        )
+      ).toEqual(answerNowOverrides(none(), SYS))
+    }
+  })
+
+  it('quality (no limit): unchanged however many tool steps follow the cap', () => {
+    for (const done of [0, 4, 8, 30]) {
+      const overrides = none()
+      expect(
+        answerNowAfterPostCapToolSteps(
+          overrides,
+          opts([...CAPPED_TURN, ...fetchSteps(done)], null)
+        )
+      ).toBe(overrides)
+    }
+  })
+
+  it('never fires before the cap', () => {
+    const overrides = none()
+    expect(
+      answerNowAfterPostCapToolSteps(
+        overrides,
+        opts(
+          [
+            sdkStep({ toolName: 'search', output: realOutput }),
+            ...fetchSteps(9)
+          ],
+          4
+        )
+      )
+    ).toBe(overrides)
+  })
+
+  it("keeps a variant's replacement prompt", () => {
+    expect(
+      answerNowAfterPostCapToolSteps(
+        { system: 'variant prompt' },
+        opts([...CAPPED_TURN, ...fetchSteps(4)], 4)
+      ).system
+    ).toBe(`variant prompt${ANSWER_NOW_NOTE}`)
+  })
+
+  // researcher.ts order: variant -> withdraw search -> answer-now on search
+  // after withdrawal -> answer-now after N post-cap tool steps -> deadline.
+  const pipeline = (
+    steps: SearchCapStep[],
+    maxToolSteps: number | null,
+    elapsedMs = 0
+  ) => {
+    const stage1 = withdrawSearchAfterCap(none(), {
+      steps,
+      defaultActiveTools: MODE_TOOLS
+    })
+    const stage2 = answerNowOnSearchEvasion(stage1, {
+      steps,
+      systemPrompt: SYS
+    })
+    const stage3 = answerNowAfterPostCapToolSteps(
+      stage2,
+      opts(steps, maxToolSteps)
+    )
+    const out = applyAnswerDeadline(stage3, { elapsedMs, systemPrompt: SYS })
+    return { stage1, stage2, stage3, out }
+  }
+
+  it('the lab turn switches at step 7 instead of answering at step 16', () => {
+    const turn = [...CAPPED_TURN, ...fetchSteps(13)]
+    // steps.slice(0, i) is what prepareStep sees for step i.
+    const switchedAt = Array.from(
+      { length: turn.length + 1 },
+      (_, i) => i
+    ).find(i => pipeline(turn.slice(0, i), 4).out.activeTools?.length === 0)
+    expect(switchedAt).toBe(7)
+    // Steps 3-6 offer everything except search.
+    for (let i = 3; i < 7; i++) {
+      expect(pipeline(turn.slice(0, i), 4).out.activeTools).toEqual(
+        MODE_TOOLS.filter(t => t !== 'search')
+      )
+    }
+  })
+
+  it('stage 2 still fires first, on the step after a search call', () => {
+    const steps = [...CAPPED_TURN, sdkStep(refusedSearch)]
+    const { stage2, stage3, out } = pipeline(steps, 4)
+    expect(stage2.activeTools).toEqual([])
+    // Stage 3 has nothing to add (1 tool step < 4) and passes it through.
+    expect(stage3).toBe(stage2)
+    expect(out.system).toBe(`${SYS}${ANSWER_NOW_NOTE}`)
+  })
+
+  it('both answer-now stages and the deadline together: no tools, one note', () => {
+    const steps = [
+      ...CAPPED_TURN,
+      ...fetchSteps(3),
+      sdkStep(refusedSearch),
+      sdkStep(fetchCall)
+    ]
+    const { stage3, out } = pipeline(steps, 4, ANSWER_DEADLINE_MS)
+    expect(out.activeTools).toEqual([])
+    expect(out.system).toBe(`${SYS}${ANSWER_NOW_NOTE}`)
+    // The deadline still returns a new object: researcher.ts's identity check
+    // keeps meaning the TIME deadline.
+    expect(out).not.toBe(stage3)
+    const before = pipeline(steps, 4, 0)
+    expect(before.out).toBe(before.stage3)
   })
 })
