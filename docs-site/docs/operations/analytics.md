@@ -170,7 +170,7 @@ experiments do **not** use PostHog flags; they use env flags and lab A/B runs â€
 
 While a turn is in progress, the research-process accordion shows `WaitingQuote`: an
 elapsed-time counter plus a quote that reveals word by word
-(`components/research-process-section.tsx:554`, `components/waiting-quote.tsx:43`).
+(`components/research-process-section.tsx:579`, `components/waiting-quote.tsx:43`).
 It exists because Quality-mode turns can run for minutes; the elapsed timer tells the
 user the turn is alive, and the quote gives them something to read. It is pure
 decoration, so every failure path degrades silently to a bundled set.
