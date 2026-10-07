@@ -48,7 +48,10 @@ function isFollowedByToolCall(parts: readonly unknown[], index: number) {
  *    `stripNarrationPreamble`: the English phrase rules (heading-anchored),
  *    then the language-agnostic GLUED-SEAM cut (`…rồi.## Title`), which needs
  *    no phrase list — except that a glued seam in front of the first
- *    line-start heading is decided by the glued rule alone, as live.
+ *    line-start heading is decided by the glued rule alone, as live. A
+ *    planning DRAFT (an outline with its own headings plus notes on the
+ *    prompt's mechanics) in front of an answer that restarts at a glued `## `
+ *    is cut first (`stripDraftBeforeRestart`).
  *
  * 2. **Inter-step narration** — in an agentic multi-step turn the model emits
  *    a standalone narration TEXT part ("I have comprehensive data now. Let me
