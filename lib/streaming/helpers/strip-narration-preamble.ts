@@ -361,6 +361,218 @@ export function stripGluedHeadingPreamble(text: string): string {
   return answer
 }
 
+// ---------------------------------------------------------------------------
+// Planning DRAFT in front of a glued restart (2026-10-06).
+//
+// glm-5.3-flash wrote its plan INTO the final text part (prod chat
+// mzwbeqoe15wgh12et66fybzo, 4 answers): an outline of the answer with its own
+// `## ` headings, scratch notes on the prompt's mechanics ("Available cite
+// strings (toolCallIds) in this turn…", "Related questions spec block? …
+// skip"), then the real answer glued to the last note (`…at end.## Why…`,
+// `…per rules).</think>## Re-enabling…`). The glued rule above refuses a prefix
+// with a heading of its own (that would be a missing newline INSIDE an answer)
+// and stops at 2,000 chars; the drafts carried outline headings and ran to
+// 15 KB, so they passed through. This rule accepts such a prefix only on
+// evidence that it is scratch work, never an answer:
+//
+// 1. the prefix's PROSE (code masked) uses the prompt's internal vocabulary
+//    (`SCRATCH_TOKEN_FAMILIES`), which an answer has no reason to use;
+// 2. the cut is the first glued `## ` seam AFTER the last such token anywhere
+//    in the text, code included, so the kept answer never mentions them (an
+//    answer about Ask or about tool calling that does is never cut);
+// 3. the kept answer is substantial (`DRAFT_ANSWER_MIN` prose chars);
+// 4. a second, independent signal: a prefix with headings of its own
+//    (line-start, or glued earlier) must be an outline OF the answer, i.e.
+//    one of its headings is restated by one of the answer's
+//    (`HEADING_RESTATED_MIN`, same numbering); a prefix with no heading,
+//    having no outline to compare, must use at least two different vocabulary
+//    families and, like the glued rule's prefix, cite nothing (an elided
+//    `[1](#71cee5ba...)` is a note about a citation, not one). (A heading-less
+//    prefix ≤ 2,000 chars and shorter than the answer is cut by the glued rule
+//    anyway; here the evidence lifts those two bounds.)
+//
+// The glued seam itself stays required: a `## ` fused to a sentence never
+// renders as a heading, and it is where these drafts end. A draft followed by
+// a proper `\n\n## ` restart is not cut (0 cases in stored history; there the
+// vocabulary alone would have to decide, and an answer about Ask's citations
+// can use it).
+// ---------------------------------------------------------------------------
+
+/**
+ * The prompt's internal vocabulary, one regex per family. Each is Ask- or
+ * prompt-specific wording that an answer has no reason to use. Deliberately
+ * NOT here: "citation mapping" (a bibliometrics term) and shortened ids in an
+ * otherwise valid anchor (`[2](#a1bf94e4)`, common in real answers on several
+ * models).
+ */
+const SCRATCH_TOKEN_FAMILIES: readonly RegExp[] = [
+  // The prompt's name for a tool call's id: toolCallId(s), tool_call_id.
+  /\btool_?call_?ids?\b/i,
+  // Its citation placeholder: `[n](#…)`, `[number](#…)`.
+  /\[(?:n|number)\]\(#/i,
+  // An id elided inside an anchor: `](#71cee5ba...)`, `](#74661147-…)`.
+  /\]\(#[0-9a-f][0-9a-f-]{3,}(?:\.{3}|…)\)/i,
+  // "cite strings", "same cite id".
+  /\bcite (?:strings?|ids?)\b/i,
+  // The related-questions "spec block" (the render prompt's own term).
+  /\b(?:spec|related[- ]questions?) blocks?\b/i
+]
+const SCRATCH_TOKEN_ANY = new RegExp(
+  SCRATCH_TOKEN_FAMILIES.map(re => re.source).join('|'),
+  'gi'
+)
+// Families a heading-less prefix must use (condition 4).
+const NO_OUTLINE_MIN_FAMILIES = 2
+/** A whole anchor whose id is elided, `[1](#71cee5ba...)`: a note, not a cite. */
+const ELIDED_ANCHOR = /\[\d+\]\(#[0-9a-f][0-9a-f-]{3,}(?:\.{3}|…)\)/gi
+
+// The kept answer must carry at least this many non-space prose characters
+// (code masked), so a long message is never reduced to a stub such as a
+// trailing glued `## Related` section. The four drafts' answers carried
+// 1.5–6 K; real answers in stored history rarely fall below ~400.
+const DRAFT_ANSWER_MIN = 400
+
+// Character-bigram Dice similarity at which a heading counts as RESTATED, and
+// the minimum normalized heading length (spaces removed) considered. The
+// drafts' outline→answer pairs scored 0.83–0.95 ("Step 1 — update the H22
+// build" → "Step 1 — update the H22 build first"). Bigrams keep it
+// script-agnostic (no word splitting).
+const HEADING_RESTATED_MIN = 0.8
+const HEADING_COMPARE_MIN_CHARS = 8
+
+/** End index of the LAST scratch token anywhere in `text`, or -1. */
+function lastScratchTokenEnd(text: string): number {
+  SCRATCH_TOKEN_ANY.lastIndex = 0
+  let end = -1
+  let match: RegExpExecArray | null
+  while ((match = SCRATCH_TOKEN_ANY.exec(text)) !== null) {
+    end = match.index + match[0].length
+  }
+  return end
+}
+
+/** How many vocabulary families occur in `text`. */
+function scratchFamilyCount(text: string): number {
+  return SCRATCH_TOKEN_FAMILIES.filter(re => re.test(text)).length
+}
+
+/** Lowercased heading text with markup and punctuation removed, no spaces. */
+function normalizeHeading(heading: string): string {
+  return heading.toLocaleLowerCase().replace(/[^\p{L}\p{N}]+/gu, '')
+}
+
+function bigrams(s: string): Map<string, number> {
+  const counts = new Map<string, number>()
+  const chars = Array.from(s)
+  for (let i = 0; i < chars.length - 1; i++) {
+    const gram = chars[i] + chars[i + 1]
+    counts.set(gram, (counts.get(gram) ?? 0) + 1)
+  }
+  return counts
+}
+
+interface HeadingKey {
+  /** `normalizeHeading` of the heading text. */
+  text: string
+  /** Its numbers, in order: "Step 1 — update the H22 build" → "1,22". */
+  numbers: string
+}
+
+/**
+ * Character-bigram Dice similarity of two headings, or 0 when their numbers
+ * differ: a restatement keeps the outline's numbering ("Step 1 — update the
+ * H22 build" → "… build first"), while sibling sections of a real answer
+ * differ in it ("Part 1" / "Part 2", "16 GB" / "8 GB").
+ */
+function headingSimilarity(a: HeadingKey, b: HeadingKey): number {
+  if (a.numbers !== b.numbers) return 0
+  const ga = bigrams(a.text)
+  const gb = bigrams(b.text)
+  let shared = 0
+  let total = 0
+  for (const [gram, n] of ga) {
+    shared += Math.min(n, gb.get(gram) ?? 0)
+    total += n
+  }
+  for (const n of gb.values()) total += n
+  return total ? (2 * shared) / total : 0
+}
+
+/**
+ * Every ATX heading in (code-masked) `masked`: line-start headings of any
+ * level, plus `## ` headings glued to the end of a sentence.
+ */
+function headingKeys(masked: string): HeadingKey[] {
+  const out: HeadingKey[] = []
+  const re = /(?:^|\n)[ \t]{0,3}#{1,6}[ \t]+([^\n]*)|[^\s#\\]##[ \t]+([^\n]*)/g
+  let match: RegExpExecArray | null
+  while ((match = re.exec(masked)) !== null) {
+    const raw = match[1] ?? match[2] ?? ''
+    const text = normalizeHeading(raw)
+    if (Array.from(text).length < HEADING_COMPARE_MIN_CHARS) continue
+    out.push({ text, numbers: (raw.match(/\p{N}+/gu) ?? []).join(',') })
+  }
+  return out
+}
+
+/** True when some heading of `answer` restates some heading of `prefix`. */
+function answerRestatesAHeading(
+  maskedPrefix: string,
+  maskedAnswer: string
+): boolean {
+  const before = headingKeys(maskedPrefix)
+  if (before.length === 0) return false
+  const after = headingKeys(maskedAnswer)
+  return after.some(a =>
+    before.some(b => headingSimilarity(a, b) >= HEADING_RESTATED_MIN)
+  )
+}
+
+/**
+ * Index of the glued `## ` seam where a planning draft ends and the real
+ * answer begins, or null when the text does not have that shape (see the
+ * block comment above for the four conditions). Needs the complete text:
+ * condition 2 depends on everything after the seam.
+ */
+export function findDraftRestartSeam(text: string): number | null {
+  if (!text || typeof text !== 'string' || !text.includes('##')) return null
+  const tokenEnd = lastScratchTokenEnd(text)
+  if (tokenEnd < 0) return null
+
+  const masked = maskCode(text)
+  const seamRe = /[^\s#\\]##[ \t]/g
+  // The character before `##` may be the token's own last character.
+  seamRe.lastIndex = Math.max(0, tokenEnd - 1)
+  const match = seamRe.exec(masked)
+  if (!match) return null
+  const seam = match.index + 1
+
+  const maskedPrefix = masked.slice(0, seam)
+  const maskedAnswer = masked.slice(seam)
+  const families = scratchFamilyCount(maskedPrefix)
+  if (families === 0) return null
+  if (maskedAnswer.replace(/\s+/g, '').length < DRAFT_ANSWER_MIN) return null
+  const prefixHasHeading =
+    LINE_START_HEADING.test(maskedPrefix) ||
+    /[^\s#\\]##[ \t]/.test(maskedPrefix)
+  const secondSignal = prefixHasHeading
+    ? answerRestatesAHeading(maskedPrefix, maskedAnswer)
+    : families >= NO_OUTLINE_MIN_FAMILIES &&
+      !CITATION_MARKER.test(maskedPrefix.replace(ELIDED_ANCHOR, ''))
+  return secondSignal ? seam : null
+}
+
+/**
+ * Cut a planning draft (outline + scratch notes on the prompt's mechanics)
+ * written in front of the real answer, which starts at a glued `## ` seam.
+ * Returns the text from that `## ` on, or the text unchanged. Idempotent:
+ * the kept answer carries no scratch token, so a second pass finds no seam.
+ */
+export function stripDraftBeforeRestart(text: string): string {
+  const seam = findDraftRestartSeam(text)
+  return seam === null ? text : text.slice(seam)
+}
+
 // Upper bound for an inter-step text part to count as chatter on STRUCTURE
 // alone. Measured across every stored prod+lab assistant message (831, as of
 // 2026-09-28): text parts written right before a tool call are p50 ~110–180
@@ -407,19 +619,22 @@ function gluedSeamLeads(text: string): boolean {
 
 /**
  * Persist/render-time cleanup of a single text part. Leaked think-tag
- * reasoning goes first. Then, exactly as the live transform decides: a glued
- * seam that precedes the first line-start heading is decided by the glued
- * rule ALONE (cut there, or keep the text) — never by the phrase rule, which
- * would cut at the later heading and eat the glued first section. Otherwise
- * the English phrase rule (heading-anchored), then the language-agnostic
- * glued-seam cut on what remains. Idempotent.
+ * reasoning goes first, then a planning draft in front of a glued restart
+ * (`stripDraftBeforeRestart`; the kept answer starts with `## `, so the rules
+ * after it find nothing more to cut). Then, exactly as the live transform
+ * decides: a glued seam that precedes the first line-start heading is decided
+ * by the glued rule ALONE (cut there, or keep the text) — never by the phrase
+ * rule, which would cut at the later heading and eat the glued first section.
+ * Otherwise the English phrase rule (heading-anchored), then the
+ * language-agnostic glued-seam cut on what remains. Idempotent.
  */
 export function stripNarrationPreamble(text: string): string {
   if (!text || typeof text !== 'string') return text
   // First remove any leaked think-tag reasoning. This also handles the
   // no-heading case (reasoning closed by a stray tag with the answer after
-  // it) that the heading-anchored logic below cannot reach.
-  const cleaned = stripStrayThinkTags(text)
+  // it) that the heading-anchored logic below cannot reach. Then cut a
+  // planning draft whose answer restarts at a glued `## `.
+  const cleaned = stripDraftBeforeRestart(stripStrayThinkTags(text))
   if (gluedSeamLeads(cleaned)) return stripGluedHeadingPreamble(cleaned)
   return stripGluedHeadingPreamble(stripPhraseAnchoredPreamble(cleaned))
 }
