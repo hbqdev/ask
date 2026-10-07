@@ -105,8 +105,8 @@ mode, not against a different mode.
 - Many steps after a `[search] round cap reached` line → check the turn's `[search-cap]` lines
   (`docker logs ask 2>&1 | grep '\[search-cap\]'`): `search` should be withdrawn from the next
   step, and a model that keeps calling it, or in speed/balanced keeps using tools, gets
-  answer-only steps ([pipeline › round cap](/search/pipeline#round-cap); since 2026-10-07, lab and
-  staging, prod pending).
+  answer-only steps ([pipeline › round cap](/search/pipeline#round-cap); since 2026-10-07, lab,
+  staging and prod).
 
 → [Telemetry › Diagnosing "slow answers", step by step](/operations/telemetry#diagnosing-slow-answers-step-by-step)
 
@@ -227,8 +227,7 @@ If it still appears on a current build, match it to one of the cases left alone 
   ([known issue](/history/known-issues#narration-the-structural-rules-keep-by-design)).
 - **An answer with no `## ` heading at all**: never cut, since there is no safe place to cut.
 - **An outline plus notes about "cite strings", toolCallIds or a "spec block" in front of the
-  answer** (glm-5.3-flash): a planning draft. Builds since 2026-10-06 (lab and staging; prod
-  pending) cut it when the answer is glued to the last note; while the answer streams the draft
+  answer** (glm-5.3-flash): a planning draft. Builds since 2026-10-06 (lab, staging and prod) cut it when the answer is glued to the last note; while the answer streams the draft
   is shown until enough of the answer has arrived
   ([known issue](/history/known-issues#a-planning-draft-shows-while-the-answer-streams)).
 - **Only in search results or a recall excerpt**: the stored row still holds it. Staging and

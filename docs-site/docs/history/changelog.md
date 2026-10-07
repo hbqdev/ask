@@ -24,7 +24,7 @@ cap that stops a model that ignores it**
 
 - **10-07** — **After the search round cap, `search` is withdrawn, then the turn is made to
   answer** (lab `d1a86bda` + `c86bbdaa` + `798030de`; staging `d799a91c` + `1f8ece82` +
-  `49e33297`; **lab and staging; prod pending**;
+  `49e33297`; prod `275ce8da` + `5adf51d1` + `4b4d4e5e`;
   [D45](/history/decisions#d45-search-withdrawn-after-the-round-cap-then-answer-only-steps)).
   - Trigger: prod chat `cznh8gc1gz41vq2lwjb560br` (mistral-large-4, balanced, cap 3) had 80
     `search` calls refused by the cap over about 30 steps: 36 steps, 89 tool calls, 2,066,500
