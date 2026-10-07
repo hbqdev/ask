@@ -207,9 +207,9 @@ mid-anchor went through the same repair on every load.
 
 **Fix.** Two independent parts:
 
-- `stripIncompleteCitationTail()` (`lib/utils/citation.ts:791`) removes an unfinished
+- `stripIncompleteCitationTail()` (`lib/utils/citation.ts:895`) removes an unfinished
   citation anchor from the very end of the text before anything else runs. Its pattern
-  (`INCOMPLETE_CITATION_TAIL_RE`, `:773-774`) matches `[`, `[1`, `[1](`, `[1](#` and
+  (`INCOMPLETE_CITATION_TAIL_RE`, `:877-878`) matches `[`, `[1`, `[1](`, `[1](#` and
   `[1](#<partial id>` at the end of the string (up to three digits). A complete bracket with
   no link part (`[1]`) is left alone, because a finished answer may legitimately end with it;
   so are a named link (`[Python docs`) and an external one (`[1](https://…`), which the
@@ -243,7 +243,7 @@ rewrites each anchor to its real URL → `Citing` resolves the URL back to its r
 preview.
 
 **What N means.** N is the 1-based position of the cited result in **that tool call's**
-`results`: `extractCitationMaps` maps N to `results[N-1]` (`lib/utils/citation.ts:427-432`).
+`results`: `extractCitationMaps` maps N to `results[N-1]` (`lib/utils/citation.ts:531-536`).
 Numbering restarts at 1 for every call, so each call has its own `[1]`, and a fetch of one page
 is always `[1]`. It is **not** a running count across the answer.
 
@@ -262,10 +262,10 @@ that counted sources across the answer produced numbers that were either out of 
 or in range but pointing at a different result of the same search
 ([known issue](/history/known-issues#running-count-citation-numbers-can-point-at-the-wrong-result)).
 
-**One resolver.** `resolveCitationAnchor(N, id, maps)` (`lib/utils/citation.ts:279-307`)
-decides every anchor. Rendering (`processCitations`, `citation.ts:741-765`), the telemetry
-audit (`auditCitations`, `citation.ts:346-371`) and the cited-URL list
-(`extractCitedSourceUrls`, `citation.ts:453-467`) all call it, so `citations_unresolved`
+**One resolver.** `resolveCitationAnchor(N, id, maps)` (`lib/utils/citation.ts:376-411`)
+decides every anchor. Rendering (`processCitations`, `citation.ts:845-869`), the telemetry
+audit (`auditCitations`, `citation.ts:450-475`) and the cited-URL list
+(`extractCitedSourceUrls`, `citation.ts:557-571`) all call it, so `citations_unresolved`
 counts exactly the anchors a reader loses. The copy and save-note text of an answer goes
 through `processCitations` too (`components/message-actions.tsx:103-110`). The result is `own`,
 `recovered` (with the repair used) or `unresolved`:
@@ -275,6 +275,8 @@ through `processCitations` too (`components/message-actions.tsx:103-110`). The r
 | id of a citable call of this message, N in range (and the result has a valid URL) | `own`: result N of that call |
 | same id with a model-added `toolu_` / `call_` / `search-` prefix | normalised, then as above |
 | one of this message's ids wrapped as `<id-UUID>`, `<UUID>` or `id-UUID` | `recovered` (`wrapped-id`): unwrapped, then looked up |
+| a shortened id: after trimming whitespace, one trailing `...` / `…` and trailing dashes, at least 8 hex/dash characters that start **exactly one** of this message's citable call ids (`[1](#71cee5ba...)`, `[3](#17d98f5d)`); since 2026-10-06, lab and staging (prod pending) | `recovered` (`id-prefix`): that call, then N as for its full id. Shorter, ambiguous or another turn's prefix: dropped |
+| a full-length id one character substituted, added or dropped from **exactly one** of this message's UUID-shaped call ids; since 2026-10-06, lab and staging (prod pending) | `recovered` (`id-typo`): that call, then N as for its full id. Two characters off, or one off two calls or another turn's id: dropped |
 | a placeholder: `<token>`, `id-X`, `toolCallId`, or any example id the prompts have used | `recovered` (`placeholder`) only if the message made **exactly one** citable call and N is in range for it (or it is a one-page fetch); otherwise dropped |
 | a real id, N past the end, and the call is a fetch whose output holds exactly one page that is not `Fetch failed:` | `recovered` (`fetch-out-of-range`): that page |
 | a real id, N past the end of a search or of a fetch with several pages | dropped |
@@ -288,7 +290,11 @@ is a well-formed anchor for another result. That is why the fix sits upstream, i
 model copies, and why the order of a call's `results` must never change after the model has
 seen it, including at save time
 ([known issue](/history/known-issues#reloaded-speed-mode-answers-cited-a-different-page)).
-An id copied with a character missing (seen with kimi-k2.6) has no repair and is dropped.
+An id copied with one character missing or wrong (seen with kimi-k2.6), or cut to its first 8
+characters (glm-5.3-flash), was dropped until 2026-10-06; builds with
+[D44](/history/decisions#d44-shortened-and-one-character-off-citation-ids-resolve) (lab and
+staging; prod pending) resolve it when it names exactly one call of the message
+(`findMapByIdPrefix`, `citation.ts:256-276`; `findMapByIdTypo`, `:300-315`).
 
 - **Per-message scope is load-bearing.** A conversation-wide map let an anchor carried
   over from an earlier turn resolve cleanly to the wrong source (measured: 120 of 2,975
@@ -298,7 +304,7 @@ An id copied with a character missing (seen with kimi-k2.6) has no repair and is
   ([D36](/history/decisions#d36-strip-historical-citation-anchors-resolve-citations-per-turn-only)).
 - **The fetch rule needs the map object itself.** `extractCitationMaps` records each map's tool
   type in a `WeakMap` keyed by the map (`CITATION_MAP_TOOL_TYPE`, `citation.ts:163`, set at
-  `:437`), so
+  `:541`), so
   the map shape did not change. `ChatMessages` builds the maps once per message in a `useMemo`
   (`components/chat-messages.tsx:131-140`) and components pass them through by reference. A
   cloned or hand-built map (`{ ...map }`) has no tool type, and the one-page-fetch repair then
@@ -347,23 +353,23 @@ model sees. The chip still links the cited result's own URL and its hover still 
 result's text; no prompt or tool output changed. They exist so that the share of citations
 the stored evidence cannot vouch for can be measured on prod.
 
-- **`SNIPPET_MAX_CHARS` = 1000** (`citation.ts:478`). A search result whose text is at most this
+- **`SNIPPET_MAX_CHARS` = 1000** (`citation.ts:582`). A search result whose text is at most this
   long counts as a provider snippet, not page text. Basic-tier results (SearXNG and degoog
   snippets, Ollama web cut to 400 characters in `lib/tools/search/providers/searxng.ts:47`)
   are 150–401 characters; crawled advanced results and fetched pages run to thousands. 1000 is
   the split the 2026-09-30 quality re-test judged support by.
-- **`samePageKey(url)`** (`:501-530`): one key for every spelling of the same page. It ignores
+- **`samePageKey(url)`** (`:605-634`): one key for every spelling of the same page. It ignores
   the scheme, a `www.` or `m.` host prefix, letter case, a trailing slash, the fragment,
   tracker parameters (`utm_*`, `fbclid`, `gclid`, `ref`, `rss` and a few more) and empty
   parameters, and parameter order. On GitHub the repository page, its `?tab=…` views and
   `/blob/<branch>/README(.md)` share a key, because the repository page renders the README.
   Every other parameter is kept, so `watch?v=a` and `watch?v=b` stay different pages. Null for
   anything that is not http(s).
-- **`findPageTextForUrl(url, message)`** (`:597-611`): the longest page text **this message**
+- **`findPageTextForUrl(url, message)`** (`:701-715`): the longest page text **this message**
   read for that page, from a fetch or a crawled copy in another search. Message-scoped like
   every resolution here: another turn's fetch is never consulted. Rendering does not call it;
   it is the text an offline support judge should read for a snippet citation.
-- **`auditCitationEvidence(message)`** (`:647-707`): classifies every **rendered** anchor, with
+- **`auditCitationEvidence(message)`** (`:751-811`): classifies every **rendered** anchor, with
   the resolver rendering uses (unresolved anchors are skipped), as `page` (the cited result is
   page text: a fetched page, an attached-document excerpt, or a search result longer than
   1000 characters), `snippetRead` (a snippet whose page this message read in full under a
