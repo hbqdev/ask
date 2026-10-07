@@ -36,6 +36,7 @@ attachment the message only points at. See
 | Mode → prompt, tools, `maxSteps`, first-search depth | `lib/agents/researcher.ts` (`createResearcher`, `resolveTurnMode`) |
 | The `search` tool (round cap, dedup, speed fast path, expansion, depth tiering, provider routing) | `lib/tools/search.ts` |
 | The in-turn repeat-query rule (exact / near repeat, word check) | `lib/tools/search/query-dedup.ts` |
+| After the round cap: stop offering `search`, then force the answer | `lib/agents/search-cap.ts` (applied in the researcher's `prepareStep`) |
 | Advanced pipeline (fan-out, pool, crawl, quality filter, rerank, crop) | `app/api/advanced-search/route.ts` |
 | Provider clients | `lib/utils/{ollama-search,tavily-search,brave-search,langsearch,searxng,degoog}-client.ts`, `lib/tools/search/providers/*` |
 | Crawl sidecar client | `lib/utils/crawl4ai.ts` |
@@ -66,7 +67,7 @@ protocol (`QUALITY MODE — DEEP RESEARCH PROTOCOL` in
 | Follow-up searches in the turn | basic | basic (SearXNG basic) | basic (SearXNG basic) |
 | Search-round cap | `SEARCH_ROUNDS_MAX` (3) | `SEARCH_ROUNDS_MAX` (3) | `SEARCH_ROUNDS_MAX_QUALITY` (10; 5 before 2026-09-30) |
 | `fetch` calls per turn | no cap (`FETCH_ROUNDS_MAX` unset) | no cap (`FETCH_ROUNDS_MAX` unset) | `FETCH_ROUNDS_MAX_QUALITY` (8, since 2026-09-30) |
-| After the search cap | answer now | answer now | no more searches; `fetch` of this turn's URLs still allowed |
+| After the search cap | answer now; `search` no longer offered; an answer-only step after 4 more tool steps | answer now; `search` no longer offered; an answer-only step after 4 more tool steps | no more searches (`search` no longer offered); `fetch` of this turn's URLs still allowed |
 | Agent `maxSteps` | 20 | 50 | 100 |
 | Prompt | `getQuickModePrompt()` | `getAdaptiveModePrompt()` | `getQualityModePrompt()` (≥15 searches, todo list, report) |
 
@@ -118,6 +119,7 @@ is tiered.
 flowchart TD
   A[search tool called:<br/>forced at step 0, then by the model] --> B{Rounds used ≥ budget?<br/>SEARCH_ROUNDS_MAX / _QUALITY}
   B -- yes --> B1[Return empty result + cap notice<br/>quality: stop searching, fetch allowed<br/>others: answer now<br/>kind:round-cap telemetry]
+  B1 -.-> B2[Later steps, prepareStep:<br/>search no longer offered<br/>search called anyway → answer-only steps<br/>speed/balanced: 4 more tool steps → answer-only steps]
   B -- no --> C{Repeat of a query this turn?<br/>exact, or cos ≥ 0.90<br/>with no new word or number}
   C -- yes --> C1[Return 'already searched' note<br/>no round used]
   C -- no --> C2[Count one round] --> D{searchMode = speed<br/>and Ollama-web configured?}
@@ -180,6 +182,12 @@ flowchart TD
     false-positive skip cost a quality turn one of its 5 rounds. The researcher's exact-repeat
     and seen-URL short-circuits (`wrapSearchToolWithDedup`) return before this `execute` runs
     at all.
+  - **Parallel calls can overshoot it.** The budget is checked at the top of `execute`
+    (`:426`) but the counter is incremented only at `:564`, after the first `yield` (`:475`)
+    and the dedup embedding (`:505`). The AI SDK starts the parallel tool calls of one step
+    concurrently, so every call that starts before the first increment passes the check. In
+    prod chat `cznh8gc1gz41vq2lwjb560br` (balanced, budget 3) 5 searches ran. Not fixed
+    ([known issue](/history/known-issues#parallel-search-calls-can-overshoot-the-round-cap)).
 
   *Why inside the tool:* in AI SDK v6, `activeTools` only controls which tool
   definitions are *advertised* to the model. Execution resolves against the
@@ -196,6 +204,68 @@ flowchart TD
   cap-15 arm fetched 34 pages and won on that page text. With fetching allowed past the cap,
   cap 10 and cap 5 measured the same, and cap 10 tied the stored cap-15 answers
   ([D40](/history/decisions#d40-quality-mode-read-pages-past-the-search-cap)).
+- **After the cap: `search` withdrawn, then answer-only steps** (since 2026-10-07; lab and
+  staging, prod pending; `lib/agents/search-cap.ts`, applied in the researcher's `prepareStep`
+  at `lib/agents/researcher.ts:1098-1135`). The cap's refusal is an ordinary tool result whose
+  only stop signal is the notice text. In stored history every model stopped searching after at
+  most 5 refusals in a turn, except one: prod chat `cznh8gc1gz41vq2lwjb560br` (mistral-large-4,
+  balanced, cap 3) ran 5 real searches, then had **80** more `search` calls refused over about 30
+  steps, with `search` still advertised on every step: 36 steps, 89 tool calls, 2,066,500 prompt
+  tokens, 259 s. The answer itself was fine (77 citations, 0 unresolved); the turn was the
+  problem. Three stages now follow the cap, applied in this order:
+  1. **Stop offering `search`** (`withdrawSearchAfterCap`, `search-cap.ts:92-110`). From the
+     step after the first `search` result with `searchLimitReached: true` (`searchCapReached`,
+     `:62-78`), the step's tool list no longer contains `search`: the flow variant's own
+     `activeTools` when it set one, otherwise the mode's list. Other empty search results (a
+     near-duplicate skip, an exact repeat, a URL sent as a query, an answer-deadline refusal)
+     do not trigger it. Every other tool stays offered, `fetch` included, which quality's
+     notice still allows. Logged once per turn: `[search-cap] search withdrawn at step N after
+     the round cap (chat=…)`.
+  2. **Answer-only if `search` is called anyway** (`answerNowOnSearchEvasion`, `:150-163`;
+     every mode). Withdrawing a tool only stops advertising it
+     ([`activeTools` does not block a tool](/search/models-reasoning#activetools-does-not-block-a-tool)).
+     If any step after the capped one contains a `search` call (refused, failed input
+     validation, or any other), every remaining step of the turn offers no tools and carries
+     the answer deadline's `ANSWER_NOW_NOTE` (`answerNowOverrides`,
+     `lib/agents/answer-deadline.ts:80-95`; the note is added once even when the time deadline
+     fires too). The deadline's `execute` wrapper refuses any call the model still makes
+     (`researcher.ts:966-979`). Logged:
+     `[search-cap] model kept calling search after withdrawal at step N — tools withdrawn,
+     answering now (chat=…)`.
+  3. **Answer-only after `POST_CAP_TOOL_STEPS_MAX` tool steps** (`answerNowAfterPostCapToolSteps`,
+     `:233-252`; only modes without a fetch budget). Where `resolveFetchRoundsBudget(mode)` is
+     null (speed and balanced unless `FETCH_ROUNDS_MAX` is set, exactly the modes whose cap
+     notice says "answer now"), a turn may take at most `POST_CAP_TOOL_STEPS_MAX` (default 4;
+     an invalid or non-positive value falls back to 4, `resolvePostCapToolStepsLimit`,
+     `:203-211`) tool-using steps after the capped step. The next step is answer-only, with the
+     same override and refusal as stage 2. Logged: `[search-cap] N tool steps after the round
+     cap — tools withdrawn, answering now (chat=…)`. Quality has a fetch budget and is not
+     limited: there, reading pages past the cap is the point.
+
+  The 200 s answer deadline (`applyAnswerDeadline`) is still applied last, and its `[deadline]`
+  line still means the time deadline only. A step made answer-only by stage 2 or 3 counts as
+  the answer step for the citation reminder (off by default). The cap's own refusal in
+  `lib/tools/search.ts` stays the backstop. Tests: `lib/agents/__tests__/search-cap.test.ts`,
+  and `researcher-search-cap.test.ts` through the real researcher loop.
+
+  *Evidence* (mistral-large-4, balanced; one lab turn after each stage, so these are single
+  runs, not an A/B):
+
+  | Build | Steps | Prompt tokens | Time | What the model did after the cap |
+  |---|---|---|---|---|
+  | Before (the prod chat) | 36 | 2.07M | 259 s | 80 refused `search` calls over about 30 steps |
+  | Stage 1 | 9 | 0.40M | 163 s | still called `search` on 4 later steps: 12 calls refused, 3 failed input validation (it guessed the arguments of a tool it no longer saw: `search_mode`, `recent`, `type`) |
+  | Stages 1–2 | 17 | 1.21M | 268 s | no `search` call after the withdrawal, but 13 single `fetch` calls, several of them 404s on URLs it had constructed |
+  | Stages 1–3 | 5 | 0.22M | 162 s | answered on its own at step 4, after the withdrawal (13 tool calls, 50 citations, 0 unresolved) |
+
+  A direct replay against Ollama explains stage 2: offered only `fetch`, the model still emitted
+  `search` calls (1 of 2 runs); offered no tools plus the answer-now note, it wrote the answer (2
+  of 2). Stage 3's default comes from stored history, counting the tool-using steps after the cap
+  in balanced turns: deepseek-v4.1-flash 0 in all 11 turns, glm-5.3-flash 0 in all 5, kimi-k2.6
+  0 in all 5, deepseek-v4-pro at most 1, the delisted deepseek-v4-flash p90 4 and max 6, and
+  mistral-large-4 32, 13 and 5. Replayed, the three mistral turns switch to answer-only at step 4
+  (stage 2) or 7; no stored turn of a currently listed model changes, and quality is unchanged
+  ([D45](/history/decisions#d45-search-withdrawn-after-the-round-cap-then-answer-only-steps)).
 - **Fetch cap** (`lib/tools/fetch-budget.ts`, enforced in `lib/tools/fetch.ts:691-713`).
   Quality turns may make at most `FETCH_ROUNDS_MAX_QUALITY` (default **8**) `fetch`
   **calls**; each call can read up to 5 URLs. Other modes have no fetch cap unless
@@ -261,9 +331,9 @@ flowchart TD
   A query is recorded only after its search *succeeds* (`search.ts:1302-1308`, and
   `:708-714` on the speed path), with or without an embedding, so a failed search can be
   retried and an exact repeat is still caught without one. Before this check runs, the
-  researcher's `wrapSearchToolWithDedup` (`lib/agents/researcher.ts:272`, unchanged)
+  researcher's `wrapSearchToolWithDedup` (`lib/agents/researcher.ts:280`, unchanged)
   short-circuits an exact repeat by lowercase and collapsed spaces (`normalizeQuery`,
-  `researcher.ts:246-248`; logs `[search] duplicate query short-circuited`) and routes a bare
+  `researcher.ts:254-256`; logs `[search] duplicate query short-circuited`) and routes a bare
   URL to `fetch`; after the search it removes URLs the turn already returned. None of these
   skips count against the round cap.
 
@@ -720,7 +790,8 @@ inlined at build time and do need a rebuild.
 | `SEARCH_ROUNDS_MAX` | Max `search` calls per turn (speed/balanced) | 3 | |
 | `SEARCH_ROUNDS_MAX_QUALITY` | Same, quality ([D40](/history/decisions#d40-quality-mode-read-pages-past-the-search-cap)) | 10 (5 before 2026-09-30) | unset on prod and staging; lab compose pins `${SEARCH_ROUNDS_MAX_QUALITY:-10}` |
 | `FETCH_ROUNDS_MAX_QUALITY` | Max `fetch` calls per quality turn; past the search cap, a quality turn may still fetch ([fetch cap](#round-cap)) | 8 | unset in all envs |
-| `FETCH_ROUNDS_MAX` | Same, for speed and balanced; setting it also switches their round-cap notice to the "fetch still allowed" wording | unset = no cap | unset in all envs |
+| `FETCH_ROUNDS_MAX` | Same, for speed and balanced; setting it also switches their round-cap notice to the "fetch still allowed" wording (and lifts the post-cap tool-step limit below) | unset = no cap | unset in all envs |
+| `POST_CAP_TOOL_STEPS_MAX` | In a mode without a fetch budget (speed and balanced by default), the tool-using steps a turn may take after the search cap before every remaining step is answer-only ([after the cap](#round-cap)); an invalid or non-positive value falls back to the default (`lib/agents/search-cap.ts:203-211`) | 4 | unset in all envs |
 | `CITATION_REMINDER` / `CITATION_REMINDER_MIN_TOOL_CALLS` | Experiment: re-run the answer step of a long loop with a citation reminder ([D40](/history/decisions#d40-quality-mode-read-pages-past-the-search-cap)); only the literal `on` enables it | off / 8 | unset in all envs (off) |
 | `SEARCH_DEPTH_TIERING` | `off` disables one-advanced-per-turn | on | |
 | `SEARXNG_DEFAULT_DEPTH` | `advanced` forces advanced depth when tiering is off | `basic` | |
@@ -816,7 +887,12 @@ and recreate the container. Check the effect with the `kind:"round-cap"` lines
 and `prompt_tokens` in [Telemetry](/operations/telemetry). For quality, tune the search and
 fetch caps together: the 2026-09-30 A/B showed the answers come from fetched pages, so a low
 search cap is harmless only while fetching past it is allowed. Watch `fetch_allowed` on the
-`round-cap` lines and the `[fetch] fetch cap reached` log line.
+`round-cap` lines and the `[fetch] fetch cap reached` log line. What happens after the cap is a
+separate knob: `POST_CAP_TOOL_STEPS_MAX` (speed and balanced only) sets how many tool steps a
+turn may take past the cap before it must answer. Before changing it, count the tool-using steps
+after the cap in stored turns per model, as was done for the default of 4, and read the
+`[search-cap]` lines ([telemetry](/operations/telemetry)): a `… tool steps after the round cap`
+line is a turn the limit cut short.
 
 **Tune the near-duplicate skip.** Collect the `[search-dedup] kept …` lines (each is a search
 the old rule would have skipped, with the word that kept it) and the `skipping … (near, …)`
