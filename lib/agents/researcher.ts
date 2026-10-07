@@ -65,7 +65,11 @@ import {
   resolveCitationReminderMode,
   withCitationReminder
 } from './citation-reminder'
-import { type SearchCapStep, withdrawSearchAfterCap } from './search-cap'
+import {
+  answerNowOnSearchEvasion,
+  type SearchCapStep,
+  withdrawSearchAfterCap
+} from './search-cap'
 
 // The pasted-URL branch fills a source's title from the fetched page's <title>,
 // which is attacker-controlled when the user pastes a hostile link. That title
@@ -918,6 +922,11 @@ Treat each exactly like a \`search\` or \`fetch\` result from this turn: ${docCi
     const turnStartedAt = Date.now()
     const pastAnswerDeadline = () =>
       Date.now() - turnStartedAt >= ANSWER_DEADLINE_MS
+    // Set by prepareStep once the model called `search` after it was withdrawn
+    // (lib/agents/search-cap.ts, stage 2): from then on the turn is
+    // answer-now, and the execute wrapper below refuses tool calls exactly as
+    // it does past the deadline.
+    let answerNowAfterSearchEvasion = false
 
     // Build tools object with proper typing
     const rawTools: ResearcherTools = {
@@ -950,11 +959,17 @@ Treat each exactly like a \`search\` or \`fetch\` result from this turn: ${docCi
 
     // `activeTools: []` from applyAnswerDeadline only stops ADVERTISING tools;
     // the SDK still executes a call against this map. Wrapping every execute
-    // is what actually stops a late search/fetch from running past the deadline.
-    const tools = enforceAnswerDeadline(rawTools, pastAnswerDeadline, name =>
-      console.log(
-        `[deadline] refused ${name} call at ${Math.round((Date.now() - turnStartedAt) / 1000)}s — answering from gathered sources`
-      )
+    // is what actually stops a late search/fetch from running past the
+    // deadline — or past the search cap's answer-now switch (same refusal).
+    const tools = enforceAnswerDeadline(
+      rawTools,
+      () => pastAnswerDeadline() || answerNowAfterSearchEvasion,
+      name =>
+        console.log(
+          pastAnswerDeadline()
+            ? `[deadline] refused ${name} call at ${Math.round((Date.now() - turnStartedAt) / 1000)}s — answering from gathered sources`
+            : `[search-cap] refused ${name} call after the model kept calling search — answering from gathered sources (chat=${currentChatId ?? '?'})`
+        )
     )
 
     // Control-flow variant (lib/agents/flows). `baseline` is a no-op and is
@@ -1083,14 +1098,28 @@ Treat each exactly like a \`search\` or \`fetch\` result from this turn: ${docCi
             `[search-cap] search withdrawn at step ${stepNumber} after the round cap (chat=${currentChatId ?? '?'})`
           )
         }
+        // Stage 2: the model called `search` on a step that ran without it,
+        // so the rest of the turn is answer-now (no tools + the deadline's
+        // note). Sticky: it reads the same steps every later step.
+        const evaded = answerNowOnSearchEvasion(capped, {
+          steps: steps as readonly SearchCapStep[],
+          systemPrompt: effectiveSystemPrompt
+        })
+        if (evaded !== capped && !answerNowAfterSearchEvasion) {
+          answerNowAfterSearchEvasion = true
+          console.log(
+            `[search-cap] model kept calling search after withdrawal at step ${stepNumber} — tools withdrawn, answering now (chat=${currentChatId ?? '?'})`
+          )
+        }
         // Applied LAST so it wins over a variant's own activeTools (and over
-        // the search withdrawal): which tools are visible mid-loop is a
-        // preference, having a step left to answer in is not.
-        const o = applyAnswerDeadline(capped, {
+        // both search-cap stages): which tools are visible mid-loop is a
+        // preference, having a step left to answer in is not. `o !== evaded`
+        // below means the TIME deadline fired, nothing else.
+        const o = applyAnswerDeadline(evaded, {
           elapsedMs: Date.now() - turnStartedAt,
           systemPrompt: effectiveSystemPrompt
         })
-        if (o !== capped) {
+        if (o !== evaded) {
           console.log(
             `[deadline] ${Math.round((Date.now() - turnStartedAt) / 1000)}s elapsed at step ${stepNumber} — tools withdrawn, answering now`
           )
@@ -1118,7 +1147,10 @@ Treat each exactly like a \`search\` or \`fetch\` result from this turn: ${docCi
           stepNumber > 0
             ? resolveCitationReminderMode({
                 citableToolCalls,
-                answerDeadlinePassed: o !== capped
+                // Tools withdrawn and the answer-now note in force, so this
+                // step writes the answer by construction: the time deadline,
+                // or the search cap's answer-now stage (same override).
+                answerDeadlinePassed: o !== evaded || evaded !== capped
               })
             : 'none'
         if (reminderMode === 'append' && !Array.isArray(messages)) {
