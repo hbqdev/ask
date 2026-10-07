@@ -73,6 +73,7 @@ names the lab original. See [deploy](/operations/deploy) for the flow.
 | [D42](#d42-near-duplicate-search-skip-only-for-true-repeats) | Near-duplicate search skip only for true repeats: exact, or cosine ≥ 0.90 with no new word or number (was cosine ≥ 0.92 alone) | adopted | 2026-10-01 |
 | [D43](#d43-snippet-citations-measured-not-re-pointed) | Snippet citations: evidence telemetry only; in-page cite markers and automatic re-pointing measured and dropped | adopted (telemetry); two fixes **rejected** | 2026-10-01 |
 | [D44](#d44-shortened-and-one-character-off-citation-ids-resolve) | Shortened and one-character-off citation ids resolve to the one call of the turn they name (`id-prefix`, `id-typo`) | adopted (lab, staging and prod) | 2026-10-06 |
+| [D45](#d45-search-withdrawn-after-the-round-cap-then-answer-only-steps) | After the search round cap, stop offering `search`; a model that calls it anyway, or (speed/balanced) uses tools on 4 more steps, gets answer-only steps | adopted (lab and staging; prod pending) | 2026-10-07 |
 
 ---
 
@@ -158,14 +159,14 @@ names the lab original. See [deploy](/operations/deploy) for the flow.
 - **Reversal (2026-09-26, owner decision).** The prod record over the 60 days before the change
   showed what the gate was withholding: of 164 turns, 69 used no tools, 20 of them `skipSearch`
   turns and 47 `stable-knowledge` turns (`lib/agents/query-classifier.ts:217-221`,
-  `lib/agents/researcher.ts:191-196`). Many asked about named products, company policies, home
+  `lib/agents/researcher.ts:199-204`). Many asked about named products, company policies, home
   repair and cleaning, health and safety, or current fiction, and were answered confidently from
   memory. One answer about melted plastic on an oven tray recommended acetone with no fire
   warning. D3's evaluation judged answer style on settled concepts; it did not cover these
   questions. The owner ruled that correctness and safety on such questions outweigh the padding
   D3 avoided, so every question now searches ([D37](#d37-always-search-every-question)).
   - **What still exists.** `resolveTurnMode` keeps the gate after the flag check
-    (`lib/agents/researcher.ts:202`), `STABLE_KNOWLEDGE_PROMPT` is unchanged, and the old
+    (`lib/agents/researcher.ts:210`), `STABLE_KNOWLEDGE_PROMPT` is unchanged, and the old
     classifier prompt is kept verbatim as `LEGACY_CLASSIFIER_SYSTEM_PROMPT`
     (`lib/agents/query-classifier.ts:165`). The classifier still emits `needsSources`; with the
     flag on it is logged and gates nothing.
@@ -319,6 +320,13 @@ names the lab original. See [deploy](/operations/deploy) for the flow.
   near-duplicate skip now fires only on true repeats (exact, or cosine ≥ 0.90 with no new word
   or number). About three in four true repeats it used to skip now run, and each uses a round
   of this cap; the old rule's false skips, which dropped real searches, are gone.
+- **Update 2026-10-07** ([D45](#d45-search-withdrawn-after-the-round-cap-then-answer-only-steps);
+  lab and staging, prod pending). The refusal notice alone did not stop every model: one prod
+  turn had 80 `search` calls refused. From the step after the first refusal `search` is no
+  longer offered, and a model that calls it anyway, or in speed/balanced uses tools on
+  `POST_CAP_TOOL_STEPS_MAX` (4) more steps, gets answer-only steps. The refusal inside the tool
+  stays the backstop. Parallel calls in one step can still overshoot the budget
+  ([known issue](/history/known-issues#parallel-search-calls-can-overshoot-the-round-cap)).
 
 ### D10. Answering-model reasoning OFF by default
 
@@ -946,6 +954,79 @@ the depth.
   `GENERIC_SEARCH_WORDS` with a test per word, never a facet word), or the share of true repeats
   that run costs measurable rounds on balanced turns.
 
+### D45. Search withdrawn after the round cap, then answer-only steps
+
+- **Status:** adopted (lab and staging; prod pending) · **Date:** 2026-10-07 · **Commits:** lab
+  `d1a86bda` + `c86bbdaa` + `798030de`; staging `d799a91c` + `1f8ece82` + `49e33297`; prod
+  pending.
+- **Context.** The round cap ([D9](#d9-search-round-cap-enforced-inside-the-tool)) refuses a
+  search with an ordinary tool result whose only stop signal is its notice, and `search` stayed
+  in `activeTools` on every later step. Prod chat `cznh8gc1gz41vq2lwjb560br` (mistral-large-4,
+  balanced, cap 3): 5 real searches, then 80 `search` calls refused over about 30 steps; 36
+  steps, 89 tool calls, 2,066,500 prompt tokens, 259 s. The answer itself was fine (77
+  citations, 0 unresolved). In stored history every other model stopped after 1–5 refusals (at
+  most 5 in any turn, all envs), so the cap only stopped models that obey tool-result
+  instructions.
+- **Decision: three stages after the cap**, in `lib/agents/search-cap.ts`, applied in the
+  researcher's `prepareStep` (`lib/agents/researcher.ts:1098-1135`) between the flow variant and
+  the time deadline:
+  1. **Stop offering `search`** (`withdrawSearchAfterCap`, `search-cap.ts:92-110`) from the step
+     after the first result with `searchLimitReached: true`, filtering the variant's tool list if
+     it set one, else the mode's. Every other tool stays offered.
+  2. **Answer-only if `search` is called anyway** (`answerNowOnSearchEvasion`, `:150-163`): a
+     `search` call on any step after the withdrawal (refused, failed input validation, or any
+     other) makes every remaining step offer no tools and carry the answer deadline's
+     `ANSWER_NOW_NOTE` (`answerNowOverrides`, factored out of `applyAnswerDeadline`,
+     `lib/agents/answer-deadline.ts:80-95`; the note is added once), and the deadline's `execute`
+     wrapper refuses any call the model still makes (`researcher.ts:966-979`). Every mode.
+  3. **Answer-only after `POST_CAP_TOOL_STEPS_MAX` tool steps** (`answerNowAfterPostCapToolSteps`,
+     `:233-252`; default 4, `:187`): only where `resolveFetchRoundsBudget(mode)` is null, i.e.
+     the modes whose cap notice says "answer now" (speed and balanced by default). After that
+     many tool-using steps past the capped step, the rest of the turn is answer-only, with the
+     same override and refusal as stage 2.
+
+  The time deadline stays last; `[deadline]` and its identity check (`o !== postCap`) still mean
+  the 200 s deadline only. Both answer-only stages count as an answer step for the citation
+  reminder (`researcher.ts:1175`). Each stage logs one `[search-cap]` line per turn
+  ([telemetry](/operations/telemetry#the-lines)).
+- **Evidence** (mistral-large-4, balanced; one lab turn after each stage, single runs):
+  - **Stage 1 alone:** 36 → 9 steps, 2.07M → 0.40M prompt tokens, 259 → 163 s. But the model
+    still called `search` on 4 later steps: 12 calls refused, 3 failed input validation (it
+    guessed the arguments of a tool it no longer saw: `search_mode`, `recent`, `type`). A direct
+    Ollama replay: offered only `fetch`, it emitted `search` calls anyway (1 of 2 runs); offered
+    no tools plus the answer-now note, it answered (2 of 2). Hence stage 2.
+  - **Stages 1–2:** `search` was withdrawn and not called again, but the model made 13 single
+    `fetch` calls, one per step (several 404s on URLs it had constructed): 17 steps, 1.21M prompt
+    tokens, 268 s. Balanced has no fetch budget, so nothing bounded that except the step ceiling
+    and the 200 s deadline. Hence stage 3.
+  - **Sizing stage 3** from stored history, tool-using steps after the cap in balanced turns:
+    deepseek-v4.1-flash 0 in all 11 turns, glm-5.3-flash 0 in all 5, kimi-k2.6 0 in all 5,
+    deepseek-v4-pro at most 1, the delisted deepseek-v4-flash p90 4 and max 6, mistral-large-4
+    32, 13 and 5. Replayed, the three mistral turns switch at step 4 (stage 2) or 7; no stored
+    turn of a currently listed model is affected; quality is unchanged.
+  - **Stages 1–3:** the model answered on its own at step 4, after the withdrawal, before
+    either answer-only stage fired: 5 steps, 13 tool calls, 221k prompt tokens, 162 s, 50
+    citations, 0 unresolved.
+- **Why stage 2 applies in every mode.** In stored history the one turn of a currently listed
+  model it would have switched, a kimi-k2.6 quality turn on the lab (2026-09-30), made its stray
+  `search` call while `search` was still offered, before stage 1 existed: not a model ignoring a
+  withdrawal. Without stage 2, a quality turn that keeps calling a withdrawn `search` would be
+  bounded only by the 200 s deadline.
+- **Why stage 3 skips quality.** Quality's cap notice deliberately allows fetching pages this
+  turn found, bounded by its fetch cap ([D40](#d40-quality-mode-read-pages-past-the-search-cap));
+  there, tool steps after the cap are the point.
+- **Not fixed here.** The budget was 3 but 5 searches ran: parallel calls in one step race the
+  counter in `lib/tools/search.ts`
+  ([known issue](/history/known-issues#parallel-search-calls-can-overshoot-the-round-cap)).
+- **Tests.** `lib/agents/__tests__/search-cap.test.ts` (the pure stages),
+  `researcher-search-cap.test.ts` (the real researcher loop with a model that keeps calling
+  `search`), `answer-deadline.test.ts` (`answerNowOverrides`).
+- **Revert.** No flag for stages 1–2: revert the commits. Stage 3 can be loosened with
+  `POST_CAP_TOOL_STEPS_MAX` (a large value effectively disables it) on a container recreate.
+- **Revisit if** a `… tool steps after the round cap` line shows up for a currently listed model
+  on a turn that needed the extra reads (judge the answer first), or a model is seen ignoring
+  the answer-only step itself (`[search-cap] refused <tool> call` lines).
+
 ---
 
 ## Knowledge, storage and config
@@ -1439,7 +1520,7 @@ turn-based loop (`git revert b0ff56ad`) brings back the same latency.
   2. **Where it is added: only in model-facing output.** The `search` tool's `toModelOutput`
      (`lib/tools/search.ts:1328-1341`) numbers the results **after** the researcher's per-turn
      URL dedup, because the dedup wrapper yields the trimmed list and keeps the tool's
-     `toModelOutput` (`lib/agents/researcher.ts:272-369`). `fetch` gained a `toModelOutput`
+     `toModelOutput` (`lib/agents/researcher.ts:280-377`). `fetch` gained a `toModelOutput`
      (`lib/tools/fetch.ts:800-806`) that numbers the merged `results`, from which failed URLs
      are already left out; with the flag off it returns exactly what the SDK sends for a tool
      without one. Attached-document and pasted-URL excerpts never pass through a tool, so
@@ -1461,8 +1542,8 @@ turn-based loop (`git revert b0ff56ad`) brings back the same latency.
      same switch rewrites the numbering sentence of the balanced/quality citation rule
      (`getCitationNumberingSentence`, `:276-280`), the forced-search addendum's citing sentence
      (`getForcedSearchPromptAddendum`, `lib/agents/always-search.ts:330-338`) and the
-     attached-sources clause (`lib/agents/researcher.ts:891-901`). The speed prompt is now built
-     per turn (`getQuickModePrompt()`, `researcher.ts:745`) instead of from the module-level
+     attached-sources clause (`lib/agents/researcher.ts:899-909`). The speed prompt is now built
+     per turn (`getQuickModePrompt()`, `researcher.ts:753`) instead of from the module-level
      `SPEED_MODE_PROMPT` constant, so the flag is honoured there too.
   5. **The flag.** `CITATION_HANDLES`, read per call by `isCitationHandlesEnabled`
      (`citation-handles.ts:24-28`). Default on; only the literal `off` disables it (the
@@ -1686,11 +1767,11 @@ turn-based loop (`git revert b0ff56ad`) brings back the same latency.
      previous answer, and questions the conversation already seems to answer. If the classifier
      is unsure, it searches. `needsSources` is still produced, but only for analysis: it gates
      nothing.
-  2. **Turn mode.** `resolveTurnMode` (`lib/agents/researcher.ts:170-204`): `skipSearch` →
+  2. **Turn mode.** `resolveTurnMode` (`lib/agents/researcher.ts:178-212`): `skipSearch` →
      `direct`; everything else → `research`. `stable-knowledge` cannot be reached while the flag
      is on.
   3. **A guaranteed first search.** On a `research` turn, `prepareStep` gives step 0 to a
-     synthetic model instead of the user's model (`researcher.ts:1136-1138`).
+     synthetic model instead of the user's model (`researcher.ts:1202-1204`).
      `createForcedSearchModel` (`lib/agents/always-search.ts:264`) is a `LanguageModelV3` whose
      only output is **one `search` tool call**. Its query is the classifier's `standaloneQuery`
      with URLs removed, clipped at a word boundary to 400 characters (`resolveForcedSearchQuery`,
@@ -1701,7 +1782,7 @@ turn-based loop (`git revert b0ff56ad`) brings back the same latency.
      and telemetry all apply. The result streams to the browser, is persisted, and is citable by
      its toolCallId. The user's model answers from step 1 with those results in context.
   4. **The prompt is told.** `FORCED_SEARCH_PROMPT_ADDENDUM` (`always-search.ts:319`, appended at
-     `researcher.ts:853-855`) says the first search has already run, asks for the answer to be
+     `researcher.ts:861-863`) says the first search has already run, asks for the answer to be
      grounded and cited, and cancels the mode prompts' "clarifying your own prior answer, do not
      search" exception. Since 2026-09-27 it also says this is the first search, not the only one
      (addendum below). It is appended after the mode prompt, so it wins. Since 2026-09-27 it is
@@ -1723,7 +1804,7 @@ turn-based loop (`git revert b0ff56ad`) brings back the same latency.
   behave the same.
   - **Forced:** every `research` turn where the user did not supply the source and the resolved
     query still has text after URLs are removed (`resolveForcedFirstSearch`,
-    `researcher.ts:215-232`).
+    `researcher.ts:223-240`).
   - **Research but not forced: the user supplied the source** (follow-up the same day,
     `detectUserSuppliedSource`, `lib/agents/always-search.ts:118-137`, read from the latest
     message's parts). A URL in the text or a pasted link chip: the first version searched the
@@ -1784,7 +1865,7 @@ turn-based loop (`git revert b0ff56ad`) brings back the same latency.
     real question is still searched on its words alone
     ([known issue](/history/known-issues#image-attachment-forces-a-generic-search)).
   - **`remember` writes**: `remember` is candidate-only on research turns
-    (`researcher.ts:928-937`), so a "remember that …" message must stay `direct` to be confirmed.
+    (`researcher.ts:944-953`), so a "remember that …" message must stay `direct` to be confirmed.
     Checked on the lab classifier (`deepseek-v4-pro:cloud`, single message and as a second turn):
     "remember that I'm vegetarian", "remember I prefer metric units" and "forget my address"
     were already `skipSearch:true` under both the legacy and the first ALWAYS_SEARCH prompt, so no
@@ -1902,7 +1983,9 @@ turn-based loop (`git revert b0ff56ad`) brings back the same latency.
   stream: a tool call passes through untouched; answer text (a markdown heading, or 280
   characters without a tool call) aborts that attempt at the HTTP layer and re-runs the step
   once with the reminder as a trailing **user** message. On the answer-deadline step (tools
-  withdrawn) it is appended directly. Wiring: `lib/agents/researcher.ts:979-1017`, `:1095-1130`.
+  withdrawn), or since 2026-10-07 a search-cap answer-only step
+  ([D45](#d45-search-withdrawn-after-the-round-cap-then-answer-only-steps)), it is appended
+  directly. Wiring: `lib/agents/researcher.ts:1001-1039`, `:1158-1195`.
   - *Why user, not system:* Ollama drops a system message that is not the first one for
     kimi-k2.6 (`prompt_eval_count` unchanged); glm-5.3-flash did render it.
   - *Why only on the answer step:* replays showed the same trailing message also steers the

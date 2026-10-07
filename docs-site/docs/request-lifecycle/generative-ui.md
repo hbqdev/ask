@@ -263,7 +263,7 @@ model is still typing the block.
 | Prompt | Included by |
 |---|---|
 | Image spec + related questions | Quick/speed mode (`lib/agents/prompts/search-mode-prompts.ts:268`, `:270`), adaptive/balanced mode (`:470`, `:472`); quality mode starts from the adaptive prompt (`getQualityModePrompt`, `lib/agents/prompts/search-mode-prompts.ts:476`) |
-| Related questions only | The direct-answer and stable-knowledge turn prompts (`lib/agents/researcher.ts:119`, `lib/agents/researcher.ts:156`) — no search ran, so there are no images to embed |
+| Related questions only | The direct-answer and stable-knowledge turn prompts (`lib/agents/researcher.ts:127`, `lib/agents/researcher.ts:164`) — no search ran, so there are no images to embed |
 
 The related-questions prompt is deliberately restrictive ("When in doubt, skip"):
 follow-ups are omitted for greetings, trivial lookups and refusals, and the three
