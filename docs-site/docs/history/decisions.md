@@ -48,7 +48,7 @@ names the lab original. See [deploy](/operations/deploy) for the flow.
 | [D17](#d17-20k-per-page-crop-with-a-crop-position-shadow) | 20k per-page crop + crop-position shadow | adopted (experiment) | 2026-08-06 |
 | [D18](#d18-targeted-reasoning-reasoning-only-on-research-turns) | Targeted reasoning (research turns only); since D37 nearly every turn is a research turn | **inconclusive** | 2026-09-19 |
 | [D19](#d19-follow-up-re-search-prompt-nudge) | Follow-up re-search prompt nudge (only re-searching since D37) | adopted (soft) | 2026-09-19 |
-| [D20](#d20-narration-strippers-strict-at-persist-best-effort-live) | Narration strippers: strict at persist, best-effort live; language-agnostic rules applied wherever text is read; stored history backfilled; a planning draft in front of a glued restart is cut (10-06: lab and staging; prod pending) | adopted | 2026-09-10 / 09-17 / 09-28 / 09-29 / 10-06 |
+| [D20](#d20-narration-strippers-strict-at-persist-best-effort-live) | Narration strippers: strict at persist, best-effort live; language-agnostic rules applied wherever text is read; stored history backfilled; a planning draft in front of a glued restart is cut (10-06: lab, staging and prod) | adopted | 2026-09-10 / 09-17 / 09-28 / 09-29 / 10-06 |
 | [D21](#d21-other-latency-knobs-measured) | Other latency knobs measured (rerank budget, enrich cap, crawl parallelism, turn budget) | mixed | 2026-07/09 |
 | [D22](#d22-multi-agent-deep-research) | Multi-agent deep research | **shelved** | 2026-08-04 |
 | [D23](#d23-uploads-and-url-rag-on-disk-not-pgvector) | Uploads / URL RAG on disk, not pgvector | adopted | 2026-07-07 → 09-12 |
@@ -72,7 +72,7 @@ names the lab original. See [deploy](/operations/deploy) for the flow.
 | [D41](#d41-on-wsl-hosts-nothing-that-waits-for-docker-is-enabled-at-boot) | On WSL hosts, nothing that waits for Docker is enabled into `multi-user.target` | adopted | 2026-09-29 |
 | [D42](#d42-near-duplicate-search-skip-only-for-true-repeats) | Near-duplicate search skip only for true repeats: exact, or cosine ≥ 0.90 with no new word or number (was cosine ≥ 0.92 alone) | adopted | 2026-10-01 |
 | [D43](#d43-snippet-citations-measured-not-re-pointed) | Snippet citations: evidence telemetry only; in-page cite markers and automatic re-pointing measured and dropped | adopted (telemetry); two fixes **rejected** | 2026-10-01 |
-| [D44](#d44-shortened-and-one-character-off-citation-ids-resolve) | Shortened and one-character-off citation ids resolve to the one call of the turn they name (`id-prefix`, `id-typo`) | adopted (lab and staging; prod pending) | 2026-10-06 |
+| [D44](#d44-shortened-and-one-character-off-citation-ids-resolve) | Shortened and one-character-off citation ids resolve to the one call of the turn they name (`id-prefix`, `id-typo`) | adopted (lab, staging and prod) | 2026-10-06 |
 
 ---
 
@@ -509,8 +509,8 @@ non-determinism, the agent's search-or-not choice and the ceiling swamp live A/B
   `6e19914f` (2026-09-28, [addendum › Decision 5](#decision-5-the-live-transform-cuts-the-glued-seam)),
   `d751352d` (2026-09-29, [addendum › Decision 6](#decision-6-the-glued-seam-wins-at-persist-too)),
   backfill tool `a59d0c65` (run 2026-09-28/29, [addendum › Backfill](#backfill-2026-09-28-29));
-  lab `a6a9d6c0` / staging `1a43ef1c` (2026-10-06, [addendum › Decision 7](#decision-7-a-planning-draft-in-front-of-a-glued-restart-is-cut);
-  lab and staging, prod pending); earlier `f4c53a7a` (2026-07-08)
+  lab `a6a9d6c0` / staging `1a43ef1c` / prod `20cb9cc1` (2026-10-06, [addendum › Decision 7](#decision-7-a-planning-draft-in-front-of-a-glued-restart-is-cut);
+  prod rows backfilled 2026-10-07); earlier `f4c53a7a` (2026-07-08)
 - **Context.** Reasoning models emit "process narration" such as "I have comprehensive data now…
   let me search…" or "The search limit has been reached (3 rounds)…" as text parts. Two families
   exist: separate inter-step text parts, and narration **fused into the final text part** (after
@@ -771,8 +771,8 @@ non-determinism, the agent's search-or-not choice and the ceiling swamp live A/B
     genuine intro prose lives.
 - <span id="decision-7-a-planning-draft-in-front-of-a-glued-restart-is-cut"></span>**Addendum
   2026-10-06 (Decision 7): a planning draft in front of a glued restart is cut.** Lab
-  `a6a9d6c0`, staging `1a43ef1c`. **Status: lab and staging; prod pending** (the prod rollout,
-  and the backfill of the 4 affected prod rows). It shipped together with the citation resolver
+  `a6a9d6c0`, staging `1a43ef1c`, prod `20cb9cc1`. **Status: lab, staging and prod**; the 4
+  affected prod rows were backfilled on 2026-10-07 (backup, apply, verify 4/4, re-index). It shipped together with the citation resolver
   repair ([D44](#d44-shortened-and-one-character-off-citation-ids-resolve)); see "Why it ships
   with D44" below.
   - **What leaked.** Prod chat `mzwbeqoe15wgh12et66fybzo` (glm-5.3-flash, 2026-10-06), 4
@@ -1361,7 +1361,7 @@ turn-based loop (`git revert b0ff56ad`) brings back the same latency.
     resolved only when the message made exactly one citable call; the URL-fragment rule from
     2026-09-24. Within a call, an in-range N is that result; an out-of-range N resolves only on
     a fetch whose output holds exactly one page that is not a `Fetch failed:` result
-    (`resolveWithinCall`, `:317-351`). Since 2026-10-06 (lab and staging; prod pending) two
+    (`resolveWithinCall`, `:317-351`). Since 2026-10-06 (lab, staging and prod) two
     more steps sit between the unwrap and the placeholder: a shortened id (`id-prefix`) and a
     full-length id one character off (`id-typo`), each only when it names exactly one call of
     the message ([D44](#d44-shortened-and-one-character-off-citation-ids-resolve)).
@@ -1493,7 +1493,7 @@ turn-based loop (`git revert b0ff56ad`) brings back the same latency.
     restricted to search results (deepseek 18.8 % vs 64 %, kimi 19.1 % vs 46.3 %).
   - kimi-k2.6 lost 3 citations by copying the 36-character id with one character missing. The
     resolver had no typo repair, so they rendered as nothing. Shorter ids were a possible
-    follow-up. **Since 2026-10-06** (lab and staging; prod pending) the resolver maps an id one
+    follow-up. **Since 2026-10-06** (lab, staging and prod) the resolver maps an id one
     character off exactly one call of the turn to that call, and a shortened id to the one call
     it starts ([D44](#d44-shortened-and-one-character-off-citation-ids-resolve)).
   - **Open question:** with handles on, deepseek-v4.1-flash fetched a page on 4 of 4 turns, 0 of
@@ -1597,8 +1597,8 @@ turn-based loop (`git revert b0ff56ad`) brings back the same latency.
 
 ### D44. Shortened and one-character-off citation ids resolve
 
-- **Status:** adopted · **Rollout: lab and staging; prod pending** · **Date:** 2026-10-06 ·
-  **Commit:** lab `6b779bfe`, staging `5ab6760f`.
+- **Status:** adopted · **Rollout: lab, staging and prod** · **Date:** 2026-10-06 ·
+  **Commit:** lab `6b779bfe`, staging `5ab6760f`, prod `a89fb3f2`.
 - **Context.** glm-5.3-flash writes anchors with a truncated id, `[3](#17d98f5d)`,
   `[1](#71cee5ba...)`, `[2](#74661147-...)`, for this turn's
   `17d98f5d-f270-46f8-92e8-e2acaa3a4705`, although every result hands it the full id in its

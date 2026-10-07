@@ -41,7 +41,7 @@ thing.
 | [Old answers keep leaked narration in storage](#old-answers-with-leaked-reasoning-stay-leaked) | data | ~~Low~~ fixed 2026-09-28/29 (staging and prod backfilled, recall re-indexed) | done |
 | [An answer with a glued preamble appears late while streaming](#an-answer-with-a-glued-preamble-appears-late-while-streaming) | UI | ~~Low~~ fixed 2026-09-28 (lab, staging, prod) | done (the remaining short delay is by design) |
 | [A glued first section can be cut at persist](#a-glued-first-section-can-be-cut-at-persist) | chat | ~~Low~~ fixed 2026-09-29 (lab, staging, prod) | done |
-| [A planning draft shows while the answer streams](#a-planning-draft-shows-while-the-answer-streams) | chat | Low (the draft in the saved answer is cut since 2026-10-06: lab and staging; prod pending) | ops: prod rollout + backfill of the 4 prod answers; the flash while streaming is by design |
+| [A planning draft shows while the answer streams](#a-planning-draft-shows-while-the-answer-streams) | chat | Low (the draft in the saved answer is cut since 2026-10-06 on every env; the 4 stored prod answers backfilled 2026-10-07) | none; the flash while streaming is by design |
 | [Snippet citations: wrong page and assembled numbers](#citations-point-at-a-snippet-instead-of-the-fetched-page) | chat | Med | code (open; measured on every turn since 2026-10-01) |
 | [todoWrite calls failed validation](#todowrite-calls-failed-validation) | chat | ~~Low~~ fixed 2026-09-29 (lab, staging, prod) | done |
 | [Near-duplicate dedup drops templated queries](#near-duplicate-dedup-drops-templated-queries) | search | ~~Low~~ fixed 2026-10-01 (lab, staging, prod; 0 false skips on 446 labelled pairs) | watch `[search-dedup] kept` lines |
@@ -724,7 +724,7 @@ These are decisions still pending, not bugs:
      id with one character missing. The resolver had no typo repair, so a near-miss rendered as
      nothing and counted in `citations_unresolved`. The 60-day replay showed the same shape before
      handles: 12 anchors in 2 messages within 1–2 characters of a real id. **Since 2026-10-06**
-     (lab and staging; prod pending) an id one character off exactly one call of the turn
+     (lab, staging and prod) an id one character off exactly one call of the turn
      resolves (`id-typo`), and so does an id shortened to at least 8 hex characters that starts
      exactly one call (`id-prefix`, the glm-5.3-flash shape); both count as
      `citations_recovered`. An id two characters off is still dropped
@@ -935,9 +935,9 @@ These are decisions still pending, not bugs:
   (`mzwbeqoe15wgh12et66fybzo`, 2026-10-06); the drafts were 2.0–15.1 KB. The glued-seam rule
   refuses such a prefix, because it has headings of its own and is longer than 2,000
   characters.
-- **Status: the saved and displayed answer is fixed 2026-10-06 on lab and staging** (lab
-  `a6a9d6c0`, staging `1a43ef1c`); **prod pending**: the prod rollout and the backfill of the 4
-  stored prod answers ([runbook](/operations/runbooks#re-run-the-narration-backfill)). Persist,
+- **Status: the saved and displayed answer is fixed 2026-10-06 on lab, staging and prod** (lab
+  `a6a9d6c0`, staging `1a43ef1c`, prod `20cb9cc1`); the 4 stored prod answers were backfilled
+  2026-10-07 ([runbook](/operations/runbooks#re-run-the-narration-backfill)). Persist,
   the render view and every other reader cut the draft at the glued seam
   (`stripDraftBeforeRestart`, `lib/streaming/helpers/strip-narration-preamble.ts:571-574`).
   The four conditions, the thresholds and the replay evidence (exactly those 4 answers cut
