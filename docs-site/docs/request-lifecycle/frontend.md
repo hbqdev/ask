@@ -275,8 +275,8 @@ through `processCitations` too (`components/message-actions.tsx:103-110`). The r
 | id of a citable call of this message, N in range (and the result has a valid URL) | `own`: result N of that call |
 | same id with a model-added `toolu_` / `call_` / `search-` prefix | normalised, then as above |
 | one of this message's ids wrapped as `<id-UUID>`, `<UUID>` or `id-UUID` | `recovered` (`wrapped-id`): unwrapped, then looked up |
-| a shortened id: after trimming whitespace, one trailing `...` / `…` and trailing dashes, at least 8 hex/dash characters that start **exactly one** of this message's citable call ids (`[1](#71cee5ba...)`, `[3](#17d98f5d)`); since 2026-10-06, lab and staging (prod pending) | `recovered` (`id-prefix`): that call, then N as for its full id. Shorter, ambiguous or another turn's prefix: dropped |
-| a full-length id one character substituted, added or dropped from **exactly one** of this message's UUID-shaped call ids; since 2026-10-06, lab and staging (prod pending) | `recovered` (`id-typo`): that call, then N as for its full id. Two characters off, or one off two calls or another turn's id: dropped |
+| a shortened id: after trimming whitespace, one trailing `...` / `…` and trailing dashes, at least 8 hex/dash characters that start **exactly one** of this message's citable call ids (`[1](#71cee5ba...)`, `[3](#17d98f5d)`); since 2026-10-06, lab, staging and prod | `recovered` (`id-prefix`): that call, then N as for its full id. Shorter, ambiguous or another turn's prefix: dropped |
+| a full-length id one character substituted, added or dropped from **exactly one** of this message's UUID-shaped call ids; since 2026-10-06, lab, staging and prod | `recovered` (`id-typo`): that call, then N as for its full id. Two characters off, or one off two calls or another turn's id: dropped |
 | a placeholder: `<token>`, `id-X`, `toolCallId`, or any example id the prompts have used | `recovered` (`placeholder`) only if the message made **exactly one** citable call and N is in range for it (or it is a one-page fetch); otherwise dropped |
 | a real id, N past the end, and the call is a fetch whose output holds exactly one page that is not `Fetch failed:` | `recovered` (`fetch-out-of-range`): that page |
 | a real id, N past the end of a search or of a fetch with several pages | dropped |
@@ -292,8 +292,8 @@ seen it, including at save time
 ([known issue](/history/known-issues#reloaded-speed-mode-answers-cited-a-different-page)).
 An id copied with one character missing or wrong (seen with kimi-k2.6), or cut to its first 8
 characters (glm-5.3-flash), was dropped until 2026-10-06; builds with
-[D44](/history/decisions#d44-shortened-and-one-character-off-citation-ids-resolve) (lab and
-staging; prod pending) resolve it when it names exactly one call of the message
+[D44](/history/decisions#d44-shortened-and-one-character-off-citation-ids-resolve) (lab,
+staging and prod) resolve it when it names exactly one call of the message
 (`findMapByIdPrefix`, `citation.ts:256-276`; `findMapByIdTypo`, `:300-315`).
 
 - **Per-message scope is load-bearing.** A conversation-wide map let an anchor carried
