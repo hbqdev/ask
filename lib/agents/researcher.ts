@@ -65,6 +65,7 @@ import {
   resolveCitationReminderMode,
   withCitationReminder
 } from './citation-reminder'
+import { type SearchCapStep, withdrawSearchAfterCap } from './search-cap'
 
 // The pasted-URL branch fills a source's title from the fetched page's <title>,
 // which is attacker-controlled when the user pastes a hostile link. That title
@@ -1014,6 +1015,8 @@ Treat each exactly like a \`search\` or \`fetch\` result from this turn: ${docCi
     }
     // Logged once per turn, at the first step that gets the reminder.
     let citationReminderLogged = false
+    // Logged once per turn, at the first step search is withdrawn.
+    let searchWithdrawnLogged = false
 
     // Built once per turn; handed to step 0 only (prepareStep below). Its
     // call runs the real, fully wrapped `search` tool from `tools`.
@@ -1066,14 +1069,28 @@ Treat each exactly like a \`search\` or \`fetch\` result from this turn: ${docCi
               skipSearch
             })
           : {}
-        // Applied LAST so it wins over a variant's own activeTools: which tools
-        // are visible mid-loop is a preference, having a step left to answer in
-        // is not.
-        const o = applyAnswerDeadline(variant, {
+        // Once the search round cap has refused a search this turn, stop
+        // offering `search` (lib/agents/search-cap.ts): the refusal notice
+        // alone is ignored by some models — 80 refused calls on one prod turn.
+        // Narrows the variant's own list when it set one, else the mode's.
+        const capped = withdrawSearchAfterCap(variant, {
+          steps: steps as readonly SearchCapStep[],
+          defaultActiveTools: activeToolsList
+        })
+        if (capped !== variant && !searchWithdrawnLogged) {
+          searchWithdrawnLogged = true
+          console.log(
+            `[search-cap] search withdrawn at step ${stepNumber} after the round cap (chat=${currentChatId ?? '?'})`
+          )
+        }
+        // Applied LAST so it wins over a variant's own activeTools (and over
+        // the search withdrawal): which tools are visible mid-loop is a
+        // preference, having a step left to answer in is not.
+        const o = applyAnswerDeadline(capped, {
           elapsedMs: Date.now() - turnStartedAt,
           systemPrompt: effectiveSystemPrompt
         })
-        if (o !== variant) {
+        if (o !== capped) {
           console.log(
             `[deadline] ${Math.round((Date.now() - turnStartedAt) / 1000)}s elapsed at step ${stepNumber} — tools withdrawn, answering now`
           )
@@ -1101,7 +1118,7 @@ Treat each exactly like a \`search\` or \`fetch\` result from this turn: ${docCi
           stepNumber > 0
             ? resolveCitationReminderMode({
                 citableToolCalls,
-                answerDeadlinePassed: o !== variant
+                answerDeadlinePassed: o !== capped
               })
             : 'none'
         if (reminderMode === 'append' && !Array.isArray(messages)) {
