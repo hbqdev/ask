@@ -1134,7 +1134,7 @@ These are decisions still pending, not bugs:
   that crosses the budget, and each extra search is a real fan-out and crawl (cost and context,
   not a wrong answer). Once the counter is past the budget, later calls are refused as designed.
 - **Not the search loop.** The same prod turn also had 80 further `search` calls refused over
-  about 30 steps. That part is fixed separately (2026-10-07, lab and staging; prod pending): after
+  about 30 steps. That part is fixed separately (2026-10-07, lab, staging and prod): after
   the first refusal `search` is no longer offered, and a model that keeps calling it gets
   answer-only steps ([pipeline › round cap](/search/pipeline#round-cap),
   [D45](/history/decisions#d45-search-withdrawn-after-the-round-cap-then-answer-only-steps)).
