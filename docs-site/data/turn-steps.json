@@ -134,12 +134,12 @@
     "actor": "researcher",
     "description": "`resolveTurnMode` picks `direct` (skipSearch: a non-question, answered from the conversation, 10 steps) or `research` (speed 20 / balanced 50 / quality 100 steps). With `ALWAYS_SEARCH` on, step 0 of a research turn is a forced web search unless the user supplied the source (a URL, an attachment with no text, or an attachment the text only points at; the turn stays research and the model reads it first): `prepareStep` swaps in a synthetic model that emits one `search` call on the classifier's `standaloneQuery` (URLs removed, ≤400 chars), because the Ollama provider ignores `toolChoice`. The real, wrapped `search` tool runs it and the user's model answers from step 1. `ALWAYS_SEARCH=off` restores the old third mode, `stable-knowledge` (needsSources and needsRecent both false: `search` not advertised). `activeTools` only ADVERTISES tools — the full tools map still executes whatever the model calls.",
     "code": [
-      "lib/agents/researcher.ts:178",
-      "lib/agents/researcher.ts:223",
+      "lib/agents/researcher.ts:185",
+      "lib/agents/researcher.ts:230",
       "lib/agents/always-search.ts:116",
       "lib/agents/always-search.ts:262",
-      "lib/agents/researcher.ts:1202",
-      "lib/agents/researcher.ts:938"
+      "lib/agents/researcher.ts:1244",
+      "lib/agents/researcher.ts:960"
     ],
     "link": "/request-lifecycle/chat-turn#_9-turn-mode-and-tools"
   },
@@ -147,15 +147,16 @@
     "id": "tool-loop",
     "title": "Tool loop: search / fetch / calculate / …",
     "actor": "search",
-    "description": "The `ToolLoopAgent` streams: after the forced step 0, each step either calls tools or emits the final text (no `toolChoice`; the loop ends on plain text). The forced search is round 1. `search` fans out to providers, crawls and reranks (see Search pipeline); after `SEARCH_ROUNDS_MAX` rounds (3; quality 10 since 2026-09-30, and a near-duplicate skip does not count) it returns an empty result telling the model to answer; in quality mode the model may still `fetch` pages this turn found, up to 8 fetch calls (`FETCH_ROUNDS_MAX_QUALITY`). From the step after that first refusal, `prepareStep` stops offering `search`; a model that calls it anyway, or in speed and balanced uses tools on `POST_CAP_TOOL_STEPS_MAX` (4) more steps, gets answer-only steps for the rest of the turn (`lib/agents/search-cap.ts`, since 2026-10-07: lab, staging and prod). The search tool's call to `/api/advanced-search` is bounded (20 s to response headers, 180 s in total) and falls back to a basic SearXNG search on timeout, so a stuck route costs a turn about 20 s instead of the whole 300 s. The answer deadline (200 s from the start of the turn) is applied twice: `prepareStep` stops advertising tools and tells the model to answer now, and `enforceAnswerDeadline` wraps every tool's `execute` so a call the model emits anyway is refused with an \"answer now\" result (`[deadline] refused <tool> call`). The 300 s ceiling therefore never produces a blank turn.",
+    "description": "The `ToolLoopAgent` streams: after the forced step 0, each step either calls tools or emits the final text (no `toolChoice`; the loop ends on plain text). The forced search is round 1. `search` fans out to providers, crawls and reranks (see Search pipeline); after `SEARCH_ROUNDS_MAX` rounds (3; quality 10 since 2026-09-30, and a near-duplicate skip does not count) it returns an empty result telling the model to answer; in quality mode the model may still `fetch` pages this turn found, up to 8 fetch calls (`FETCH_ROUNDS_MAX_QUALITY`). Once the budget is spent, `prepareStep` stops offering `search` (since 2026-10-07: lab, staging and prod; read from the search tool's own round counter, so from the first step that starts with the budget spent rather than the step after a refusal, lab and staging only so far) and tells the model why; a model that calls it anyway, or in speed and balanced uses tools on `POST_CAP_TOOL_STEPS_MAX` (4) steps without it, gets answer-only steps for the rest of the turn (`lib/agents/search-cap.ts`). The search tool's call to `/api/advanced-search` is bounded (20 s to response headers, 180 s in total) and falls back to a basic SearXNG search on timeout, so a stuck route costs a turn about 20 s instead of the whole 300 s. The answer deadline (200 s from the start of the turn) is applied twice: `prepareStep` stops advertising tools and tells the model to answer now, and `enforceAnswerDeadline` wraps every tool's `execute` so a call the model emits anyway is refused with an \"answer now\" result (`[deadline] refused <tool> call`). The 300 s ceiling therefore never produces a blank turn.",
     "code": [
-      "lib/tools/search.ts:317",
-      "lib/tools/search.ts:425",
+      "lib/tools/search-rounds.ts:35",
+      "lib/tools/search.ts:382",
       "lib/tools/fetch-budget.ts:43",
       "lib/tools/search/advanced-search-deadline.ts:93",
-      "lib/agents/researcher.ts:1090",
-      "lib/agents/search-cap.ts:92",
-      "lib/agents/search-cap.ts:233",
+      "lib/agents/researcher.ts:1110",
+      "lib/agents/search-cap.ts:101",
+      "lib/agents/search-cap.ts:126",
+      "lib/agents/search-cap.ts:277",
       "lib/agents/answer-deadline.ts:40",
       "lib/agents/answer-deadline.ts:197"
     ],

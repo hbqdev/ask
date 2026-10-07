@@ -120,14 +120,14 @@ The research agent is a `ToolLoopAgent` built in `createResearcher`
    values (`{ success: false, error }`), don't throw, and bound any untrusted input.
 2. **Type it** in `ResearcherTools` (`lib/types/agent.ts:20-32`). Make it optional (`?`) if it
    is only registered under a condition, as `generateImage` is.
-3. **Register it in the tools map** `rawTools` (`lib/agents/researcher.ts:938`). Everything in
-   this map is wrapped by `enforceAnswerDeadline` (`researcher.ts:970`,
+3. **Register it in the tools map** `rawTools` (`lib/agents/researcher.ts:960`). Everything in
+   this map is wrapped by `enforceAnswerDeadline` (`researcher.ts:992`,
    `lib/agents/answer-deadline.ts:197`), which refuses calls past the answer deadline or on a
    search-cap answer-only step ([pipeline › round cap](/search/pipeline#round-cap)).
 4. **Advertise it** by adding its name to `activeToolsList` in each turn mode that should offer
-   it (`researcher.ts:715` direct, `:740` stable-knowledge, `:754` speed, `:775` quality,
-   `:797` balanced). If it is conditional, gate the `activeToolsList.push` and the map entry
-   **identically** (compare `researcher.ts:833` with `:958-962`).
+   it (`researcher.ts:728` direct, `:753` stable-knowledge, `:767` speed, `:788` quality,
+   `:810` balanced). If it is conditional, gate the `activeToolsList.push` and the map entry
+   **identically** (compare `researcher.ts:846` with `:980-984`).
 5. **Prompt it if needed.** A mode prompt that should steer usage lives in
    `lib/agents/prompts/search-mode-prompts.ts`. Only append guidance when the tool is actually
    registered: guidance for an absent tool makes models hallucinate calls to it (see the
@@ -144,11 +144,11 @@ The research agent is a `ToolLoopAgent` built in `createResearcher`
 8. **Test** in `lib/tools/__tests__/<name>.test.ts`, then try it on the lab.
 
 ::: danger `activeTools` is advertising, not enforcement
-`activeTools: activeToolsList` (`researcher.ts:1074`) only controls which tools are **described
+`activeTools: activeToolsList` (`researcher.ts:1093`) only controls which tools are **described
 to the model**. The AI SDK (v6) executes any tool call against the full `tools` map, so a model
 that names a non-advertised tool still runs it. The stable-knowledge mode relies on this on
 purpose: `search` is not advertised but stays in the map as an escape hatch
-(`researcher.ts:147-150`, `:735-741`; that mode is only reachable with `ALWAYS_SEARCH=off`). **To actually block a tool, leave it out of the map**
+(`researcher.ts:154-157`, `:748-754`; that mode is only reachable with `ALWAYS_SEARCH=off`). **To actually block a tool, leave it out of the map**
 (or wrap its `execute`, as the answer deadline does). Never rely on `activeTools` for a
 security or budget boundary.
 :::
@@ -378,7 +378,7 @@ Where prompts live:
 | Prompt | Location |
 |---|---|
 | Speed / balanced / quality mode prompts | `lib/agents/prompts/search-mode-prompts.ts` (`getQuickModePrompt` `:125`, `getAdaptiveModePrompt` `:332`, `getQualityModePrompt` `:476`) |
-| Direct and stable-knowledge turn prompts | `lib/agents/researcher.ts:114` (`DIRECT_ANSWER_PROMPT`), `:151` (`STABLE_KNOWLEDGE_PROMPT`) |
+| Direct and stable-knowledge turn prompts | `lib/agents/researcher.ts:121` (`DIRECT_ANSWER_PROMPT`), `:158` (`STABLE_KNOWLEDGE_PROMPT`) |
 | Forced-search addendum (appended when step 0 is a forced search) | `FORCED_SEARCH_PROMPT_ADDENDUM`, `lib/agents/always-search.ts:319`, appended through `getForcedSearchPromptAddendum()` (`:330-338`, rewrites the citing sentence while `CITATION_HANDLES` is on) |
 | Prompt-injection rule appended to every turn | `UNTRUSTED_CONTENT_RULE`, `search-mode-prompts.ts:556` |
 | Image tool guidance | `lib/agents/prompts/image-tool-guidance.ts` |
@@ -407,7 +407,7 @@ Procedure:
 3. **Remember what gets appended.** The final system prompt is the mode prompt plus sources
    addendum, `UNTRUSTED_CONTENT_RULE`, scope-of-turn block, the forced-search addendum (only
    when step 0 is a forced search), user instructions, memories, recall, attached-source
-   citation rules and image guidance, in that order (`researcher.ts:817-918`). Later text overrides earlier text, so a rule in the mode prompt can
+   citation rules and image guidance, in that order (`researcher.ts:830-931`). Later text overrides earlier text, so a rule in the mode prompt can
    be contradicted by an addendum.
 4. **Answering-model prompts must be model-agnostic.** The answering model is whatever the user
    picked, so do not tune wording for one model
