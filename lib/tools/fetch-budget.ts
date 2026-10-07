@@ -2,7 +2,7 @@ import type { SearchMode } from '@/lib/types/search'
 
 /**
  * Per-turn cap on `fetch` calls, the companion of the search round cap
- * (resolveSearchRoundsBudget in lib/tools/search.ts).
+ * (resolveSearchRoundsBudget in lib/tools/search-rounds.ts).
  *
  * WHY. Once the search round cap is reached, its notice now lets the model
  * keep reading pages that earlier searches already returned

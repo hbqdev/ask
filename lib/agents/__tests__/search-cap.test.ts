@@ -1,6 +1,9 @@
 import { describe, expect, it } from 'vitest'
 
-import { buildSearchRoundCapNotice } from '../../tools/search'
+import {
+  buildSearchRoundCapNotice,
+  buildSearchWithdrawnNote
+} from '../../tools/search-rounds'
 import {
   ANSWER_DEADLINE_MS,
   ANSWER_NOW_NOTE,
@@ -14,11 +17,14 @@ import {
   answerNowOnSearchEvasion,
   POST_CAP_TOOL_STEPS_MAX_DEFAULT,
   resolvePostCapToolStepsLimit,
+  resolveSearchWithdrawnNote,
+  searchBudgetSpent,
   searchCalledAfterWithdrawal,
   searchCapReached,
   type SearchCapStep,
-  toolStepsAfterCap,
-  withdrawSearchAfterCap
+  toolStepsAfterWithdrawal,
+  withdrawSearchAfterCap,
+  withSearchWithdrawnNote
 } from '../search-cap'
 
 // The balanced-mode tool list from createResearcher.
@@ -31,6 +37,7 @@ const MODE_TOOLS = [
   'remember',
   'recall'
 ] as const
+const WITHOUT_SEARCH = MODE_TOOLS.filter(t => t !== 'search')
 
 // Each output below is the shape steps[].toolResults[].output really carries
 // (AI SDK v6: the generator's LAST yield), after every wrapper in the stack.
@@ -89,18 +96,21 @@ const searchStep = (...outputs: unknown[]): SearchCapStep => ({
   toolResults: outputs.map(output => ({ toolName: 'search', output }))
 })
 
-// The evidence turn (prod chat cznh8gc1gz41vq2lwjb560br, balanced, cap 3):
-// step 0 one real search, step 1 four parallel real searches, then a step
-// whose search came back capped.
-const CAPPED_TURN: SearchCapStep[] = [
+// The latest prod turn (chat cznh8gc1gz41vq2lwjb560br, mistral-large-4,
+// balanced, budget 3): step 0 one real search, step 1 four parallel real
+// searches (5 rounds used: the known check-then-act overshoot). The budget is
+// spent after step 1, so step 2 is the withdrawal step.
+const BUDGET_SPENT_TURN: SearchCapStep[] = [
   searchStep(realOutput),
-  searchStep(realOutput, realOutput, realOutput, realOutput),
-  searchStep(capOutput)
+  searchStep(realOutput, realOutput, realOutput, realOutput)
 ]
+const W = BUDGET_SPENT_TURN.length
 
 describe('searchCapReached', () => {
   it('is true once any earlier search came back with the round-cap refusal', () => {
-    expect(searchCapReached(CAPPED_TURN)).toBe(true)
+    expect(
+      searchCapReached([...BUDGET_SPENT_TURN, searchStep(capOutput)])
+    ).toBe(true)
     // Mixed into a parallel step with real results, too.
     expect(
       searchCapReached([searchStep(realOutput, capOutput, realOutput)])
@@ -159,43 +169,70 @@ describe('searchCapReached', () => {
   })
 })
 
-describe('withdrawSearchAfterCap', () => {
-  it('stops advertising search once the cap has fired, keeping every other tool', () => {
-    const out = withdrawSearchAfterCap(none(), {
-      steps: CAPPED_TURN,
-      defaultActiveTools: MODE_TOOLS
-    })
-    expect(out.activeTools).toEqual([
-      'fetch',
-      'todoWrite',
-      'calculate',
-      'get_weather',
-      'remember',
-      'recall'
-    ])
+describe('searchBudgetSpent', () => {
+  it("is true as soon as the search tool's own counter reaches the budget — before any search is refused", () => {
+    // The proactive trigger: nothing in the steps says "cap" yet.
+    expect(searchCapReached(BUDGET_SPENT_TURN)).toBe(false)
+    expect(
+      searchBudgetSpent(BUDGET_SPENT_TURN, { roundsUsed: 5, roundsBudget: 3 })
+    ).toBe(true)
+    expect(
+      searchBudgetSpent([searchStep(realOutput, realOutput, realOutput)], {
+        roundsUsed: 3,
+        roundsBudget: 3
+      })
+    ).toBe(true)
   })
 
-  it('leaves the step untouched (same object) before the cap fires', () => {
-    for (const steps of [
-      [],
-      [searchStep(realOutput)],
-      [searchStep(realOutput), searchStep(dedupSkipOutput)],
-      [searchStep(duplicateQueryOutput, urlGuidanceOutput)]
-    ]) {
-      const overrides = none()
-      expect(
-        withdrawSearchAfterCap(overrides, {
-          steps,
-          defaultActiveTools: MODE_TOOLS
-        })
-      ).toBe(overrides)
-    }
+  it('is false while rounds remain, however many search calls the steps hold', () => {
+    // Skips and short-circuits are calls, not rounds: only the counter says.
+    expect(
+      searchBudgetSpent(
+        [
+          searchStep(realOutput, realOutput),
+          searchStep(dedupSkipOutput, duplicateQueryOutput, urlGuidanceOutput)
+        ],
+        { roundsUsed: 2, roundsBudget: 3 }
+      )
+    ).toBe(false)
+    expect(searchBudgetSpent([], { roundsUsed: 0, roundsBudget: 3 })).toBe(
+      false
+    )
+  })
+
+  it('falls back to a refused result when the counter says otherwise', () => {
+    // A search tool that does not share its counter: the refusal still
+    // withdraws search, as before the counter existed.
+    expect(
+      searchBudgetSpent([searchStep(realOutput), searchStep(capOutput)], {
+        roundsUsed: 0,
+        roundsBudget: 3
+      })
+    ).toBe(true)
+  })
+})
+
+describe('withdrawSearchAfterCap', () => {
+  const opts = (withdrawnAtStep: number | null) => ({
+    withdrawnAtStep,
+    defaultActiveTools: MODE_TOOLS
+  })
+
+  it('stops advertising search once withdrawn, keeping every other tool', () => {
+    expect(withdrawSearchAfterCap(none(), opts(W)).activeTools).toEqual(
+      WITHOUT_SEARCH
+    )
+  })
+
+  it('leaves the step untouched (same object) until search is withdrawn', () => {
+    const overrides = none()
+    expect(withdrawSearchAfterCap(overrides, opts(null))).toBe(overrides)
   })
 
   it("filters a flow variant's own activeTools rather than the mode list", () => {
     const out = withdrawSearchAfterCap(
       { activeTools: ['search', 'fetch'], system: 'variant prompt' },
-      { steps: CAPPED_TURN, defaultActiveTools: MODE_TOOLS }
+      opts(W)
     )
     expect(out.activeTools).toEqual(['fetch'])
     // Everything else the variant set is carried through.
@@ -210,15 +247,12 @@ describe('withdrawSearchAfterCap', () => {
         skipSearch
       }) ?? none()
     const withdraw = (o: FlowStepOverrides) =>
-      withdrawSearchAfterCap(o, {
-        steps: CAPPED_TURN,
-        defaultActiveTools: MODE_TOOLS
-      }).activeTools
+      withdrawSearchAfterCap(o, opts(W)).activeTools
 
     // baseline / adaptive / react-gap / plan-execute set no activeTools on a
     // later step: the mode's list, minus search.
     for (const id of ['baseline', 'adaptive', 'react-gap', 'plan-execute']) {
-      expect(withdraw(v(id, 3))).toEqual(MODE_TOOLS.filter(t => t !== 'search'))
+      expect(withdraw(v(id, 3))).toEqual(WITHOUT_SEARCH)
     }
     // wide-once empties the tool set from step 1: still empty.
     expect(withdraw(v('wide-once', 3))).toEqual([])
@@ -231,20 +265,27 @@ describe('withdrawSearchAfterCap', () => {
     ])
   })
 
-  it('an emptied tool set stays empty', () => {
+  it('returns the step itself when its list has no search to remove', () => {
+    // Identity then means "search disappeared on this step", which is what
+    // withSearchWithdrawnNote keys on (stable-knowledge turns, a variant's
+    // emptied or search-free list).
+    for (const overrides of [
+      { activeTools: [] },
+      { activeTools: ['calculate', 'recall'] }
+    ]) {
+      expect(withdrawSearchAfterCap(overrides, opts(W))).toBe(overrides)
+    }
+    const noSearchMode = none()
     expect(
-      withdrawSearchAfterCap(
-        { activeTools: [] },
-        { steps: CAPPED_TURN, defaultActiveTools: MODE_TOOLS }
-      ).activeTools
-    ).toEqual([])
+      withdrawSearchAfterCap(noSearchMode, {
+        withdrawnAtStep: W,
+        defaultActiveTools: ['calculate', 'get_weather', 'remember', 'recall']
+      })
+    ).toBe(noSearchMode)
   })
 
   it("the answer deadline's empty tool set still wins (applied after)", () => {
-    const withdrawn = withdrawSearchAfterCap(none(), {
-      steps: CAPPED_TURN,
-      defaultActiveTools: MODE_TOOLS
-    })
+    const withdrawn = withdrawSearchAfterCap(none(), opts(W))
     const o = applyAnswerDeadline(withdrawn, {
       elapsedMs: ANSWER_DEADLINE_MS,
       systemPrompt: 'SYS'
@@ -257,39 +298,16 @@ describe('withdrawSearchAfterCap', () => {
     ).toBe(withdrawn)
   })
 
-  it('is idempotent across later steps and never mutates its inputs', () => {
+  it('never mutates its inputs', () => {
     const modeTools = [...MODE_TOOLS]
     const variantTools = ['search', 'fetch']
-    const once = withdrawSearchAfterCap(none(), {
-      steps: CAPPED_TURN,
+    withdrawSearchAfterCap(none(), {
+      withdrawnAtStep: W,
       defaultActiveTools: modeTools
     })
-    expect(
-      withdrawSearchAfterCap(once, {
-        steps: CAPPED_TURN,
-        defaultActiveTools: modeTools
-      })
-    ).toEqual(once)
-    // Every later step of the turn (more steps behind it, the model still
-    // calling search and still being refused, or doing something else) stays
-    // withdrawn — the cap result is still in `steps`.
-    const later = [
-      ...CAPPED_TURN,
-      searchStep(capOutput, capOutput),
-      { toolResults: [{ toolName: 'fetch', output: realOutput }] },
-      {}
-    ]
-    for (let i = CAPPED_TURN.length; i <= later.length; i++) {
-      expect(
-        withdrawSearchAfterCap(none(), {
-          steps: later.slice(0, i),
-          defaultActiveTools: modeTools
-        }).activeTools
-      ).toEqual(once.activeTools)
-    }
     withdrawSearchAfterCap(
       { activeTools: variantTools },
-      { steps: CAPPED_TURN, defaultActiveTools: modeTools }
+      { withdrawnAtStep: W, defaultActiveTools: modeTools }
     )
     expect(modeTools).toEqual([...MODE_TOOLS])
     expect(variantTools).toEqual(['search', 'fetch'])
@@ -313,107 +331,116 @@ const sdkStep = (...calls: Call[]): SearchCapStep => ({
     .filter(c => !c.invalid)
     .map(c => ({ toolName: c.toolName, output: c.output }))
 })
+const realSearch: Call = { toolName: 'search', output: realOutput }
 const refusedSearch: Call = { toolName: 'search', output: capOutput }
 const invalidSearch: Call = { toolName: 'search', invalid: true }
 const fetchCall: Call = { toolName: 'fetch', output: realOutput }
 const answerStep: SearchCapStep = { toolCalls: [], toolResults: [] }
 
+// BUDGET_SPENT_TURN with the calls recorded too.
+const SPENT: SearchCapStep[] = [
+  sdkStep(realSearch),
+  sdkStep(realSearch, realSearch, realSearch, realSearch)
+]
+
 const SYS = 'BASE PROMPT WITH CITATION RULES'
+const NOTE = buildSearchWithdrawnNote(3, false)
 
 describe('searchCalledAfterWithdrawal', () => {
-  it('is true for a refused search call on a step after the withdrawal', () => {
-    // Lab chat jcckydan2uqv7l4qelyjq1ob (mistral-large-4, balanced): search
-    // withdrawn at step 3, which still made 5 refused search calls.
+  it('is true for a refused search call on the withdrawal step or later', () => {
+    // The prod turn: step 3 ran without search and still made 4 calls, all
+    // refused by the tool's cap.
+    const refused4 = sdkStep(
+      refusedSearch,
+      refusedSearch,
+      refusedSearch,
+      refusedSearch
+    )
+    expect(searchCalledAfterWithdrawal([...SPENT, refused4], W)).toBe(true)
     expect(
-      searchCalledAfterWithdrawal([
-        ...CAPPED_TURN,
-        sdkStep(
-          refusedSearch,
-          refusedSearch,
-          refusedSearch,
-          refusedSearch,
-          refusedSearch
-        )
-      ])
+      searchCalledAfterWithdrawal([...SPENT, answerStep, refused4], W)
     ).toBe(true)
   })
 
   it('is true for an invalid-input search call (a tool it no longer sees)', () => {
-    // Lab step 4: 3 search calls with invented args, rejected by the schema.
+    // Lab chat jcckydan2uqv7l4qelyjq1ob: 3 search calls with invented args.
     expect(
-      searchCalledAfterWithdrawal([
-        ...CAPPED_TURN,
-        sdkStep(invalidSearch, invalidSearch, invalidSearch)
-      ])
+      searchCalledAfterWithdrawal(
+        [...SPENT, sdkStep(invalidSearch, invalidSearch, invalidSearch)],
+        W
+      )
     ).toBe(true)
   })
 
   it('is true for any other search call after the withdrawal', () => {
     for (const output of [
+      realOutput,
       dedupSkipOutput,
       duplicateQueryOutput,
       urlGuidanceOutput
     ]) {
       expect(
-        searchCalledAfterWithdrawal([
-          ...CAPPED_TURN,
-          sdkStep({ toolName: 'search', output })
-        ])
+        searchCalledAfterWithdrawal(
+          [...SPENT, sdkStep({ toolName: 'search', output })],
+          W
+        )
       ).toBe(true)
     }
   })
 
   it('is false while the model complies', () => {
-    expect(searchCalledAfterWithdrawal([])).toBe(false)
-    expect(searchCalledAfterWithdrawal(CAPPED_TURN)).toBe(false)
-    expect(searchCalledAfterWithdrawal([...CAPPED_TURN, answerStep])).toBe(
-      false
-    )
-  })
-
-  it('is false for fetch-only steps after the withdrawal', () => {
-    // Quality's cap notice deliberately allows fetching found URLs.
+    expect(searchCalledAfterWithdrawal(SPENT, W)).toBe(false)
+    expect(searchCalledAfterWithdrawal([...SPENT, answerStep], W)).toBe(false)
+    // Quality's notes deliberately allow fetching found URLs.
     expect(
-      searchCalledAfterWithdrawal([
-        ...CAPPED_TURN,
-        sdkStep(fetchCall, fetchCall),
-        sdkStep(fetchCall)
-      ])
+      searchCalledAfterWithdrawal(
+        [...SPENT, sdkStep(fetchCall, fetchCall), sdkStep(fetchCall)],
+        W
+      )
     ).toBe(false)
   })
 
   it('ignores search calls made while search was still offered', () => {
-    // The capped step's own parallel calls came before the withdrawal.
+    // Refused and invalid calls on a step that still offered search (the
+    // budget ran out mid-step) are not evasion.
+    const turn = [
+      sdkStep(realSearch),
+      sdkStep(realSearch, refusedSearch, refusedSearch, invalidSearch)
+    ]
+    expect(searchCalledAfterWithdrawal(turn, 2)).toBe(false)
+    // Nothing withdrawn: searching is just searching.
     expect(
-      searchCalledAfterWithdrawal([
-        sdkStep({ toolName: 'search', output: realOutput }),
-        sdkStep(
-          { toolName: 'search', output: realOutput },
-          refusedSearch,
-          refusedSearch,
-          invalidSearch
-        )
-      ])
+      searchCalledAfterWithdrawal(
+        [sdkStep(realSearch), sdkStep(invalidSearch), sdkStep(refusedSearch)],
+        null
+      )
     ).toBe(false)
-    // No cap at all: searching is just searching.
-    expect(
-      searchCalledAfterWithdrawal([
-        sdkStep({ toolName: 'search', output: realOutput }),
-        sdkStep(invalidSearch),
-        sdkStep({ toolName: 'search', output: dedupSkipOutput })
-      ])
-    ).toBe(false)
+  })
+
+  it('counts from the step search was actually withdrawn at', () => {
+    // The fallback path (a refusal, not the counter): search withdrawn at
+    // step 3, the step AFTER the refusals; step 2's calls were offered ones.
+    const turn = [
+      sdkStep(realSearch),
+      sdkStep(realSearch, realSearch),
+      sdkStep(refusedSearch, refusedSearch),
+      sdkStep(fetchCall)
+    ]
+    expect(searchCalledAfterWithdrawal(turn, 3)).toBe(false)
+    expect(searchCalledAfterWithdrawal(turn, 2)).toBe(true)
   })
 })
 
 describe('answerNowOnSearchEvasion', () => {
-  const EVADED = [...CAPPED_TURN, sdkStep(refusedSearch)]
+  const EVADED = [...SPENT, sdkStep(refusedSearch)]
+  const opts = (steps: SearchCapStep[], withdrawnAtStep: number | null) => ({
+    steps,
+    withdrawnAtStep,
+    systemPrompt: SYS
+  })
 
   it("switches the step to answer-now with the deadline's own override", () => {
-    const out = answerNowOnSearchEvasion(none(), {
-      steps: EVADED,
-      systemPrompt: SYS
-    })
+    const out = answerNowOnSearchEvasion(none(), opts(EVADED, W))
     expect(out).toEqual(answerNowOverrides(none(), SYS))
     expect(out.activeTools).toEqual([])
     expect(out.system).toBe(`${SYS}${ANSWER_NOW_NOTE}`)
@@ -422,7 +449,7 @@ describe('answerNowOnSearchEvasion', () => {
   it("keeps a variant's replacement prompt and empties its tool list", () => {
     const out = answerNowOnSearchEvasion(
       { activeTools: ['fetch'], system: 'variant prompt' },
-      { steps: EVADED, systemPrompt: SYS }
+      opts(EVADED, W)
     )
     expect(out.activeTools).toEqual([])
     expect(out.system).toBe(`variant prompt${ANSWER_NOW_NOTE}`)
@@ -431,16 +458,19 @@ describe('answerNowOnSearchEvasion', () => {
   it('leaves the step untouched (same object) for a compliant model', () => {
     for (const steps of [
       [],
-      CAPPED_TURN,
-      [...CAPPED_TURN, sdkStep(fetchCall)],
-      [...CAPPED_TURN, answerStep]
+      SPENT,
+      [...SPENT, sdkStep(fetchCall)],
+      [...SPENT, answerStep]
     ]) {
       const overrides = withdrawSearchAfterCap(none(), {
-        steps,
+        withdrawnAtStep: steps.length >= W ? W : null,
         defaultActiveTools: MODE_TOOLS
       })
       expect(
-        answerNowOnSearchEvasion(overrides, { steps, systemPrompt: SYS })
+        answerNowOnSearchEvasion(
+          overrides,
+          opts(steps, steps.length >= W ? W : null)
+        )
       ).toBe(overrides)
     }
   })
@@ -453,41 +483,13 @@ describe('answerNowOnSearchEvasion', () => {
     ]
     for (let i = EVADED.length; i <= later.length; i++) {
       expect(
-        answerNowOnSearchEvasion(none(), {
-          steps: later.slice(0, i),
-          systemPrompt: SYS
-        })
+        answerNowOnSearchEvasion(none(), opts(later.slice(0, i), W))
       ).toEqual(answerNowOverrides(none(), SYS))
     }
   })
-
-  it('the time deadline still applies on top, without a second note', () => {
-    // researcher.ts order: variant -> withdraw search -> answer-now on
-    // evasion -> time deadline.
-    const stage1 = withdrawSearchAfterCap(none(), {
-      steps: EVADED,
-      defaultActiveTools: MODE_TOOLS
-    })
-    const stage2 = answerNowOnSearchEvasion(stage1, {
-      steps: EVADED,
-      systemPrompt: SYS
-    })
-    const past = applyAnswerDeadline(stage2, {
-      elapsedMs: ANSWER_DEADLINE_MS,
-      systemPrompt: SYS
-    })
-    expect(past.activeTools).toEqual([])
-    expect(past.system).toBe(`${SYS}${ANSWER_NOW_NOTE}`)
-    // A new object only when the TIME deadline fired, so researcher.ts's
-    // identity check (deadline log, citation reminder) still means time.
-    expect(past).not.toBe(stage2)
-    expect(
-      applyAnswerDeadline(stage2, { elapsedMs: 0, systemPrompt: SYS })
-    ).toBe(stage2)
-  })
 })
 
-// ── Stage 3: tool steps after the cap, in modes whose notice says answer now ──
+// ── Stage 3: tool steps after the withdrawal, where the notice says answer now ──
 
 describe('resolvePostCapToolStepsLimit', () => {
   it('is POST_CAP_TOOL_STEPS_MAX (default 4) in modes without a fetch budget', () => {
@@ -530,53 +532,55 @@ describe('resolvePostCapToolStepsLimit', () => {
   })
 })
 
-// Lab chat jcckydan2uqv7l4qelyjq1ob, follow-up turn (mistral-large-4,
-// balanced): cap at step 2, search withdrawn at step 3, then one fetch per
-// step on steps 3-15, answer at step 16.
 const fetchSteps = (n: number) =>
   Array.from({ length: n }, () => sdkStep(fetchCall))
 
-describe('toolStepsAfterCap', () => {
-  it('counts the steps after the capped one that made any tool call', () => {
-    expect(toolStepsAfterCap(CAPPED_TURN)).toBe(0)
-    expect(toolStepsAfterCap([...CAPPED_TURN, ...fetchSteps(3)])).toBe(3)
+describe('toolStepsAfterWithdrawal', () => {
+  it('counts the steps from the withdrawal step on that made any tool call', () => {
+    expect(toolStepsAfterWithdrawal(SPENT, W)).toBe(0)
+    expect(toolStepsAfterWithdrawal([...SPENT, ...fetchSteps(3)], W)).toBe(3)
     expect(
-      toolStepsAfterCap([
-        ...CAPPED_TURN,
-        sdkStep(fetchCall, fetchCall),
-        sdkStep(invalidSearch),
-        sdkStep({ toolName: 'calculate', output: { result: 2 } }),
-        answerStep
-      ])
+      toolStepsAfterWithdrawal(
+        [
+          ...SPENT,
+          sdkStep(fetchCall, fetchCall),
+          sdkStep(invalidSearch),
+          sdkStep({ toolName: 'calculate', output: { result: 2 } }),
+          answerStep
+        ],
+        W
+      )
     ).toBe(3)
   })
 
-  it('is 0 before the cap, whatever the turn did', () => {
-    expect(toolStepsAfterCap([])).toBe(0)
+  it('is 0 until search is withdrawn, whatever the turn did', () => {
+    expect(toolStepsAfterWithdrawal([], null)).toBe(0)
     expect(
-      toolStepsAfterCap([
-        sdkStep({ toolName: 'search', output: realOutput }),
-        ...fetchSteps(8)
-      ])
+      toolStepsAfterWithdrawal([sdkStep(realSearch), ...fetchSteps(8)], null)
     ).toBe(0)
   })
 })
 
 describe('answerNowAfterPostCapToolSteps', () => {
-  const opts = (steps: SearchCapStep[], maxToolSteps: number | null) => ({
+  const opts = (
+    steps: SearchCapStep[],
+    maxToolSteps: number | null,
+    withdrawnAtStep: number | null = W
+  ) => ({
     steps,
+    withdrawnAtStep,
     systemPrompt: SYS,
     maxToolSteps
   })
 
-  it('balanced: 4 tool steps after the cap stay offered, the 5th step is answer-now', () => {
-    // prepareStep for the k-th step after the capped one sees k-1 tool steps.
+  it('balanced: 4 tool steps without search stay offered, the 5th step is answer-now', () => {
+    // prepareStep for the k-th step from the withdrawal sees k-1 tool steps.
     for (let done = 0; done < 4; done++) {
       const overrides = none()
       expect(
         answerNowAfterPostCapToolSteps(
           overrides,
-          opts([...CAPPED_TURN, ...fetchSteps(done)], 4)
+          opts([...SPENT, ...fetchSteps(done)], 4)
         )
       ).toBe(overrides)
     }
@@ -584,36 +588,30 @@ describe('answerNowAfterPostCapToolSteps', () => {
       expect(
         answerNowAfterPostCapToolSteps(
           none(),
-          opts([...CAPPED_TURN, ...fetchSteps(done)], 4)
+          opts([...SPENT, ...fetchSteps(done)], 4)
         )
       ).toEqual(answerNowOverrides(none(), SYS))
     }
   })
 
-  it('quality (no limit): unchanged however many tool steps follow the cap', () => {
+  it('quality (no limit): unchanged however many tool steps follow', () => {
     for (const done of [0, 4, 8, 30]) {
       const overrides = none()
       expect(
         answerNowAfterPostCapToolSteps(
           overrides,
-          opts([...CAPPED_TURN, ...fetchSteps(done)], null)
+          opts([...SPENT, ...fetchSteps(done)], null)
         )
       ).toBe(overrides)
     }
   })
 
-  it('never fires before the cap', () => {
+  it('never fires before the withdrawal', () => {
     const overrides = none()
     expect(
       answerNowAfterPostCapToolSteps(
         overrides,
-        opts(
-          [
-            sdkStep({ toolName: 'search', output: realOutput }),
-            ...fetchSteps(9)
-          ],
-          4
-        )
+        opts([sdkStep(realSearch), ...fetchSteps(9)], 4, null)
       )
     ).toBe(overrides)
   })
@@ -622,73 +620,250 @@ describe('answerNowAfterPostCapToolSteps', () => {
     expect(
       answerNowAfterPostCapToolSteps(
         { system: 'variant prompt' },
-        opts([...CAPPED_TURN, ...fetchSteps(4)], 4)
+        opts([...SPENT, ...fetchSteps(4)], 4)
       ).system
     ).toBe(`variant prompt${ANSWER_NOW_NOTE}`)
   })
+})
 
-  // researcher.ts order: variant -> withdraw search -> answer-now on search
-  // after withdrawal -> answer-now after N post-cap tool steps -> deadline.
-  const pipeline = (
-    steps: SearchCapStep[],
-    maxToolSteps: number | null,
+// ── Stage 1's note: why `search` disappeared ─────────────────────────────────
+
+describe('resolveSearchWithdrawnNote', () => {
+  it("words the note like the mode's cap notice: answer now, or fetch allowed", () => {
+    expect(resolveSearchWithdrawnNote('balanced', {})).toBe(
+      buildSearchWithdrawnNote(3, false)
+    )
+    expect(
+      resolveSearchWithdrawnNote('speed', { SEARCH_ROUNDS_MAX: '2' })
+    ).toBe(buildSearchWithdrawnNote(2, false))
+    expect(resolveSearchWithdrawnNote('quality', {})).toBe(
+      buildSearchWithdrawnNote(10, true)
+    )
+    expect(
+      resolveSearchWithdrawnNote('balanced', { FETCH_ROUNDS_MAX: '6' })
+    ).toBe(buildSearchWithdrawnNote(3, true))
+  })
+})
+
+describe('withSearchWithdrawnNote', () => {
+  const withdraw = (offered: FlowStepOverrides) =>
+    withdrawSearchAfterCap(offered, {
+      withdrawnAtStep: W,
+      defaultActiveTools: MODE_TOOLS
+    })
+  const note = (
+    step: FlowStepOverrides,
+    offered: FlowStepOverrides,
+    withdrawn: FlowStepOverrides
+  ) =>
+    withSearchWithdrawnNote(step, {
+      offered,
+      withdrawn,
+      systemPrompt: SYS,
+      note: NOTE
+    })
+
+  it('appends the note to the prompt in force on a step that lost search', () => {
+    const offered = none()
+    const withdrawn = withdraw(offered)
+    const out = note(withdrawn, offered, withdrawn)
+    expect(out.system).toBe(`${SYS}\n\n${NOTE}`)
+    expect(out.activeTools).toEqual(WITHOUT_SEARCH)
+    // A variant's replacement prompt keeps its replacement.
+    const variant = { system: 'variant prompt' }
+    const vWithdrawn = withdraw(variant)
+    expect(note(vWithdrawn, variant, vWithdrawn).system).toBe(
+      `variant prompt\n\n${NOTE}`
+    )
+  })
+
+  it('adds it once', () => {
+    const offered = { system: `${SYS}\n\n${NOTE}` }
+    const withdrawn = withdraw(offered)
+    expect(note(withdrawn, offered, withdrawn).system).toBe(`${SYS}\n\n${NOTE}`)
+  })
+
+  it('not before the withdrawal, and not where search was never offered', () => {
+    const offered = none()
+    expect(note(offered, offered, offered)).toBe(offered)
+    const searchFree = { activeTools: ['calculate', 'recall'] }
+    const same = withdraw(searchFree)
+    expect(note(same, searchFree, same)).toBe(searchFree)
+  })
+
+  it('not on an answer-now step: ANSWER_NOW_NOTE speaks there, alone', () => {
+    // Stage 2/3 or the time deadline replaced the withdrawn step. Quality's
+    // note ("you may still fetch") would contradict "no tools".
+    const offered = none()
+    const withdrawn = withdraw(offered)
+    const answerNow = answerNowOverrides(withdrawn, SYS)
+    const out = note(answerNow, offered, withdrawn)
+    expect(out).toBe(answerNow)
+    expect(out.system).toBe(`${SYS}${ANSWER_NOW_NOTE}`)
+  })
+})
+
+// ── The whole prepareStep pipeline, replayed step by step ───────────────────
+
+// researcher.ts: record the withdrawal step the first time the budget is spent,
+// then variant -> withdraw search -> answer-now on a search call after the
+// withdrawal -> answer-now after N tool steps -> time deadline -> the note.
+function replay(
+  turn: SearchCapStep[],
+  {
+    roundsAfterStep,
+    roundsBudget = 3,
+    maxToolSteps = 4 as number | null,
     elapsedMs = 0
-  ) => {
-    const stage1 = withdrawSearchAfterCap(none(), {
-      steps,
+  }: {
+    /** The search tool's counter after each step of `turn`. */
+    roundsAfterStep: number[]
+    roundsBudget?: number
+    maxToolSteps?: number | null
+    elapsedMs?: number
+  }
+) {
+  let withdrawnAtStep: number | null = null
+  return Array.from({ length: turn.length + 1 }, (_, stepNumber) => {
+    const steps = turn.slice(0, stepNumber)
+    const roundsUsed = stepNumber === 0 ? 0 : roundsAfterStep[stepNumber - 1]
+    if (
+      withdrawnAtStep === null &&
+      searchBudgetSpent(steps, { roundsUsed, roundsBudget })
+    ) {
+      withdrawnAtStep = stepNumber
+    }
+    const offered = none()
+    const stage1 = withdrawSearchAfterCap(offered, {
+      withdrawnAtStep,
       defaultActiveTools: MODE_TOOLS
     })
     const stage2 = answerNowOnSearchEvasion(stage1, {
       steps,
+      withdrawnAtStep,
       systemPrompt: SYS
     })
-    const stage3 = answerNowAfterPostCapToolSteps(
-      stage2,
-      opts(steps, maxToolSteps)
-    )
-    const out = applyAnswerDeadline(stage3, { elapsedMs, systemPrompt: SYS })
-    return { stage1, stage2, stage3, out }
-  }
+    const stage3 = answerNowAfterPostCapToolSteps(stage2, {
+      steps,
+      withdrawnAtStep,
+      systemPrompt: SYS,
+      maxToolSteps
+    })
+    const deadline = applyAnswerDeadline(stage3, {
+      elapsedMs,
+      systemPrompt: SYS
+    })
+    const out = withSearchWithdrawnNote(deadline, {
+      offered,
+      withdrawn: stage1,
+      systemPrompt: SYS,
+      note: NOTE
+    })
+    return { withdrawnAtStep, stage1, stage3, deadline, out }
+  })
+}
+const noteCount = (o: FlowStepOverrides) =>
+  (o.system ?? '').split(NOTE).length - 1
+const answerNow = (o: FlowStepOverrides) =>
+  o.activeTools?.length === 0 && (o.system ?? '').endsWith(ANSWER_NOW_NOTE)
 
-  it('the lab turn switches at step 7 instead of answering at step 16', () => {
-    const turn = [...CAPPED_TURN, ...fetchSteps(13)]
-    // steps.slice(0, i) is what prepareStep sees for step i.
-    const switchedAt = Array.from(
-      { length: turn.length + 1 },
-      (_, i) => i
-    ).find(i => pipeline(turn.slice(0, i), 4).out.activeTools?.length === 0)
-    expect(switchedAt).toBe(7)
-    // Steps 3-6 offer everything except search.
-    for (let i = 3; i < 7; i++) {
-      expect(pipeline(turn.slice(0, i), 4).out.activeTools).toEqual(
-        MODE_TOOLS.filter(t => t !== 'search')
+describe('prepareStep pipeline', () => {
+  it('the prod turn: search is gone at step 2, before any search was refused', () => {
+    // Stored: step 2 still offered search and made 4 refused calls, step 3
+    // (withdrawn) 4 more, step 4 (answer-now) 4 more, answer at step 5.
+    // Replayed with the same model behaviour per offer: step 2 is the
+    // withdrawn step (old step 3), its 4 calls refused by the tool's cap.
+    const turn = [
+      ...SPENT,
+      sdkStep(refusedSearch, refusedSearch, refusedSearch, refusedSearch)
+    ]
+    const steps = replay(turn, { roundsAfterStep: [1, 5, 5] })
+    for (const i of [0, 1]) {
+      expect(steps[i].out).toEqual({})
+    }
+    expect(steps[2].withdrawnAtStep).toBe(2)
+    expect(steps[2].out.activeTools).toEqual(WITHOUT_SEARCH)
+    expect(noteCount(steps[2].out)).toBe(1)
+    // It searched anyway: step 3 is answer-now, without the note.
+    expect(answerNow(steps[3].out)).toBe(true)
+    expect(noteCount(steps[3].out)).toBe(0)
+  })
+
+  it('a compliant turn: the step after the budget is spent offers no search', () => {
+    const steps = replay(SPENT, { roundsAfterStep: [1, 5] })
+    expect(steps[2].out.activeTools).toEqual(WITHOUT_SEARCH)
+    expect(steps[2].out.system).toBe(`${SYS}\n\n${NOTE}`)
+  })
+
+  it('rounds left: search stays offered, whatever the calls returned', () => {
+    // Two real searches and two calls that ran nothing (dedup skip, exact
+    // repeat): 2 of 3 rounds used.
+    const turn = [
+      sdkStep(realSearch, realSearch),
+      sdkStep(
+        { toolName: 'search', output: dedupSkipOutput },
+        { toolName: 'search', output: duplicateQueryOutput }
       )
+    ]
+    const steps = replay(turn, { roundsAfterStep: [2, 2] })
+    for (const s of steps) {
+      expect(s.out).toEqual({})
+      expect(s.withdrawnAtStep).toBeNull()
     }
   })
 
-  it('stage 2 still fires first, on the step after a search call', () => {
-    const steps = [...CAPPED_TURN, sdkStep(refusedSearch)]
-    const { stage2, stage3, out } = pipeline(steps, 4)
-    expect(stage2.activeTools).toEqual([])
-    // Stage 3 has nothing to add (1 tool step < 4) and passes it through.
-    expect(stage3).toBe(stage2)
-    expect(out.system).toBe(`${SYS}${ANSWER_NOW_NOTE}`)
-  })
-
-  it('both answer-now stages and the deadline together: no tools, one note', () => {
-    const steps = [
-      ...CAPPED_TURN,
-      ...fetchSteps(3),
+  it('the refusal fallback withdraws from the step after it, as before', () => {
+    // A counter that never moved (not shared): the refusal at step 2 is the
+    // only signal, so search goes at step 3 and stage 2 counts from there.
+    const turn = [
+      sdkStep(realSearch),
+      sdkStep(realSearch, realSearch),
       sdkStep(refusedSearch),
       sdkStep(fetchCall)
     ]
-    const { stage3, out } = pipeline(steps, 4, ANSWER_DEADLINE_MS)
-    expect(out.activeTools).toEqual([])
-    expect(out.system).toBe(`${SYS}${ANSWER_NOW_NOTE}`)
-    // The deadline still returns a new object: researcher.ts's identity check
-    // keeps meaning the TIME deadline.
-    expect(out).not.toBe(stage3)
-    const before = pipeline(steps, 4, 0)
-    expect(before.out).toBe(before.stage3)
+    const steps = replay(turn, { roundsAfterStep: [0, 0, 0, 0] })
+    expect(steps[2].out).toEqual({})
+    expect(steps[3].withdrawnAtStep).toBe(3)
+    expect(steps[3].out.activeTools).toEqual(WITHOUT_SEARCH)
+    expect(answerNow(steps[4].out)).toBe(false)
+  })
+
+  it('stage 3 counts tool steps from the withdrawal step: 4 fetch steps, then answer-now', () => {
+    // Lab chat jcckydan2uqv7l4qelyjq1ob, follow-up turn: one fetch per step
+    // after search was withdrawn.
+    const turn = [...SPENT, ...fetchSteps(13)]
+    const steps = replay(turn, {
+      roundsAfterStep: turn.map((_, i) => (i ? 5 : 1))
+    })
+    for (const i of [2, 3, 4, 5]) {
+      expect(steps[i].out.activeTools).toEqual(WITHOUT_SEARCH)
+      expect(noteCount(steps[i].out)).toBe(1)
+    }
+    const switchedAt = steps.findIndex(s => answerNow(s.out))
+    expect(switchedAt).toBe(6)
+    expect(noteCount(steps[6].out)).toBe(0)
+    // Quality: no limit, fetch stays offered with the note.
+    const quality = replay(turn, {
+      roundsAfterStep: turn.map((_, i) => (i ? 5 : 1)),
+      maxToolSteps: null
+    })
+    expect(quality.some(s => answerNow(s.out))).toBe(false)
+  })
+
+  it('the time deadline still applies on top: no tools, one note, identity kept', () => {
+    const turn = [...SPENT, ...fetchSteps(2)]
+    const steps = replay(turn, {
+      roundsAfterStep: [1, 5, 5, 5],
+      elapsedMs: ANSWER_DEADLINE_MS
+    })
+    const last = steps[steps.length - 1]
+    expect(last.out.activeTools).toEqual([])
+    expect(last.out.system).toBe(`${SYS}${ANSWER_NOW_NOTE}`)
+    // A new object only when the TIME deadline fired, so researcher.ts's
+    // identity check (deadline log, citation reminder) still means time.
+    expect(last.deadline).not.toBe(last.stage3)
+    const before = replay(turn, { roundsAfterStep: [1, 5, 5, 5] })
+    const b = before[before.length - 1]
+    expect(b.deadline).toBe(b.stage3)
   })
 })

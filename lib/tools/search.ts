@@ -64,6 +64,11 @@ import {
   resolveDedupThreshold
 } from './search/query-dedup'
 import { resolveFetchRoundsBudget } from './fetch-budget'
+import {
+  buildSearchRoundCapNotice,
+  resolveSearchRoundsBudget,
+  type SearchRoundCounter
+} from './search-rounds'
 
 export type SearchToolOptions = {
   // Per-turn recency preference from the query classifier (needsRecent).
@@ -112,6 +117,12 @@ export type SearchToolOptions = {
     kind: 'search' | 'fetch',
     stages: Record<string, number>
   ) => void
+  // The turn's round counter (./search-rounds). When given, this tool counts
+  // its rounds into it instead of a private one, so the researcher reads the
+  // very number the round cap enforces and can stop offering `search` as soon
+  // as the budget is spent (lib/agents/search-cap.ts). This tool is its only
+  // writer.
+  searchRounds?: SearchRoundCounter
 }
 
 // Ollama's web-search API clamps max_results to 10 server-side (verified by
@@ -293,67 +304,10 @@ async function searchExpansionVariants(
   return results
 }
 
-// Per-turn search-ROUND cap (model-agnostic latency guard). The answering
-// model can loop the `search` tool many times per turn; each round is a full
-// fan-out + crawl + rerank PLUS the model's inter-call reasoning, and once
-// recall/classifier/crawl are trimmed that looping dominates the remaining
-// latency (measured on prod: up to 7 rounds ≈ 15s of fan-out + ~57s of
-// inter-call reasoning). Capping ROUNDS is a PIPELINE lever: it bounds ANY
-// answering model — loopy or not — without touching the model itself.
-//
-// Mode-aware: quality is crawl-heavy and multi-facet by design, so it gets a
-// higher ceiling; balanced/speed/default share the lower one. Speed normally
-// answers in a single Ollama-web pass, so the cap is only a safety net there.
-// Env-overridable via SEARCH_ROUNDS_MAX / SEARCH_ROUNDS_MAX_QUALITY. Pure +
-// exported so the budget resolution is unit-testable without a tool context.
-const SEARCH_ROUNDS_MAX_DEFAULT = 3
-// Quality 5 -> 10 (lab A/Bs 2026-09-29/30): cap 5 refused searches on every
-// quality turn; with fetch-past-cap allowed, cap 10 vs 5 showed no measurable
-// latency or quality difference and ties the cap-15 answers. 10 refused none of
-// the real searches the cap-15 arm made (7/5/10) once dedup skips stopped
-// counting.
-const SEARCH_ROUNDS_MAX_QUALITY_DEFAULT = 10
-
-export function resolveSearchRoundsBudget(searchMode?: SearchMode): number {
-  if (searchMode === 'quality') {
-    const raw = Number(process.env.SEARCH_ROUNDS_MAX_QUALITY)
-    return Number.isFinite(raw) && raw > 0
-      ? Math.floor(raw)
-      : SEARCH_ROUNDS_MAX_QUALITY_DEFAULT
-  }
-  const raw = Number(process.env.SEARCH_ROUNDS_MAX)
-  return Number.isFinite(raw) && raw > 0
-    ? Math.floor(raw)
-    : SEARCH_ROUNDS_MAX_DEFAULT
-}
-
-/**
- * The result text a search past the round cap returns.
- *
- * `allowFetch` is true when the turn's mode has a fetch cap
- * (resolveFetchRoundsBudget). Then the notice ends the SEARCHING only: the
- * model may still read, in full, pages that this turn's searches already
- * returned. The earlier wording, "Answer ... directly now using the sources
- * already gathered. Do not search again.", also ended the fetching. In the
- * 2026-09-29 quality A/B the cap-5 arm hit the cap in all 3 turns and then made
- * 1 fetch across the 3 of them, and its errors came from answering off
- * snippets. The cap-15 arm fetched 34 pages, and its wins came from those pages.
- *
- * Without a fetch cap (balanced/speed by default) the notice keeps the "answer
- * now" instruction: a fetch that nothing bounds except the answer deadline is
- * not offered.
- */
-export function buildSearchRoundCapNotice(
-  roundsBudget: number,
-  allowFetch: boolean
-): string {
-  const noNarration =
-    'Do NOT restate that a limit was reached, do NOT describe what each source gave you, and do NOT narrate that you are stopping or promise another search'
-  if (!allowFetch) {
-    return `Search limit reached (${roundsBudget} rounds). Answer the user's question directly now using the sources already gathered. Do not search again. ${noNarration} — begin your reply immediately with its \`## \` heading.`
-  }
-  return `Search limit reached (${roundsBudget} rounds), so this search was not run. Do not call \`search\` again this turn: further searches are refused and return nothing. You may still call \`fetch\` on URLs that appeared in this turn's earlier search results when a specific claim in your answer needs that page's full text (put several URLs in one call). Otherwise, answer the user's question now from the sources already gathered. ${noNarration} — when you answer, begin your reply immediately with its \`## \` heading.`
-}
+// The round budget, the round counter and the cap notice live in
+// ./search-rounds (the researcher reads them too). Re-exported for existing
+// importers.
+export { buildSearchRoundCapNotice, resolveSearchRoundsBudget }
 
 /**
  * Creates a search tool with the appropriate schema for the given model.
@@ -375,8 +329,11 @@ export function createSearchTool(
   // actually run: incremented after the near-duplicate check in execute, so a
   // dedup-skipped search does not consume a round. Enforced only for
   // turn-scoped tools (see the guard in execute — the reused module-level
-  // singleton is exempt).
-  let searchRounds = 0
+  // singleton is exempt). The researcher passes its own counter object
+  // (toolOptions.searchRounds) so it can read the count; it stays per-turn.
+  const searchRounds: SearchRoundCounter = toolOptions?.searchRounds ?? {
+    used: 0
+  }
   // Per-turn search-intent dedup state, keyed within a search_mode so a web
   // search and an academic search of the same words aren't treated as dupes.
   // embedding is null when the embedder failed: the query can still be
@@ -423,8 +380,8 @@ export function createSearchTool(
       // permanently trip it. The counter still increments there, harmlessly.
       if (toolOptions) {
         const roundsBudget = resolveSearchRoundsBudget(toolOptions.searchMode)
-        if (searchRounds >= roundsBudget) {
-          const attemptedRound = searchRounds + 1
+        if (searchRounds.used >= roundsBudget) {
+          const attemptedRound = searchRounds.used + 1
           const allowFetch =
             resolveFetchRoundsBudget(toolOptions.searchMode) !== null
           try {
@@ -561,7 +518,7 @@ export function createSearchTool(
 
       // This search is going to run (the dedup skip above returned), so it
       // consumes one round of the per-turn cap checked at the top of execute.
-      searchRounds += 1
+      searchRounds.used += 1
 
       // Ensure max_results is at least 10
       const minResults = 10
