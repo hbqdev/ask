@@ -19,8 +19,35 @@ behind the change. Lab-first work lives on `flow-design`. `git cherry-pick -x` l
 ## 2026-10 — October
 
 **A near-duplicate search skip with no false skips on labelled pairs, citation evidence on every
-turn, shortened citation ids that resolve, and a planning draft cut from the answer**
+turn, shortened citation ids that resolve, a planning draft cut from the answer, and a search
+cap that stops a model that ignores it**
 
+- **10-07** — **After the search round cap, `search` is withdrawn, then the turn is made to
+  answer** (lab `d1a86bda` + `c86bbdaa` + `798030de`; staging `d799a91c` + `1f8ece82` +
+  `49e33297`; **lab and staging; prod pending**;
+  [D45](/history/decisions#d45-search-withdrawn-after-the-round-cap-then-answer-only-steps)).
+  - Trigger: prod chat `cznh8gc1gz41vq2lwjb560br` (mistral-large-4, balanced, cap 3) had 80
+    `search` calls refused by the cap over about 30 steps: 36 steps, 89 tool calls, 2,066,500
+    prompt tokens, 259 s, with `search` still advertised throughout. Every other model in stored
+    history stopped after at most 5 refusals.
+  - New `lib/agents/search-cap.ts`, applied in `prepareStep` between the flow variant and the
+    time deadline. Stage 1: from the step after the first refusal, `search` is no longer
+    offered. Stage 2 (every mode): a `search` call after that makes every remaining step
+    answer-only (no tools, the deadline's "TIME TO ANSWER" note, calls refused in `execute`).
+    Stage 3 (modes without a fetch budget: speed and balanced): the same after
+    `POST_CAP_TOOL_STEPS_MAX` (default 4) tool-using steps past the cap. `answerNowOverrides`
+    is factored out of `applyAnswerDeadline`.
+  - Lab, one turn per build: stage 1 cut the turn to 9 steps, 0.40M prompt tokens, 163 s, but
+    the model still called `search` on 4 later steps; with stages 1–2 it fetched instead (13
+    single fetches, 17 steps, 1.21M, 268 s); with all three it answered on its own at step 4
+    after the withdrawal (5 steps, 221k, 162 s, 50 citations, 0 unresolved). No stored turn of a
+    currently listed model is affected; quality is unchanged.
+  - Logs: `[search-cap] search withdrawn at step N …`, `… model kept calling search after
+    withdrawal …`, `… N tool steps after the round cap …`, `… refused <tool> call on an
+    answer-now step …`.
+  - Not fixed: parallel calls in one step can overshoot the budget (5 searches ran on that
+    turn with a budget of 3).
+    → [pipeline › round cap](/search/pipeline#round-cap), [chat turn › caps](/request-lifecycle/chat-turn#_10-the-tool-loop-and-its-caps), [telemetry](/operations/telemetry#the-lines), [models & reasoning › `activeTools`](/search/models-reasoning#activetools-does-not-block-a-tool), [known issue (open)](/history/known-issues#parallel-search-calls-can-overshoot-the-round-cap)
 - **10-06** — **Shortened and one-character-off citation ids resolve; a planning draft in front
   of a glued restart is cut** (lab `6b779bfe` + `a6a9d6c0`; staging `5ab6760f` + `1a43ef1c`;
   prod `a89fb3f2` + `20cb9cc1`; the 4 affected prod answers backfilled 2026-10-07;

@@ -294,7 +294,7 @@ tool the model can call — it only ever appears this way. Details:
 ## 9. Turn mode and tools {#_9-turn-mode-and-tools}
 
 `researcher()` = `createResearcher` (`lib/agents/researcher.ts`) builds a
-`ToolLoopAgent` (`researcher.ts:1042`). `resolveTurnMode` (`researcher.ts:170-204`):
+`ToolLoopAgent` (`researcher.ts:1066`). `resolveTurnMode` (`researcher.ts:178-212`):
 
 | Turn mode | When | Prompt | Advertised tools (`activeTools`) | maxSteps |
 |---|---|---|---|---|
@@ -310,31 +310,31 @@ there is a user id. `askQuestion` is in the tools map but never advertised.
 **Forced first search (`ALWAYS_SEARCH`, default on).** On a `research` turn, step 0 is a
 web search that the answering model does not choose:
 
-1. `resolveForcedFirstSearch` (`researcher.ts:215-232`) returns null (not forced) when the
+1. `resolveForcedFirstSearch` (`researcher.ts:223-240`) returns null (not forced) when the
    user supplied the source (`userSuppliedSource`, above): the turn keeps its mode prompt
    and tools, so a URL is read with `fetch` or the injected attached source, and the model
    may still search. Otherwise it takes `standaloneQuery`, removes URLs and clips it to 400
    characters; if nothing is left, the turn is not forced either.
 2. The system prompt gets the forced-search addendum (`getForcedSearchPromptAddendum()`,
-   appended at `researcher.ts:853-855`): the first search already ran; ground and cite (with
+   appended at `researcher.ts:861-863`): the first search already ran; ground and cite (with
    `CITATION_HANDLES` on, by copying each result's `cite` string); the "clarifying your own
    prior answer" exception does not apply; and (since 2026-09-27) it is the **first** search,
    not the only one: keep researching as the mode's protocol says, and search again if the
    results are irrelevant
    ([D37 addendum](/history/decisions#addendum-2026-09-27-the-forced-search-is-the-first-search)).
-3. `prepareStep` returns `model: forcedSearchModel` for step 0 (`researcher.ts:1136-1138`).
+3. `prepareStep` returns `model: forcedSearchModel` for step 0 (`researcher.ts:1202-1204`).
    That synthetic model (`lib/agents/always-search.ts:264`) emits one `search` call and
    nothing else; the SDK executes it through the full `search` wrapper chain below. The
    answering model runs from step 1 with the results in context.
 4. `onTurnPlan` reports `{turnMode, forcedSearch, forcedSkip}` for the `[latency]` line
-   (`researcher.ts:692-696`); `forcedSkip` names the user-supplied source when a research
+   (`researcher.ts:700-704`); `forcedSkip` names the user-supplied source when a research
    turn was not forced.
 
 `toolChoice` cannot do this job because the Ollama provider ignores it; the step's model
 override is resolved by the AI SDK itself. Details, evidence and the revert switch:
 [D37](/history/decisions#d37-always-search-every-question).
 
-The tools map (`researcher.ts:922`) always contains **every** tool:
+The tools map (`researcher.ts:938`) always contains **every** tool:
 `search, fetch, askQuestion, calculate, get_weather, remember, recall,
 [generateImage], todoWrite`.
 
@@ -354,7 +354,7 @@ Other per-turn wiring:
   instructions), the resolved `standaloneQuery` as the **entire scope of the turn**,
   image-tool guidance, and the current date/time.
 - `remember` writes are candidate-only on research turns (a retrieved page could have
-  induced them) and immediate on direct/stable-knowledge turns (`researcher.ts:928-937`).
+  induced them) and immediate on direct/stable-knowledge turns (`researcher.ts:944-953`).
   An explicit "remember that …" / "forget …" instruction is a classifier skip, so it is a
   `direct` turn and its memory is **confirmed**; a `remember` call the model makes on its own
   during a research turn is a candidate (see
@@ -378,11 +378,41 @@ keep it bounded:
 | Cap | Where | Default | Effect |
 |---|---|---|---|
 | Step cap | `stopWhen: stepCountIs(maxSteps)` | 10 / 20 / 50 / 100 | hard stop (can end on a tool step — rarely reached in practice) |
-| Search-round cap | `lib/tools/search.ts:307-328` | `SEARCH_ROUNDS_MAX`=3, `SEARCH_ROUNDS_MAX_QUALITY`=10 (5 before 2026-09-30) | further `search` calls return an empty result with a notice: "answer now, begin with the `## ` heading", or in quality "no more searches; you may still fetch URLs found this turn". Dedup short-circuits and near-duplicate skips don't count ([pipeline](/search/pipeline#round-cap)) |
+| Search-round cap | `lib/tools/search.ts:307-328` | `SEARCH_ROUNDS_MAX`=3, `SEARCH_ROUNDS_MAX_QUALITY`=10 (5 before 2026-09-30) | further `search` calls return an empty result with a notice: "answer now, begin with the `## ` heading", or in quality "no more searches; you may still fetch URLs found this turn". Dedup short-circuits and near-duplicate skips don't count; parallel calls in one step can overshoot it ([pipeline](/search/pipeline#round-cap)) |
+| After the cap (since 2026-10-07; lab and staging, prod pending) | `prepareStep` → `lib/agents/search-cap.ts` | `POST_CAP_TOOL_STEPS_MAX`=4 | from the step after the first refusal `search` is no longer offered. A `search` call after that (any mode), or a 4th tool-using step after the capped one (modes without a fetch budget: speed and balanced), makes every later step answer-only: no tools, the "TIME TO ANSWER" note, and calls refused in `execute` ([pipeline](/search/pipeline#round-cap), [D45](/history/decisions#d45-search-withdrawn-after-the-round-cap-then-answer-only-steps)) |
 | Fetch cap (since 2026-09-30) | `lib/tools/fetch-budget.ts` | quality `FETCH_ROUNDS_MAX_QUALITY`=8 calls; other modes none (`FETCH_ROUNDS_MAX` unset) | a further `fetch` call returns an empty result with an "answer from what you have" notice |
 | Answer deadline | `prepareStep` → `applyAnswerDeadline` (`lib/agents/answer-deadline.ts:40`) | 200s | tools no longer advertised + a "TIME TO ANSWER" note appended to the system prompt, and every tool's `execute` refuses with an "answer now" result (`enforceAnswerDeadline`), so the model writes before the 300s abort (which would persist nothing) |
 | Advanced-search call (since 2026-09-27) | `createAdvancedSearchDeadline` (`lib/tools/search/advanced-search-deadline.ts:93`) | 20s to response headers, 180s total (`ADVANCED_SEARCH_HEADERS_TIMEOUT_MS`, `ADVANCED_SEARCH_TIMEOUT_MS`) | the first search falls back to a basic SearXNG search instead of hanging ([pipeline](/search/pipeline#advanced-search-deadline-and-fallback)) |
 | Generation timeout | `route.ts:36` | 300s | aborts the turn; nothing persisted |
+
+**What `prepareStep` does before each step, in order** (`lib/agents/researcher.ts:1090-1206`).
+Each item folds into the per-step overrides of the one before it:
+
+1. **Flow variant** (`flow.prepareStep`; `{}` for `baseline`): its own per-step tools or prompt.
+2. **Withdraw `search` after the round cap** (`withdrawSearchAfterCap`, `:1102-1111`): from the
+   step after the first `searchLimitReached` result, `search` is filtered out of the variant's
+   tool list, or out of the mode's list when the variant set none.
+3. **Answer-only if `search` was called after the withdrawal** (`answerNowOnSearchEvasion`,
+   `:1115-1118`), every mode.
+4. **Answer-only after `POST_CAP_TOOL_STEPS_MAX` tool steps since the cap**
+   (`answerNowAfterPostCapToolSteps`, `:1121-1125`), modes without a fetch budget only. Items
+   3 and 4 set one flag per turn (`searchCapAnswerNow`, `:933`) and log one `[search-cap]` line,
+   under whichever fired first (`:1128-1135`).
+5. **The 200 s answer deadline** (`applyAnswerDeadline`, `:1140-1148`), applied last so it wins
+   over everything above. Its `[deadline] … tools withdrawn` line is logged only when the time
+   deadline itself fires.
+6. **Date and citation reminder**: a replaced system prompt gets the current date re-appended
+   (`:1152-1157`); the citation reminder (off by default) treats a step made answer-only by item
+   3, 4 or 5 as the answer step (`:1175`).
+7. **Forced first search**: step 0 runs on the synthetic search model (`:1202-1204`).
+
+Items 3–5 share one override (`answerNowOverrides`, `lib/agents/answer-deadline.ts:80-95`: no
+tools, `ANSWER_NOW_NOTE` appended once) and one enforcement: `enforceAnswerDeadline` wraps every
+tool's `execute` (`researcher.ts:966-979`) and refuses a call once the deadline has passed or
+the search cap has switched the turn to answer-only. Removing a tool from the step's list alone
+is not enough: [`activeTools` is advertising](#_9-turn-mode-and-tools), and one model kept
+calling `search` after it was withdrawn
+([models & reasoning](/search/models-reasoning#activetools-does-not-block-a-tool)).
 
 What a search call does (providers, crawl, rerank, excerpting, prefetch vs crawl per
 mode) is covered in [Search pipeline](/search/pipeline). Each call reports its stage
