@@ -189,6 +189,10 @@ export type CitationRepair =
   | 'url-fragment'
   /** A real id of this turn wrapped in template syntax, e.g. `<id-…>`. */
   | 'wrapped-id'
+  /** A shortened form of exactly one of this turn's ids (findMapByIdPrefix). */
+  | 'id-prefix'
+  /** One of this turn's ids with one character wrong (findMapByIdTypo). */
+  | 'id-typo'
   /** A placeholder id in a turn with exactly one citable call. */
   | 'placeholder'
   /** A real single-page fetch id with a number past its one result. */
@@ -219,6 +223,95 @@ function findCitationMap(
       ) ?? ''
     ]
   )
+}
+
+/**
+ * The fewest characters a shortened id may keep and still name a call. Eight
+ * hex characters is the first group of a UUID — the shortening models produce
+ * (git-style) — and 16^8 values: two calls of one turn never share it by
+ * chance, and an invented 8-character id never matches one by chance.
+ */
+const MIN_ID_PREFIX_LENGTH = 8
+
+/** Hex digits and dashes only: what a UUID, or any piece of one, is made of. */
+const UUID_CHARS_RE = /^[0-9a-f-]+$/i
+
+/**
+ * The call a SHORTENED id names: `[3](#17d98f5d)`, `[1](#71cee5ba...)`,
+ * `[2](#74661147-...)`, `[1](#bbad709f…)` for this turn's
+ * `17d98f5d-f270-46f8-92e8-e2acaa3a4705`. Measured on prod (glm-5.3-flash,
+ * 2026-10-06): 43 of the 48 anchors it lost since 2026-10-04 carried the
+ * right id cut to its first 8 characters, many with a literal `...` after it,
+ * although every result handed it the full id (those 43 sat in planning text
+ * it leaked ahead of its answer). Same shape in final answers: prod glm-5.2
+ * history, lab deepseek-v4-flash.
+ *
+ * After trimming whitespace, one trailing ellipsis (`...` or `…`) and
+ * trailing dashes, the id must be at least MIN_ID_PREFIX_LENGTH hex/dash
+ * characters and a case-insensitive prefix of EXACTLY ONE of this message's
+ * citable call ids. Shorter, ambiguous (two calls start with it), or not a
+ * prefix of any of THIS turn's calls (another turn's, or invented) → no match:
+ * the anchor is dropped, never guessed.
+ */
+function findMapByIdPrefix(
+  anchorId: string,
+  citationMaps: Record<string, Record<number, SearchResultItem>>
+): Record<number, SearchResultItem> | undefined {
+  const prefix = anchorId
+    .trim()
+    .replace(/(?:\.{3}|…)$/, '')
+    .trimEnd()
+    .replace(/-+$/, '')
+    .toLowerCase()
+  if (prefix.length < MIN_ID_PREFIX_LENGTH || !UUID_CHARS_RE.test(prefix)) {
+    return undefined
+  }
+  let match: Record<number, SearchResultItem> | undefined
+  for (const [id, map] of Object.entries(citationMaps)) {
+    if (!id.toLowerCase().startsWith(prefix)) continue
+    if (match) return undefined
+    match = map
+  }
+  return match
+}
+
+/** Whether a and b differ by exactly one substituted, inserted or deleted character. */
+function isOneEditApart(a: string, b: string): boolean {
+  if (a === b || Math.abs(a.length - b.length) > 1) return false
+  let i = 0
+  while (i < a.length && i < b.length && a[i] === b[i]) i++
+  if (a.length === b.length) return a.slice(i + 1) === b.slice(i + 1)
+  return a.length > b.length
+    ? a.slice(i + 1) === b.slice(i)
+    : a.slice(i) === b.slice(i + 1)
+}
+
+/**
+ * The call a full-length id with ONE character wrong names:
+ * `80a47e63-d3c8-447a-a75f-50433119aebb` for this turn's `…-50433119aebc`,
+ * `bf8eb24c-8a84-434b-b96-b99216f42299` (a digit dropped). Measured across
+ * the three stacks' history (2026-10-06): 17 anchors (kimi-k2.6,
+ * deepseek-v4-flash), every one within one edit of exactly one call of its
+ * own turn and of no other id. Two random UUIDs are never one edit apart, so
+ * a match names its call as surely as the full id; an id that is one edit
+ * from two calls, or from none of THIS turn's, is dropped. Only UUID-shaped
+ * calls are candidates — the shape whose length makes one edit meaningful.
+ */
+function findMapByIdTypo(
+  anchorId: string,
+  citationMaps: Record<string, Record<number, SearchResultItem>>
+): Record<number, SearchResultItem> | undefined {
+  const id = anchorId.trim().toLowerCase()
+  if (!UUID_CHARS_RE.test(id)) return undefined
+  let match: Record<number, SearchResultItem> | undefined
+  for (const [callId, map] of Object.entries(citationMaps)) {
+    if (!UUID_RE.test(callId) || !isOneEditApart(id, callId.toLowerCase())) {
+      continue
+    }
+    if (match) return undefined
+    match = map
+  }
+  return match
 }
 
 function resolveWithinCall(
@@ -270,6 +363,10 @@ function resolveWithinCall(
  *
  *   own                 the id is one of this message's calls, N in range
  *   wrapped-id          `<id-UUID>` / `<UUID>` around one of this message's ids
+ *   id-prefix           a shortened id (>= 8 hex chars, optional trailing `...`)
+ *                       that starts exactly ONE of this message's ids
+ *   id-typo             a full-length id one character off exactly ONE of this
+ *                       message's ids
  *   placeholder         a template/example id, and the message made exactly ONE
  *                       citable call (the same "exactly one thing it can mean"
  *                       rule as the URL-fragment repair)
@@ -292,6 +389,13 @@ export function resolveCitationAnchor(
   const unwrapped = unwrapTemplateId(anchorId)
   const wrapped = unwrapped && findCitationMap(unwrapped, citationMaps)
   if (wrapped) return resolveWithinCall(num, wrapped, 'wrapped-id')
+
+  // Both name one call of THIS turn or nothing, and N is then resolved against
+  // that call exactly as for its full id (out-of-range rules included).
+  const shortened = findMapByIdPrefix(anchorId, citationMaps)
+  if (shortened) return resolveWithinCall(num, shortened, 'id-prefix')
+  const mistyped = findMapByIdTypo(anchorId, citationMaps)
+  if (mistyped) return resolveWithinCall(num, mistyped, 'id-typo')
 
   if (isPlaceholderAnchorId(anchorId)) {
     const calls = Object.values(citationMaps)
@@ -316,8 +420,8 @@ export interface CitationAudit {
   own: number
   /**
    * Anchors rendered only through a repair (see resolveCitationAnchor): a URL
-   * fragment, a wrapped or placeholder id, or a number past a single-page
-   * fetch's one result.
+   * fragment, a wrapped, shortened, one-character-off or placeholder id, or a
+   * number past a single-page fetch's one result.
    */
   recovered: number
   /**
