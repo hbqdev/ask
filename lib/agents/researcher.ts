@@ -30,6 +30,10 @@ import { createQuestionTool } from '../tools/question'
 import { createRecallTool } from '../tools/recall'
 import { createRememberTool } from '../tools/remember'
 import { createSearchTool } from '../tools/search'
+import {
+  resolveSearchRoundsBudget,
+  type SearchRoundCounter
+} from '../tools/search-rounds'
 import { createTodoTools } from '../tools/todo'
 import { weatherTool } from '../tools/weather'
 import { SearchMode, SearchSources } from '../types/search'
@@ -69,9 +73,12 @@ import {
   answerNowAfterPostCapToolSteps,
   answerNowOnSearchEvasion,
   resolvePostCapToolStepsLimit,
+  resolveSearchWithdrawnNote,
+  searchBudgetSpent,
   type SearchCapStep,
-  toolStepsAfterCap,
-  withdrawSearchAfterCap
+  toolStepsAfterWithdrawal,
+  withdrawSearchAfterCap,
+  withSearchWithdrawnNote
 } from './search-cap'
 
 // The pasted-URL branch fills a source's title from the fetched page's <title>,
@@ -639,6 +646,11 @@ export async function createResearcher({
         ? 'basic'
         : 'advanced'
 
+    // This turn's search rounds, counted by the search tool itself (only
+    // searches that actually run) and read by prepareStep below, which stops
+    // offering `search` once the budget is spent (lib/agents/search-cap.ts).
+    const searchRounds: SearchRoundCounter = { used: 0 }
+
     // Create model-specific tools with proper typing
     const originalSearchTool = createSearchTool(model, {
       timeRange: needsRecent ? 'month' : undefined,
@@ -652,7 +664,8 @@ export async function createResearcher({
       firstSearchDepth,
       chatId: currentChatId,
       fullContentSink,
-      onToolTiming
+      onToolTiming,
+      searchRounds
     })
     // Per-request fetch instance so this turn's fetch calls report their wall
     // time into the same tracker. Untimed default instance stays for url-rag.
@@ -925,11 +938,20 @@ Treat each exactly like a \`search\` or \`fetch\` result from this turn: ${docCi
     const turnStartedAt = Date.now()
     const pastAnswerDeadline = () =>
       Date.now() - turnStartedAt >= ANSWER_DEADLINE_MS
-    // Set by prepareStep once the search cap switches the turn to answer-now
-    // (lib/agents/search-cap.ts): stage 2, the model called `search` after it
-    // was withdrawn; stage 3, too many tool steps after the cap in a mode
-    // whose cap notice says "answer now". From then on the execute wrapper
-    // below refuses tool calls exactly as it does past the deadline.
+    // The search cap (lib/agents/search-cap.ts). The step at which `search`
+    // stopped being offered: the first step that started with this turn's
+    // search budget spent (searchRounds against the mode's budget, or a
+    // refused search). Recorded once by prepareStep; stages 2 and 3 count
+    // from it. null until then.
+    let searchWithdrawnAt: number | null = null
+    const searchRoundsBudget = resolveSearchRoundsBudget(searchMode)
+    // Why `search` is gone, worded like the mode's cap notice.
+    const searchWithdrawnNote = resolveSearchWithdrawnNote(searchMode)
+    // Set by prepareStep once the search cap switches the turn to answer-now:
+    // stage 2, the model called `search` after it was withdrawn; stage 3, too
+    // many tool steps without `search` in a mode whose cap notice says
+    // "answer now". From then on the execute wrapper below refuses tool calls
+    // exactly as it does past the deadline.
     let searchCapAnswerNow = false
     // Stage 3's limit for this turn's mode; null (quality) = no limit.
     const postCapToolStepsLimit = resolvePostCapToolStepsLimit(searchMode)
@@ -1036,8 +1058,6 @@ Treat each exactly like a \`search\` or \`fetch\` result from this turn: ${docCi
     }
     // Logged once per turn, at the first step that gets the reminder.
     let citationReminderLogged = false
-    // Logged once per turn, at the first step search is withdrawn.
-    let searchWithdrawnLogged = false
 
     // Built once per turn; handed to step 0 only (prepareStep below). Its
     // call runs the real, fully wrapped `search` tool from `tools`.
@@ -1090,31 +1110,43 @@ Treat each exactly like a \`search\` or \`fetch\` result from this turn: ${docCi
               skipSearch
             })
           : {}
-        // Once the search round cap has refused a search this turn, stop
-        // offering `search` (lib/agents/search-cap.ts): the refusal notice
+        // As soon as this turn's search budget is spent, stop offering
+        // `search` (lib/agents/search-cap.ts): from the search tool's own
+        // round counter, so no step has to call it just to be refused first;
+        // a refused search also counts, as a fallback. The refusal notice
         // alone is ignored by some models — 80 refused calls on one prod turn.
-        // Narrows the variant's own list when it set one, else the mode's.
-        const capped = withdrawSearchAfterCap(variant, {
-          steps: steps as readonly SearchCapStep[],
-          defaultActiveTools: activeToolsList
-        })
-        if (capped !== variant && !searchWithdrawnLogged) {
-          searchWithdrawnLogged = true
+        // Recorded once: the counter never goes down.
+        const capSteps = steps as readonly SearchCapStep[]
+        if (
+          searchWithdrawnAt === null &&
+          searchBudgetSpent(capSteps, {
+            roundsUsed: searchRounds.used,
+            roundsBudget: searchRoundsBudget
+          })
+        ) {
+          searchWithdrawnAt = stepNumber
           console.log(
-            `[search-cap] search withdrawn at step ${stepNumber} after the round cap (chat=${currentChatId ?? '?'})`
+            `[search-cap] search withdrawn at step ${stepNumber} after the round cap (rounds ${searchRounds.used}/${searchRoundsBudget}, chat=${currentChatId ?? '?'})`
           )
         }
+        // Narrows the variant's own list when it set one, else the mode's.
+        const capped = withdrawSearchAfterCap(variant, {
+          withdrawnAtStep: searchWithdrawnAt,
+          defaultActiveTools: activeToolsList
+        })
         // Stage 2: the model called `search` on a step that ran without it,
         // so the rest of the turn is answer-now (no tools + the deadline's
         // note). Sticky: it reads the same steps every later step.
         const evaded = answerNowOnSearchEvasion(capped, {
-          steps: steps as readonly SearchCapStep[],
+          steps: capSteps,
+          withdrawnAtStep: searchWithdrawnAt,
           systemPrompt: effectiveSystemPrompt
         })
-        // Stage 3 (modes without a fetch budget): enough tool steps since the
-        // cap, so the rest of the turn is answer-now too.
+        // Stage 3 (modes without a fetch budget): enough tool steps without
+        // `search`, so the rest of the turn is answer-now too.
         const postCap = answerNowAfterPostCapToolSteps(evaded, {
-          steps: steps as readonly SearchCapStep[],
+          steps: capSteps,
+          withdrawnAtStep: searchWithdrawnAt,
           systemPrompt: effectiveSystemPrompt,
           maxToolSteps: postCapToolStepsLimit
         })
@@ -1125,22 +1157,32 @@ Treat each exactly like a \`search\` or \`fetch\` result from this turn: ${docCi
           console.log(
             evaded !== capped
               ? `[search-cap] model kept calling search after withdrawal at step ${stepNumber} — tools withdrawn, answering now (chat=${currentChatId ?? '?'})`
-              : `[search-cap] ${toolStepsAfterCap(steps as readonly SearchCapStep[])} tool steps after the round cap — tools withdrawn, answering now (chat=${currentChatId ?? '?'})`
+              : `[search-cap] ${toolStepsAfterWithdrawal(capSteps, searchWithdrawnAt)} tool steps after the round cap — tools withdrawn, answering now (chat=${currentChatId ?? '?'})`
           )
         }
-        // Applied LAST so it wins over a variant's own activeTools (and over
-        // every search-cap stage): which tools are visible mid-loop is a
-        // preference, having a step left to answer in is not. `o !== postCap`
-        // below means the TIME deadline fired, nothing else.
-        const o = applyAnswerDeadline(postCap, {
+        // Applied after the variant and every search-cap stage so it wins
+        // over a variant's own activeTools (and over every stage): which
+        // tools are visible mid-loop is a preference, having a step left to
+        // answer in is not. `deadline !== postCap` below means the TIME
+        // deadline fired, nothing else.
+        const deadline = applyAnswerDeadline(postCap, {
           elapsedMs: Date.now() - turnStartedAt,
           systemPrompt: effectiveSystemPrompt
         })
-        if (o !== postCap) {
+        if (deadline !== postCap) {
           console.log(
             `[deadline] ${Math.round((Date.now() - turnStartedAt) / 1000)}s elapsed at step ${stepNumber} — tools withdrawn, answering now`
           )
         }
+        // Stage 1's note, last: on a step that lost `search` and is not an
+        // answer-now step, say why it is gone (the model may never have seen
+        // a refusal), once. Answer-now steps carry ANSWER_NOW_NOTE instead.
+        const o = withSearchWithdrawnNote(deadline, {
+          offered: variant,
+          withdrawn: capped,
+          systemPrompt: effectiveSystemPrompt,
+          note: searchWithdrawnNote
+        })
         // A `system` override REPLACES the instructions for that step, so the
         // date has to be re-appended — whoever produced the override — or the
         // model silently loses it partway through a turn.
@@ -1167,7 +1209,7 @@ Treat each exactly like a \`search\` or \`fetch\` result from this turn: ${docCi
                 // Tools withdrawn and the answer-now note in force, so this
                 // step writes the answer by construction: the time deadline,
                 // or a search-cap answer-now stage (same override).
-                answerDeadlinePassed: o !== postCap || postCap !== capped
+                answerDeadlinePassed: deadline !== postCap || postCap !== capped
               })
             : 'none'
         if (reminderMode === 'append' && !Array.isArray(messages)) {
