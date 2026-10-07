@@ -190,7 +190,7 @@ On NightFuryX (.17) these container names do not resolve, so each silently degra
   `[deadline] refused <tool> call`. The note now says further calls are refused. Tests drive the real
   SDK with a mock model calling `fetch` under `activeTools: []`
   (`lib/agents/__tests__/answer-deadline.test.ts`). The deadline clock now starts when the
-  researcher is built for the turn (`turnStartedAt`, `lib/agents/researcher.ts:925`), not at the
+  researcher is built for the turn (`turnStartedAt`, `lib/agents/researcher.ts:938`), not at the
   first step.
 
 
@@ -771,7 +771,7 @@ These are decisions still pending, not bugs:
   excerpts. It replaced the whole `results` list with the recorded full list. In practice only
   the speed fast path records one (the advanced route's `fullResults` needs
   `SEARCH_EXCERPTS_ENABLED`, off everywhere), and it records the list **before** the researcher's
-  per-turn URL dedup (`wrapSearchToolWithDedup`, `lib/agents/researcher.ts:280-377`) removed
+  per-turn URL dedup (`wrapSearchToolWithDedup`, `lib/agents/researcher.ts:287-384`) removed
   results an earlier search of the turn had already returned. So on a speed turn with more than
   one search, a later search's saved list could contain the removed duplicates again, every
   position after them shifted, and a stored `[N](#id)` resolved to a different result.
@@ -1088,7 +1088,7 @@ These are decisions still pending, not bugs:
   needs an exact repeat (equal once case, punctuation and quotes are ignored) or a near repeat:
   cosine ≥ 0.90 **and** the later query adds no content word, drops no number other than a year
   and does not reverse the word order around to/from/than (`lib/tools/search/query-dedup.ts`,
-  wired at `lib/tools/search.ts:480-560`). On the labelled pairs: 61 skips, all true repeats
+  wired at `lib/tools/search.ts:437-517`). On the labelled pairs: 61 skips, all true repeats
   (precision 1.000, recall 0.249). Rule, logs and knobs:
   [pipeline › dedup](/search/pipeline#round-cap); evidence:
   [D42](/history/decisions#d42-near-duplicate-search-skip-only-for-true-repeats).
@@ -1110,7 +1110,8 @@ These are decisions still pending, not bugs:
 
 - **What.** After the quality search cap, the notice lets the model fetch "URLs that appeared in
   this turn's earlier search results" (`buildSearchRoundCapNotice`,
-  `lib/tools/search.ts:346-358`). Nothing enforces that: `fetch` accepts any URL. In one lab test
+  `lib/tools/search-rounds.ts:83-91`; the quality withdrawal note, `buildSearchWithdrawnNote`,
+  `:104-113`, says the same). Nothing enforces that: `fetch` accepts any URL. In one lab test
   the model fetched GitHub URLs it had constructed.
 - **Bounds that do hold.** The fetch cap (8 calls per quality turn, `lib/tools/fetch-budget.ts`),
   5 URLs per call, 40 s per URL, the SSRF guard, the 100-step ceiling and the 200 s answer
@@ -1126,9 +1127,9 @@ These are decisions still pending, not bugs:
   (mistral-large-4, balanced, `SEARCH_ROUNDS_MAX` 3) ran 5 real searches before the cap refused
   any.
 - **Cause.** A check-then-act race in `createSearchTool` (`lib/tools/search.ts`). The budget is
-  checked at the top of `execute` (`searchRounds >= roundsBudget`, `:426`), but `searchRounds` is
-  incremented only at `:564`, after the first `yield` (`:475`) and the near-duplicate check's
-  embedding call (`await embedTexts`, `:505`). The AI SDK starts the parallel tool calls of one
+  checked at the top of `execute` (`searchRounds.used >= roundsBudget`, `:383`), but the counter
+  is incremented only at `:521`, after the first `yield` (`:432`) and the near-duplicate check's
+  embedding call (`await embedTexts`, `:462`). The AI SDK starts the parallel tool calls of one
   step concurrently, so every call that reaches the check before the first increment passes it.
 - **Impact.** Low. The overshoot is bounded by the number of parallel `search` calls in the step
   that crosses the budget, and each extra search is a real fan-out and crawl (cost and context,
@@ -1138,7 +1139,10 @@ These are decisions still pending, not bugs:
   the first refusal `search` is no longer offered, and a model that keeps calling it gets
   answer-only steps ([pipeline › round cap](/search/pipeline#round-cap),
   [D45](/history/decisions#d45-search-withdrawn-after-the-round-cap-then-answer-only-steps)).
-  The overshoot was left as is.
+  Since the D45 addendum (lab and staging; prod pending) `search` is withdrawn as soon as the
+  shared counter reaches the budget, and the withdrawal line can then show more rounds than the
+  budget (`rounds 5/3` in a lab test). The overshoot itself was left as is. The research steps in the UI show
+  only the searches that ran; refused calls fold into one "skipped" line.
 - **Fix sketch.** Reserve the round synchronously when the check passes (increment before the
   first `yield` or `await`) and give it back when the near-duplicate check skips the search,
   which must not use a round

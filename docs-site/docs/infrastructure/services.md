@@ -447,4 +447,4 @@ against one shared account quota.
 | Nominatim (OpenStreetMap) | `/api/geocode` (weather location search) | none |
 | ipapi.co | `/api/geolocate` (IP fallback for the weather widget) | none |
 | Langfuse | optional tracing and feedback scoring | `LANGFUSE_*` (unset on the fleet) |
-| Couchbase (LAN) | `/api/quotes` quotes pool for the waiting quote shown in the research-process panel while an answer is in progress (`components/research-process-section.tsx:554`), cached 24 h in Redis `quotes:pool` | `COUCHBASE_URL` + credentials |
+| Couchbase (LAN) | `/api/quotes` quotes pool for the waiting quote shown in the research-process panel while an answer is in progress (`components/research-process-section.tsx:579`), cached 24 h in Redis `quotes:pool` | `COUCHBASE_URL` + credentials |

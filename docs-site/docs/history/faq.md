@@ -102,11 +102,14 @@ mode, not against a different mode.
   [rerank contention limit](/history/known-issues#recall-misses-the-budget-under-rerank-contention)
   (expected, harmless).
 - Large `last_prompt_tokens` or many `fetch` calls → pipeline levers, not a model swap.
-- Many steps after a `[search] round cap reached` line → check the turn's `[search-cap]` lines
-  (`docker logs ask 2>&1 | grep '\[search-cap\]'`): `search` should be withdrawn from the next
-  step, and a model that keeps calling it, or in speed/balanced keeps using tools, gets
-  answer-only steps ([pipeline › round cap](/search/pipeline#round-cap); since 2026-10-07, lab,
-  staging and prod).
+- Many steps after the search budget ran out → check the turn's `[search-cap]` lines
+  (`docker logs ask 2>&1 | grep '\[search-cap\]'`): `search withdrawn at step N … (rounds
+  U/B, …)` marks the first step without `search`, and a model that keeps calling it, or in
+  speed/balanced keeps using tools, gets answer-only steps
+  ([pipeline › round cap](/search/pipeline#round-cap); since 2026-10-07, lab, staging and prod).
+  On the lab and staging the withdrawal comes on the first step that starts with the budget
+  spent, possibly with no `[search] round cap reached` line at all; on prod, until that change
+  ships, it comes on the step after the first refused search.
 
 → [Telemetry › Diagnosing "slow answers", step by step](/operations/telemetry#diagnosing-slow-answers-step-by-step)
 
@@ -259,7 +262,9 @@ do not loosen the sanitize schema to hide it.
 ### Quality mode stops searching, skips a search, or a quality answer cites a snippet
 
 **First check.** The turn's `[latency:search]` lines: a `kind:"round-cap"` line with
-`search_round_budget:10` and `fetch_allowed:true` means the search cap was reached. That is by
+`search_round_budget:10` and `fetch_allowed:true` means the search cap refused a search. A turn
+that spent its 10 rounds without a refused search shows only `[search-cap] search withdrawn …
+(rounds 10/10, …)` in stdout (lab and staging; prod pending). That is by
 design since 2026-09-30: after 10 searches a quality turn may still fetch pages it found (up to 8
 fetch calls, `[fetch] fetch cap reached` in stdout). A citation that opens a search result whose
 text (a snippet) does not hold the claim is an open issue: most such citations credit the wrong
@@ -271,6 +276,19 @@ that names a different product, number or facet is never skipped.
 → [Pipeline › round cap](/search/pipeline#round-cap),
 [Known issues › snippet citations](/history/known-issues#citations-point-at-a-snippet-instead-of-the-fetched-page),
 [Pipeline › dedup](/search/pipeline#round-cap)
+
+### The research steps show more searches than the cap allows
+
+**First check.** Which rows ran. Since 2026-10-07 (lab and staging; prod pending) a call the
+pipeline refused, past the round cap, past the fetch cap or on an answer-only step, is not a
+search row: refused calls fold into one muted "Search limit reached — N extra searches skipped"
+row, and only the search rows above it ran. "Completed N steps" still counts every call, the
+refused ones included: it counts steps, not searches. On prod, until the change ships, each
+refused call is its own search row with no results. More real search rows than the budget (4 or
+5 in balanced, whose budget is 3) is the parallel overshoot, an open low-impact issue.
+→ [Frontend › refused calls](/request-lifecycle/frontend#refused-calls-fold-into-one-line),
+[Pipeline › round cap](/search/pipeline#round-cap),
+[Known issues › overshoot](/history/known-issues#parallel-search-calls-can-overshoot-the-round-cap)
 
 ### Citations missing or pointing nowhere
 
