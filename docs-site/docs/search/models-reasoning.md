@@ -330,7 +330,7 @@ cleanup below anchors on that rule. Each leak shape is handled at a different la
 | **Inter-step narration**: a separate text part, then a tool call, then later the answer | **hidden by the renderer**: while streaming, a text part renders as answer text only if it starts with a markdown heading (`components/render-message.tsx:237`); after the stream completes, only the last text part renders | **dropped**, in any language (the rules are below) |
 | **Fused preamble after a line break**: narration, then `\n## ` in the same part | **stripped by the stream transform** `smoothAndStripNarration()` (`lib/streaming/helpers/smooth-and-strip-narration.ts:75`) when it matches the English rules | stripped again by `stripNarrationPreamble` (English rules only) |
 | **Glued preamble**: `## ` directly after a sentence or a stray tag, e.g. `…breakdown.## `, `…câu trả lời.## ` or `…chương.</think>## ` | **cut by the transform** once the answer after the seam outweighs the prefix, held until then (`smooth-and-strip-narration.ts:98-127`, since 2026-09-28): the same cut persist makes, then streamed 1:1. This needs the part to still be buffered when the seam arrives (an English-looking preamble, or a seam in the first ~64 characters). A longer non-English preamble passes through, and the renderer's cleaned view makes the same cut at the same point (until then the part does not start with a heading, so it stays hidden). A `</think>## ` seam stays on the transform's English heading rule | **cut**, in any language (`stripGluedHeadingPreamble`); since 2026-09-29 a seam before the first line-start heading is decided by this rule alone, as live |
-| **Planning draft** (since 2026-10-06; lab and staging, prod pending): an outline of the answer with its own `## ` headings plus notes in the prompt's vocabulary ("Available cite strings (toolCallIds)…"), then the answer glued to the last note (`…at end.## Why…`) | **not cut live**: an outline draft starts with `## ` like any answer, so it streams through and the renderer shows it until the answer after the seam has 400 prose characters (and restates the outline); then the cleaned view shows only the answer | **cut**, in any language, at the glued seam (`stripDraftBeforeRestart`, [below](#narration-planning-draft)) |
+| **Planning draft** (since 2026-10-06; lab, staging and prod): an outline of the answer with its own `## ` headings plus notes in the prompt's vocabulary ("Available cite strings (toolCallIds)…"), then the answer glued to the last note (`…at end.## Why…`) | **not cut live**: an outline draft starts with `## ` like any answer, so it streams through and the renderer shows it until the answer after the seam has 400 prose characters (and restates the outline); then the cleaned view shows only the answer | **cut**, in any language, at the glued seam (`stripDraftBeforeRestart`, [below](#narration-planning-draft)) |
 
 Since 2026-09-28 the persist-time cleanup is also applied **at read time**, everywhere the
 text is read (table below). A message saved before a rule existed therefore displays clean
@@ -460,8 +460,8 @@ glm-5.3-flash wrote its plan into the final text part: an outline of the answer 
 in this turn…", "Related questions spec block? … skip"), then the real answer glued to the last
 note (`…at end.## Why…`). Prod chat `mzwbeqoe15wgh12et66fybzo` had 4 such answers, with drafts
 of 2.0–15.1 KB. Rule 2 refuses a prefix that has headings of its own or is over 2,000
-characters, so they were shown and saved. Status: lab and staging; prod pending (the rollout and
-the backfill of those 4 rows).
+characters, so they were shown and saved. Status: lab, staging and prod;
+those 4 rows were backfilled on 2026-10-07.
 
 `findDraftRestartSeam` (`lib/streaming/helpers/strip-narration-preamble.ts:537-563`) returns the
 cut and `stripDraftBeforeRestart` (`:571-574`) applies it, inside `stripNarrationPreamble`
