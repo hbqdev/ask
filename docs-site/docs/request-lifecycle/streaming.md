@@ -128,7 +128,7 @@ applied in `onFinish` (`create-chat-stream-response.ts:1079`) and again inside
 `persistStreamResults`:
 
 1. per text part, `stripNarrationPreamble`: stray think-tag reasoning first; then (since
-   2026-10-06, lab and staging; prod pending) a **planning draft** in front of an answer that
+   2026-10-06, lab, staging and prod) a **planning draft** in front of an answer that
    restarts at a glued `## ` (`stripDraftBeforeRestart`: an outline plus notes in the prompt's
    own vocabulary, cut only when the answer after the seam has 400 prose characters and
    restates the outline, or the heading-less notes use two vocabulary families and cite
@@ -414,5 +414,5 @@ readers re-sign upload URLs at read time.
 | `experimental_throttle` (`chat.tsx`) | 100 ms | client render batching |
 | `NARRATION_HARD_MAX` / `NARRATION_SNIFF_LIMIT` (constants, `smooth-and-strip-narration.ts:24,15`) | 16,000 / 64 chars | narration buffering |
 | `INTER_STEP_CHATTER_MAX` / `GLUED_PREAMBLE_MAX` (constants, `strip-narration-preamble.ts:585,282`) | 600 / 2,000 chars | language-agnostic narration rules (persist + read time; `GLUED_PREAMBLE_MAX` also bounds the live glued-seam cut) |
-| `DRAFT_ANSWER_MIN` / `HEADING_RESTATED_MIN` / `HEADING_COMPARE_MIN_CHARS` / `NO_OUTLINE_MIN_FAMILIES` (constants, `strip-narration-preamble.ts:433,440,441,425`) | 400 non-space prose chars / Dice 0.8 / 8 chars / 2 families | planning-draft cut at a glued restart (persist + read time only; since 2026-10-06, lab and staging, prod pending): the kept answer's minimum size, the heading similarity that counts as restating the outline, the shortest heading compared, and the vocabulary families (`SCRATCH_TOKEN_FAMILIES`, `:408-419`) a heading-less draft must use ([D20 › Decision 7](/history/decisions#decision-7-a-planning-draft-in-front-of-a-glued-restart-is-cut)) |
+| `DRAFT_ANSWER_MIN` / `HEADING_RESTATED_MIN` / `HEADING_COMPARE_MIN_CHARS` / `NO_OUTLINE_MIN_FAMILIES` (constants, `strip-narration-preamble.ts:433,440,441,425`) | 400 non-space prose chars / Dice 0.8 / 8 chars / 2 families | planning-draft cut at a glued restart (persist + read time only; since 2026-10-06, lab, staging and prod): the kept answer's minimum size, the heading similarity that counts as restating the outline, the shortest heading compared, and the vocabulary families (`SCRATCH_TOKEN_FAMILIES`, `:408-419`) a heading-less draft must use ([D20 › Decision 7](/history/decisions#decision-7-a-planning-draft-in-front-of-a-glued-restart-is-cut)) |
 | `ENABLE_GUEST_CHAT` | off | enables the ephemeral guest path |
