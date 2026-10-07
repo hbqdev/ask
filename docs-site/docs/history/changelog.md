@@ -23,7 +23,7 @@ turn, shortened citation ids that resolve, and a planning draft cut from the ans
 
 - **10-06** — **Shortened and one-character-off citation ids resolve; a planning draft in front
   of a glued restart is cut** (lab `6b779bfe` + `a6a9d6c0`; staging `5ab6760f` + `1a43ef1c`;
-  **lab and staging; prod pending**, including the backfill of the 4 affected prod answers;
+  prod `a89fb3f2` + `20cb9cc1`; the 4 affected prod answers backfilled 2026-10-07;
   [D44](/history/decisions#d44-shortened-and-one-character-off-citation-ids-resolve),
   [D20 › Decision 7](/history/decisions#decision-7-a-planning-draft-in-front-of-a-glued-restart-is-cut)).
   - `resolveCitationAnchor` gains two repairs, both counted as `citations_recovered`:
