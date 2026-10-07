@@ -73,7 +73,7 @@ names the lab original. See [deploy](/operations/deploy) for the flow.
 | [D42](#d42-near-duplicate-search-skip-only-for-true-repeats) | Near-duplicate search skip only for true repeats: exact, or cosine ≥ 0.90 with no new word or number (was cosine ≥ 0.92 alone) | adopted | 2026-10-01 |
 | [D43](#d43-snippet-citations-measured-not-re-pointed) | Snippet citations: evidence telemetry only; in-page cite markers and automatic re-pointing measured and dropped | adopted (telemetry); two fixes **rejected** | 2026-10-01 |
 | [D44](#d44-shortened-and-one-character-off-citation-ids-resolve) | Shortened and one-character-off citation ids resolve to the one call of the turn they name (`id-prefix`, `id-typo`) | adopted (lab, staging and prod) | 2026-10-06 |
-| [D45](#d45-search-withdrawn-after-the-round-cap-then-answer-only-steps) | After the search round cap, stop offering `search`; a model that calls it anyway, or (speed/balanced) uses tools on 4 more steps, gets answer-only steps. Addendum: withdrawn as soon as the budget is spent (from the tool's own counter), and refused calls shown as one "skipped" line | adopted (lab, staging and prod); addendum lab and staging, prod pending | 2026-10-07 |
+| [D45](#d45-search-withdrawn-after-the-round-cap-then-answer-only-steps) | After the search round cap, stop offering `search`; a model that calls it anyway, or (speed/balanced) uses tools on 4 more steps, gets answer-only steps. Addendum: withdrawn as soon as the budget is spent (from the tool's own counter), and refused calls shown as one "skipped" line | adopted (lab, staging and prod), addendum included | 2026-10-07 |
 
 ---
 
@@ -330,7 +330,7 @@ names the lab original. See [deploy](/operations/deploy) for the flow.
   stays the backstop. Parallel calls in one step can still overshoot the budget
   ([known issue](/history/known-issues#parallel-search-calls-can-overshoot-the-round-cap)).
   Since the [D45 addendum](#addendum-2026-10-07-search-withdrawn-as-soon-as-the-budget-is-spent)
-  (lab and staging; prod pending) the researcher shares this tool's round counter, so `search`
+  (lab, staging and prod) the researcher shares this tool's round counter, so `search`
   is withdrawn on the first step that starts with the budget spent, before any refusal.
 
 ### D10. Answering-model reasoning OFF by default
@@ -966,7 +966,7 @@ the depth.
   `275ce8da` + `5adf51d1` + `4b4d4e5e`. The
   [addendum](#addendum-2026-10-07-search-withdrawn-as-soon-as-the-budget-is-spent) (withdrawn as
   soon as the budget is spent; refused calls shown as one line) is lab `c306b08f` + `9e5cfec3`,
-  staging `8eba5e5f` + `a930c2c7`; prod pending.
+  staging `8eba5e5f` + `a930c2c7`, prod `7cadcf03` + `8520e44d`.
 - **Context.** The round cap ([D9](#d9-search-round-cap-enforced-inside-the-tool)) refuses a
   search with an ordinary tool result whose only stop signal is its notice, and `search` stayed
   in `activeTools` on every later step. Prod chat `cznh8gc1gz41vq2lwjb560br` (mistral-large-4,
@@ -1045,7 +1045,7 @@ the depth.
   done so once on prod (below); it answered on the next step.
 - <span id="addendum-2026-10-07-search-withdrawn-as-soon-as-the-budget-is-spent"></span>**Addendum
   2026-10-07: search withdrawn as soon as the budget is spent; refused calls shown as one
-  line.** Lab `c306b08f` + `9e5cfec3`, staging `8eba5e5f` + `a930c2c7`; prod pending.
+  line.** Lab `c306b08f` + `9e5cfec3`, staging `8eba5e5f` + `a930c2c7`, prod `7cadcf03` + `8520e44d`.
   - **What was left.** Stage 1 fired only from the step after a refused search, so every capped
     turn spent one step calling `search` just to learn the cap was reached. Prod chat
     `cznh8gc1gz41vq2lwjb560br`, a later turn (mistral-large-4, balanced, with all three stages
