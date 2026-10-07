@@ -158,8 +158,8 @@ the flow harnesses on the lab.
   (`resolveCitationAnchor`), so an out-of-range or wrong-result number scores as valid and a
   repaired placeholder scores as invalid. Its numbers are not comparable with
   `citations_unresolved` ([known issue](/history/known-issues#running-count-citation-numbers-can-point-at-the-wrong-result)).
-- *Pairwise judge*: `EVAL_JUDGE_MODEL` (default `ollama:qwen3.5:397b:cloud`,
-  `run-eval.ts:96`) built via the app's own `getModel()`. Answers are de-identified
+- *Pairwise judge*: `EVAL_JUDGE_MODEL` (default `ollama:mistral-large-4:cloud` since
+  2026-10-07, before that `ollama:qwen3.5:397b:cloud`; `run-eval.ts:96`) built via the app's own `getModel()`. Answers are de-identified
   (`IDENTITY_TOKENS`, `run-eval.ts:698`), shown as "A"/"B", and judged **twice with the
   sides swapped**; only agreement across both orders counts as a win, and anything else
   is a tie. Structured output (`Output.object`) fails on the Ollama-cloud models
