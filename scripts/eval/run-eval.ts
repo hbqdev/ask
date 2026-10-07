@@ -94,7 +94,7 @@ const EVAL_DB_CONTAINER =
 const EVAL_DB_USER = process.env.EVAL_DB_USER || 'morphic'
 const EVAL_DB_NAME = process.env.EVAL_DB_NAME || 'morphic'
 const EVAL_JUDGE_MODEL =
-  process.env.EVAL_JUDGE_MODEL || 'ollama:mistral-large-4:cloud'
+  process.env.EVAL_JUDGE_MODEL || 'ollama:deepseek-v4.1-flash:cloud'
 
 // How long to keep polling the DB for the assistant message after the HTTP
 // stream fully drains. In principle persistStreamResults (see
@@ -1153,7 +1153,7 @@ Env vars:
   EVAL_DB_CONTAINER     Postgres container to read results from (default: ask-postgres-admin-feature)
   EVAL_DB_USER          Postgres user (default: morphic)
   EVAL_DB_NAME          Postgres database (default: morphic)
-  EVAL_JUDGE_MODEL      Judge model, providerId:modelId (default: ollama:mistral-large-4:cloud)
+  EVAL_JUDGE_MODEL      Judge model, providerId:modelId (default: ollama:deepseek-v4.1-flash:cloud)
 `)
 }
 
