@@ -131,7 +131,7 @@ a database rewrite. It then walks the view's parts in order and buffers non-text
 
 ### Refused calls fold into one line {#refused-calls-fold-into-one-line}
 
-Since 2026-10-07 (lab and staging; prod pending), `search` and `fetch` calls that were refused
+Since 2026-10-07 (lab, staging and prod), `search` and `fetch` calls that were refused
 without running no longer render as ordinary steps. In each research-process segment they fold
 into **one** muted row, placed where the first refusal was:
 "Search limit reached — 12 extra searches skipped", or "… — 4 extra searches and 2 page reads
