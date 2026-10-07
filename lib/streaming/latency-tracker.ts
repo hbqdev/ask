@@ -44,7 +44,8 @@ export class LatencyTracker {
   // `unresolved` = anchors that render as nothing (another turn's id, an
   // invented id, or — since 2026-09-26 — a real id with an out-of-range
   // number). `recovered` = anchors rendered only through a repair (URL
-  // fragment, wrapped or placeholder id, a number past a one-page fetch).
+  // fragment, wrapped, shortened, one-character-off or placeholder id, a
+  // number past a one-page fetch).
   // The evidence split (auditCitationEvidence, lib/utils/citation.ts) says
   // what the RENDERED ones rest on: `snippet` = a search snippet nothing this
   // turn read beyond, `snippetRead` = a snippet whose page this turn read in

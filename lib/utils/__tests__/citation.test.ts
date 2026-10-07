@@ -4,6 +4,7 @@ import type { SearchResultItem } from '@/lib/types'
 import type { UIMessage } from '@/lib/types/ai'
 
 import {
+  auditCitationEvidence,
   auditCitations,
   collapseCitationArtifacts,
   extractCitationMaps,
@@ -824,6 +825,221 @@ describe('resolveCitationAnchor repairs', () => {
       expect(resolveCitationAnchor(0, FETCH_ID, maps).status).toBe('unresolved')
       expect(resolveCitationAnchor(101, FETCH_ID, maps).status).toBe(
         'unresolved'
+      )
+    })
+  })
+
+  // Measured on prod 2026-10-06: glm-5.3-flash cut this turn's ids to their
+  // first 8 characters (`[3](#17d98f5d)`, `[1](#71cee5ba...)`,
+  // `[2](#74661147-...)`), and kimi/deepseek dropped or changed one character
+  // of a full id. Each repair names one call of THIS turn or nothing.
+  describe('shortened ids', () => {
+    it('resolves an 8-character prefix of exactly one of this turn ids', () => {
+      const maps = mapsOf(search(SEARCH_ID), fetchOne(FETCH_ID))
+      expect(
+        resolveCitationAnchor(2, SEARCH_ID.slice(0, 8), maps)
+      ).toMatchObject({
+        status: 'recovered',
+        repair: 'id-prefix',
+        source: { url: 'https://s7aff.com/2' }
+      })
+      expect(processCitations('Fact. [2](#7affb9b0)', maps)).toBe(
+        'Fact. [s7aff](https://s7aff.com/2)'
+      )
+    })
+
+    it('trims a trailing ellipsis (... or …), dashes and whitespace', () => {
+      const maps = mapsOf(search(SEARCH_ID), fetchOne(FETCH_ID))
+      for (const id of [
+        '7affb9b0...',
+        '7affb9b0…',
+        '7affb9b0-...',
+        '7affb9b0-',
+        ' 7affb9b0 ... ',
+        '7affb9b0-204d...',
+        '7affb9b0-204d-4420-a042'
+      ]) {
+        expect(resolveCitationAnchor(3, id, maps)).toMatchObject({
+          status: 'recovered',
+          repair: 'id-prefix',
+          source: { url: 'https://s7aff.com/3' }
+        })
+      }
+    })
+
+    it('matches case-insensitively', () => {
+      const maps = mapsOf(search(SEARCH_ID))
+      expect(resolveCitationAnchor(1, '7AFFB9B0', maps)).toMatchObject({
+        status: 'recovered',
+        repair: 'id-prefix',
+        source: { url: 'https://s7aff.com/1' }
+      })
+      expect(
+        resolveCitationAnchor(1, SEARCH_ID.toUpperCase(), maps).status
+      ).toBe('recovered')
+    })
+
+    it('drops a prefix two of this turn ids share (ambiguous)', () => {
+      const A = 'abcdef12-1111-4111-8111-111111111111'
+      const B = 'abcdef12-2222-4222-8222-222222222222'
+      const maps = mapsOf(
+        part('tool-search', A, ['https://a.example.com/1']),
+        part('tool-search', B, ['https://b.example.com/1'])
+      )
+      expect(resolveCitationAnchor(1, 'abcdef12', maps).status).toBe(
+        'unresolved'
+      )
+      expect(resolveCitationAnchor(1, 'abcdef12-...', maps).status).toBe(
+        'unresolved'
+      )
+      // One character more tells them apart.
+      expect(resolveCitationAnchor(1, 'abcdef12-2', maps)).toMatchObject({
+        status: 'recovered',
+        source: { url: 'https://b.example.com/1' }
+      })
+    })
+
+    it('drops a prefix shorter than 8 characters', () => {
+      const maps = mapsOf(search(SEARCH_ID))
+      expect(resolveCitationAnchor(1, '7affb9b', maps).status).toBe(
+        'unresolved'
+      )
+      expect(resolveCitationAnchor(1, '7affb9b...', maps).status).toBe(
+        'unresolved'
+      )
+    })
+
+    it('drops a prefix of another turn id — never across turns', () => {
+      // SEARCH_2_ID was a call of an earlier message, not this one.
+      const maps = mapsOf(search(SEARCH_ID), fetchOne(FETCH_ID))
+      expect(
+        resolveCitationAnchor(1, SEARCH_2_ID.slice(0, 8), maps).status
+      ).toBe('unresolved')
+      expect(
+        auditCitations({
+          parts: [
+            search(SEARCH_ID),
+            { type: 'text', text: `Fact. [1](#${SEARCH_2_ID.slice(0, 8)}...)` }
+          ]
+        })
+      ).toEqual({ total: 1, own: 0, recovered: 0, unresolved: 1 })
+    })
+
+    it('drops a prefix followed by anything but an ellipsis', () => {
+      const maps = mapsOf(search(SEARCH_ID))
+      for (const id of [
+        '7affb9b0-... FAQ segfault',
+        '7affb9b0...","title":"x',
+        '7affb9b0..',
+        'toolu_7affb9b0'
+      ]) {
+        expect(resolveCitationAnchor(1, id, maps).status).toBe('unresolved')
+      }
+    })
+
+    it('applies the usual out-of-range rules to the call it names', () => {
+      const maps = mapsOf(search(SEARCH_ID, 3), fetchOne(FETCH_ID))
+      // N past a search's results: dropped.
+      expect(resolveCitationAnchor(4, '7affb9b0', maps).status).toBe(
+        'unresolved'
+      )
+      // N past a single-page fetch's one result: that page.
+      expect(resolveCitationAnchor(3, '35ad62db...', maps)).toMatchObject({
+        status: 'recovered',
+        repair: 'id-prefix',
+        source: { url: 'https://spinedocs.org/back-pain' }
+      })
+    })
+  })
+
+  describe('full-length ids one character off', () => {
+    it('resolves a substituted, dropped or added character to the one call', () => {
+      const maps = mapsOf(search(SEARCH_ID), fetchOne(FETCH_ID))
+      const substituted = SEARCH_ID.slice(0, -1) + 'e' // …c9bf → …c9be
+      const dropped = SEARCH_ID.slice(0, 20) + SEARCH_ID.slice(21)
+      const added = SEARCH_ID.slice(0, 9) + '0' + SEARCH_ID.slice(9)
+      for (const id of [substituted, dropped, added]) {
+        expect(resolveCitationAnchor(2, id, maps)).toMatchObject({
+          status: 'recovered',
+          repair: 'id-typo',
+          source: { url: 'https://s7aff.com/2' }
+        })
+      }
+    })
+
+    it('drops an id two characters off', () => {
+      const maps = mapsOf(search(SEARCH_ID))
+      const twoOff = 'ee' + SEARCH_ID.slice(2) // 7a… → ee…
+      const swapped = '7fa' + SEARCH_ID.slice(3) // 7af… → 7fa…
+      expect(resolveCitationAnchor(1, twoOff, maps).status).toBe('unresolved')
+      expect(resolveCitationAnchor(1, swapped, maps).status).toBe('unresolved')
+    })
+
+    it('drops an id one character off two of this turn ids (ambiguous)', () => {
+      const A = 'abcdef12-1111-4111-8111-11111111111a'
+      const B = 'abcdef12-1111-4111-8111-11111111111b'
+      const maps = mapsOf(search(A), search(B))
+      expect(
+        resolveCitationAnchor(1, 'abcdef12-1111-4111-8111-11111111111c', maps)
+          .status
+      ).toBe('unresolved')
+    })
+
+    it('drops an id one character off another turn id', () => {
+      const maps = mapsOf(search(SEARCH_ID))
+      const nearOther = SEARCH_2_ID.slice(0, -1) + '0'
+      expect(resolveCitationAnchor(1, nearOther, maps).status).toBe(
+        'unresolved'
+      )
+    })
+  })
+
+  describe('shortened and mistyped ids: audit, rendering and cited URLs agree', () => {
+    const parts = [
+      search(SEARCH_ID, 3),
+      fetchOne(FETCH_ID),
+      {
+        type: 'text',
+        text: [
+          `own [1](#${SEARCH_ID})`, // own
+          'prefix [2](#7affb9b0)', // recovered: id-prefix
+          'ellipsis [3](#7affb9b0-...)', // recovered: id-prefix
+          'fetch [2](#35ad62db…)', // recovered: id-prefix, past the one page
+          `typo [1](#${SEARCH_ID.slice(0, -1)}e)`, // recovered: id-typo
+          'prefix-oor [4](#7affb9b0)', // unresolved: past the search
+          'short [1](#7affb9b)', // unresolved: 7 characters
+          `other-turn [1](#${SEARCH_2_ID.slice(0, 8)})` // unresolved
+        ].join(' ')
+      }
+    ]
+
+    it('audit counts repairs as recovered, total = own + recovered + unresolved', () => {
+      expect(auditCitations({ parts })).toEqual({
+        total: 8,
+        own: 1,
+        recovered: 4,
+        unresolved: 3
+      })
+    })
+
+    it('rendered links match the audit and the cited-URL list', () => {
+      const msg = message(parts)
+      const rendered = processCitations(
+        (parts[2] as { text: string }).text,
+        extractCitationMaps(msg)
+      )
+      const links = [...rendered.matchAll(/\]\((https?:[^)]+)\)/g)].map(
+        m => m[1]
+      )
+      const audit = auditCitations({ parts })
+      expect(links).toHaveLength(audit.own + audit.recovered)
+      expect(extractCitedSourceUrls(msg).sort()).toEqual(
+        [...new Set(links)].sort()
+      )
+      // The evidence split classifies exactly the rendered anchors.
+      const evidence = auditCitationEvidence({ parts })
+      expect(evidence.page + evidence.snippetRead + evidence.snippet).toBe(
+        audit.own + audit.recovered
       )
     })
   })
