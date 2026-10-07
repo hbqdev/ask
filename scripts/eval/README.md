@@ -157,7 +157,7 @@ For each question with a successful run on both sides, an LLM judge picks
 which of the two answers is better — this is the core of the harness; the
 objective scorers alone can't tell you whether an answer is actually _good_.
 
-- **Judge model**: `$EVAL_JUDGE_MODEL` (default `ollama:qwen3.5:397b:cloud`),
+- **Judge model**: `$EVAL_JUDGE_MODEL` (default `ollama:mistral-large-4:cloud`),
   constructed via the app's own `getModel()`
   (`lib/utils/registry.ts`) and called with `generateText` from `ai`,
   mirroring `lib/agents/query-classifier.ts`'s structured-output pattern
@@ -231,7 +231,7 @@ Env vars:
 | `EVAL_DB_CONTAINER`             | `ask-postgres-admin-feature`     | Postgres container to read run results from (staging)    |
 | `EVAL_MINE_DB_CONTAINER`        | `ask-postgres`                   | Postgres container `mine-questions.ts` reads from (prod) |
 | `EVAL_DB_USER` / `EVAL_DB_NAME` | `morphic`                        | Postgres credentials, both DBs                           |
-| `EVAL_JUDGE_MODEL`              | `ollama:qwen3.5:397b:cloud`      | Judge model, `providerId:modelId`                        |
+| `EVAL_JUDGE_MODEL`              | `ollama:mistral-large-4:cloud`   | Judge model, `providerId:modelId`                        |
 
 Example — a real kimi-vs-minimax comparison:
 
@@ -257,14 +257,16 @@ bun run eval --config-a kimi --config-b minimax
   (`"tie"`, `"**Tie**"`), others wrapped a real verdict in self-invented JSON
   shapes (`better_answer`, `overall_winner`, per-criterion nested `winner`
   keys) that legitimately don't match what was asked for — including one
-  case (`qwen3.5:397b:cloud`, the default judge model) that returned
+  case (`qwen3.5:397b:cloud`, then the default judge model) that returned
   schema-shaped-but-empty values (`{"winner":"","reason":""}`). This reads
   as an Ollama-cloud-routing / structured-output gap, not a per-model quirk.
   The fallback (a second real call asking for a plain `WINNER:`/`REASON:`
   format) was verified to parse cleanly across all five, so the judge is
   functional on this host — but it means most verdicts from the default
   judge model are `fallbackParsed: true`, not true schema-constrained
-  output. If you swap in an `EVAL_JUDGE_MODEL` from a provider with reliable
+  output. `mistral-large-4:cloud` (the default since 2026-10-07) behaves the
+  same: on the 2026-07-17 kimi-vs-minimax pair both calls fell back, parsed
+  cleanly, agreed across the swap and matched qwen3.5's verdict. If you swap in an `EVAL_JUDGE_MODEL` from a provider with reliable
   native structured outputs (OpenAI/Anthropic/Google), expect the primary
   path to succeed instead and `fallbackParsedCalls` to drop to 0 — check the
   printed report / `judge.verdicts[].forward.fallbackParsed` either way.

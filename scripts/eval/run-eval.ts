@@ -94,7 +94,7 @@ const EVAL_DB_CONTAINER =
 const EVAL_DB_USER = process.env.EVAL_DB_USER || 'morphic'
 const EVAL_DB_NAME = process.env.EVAL_DB_NAME || 'morphic'
 const EVAL_JUDGE_MODEL =
-  process.env.EVAL_JUDGE_MODEL || 'ollama:qwen3.5:397b:cloud'
+  process.env.EVAL_JUDGE_MODEL || 'ollama:mistral-large-4:cloud'
 
 // How long to keep polling the DB for the assistant message after the HTTP
 // stream fully drains. In principle persistStreamResults (see
@@ -795,7 +795,7 @@ async function judgeOnce(
     } catch {
       // Schema-constrained generation failed — every model available in
       // this deployment's OLLAMA_MODELS was live-tested against this exact
-      // call during development (qwen3.5:397b:cloud, the default judge
+      // call during development (qwen3.5:397b:cloud, then the default judge
       // model, plus kimi-k2.6:cloud, glm-5.2:cloud, deepseek-v4-flash:cloud,
       // minimax-m3:cloud) and NONE reliably honored the requested JSON
       // schema: some answered in bare prose ("tie"), others wrapped a real
@@ -1153,7 +1153,7 @@ Env vars:
   EVAL_DB_CONTAINER     Postgres container to read results from (default: ask-postgres-admin-feature)
   EVAL_DB_USER          Postgres user (default: morphic)
   EVAL_DB_NAME          Postgres database (default: morphic)
-  EVAL_JUDGE_MODEL      Judge model, providerId:modelId (default: ollama:qwen3.5:397b:cloud)
+  EVAL_JUDGE_MODEL      Judge model, providerId:modelId (default: ollama:mistral-large-4:cloud)
 `)
 }
 
