@@ -9,6 +9,11 @@ import { IconChevronDown as ChevronDown } from '@tabler/icons-react'
 import type { ToolPart, UIDataTypes, UIMessage, UITools } from '@/lib/types/ai'
 import type { DynamicToolPart } from '@/lib/types/dynamic-tools'
 import { cn } from '@/lib/utils'
+import {
+  collapseSkippedToolCalls,
+  isSkippedToolCalls,
+  type SkippedToolCalls
+} from '@/lib/utils/skipped-tool-calls'
 
 import {
   Collapsible,
@@ -21,6 +26,7 @@ import { type ClassifierPart, ClassifierSection } from './classifier-section'
 import { DynamicToolDisplay } from './dynamic-tool-display'
 import { ReasoningSection } from './reasoning-section'
 import { type RecallPart, RecallSection } from './recall-section'
+import { SkippedToolCallsSection } from './skipped-tool-calls-section'
 import { ToolSection } from './tool-section'
 import { WaitingQuote } from './waiting-quote'
 
@@ -38,6 +44,10 @@ type MessagePart =
   | ClassifierPart
   | AttachmentsPart
   | RecallPart
+
+// What a step row can be: a message part, or the single entry standing in for
+// the turn's refused search/fetch calls (lib/utils/skipped-tool-calls.ts).
+type StepItem = MessagePart | SkippedToolCalls
 
 // Type guards
 function isReasoningPart(part: MessagePart): part is ReasoningPart {
@@ -142,18 +152,18 @@ function splitByText(parts: MessagePart[]): MessagePart[][] {
  * @param segment - Array of message parts within a segment
  * @returns Array of grouped parts
  */
-function groupConsecutiveParts(segment: MessagePart[]): MessagePart[][] {
+function groupConsecutiveParts(segment: readonly StepItem[]): StepItem[][] {
   if (segment.length === 0) return []
 
-  const groups: MessagePart[][] = []
+  const groups: StepItem[][] = []
   let currentIndex = 0
 
   while (currentIndex < segment.length) {
     const currentPart = segment[currentIndex]
 
-    if (isToolPart(currentPart)) {
+    if (!isSkippedToolCalls(currentPart) && isToolPart(currentPart)) {
       // Group consecutive tool parts of the same type
-      const toolGroup = [currentPart]
+      const toolGroup: StepItem[] = [currentPart]
       const toolType = currentPart.type
 
       let nextIndex = currentIndex + 1
@@ -161,14 +171,14 @@ function groupConsecutiveParts(segment: MessagePart[]): MessagePart[][] {
         nextIndex < segment.length &&
         segment[nextIndex].type === toolType
       ) {
-        toolGroup.push(segment[nextIndex] as ToolPart)
+        toolGroup.push(segment[nextIndex])
         nextIndex++
       }
 
       groups.push(toolGroup)
       currentIndex = nextIndex
     } else {
-      // Non-tool parts stay as single-item groups
+      // Non-tool parts (and the skipped-calls entry) stay as single-item groups
       groups.push([currentPart])
       currentIndex++
     }
@@ -224,7 +234,7 @@ function RenderPart({
   status,
   addToolResult
 }: {
-  part: MessagePart
+  part: StepItem
   partId: string
   hasNext: boolean
   hasSubsequentContent: boolean
@@ -240,6 +250,10 @@ function RenderPart({
   addToolResult?: (params: { toolCallId: string; result: any }) => void
 }) {
   const hasSubsequent = hasNext || hasSubsequentContent
+
+  if (isSkippedToolCalls(part)) {
+    return <SkippedToolCallsSection summary={part} />
+  }
 
   if (isClassifierPart(part)) {
     return <ClassifierSection part={part} />
@@ -417,11 +431,19 @@ export function ResearchProcessSection({
   return (
     <div className="space-y-2">
       {segments.map((seg, sidx) => {
-        const groups = groupConsecutiveParts(seg)
+        // Refused search/fetch calls (round cap, fetch cap, answer-now) did
+        // not run, so they must not render as searches: they fold into ONE
+        // muted row where the first refusal was. Real calls pass through
+        // untouched. Pure and recomputed per render, so it tracks live
+        // streaming (a call joins the row once its refused result arrives)
+        // and reloaded chats (the flags are persisted in the tool output).
+        const groups = groupConsecutiveParts(collapseSkippedToolCalls(seg))
         const isSingle = groups.length === 1 && groups[0].length === 1
         const containerClass = cn(!isSingle && 'rounded-lg border bg-card')
 
-        // Count total parts in this segment
+        // Count total parts in this segment. Deliberately the raw part count,
+        // refused calls included: it is labelled "steps", not searches, and
+        // each refused call is still a call the model made.
         const totalParts = seg.length
 
         // Parent collapsible ID
@@ -439,8 +461,11 @@ export function ResearchProcessSection({
             {groups.map((grp, gidx) => (
               <div key={`${messageId}-grp-${sidx}-${gidx}`}>
                 {grp.map((part, pidx) => {
-                  const partId =
-                    isToolPart(part) || isDynamicToolPart(part)
+                  // One skipped-calls row per segment: key it by segment so it
+                  // keeps its identity while its count grows mid-stream.
+                  const partId = isSkippedToolCalls(part)
+                    ? `${messageId}-skipped-tool-calls-${sidx}`
+                    : isToolPart(part) || isDynamicToolPart(part)
                       ? part.toolCallId
                       : `${messageId}-${part.type}-${sidx}-${gidx}-${pidx}`
 
