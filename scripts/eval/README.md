@@ -157,7 +157,7 @@ For each question with a successful run on both sides, an LLM judge picks
 which of the two answers is better — this is the core of the harness; the
 objective scorers alone can't tell you whether an answer is actually _good_.
 
-- **Judge model**: `$EVAL_JUDGE_MODEL` (default `ollama:mistral-large-4:cloud`),
+- **Judge model**: `$EVAL_JUDGE_MODEL` (default `ollama:deepseek-v4.1-flash:cloud`),
   constructed via the app's own `getModel()`
   (`lib/utils/registry.ts`) and called with `generateText` from `ai`,
   mirroring `lib/agents/query-classifier.ts`'s structured-output pattern
@@ -225,13 +225,13 @@ changing `--judge-model` or after a judge bug fix.
 
 Env vars:
 
-| Var                             | Default                          | Meaning                                                  |
-| ------------------------------- | -------------------------------- | -------------------------------------------------------- |
-| `EVAL_API_URL`                  | `http://localhost:3739/api/chat` | Chat API endpoint (staging; auth-on — see above)         |
-| `EVAL_DB_CONTAINER`             | `ask-postgres-admin-feature`     | Postgres container to read run results from (staging)    |
-| `EVAL_MINE_DB_CONTAINER`        | `ask-postgres`                   | Postgres container `mine-questions.ts` reads from (prod) |
-| `EVAL_DB_USER` / `EVAL_DB_NAME` | `morphic`                        | Postgres credentials, both DBs                           |
-| `EVAL_JUDGE_MODEL`              | `ollama:mistral-large-4:cloud`   | Judge model, `providerId:modelId`                        |
+| Var                             | Default                            | Meaning                                                  |
+| ------------------------------- | ---------------------------------- | -------------------------------------------------------- |
+| `EVAL_API_URL`                  | `http://localhost:3739/api/chat`   | Chat API endpoint (staging; auth-on — see above)         |
+| `EVAL_DB_CONTAINER`             | `ask-postgres-admin-feature`       | Postgres container to read run results from (staging)    |
+| `EVAL_MINE_DB_CONTAINER`        | `ask-postgres`                     | Postgres container `mine-questions.ts` reads from (prod) |
+| `EVAL_DB_USER` / `EVAL_DB_NAME` | `morphic`                          | Postgres credentials, both DBs                           |
+| `EVAL_JUDGE_MODEL`              | `ollama:deepseek-v4.1-flash:cloud` | Judge model, `providerId:modelId`                        |
 
 Example — a real kimi-vs-minimax comparison:
 
@@ -264,7 +264,7 @@ bun run eval --config-a kimi --config-b minimax
   format) was verified to parse cleanly across all five, so the judge is
   functional on this host — but it means most verdicts from the default
   judge model are `fallbackParsed: true`, not true schema-constrained
-  output. `mistral-large-4:cloud` (the default since 2026-10-07) behaves the
+  output. `deepseek-v4.1-flash:cloud` (the default since 2026-10-07) behaves the
   same: on the 2026-07-17 kimi-vs-minimax pair both calls fell back, parsed
   cleanly, agreed across the swap and matched qwen3.5's verdict. If you swap in an `EVAL_JUDGE_MODEL` from a provider with reliable
   native structured outputs (OpenAI/Anthropic/Google), expect the primary
