@@ -67,6 +67,34 @@ export type AnswerDeadlineOverrides = {
 }
 
 /**
+ * The answer-now step itself: no tools offered, and ANSWER_NOW_NOTE appended
+ * to whichever prompt is in force (a variant's replacement, else the turn's
+ * prompt). What the deadline applies, and what the search cap applies to a
+ * model that keeps calling search after it was withdrawn
+ * (lib/agents/search-cap.ts).
+ *
+ * The note is added once: when both fire on the same step, the second leaves
+ * the prompt as is (but still returns a new object, so a caller comparing by
+ * identity can tell that it fired).
+ */
+export function answerNowOverrides<T extends AnswerDeadlineOverrides>(
+  overrides: T,
+  /**
+   * The turn's system prompt. Required because `system` here REPLACES the
+   * step's instructions rather than adding to them — sending the note alone
+   * would discard every prompt rule, including the citation contract.
+   */
+  systemPrompt: string
+): T {
+  const base = overrides.system ?? systemPrompt
+  return {
+    ...overrides,
+    activeTools: [],
+    system: base.endsWith(ANSWER_NOW_NOTE) ? base : `${base}${ANSWER_NOW_NOTE}`
+  }
+}
+
+/**
  * Fold the deadline into whatever per-step overrides are already in force.
  *
  * Applied LAST, so it wins over a flow variant's own per-step tool preferences:
@@ -94,13 +122,9 @@ export function applyAnswerDeadline<T extends AnswerDeadlineOverrides>(
   }
 ): T {
   if (elapsedMs < deadlineMs) return overrides
-  return {
-    ...overrides,
-    activeTools: [],
-    // A variant that already replaced the prompt keeps its replacement; the
-    // note is appended to whichever prompt is actually in force.
-    system: `${overrides.system ?? systemPrompt}${ANSWER_NOW_NOTE}`
-  }
+  // A variant that already replaced the prompt keeps its replacement; the
+  // note is appended to whichever prompt is actually in force.
+  return answerNowOverrides(overrides, systemPrompt)
 }
 
 /**
