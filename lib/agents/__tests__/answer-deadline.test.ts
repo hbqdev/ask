@@ -7,6 +7,7 @@ import {
   ANSWER_DEADLINE_MS,
   ANSWER_NOW_NOTE,
   ANSWER_NOW_TOOL_NOTICE,
+  answerNowOverrides,
   answerNowResult,
   applyAnswerDeadline,
   enforceAnswerDeadline
@@ -97,6 +98,35 @@ describe('applyAnswerDeadline', () => {
     const a = applyAnswerDeadline({}, { elapsedMs: 250_000, systemPrompt: SYS })
     const b = applyAnswerDeadline({}, { elapsedMs: 250_000, systemPrompt: SYS })
     expect(a).toEqual(b)
+  })
+})
+
+// The override the deadline applies, factored out so the search cap's
+// answer-now stage (lib/agents/search-cap.ts) reuses it rather than a copy.
+describe('answerNowOverrides', () => {
+  it('is exactly what applyAnswerDeadline applies past the deadline', () => {
+    for (const o of [{}, { activeTools: ['search'], system: 'variant' }]) {
+      expect(
+        applyAnswerDeadline(o, {
+          elapsedMs: ANSWER_DEADLINE_MS,
+          systemPrompt: SYS
+        })
+      ).toEqual(answerNowOverrides(o, SYS))
+    }
+  })
+
+  it('adds the note once, however many answer-now stages stack on a step', () => {
+    const once = answerNowOverrides<{ system?: string }>({}, SYS)
+    expect(answerNowOverrides(once, SYS)).toEqual(once)
+    // The time deadline firing on a step the search cap already switched to
+    // answer-now: one note, and still a new object, so the researcher can
+    // tell by identity that the TIME deadline fired.
+    const both = applyAnswerDeadline(once, {
+      elapsedMs: ANSWER_DEADLINE_MS,
+      systemPrompt: SYS
+    })
+    expect(both.system).toBe(`${SYS}${ANSWER_NOW_NOTE}`)
+    expect(both).not.toBe(once)
   })
 })
 
