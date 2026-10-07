@@ -204,8 +204,8 @@ flowchart TD
   cap-15 arm fetched 34 pages and won on that page text. With fetching allowed past the cap,
   cap 10 and cap 5 measured the same, and cap 10 tied the stored cap-15 answers
   ([D40](/history/decisions#d40-quality-mode-read-pages-past-the-search-cap)).
-- **After the cap: `search` withdrawn, then answer-only steps** (since 2026-10-07; lab and
-  staging, prod pending; `lib/agents/search-cap.ts`, applied in the researcher's `prepareStep`
+- **After the cap: `search` withdrawn, then answer-only steps** (since 2026-10-07; lab,
+  staging and prod; `lib/agents/search-cap.ts`, applied in the researcher's `prepareStep`
   at `lib/agents/researcher.ts:1098-1135`). The cap's refusal is an ordinary tool result whose
   only stop signal is the notice text. In stored history every model stopped searching after at
   most 5 refusals in a turn, except one: prod chat `cznh8gc1gz41vq2lwjb560br` (mistral-large-4,

@@ -73,7 +73,7 @@ names the lab original. See [deploy](/operations/deploy) for the flow.
 | [D42](#d42-near-duplicate-search-skip-only-for-true-repeats) | Near-duplicate search skip only for true repeats: exact, or cosine ≥ 0.90 with no new word or number (was cosine ≥ 0.92 alone) | adopted | 2026-10-01 |
 | [D43](#d43-snippet-citations-measured-not-re-pointed) | Snippet citations: evidence telemetry only; in-page cite markers and automatic re-pointing measured and dropped | adopted (telemetry); two fixes **rejected** | 2026-10-01 |
 | [D44](#d44-shortened-and-one-character-off-citation-ids-resolve) | Shortened and one-character-off citation ids resolve to the one call of the turn they name (`id-prefix`, `id-typo`) | adopted (lab, staging and prod) | 2026-10-06 |
-| [D45](#d45-search-withdrawn-after-the-round-cap-then-answer-only-steps) | After the search round cap, stop offering `search`; a model that calls it anyway, or (speed/balanced) uses tools on 4 more steps, gets answer-only steps | adopted (lab and staging; prod pending) | 2026-10-07 |
+| [D45](#d45-search-withdrawn-after-the-round-cap-then-answer-only-steps) | After the search round cap, stop offering `search`; a model that calls it anyway, or (speed/balanced) uses tools on 4 more steps, gets answer-only steps | adopted (lab, staging and prod) | 2026-10-07 |
 
 ---
 
@@ -321,7 +321,7 @@ names the lab original. See [deploy](/operations/deploy) for the flow.
   or number). About three in four true repeats it used to skip now run, and each uses a round
   of this cap; the old rule's false skips, which dropped real searches, are gone.
 - **Update 2026-10-07** ([D45](#d45-search-withdrawn-after-the-round-cap-then-answer-only-steps);
-  lab and staging, prod pending). The refusal notice alone did not stop every model: one prod
+  lab, staging and prod). The refusal notice alone did not stop every model: one prod
   turn had 80 `search` calls refused. From the step after the first refusal `search` is no
   longer offered, and a model that calls it anyway, or in speed/balanced uses tools on
   `POST_CAP_TOOL_STEPS_MAX` (4) more steps, gets answer-only steps. The refusal inside the tool
@@ -956,9 +956,9 @@ the depth.
 
 ### D45. Search withdrawn after the round cap, then answer-only steps
 
-- **Status:** adopted (lab and staging; prod pending) · **Date:** 2026-10-07 · **Commits:** lab
+- **Status:** adopted (lab, staging and prod) · **Date:** 2026-10-07 · **Commits:** lab
   `d1a86bda` + `c86bbdaa` + `798030de`; staging `d799a91c` + `1f8ece82` + `49e33297`; prod
-  pending.
+  `275ce8da` + `5adf51d1` + `4b4d4e5e`.
 - **Context.** The round cap ([D9](#d9-search-round-cap-enforced-inside-the-tool)) refuses a
   search with an ordinary tool result whose only stop signal is its notice, and `search` stayed
   in `activeTools` on every later step. Prod chat `cznh8gc1gz41vq2lwjb560br` (mistral-large-4,
