@@ -1,10 +1,17 @@
 import { describe, expect, it } from 'vitest'
 
 import { buildSearchRoundCapNotice } from '../../tools/search'
-import { ANSWER_DEADLINE_MS, applyAnswerDeadline } from '../answer-deadline'
+import {
+  ANSWER_DEADLINE_MS,
+  ANSWER_NOW_NOTE,
+  answerNowOverrides,
+  applyAnswerDeadline
+} from '../answer-deadline'
 import type { FlowStepOverrides } from '../flows/types'
 import { FLOW_VARIANTS } from '../flows/variants'
 import {
+  answerNowOnSearchEvasion,
+  searchCalledAfterWithdrawal,
   searchCapReached,
   type SearchCapStep,
   withdrawSearchAfterCap
@@ -282,5 +289,196 @@ describe('withdrawSearchAfterCap', () => {
     )
     expect(modeTools).toEqual([...MODE_TOOLS])
     expect(variantTools).toEqual(['search', 'fetch'])
+  })
+})
+
+// ── Stage 2: the model keeps calling search after it was withdrawn ──────────
+
+// A step as the AI SDK v6 records it: every call is a `toolCalls` entry. A
+// call that ran (or was refused by a tool) also has a `toolResults` entry. A
+// call whose input failed the tool's schema ("Invalid input for tool search")
+// is a `toolCalls` entry with `invalid: true` plus a `tool-error` content part,
+// and has no tool result.
+type Call = { toolName: string; output?: unknown; invalid?: boolean }
+const sdkStep = (...calls: Call[]): SearchCapStep => ({
+  toolCalls: calls.map(c => ({
+    toolName: c.toolName,
+    ...(c.invalid && { invalid: true })
+  })),
+  toolResults: calls
+    .filter(c => !c.invalid)
+    .map(c => ({ toolName: c.toolName, output: c.output }))
+})
+const refusedSearch: Call = { toolName: 'search', output: capOutput }
+const invalidSearch: Call = { toolName: 'search', invalid: true }
+const fetchCall: Call = { toolName: 'fetch', output: realOutput }
+const answerStep: SearchCapStep = { toolCalls: [], toolResults: [] }
+
+const SYS = 'BASE PROMPT WITH CITATION RULES'
+
+describe('searchCalledAfterWithdrawal', () => {
+  it('is true for a refused search call on a step after the withdrawal', () => {
+    // Lab chat jcckydan2uqv7l4qelyjq1ob (mistral-large-4, balanced): search
+    // withdrawn at step 3, which still made 5 refused search calls.
+    expect(
+      searchCalledAfterWithdrawal([
+        ...CAPPED_TURN,
+        sdkStep(
+          refusedSearch,
+          refusedSearch,
+          refusedSearch,
+          refusedSearch,
+          refusedSearch
+        )
+      ])
+    ).toBe(true)
+  })
+
+  it('is true for an invalid-input search call (a tool it no longer sees)', () => {
+    // Lab step 4: 3 search calls with invented args, rejected by the schema.
+    expect(
+      searchCalledAfterWithdrawal([
+        ...CAPPED_TURN,
+        sdkStep(invalidSearch, invalidSearch, invalidSearch)
+      ])
+    ).toBe(true)
+  })
+
+  it('is true for any other search call after the withdrawal', () => {
+    for (const output of [
+      dedupSkipOutput,
+      duplicateQueryOutput,
+      urlGuidanceOutput
+    ]) {
+      expect(
+        searchCalledAfterWithdrawal([
+          ...CAPPED_TURN,
+          sdkStep({ toolName: 'search', output })
+        ])
+      ).toBe(true)
+    }
+  })
+
+  it('is false while the model complies', () => {
+    expect(searchCalledAfterWithdrawal([])).toBe(false)
+    expect(searchCalledAfterWithdrawal(CAPPED_TURN)).toBe(false)
+    expect(searchCalledAfterWithdrawal([...CAPPED_TURN, answerStep])).toBe(
+      false
+    )
+  })
+
+  it('is false for fetch-only steps after the withdrawal', () => {
+    // Quality's cap notice deliberately allows fetching found URLs.
+    expect(
+      searchCalledAfterWithdrawal([
+        ...CAPPED_TURN,
+        sdkStep(fetchCall, fetchCall),
+        sdkStep(fetchCall)
+      ])
+    ).toBe(false)
+  })
+
+  it('ignores search calls made while search was still offered', () => {
+    // The capped step's own parallel calls came before the withdrawal.
+    expect(
+      searchCalledAfterWithdrawal([
+        sdkStep({ toolName: 'search', output: realOutput }),
+        sdkStep(
+          { toolName: 'search', output: realOutput },
+          refusedSearch,
+          refusedSearch,
+          invalidSearch
+        )
+      ])
+    ).toBe(false)
+    // No cap at all: searching is just searching.
+    expect(
+      searchCalledAfterWithdrawal([
+        sdkStep({ toolName: 'search', output: realOutput }),
+        sdkStep(invalidSearch),
+        sdkStep({ toolName: 'search', output: dedupSkipOutput })
+      ])
+    ).toBe(false)
+  })
+})
+
+describe('answerNowOnSearchEvasion', () => {
+  const EVADED = [...CAPPED_TURN, sdkStep(refusedSearch)]
+
+  it("switches the step to answer-now with the deadline's own override", () => {
+    const out = answerNowOnSearchEvasion(none(), {
+      steps: EVADED,
+      systemPrompt: SYS
+    })
+    expect(out).toEqual(answerNowOverrides(none(), SYS))
+    expect(out.activeTools).toEqual([])
+    expect(out.system).toBe(`${SYS}${ANSWER_NOW_NOTE}`)
+  })
+
+  it("keeps a variant's replacement prompt and empties its tool list", () => {
+    const out = answerNowOnSearchEvasion(
+      { activeTools: ['fetch'], system: 'variant prompt' },
+      { steps: EVADED, systemPrompt: SYS }
+    )
+    expect(out.activeTools).toEqual([])
+    expect(out.system).toBe(`variant prompt${ANSWER_NOW_NOTE}`)
+  })
+
+  it('leaves the step untouched (same object) for a compliant model', () => {
+    for (const steps of [
+      [],
+      CAPPED_TURN,
+      [...CAPPED_TURN, sdkStep(fetchCall)],
+      [...CAPPED_TURN, answerStep]
+    ]) {
+      const overrides = withdrawSearchAfterCap(none(), {
+        steps,
+        defaultActiveTools: MODE_TOOLS
+      })
+      expect(
+        answerNowOnSearchEvasion(overrides, { steps, systemPrompt: SYS })
+      ).toBe(overrides)
+    }
+  })
+
+  it('stays on for every later step of the turn', () => {
+    const later = [
+      ...EVADED,
+      sdkStep({ toolName: 'search', output: { answerNow: true } }),
+      answerStep
+    ]
+    for (let i = EVADED.length; i <= later.length; i++) {
+      expect(
+        answerNowOnSearchEvasion(none(), {
+          steps: later.slice(0, i),
+          systemPrompt: SYS
+        })
+      ).toEqual(answerNowOverrides(none(), SYS))
+    }
+  })
+
+  it('the time deadline still applies on top, without a second note', () => {
+    // researcher.ts order: variant -> withdraw search -> answer-now on
+    // evasion -> time deadline.
+    const stage1 = withdrawSearchAfterCap(none(), {
+      steps: EVADED,
+      defaultActiveTools: MODE_TOOLS
+    })
+    const stage2 = answerNowOnSearchEvasion(stage1, {
+      steps: EVADED,
+      systemPrompt: SYS
+    })
+    const past = applyAnswerDeadline(stage2, {
+      elapsedMs: ANSWER_DEADLINE_MS,
+      systemPrompt: SYS
+    })
+    expect(past.activeTools).toEqual([])
+    expect(past.system).toBe(`${SYS}${ANSWER_NOW_NOTE}`)
+    // A new object only when the TIME deadline fired, so researcher.ts's
+    // identity check (deadline log, citation reminder) still means time.
+    expect(past).not.toBe(stage2)
+    expect(
+      applyAnswerDeadline(stage2, { elapsedMs: 0, systemPrompt: SYS })
+    ).toBe(stage2)
   })
 })
