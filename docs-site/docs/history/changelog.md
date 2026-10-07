@@ -22,6 +22,32 @@ behind the change. Lab-first work lives on `flow-design`. `git cherry-pick -x` l
 turn, shortened citation ids that resolve, a planning draft cut from the answer, and a search
 cap that stops a model that ignores it**
 
+- **10-07** — **`search` withdrawn as soon as the budget is spent; refused calls shown as one
+  line** (lab `c306b08f` + `9e5cfec3`; staging `8eba5e5f` + `a930c2c7`; **prod pending**;
+  [D45 addendum](/history/decisions#addendum-2026-10-07-search-withdrawn-as-soon-as-the-budget-is-spent)).
+  - Trigger: on a later turn of prod chat `cznh8gc1gz41vq2lwjb560br`, with the three stages
+    below shipped, mistral-large-4 was still offered `search` on the step after its budget ran
+    out and made 4 refused calls there, then 4 on the withdrawn step and 4 on the answer-only
+    step (6 steps, 17 `search` calls of which 5 ran, 148k prompt tokens, 104 s). Stage 1 fired
+    only after a refusal, so every capped turn spent a step discovering the cap.
+  - The researcher now shares the search tool's per-turn round counter (`SearchRoundCounter`,
+    new `lib/tools/search-rounds.ts`, which also holds the budget and the cap notice, re-exported
+    from `search.ts`). `search` is withdrawn on the first step that starts with the budget spent
+    (a refused result stays the fallback), and stages 2 and 3 count from that step. A withdrawn
+    step that is not answer-only gets a note saying why (`buildSearchWithdrawnNote`; balanced:
+    answer now; quality: fetching found URLs still allowed).
+  - Log: `[search-cap] search withdrawn at step N after the round cap (rounds U/B, chat=…)`, which
+    can now appear with no refused search; U can exceed B after a parallel overshoot.
+  - Lab replay of 60 stored capped turns: 49 withdraw a step earlier, and that step held 72 of
+    their 115 refused calls (assuming the model behaves the same without `search`: plausible,
+    not measured). One lab turn after the change: withdrawn at step 2 (`rounds 5/3`), mistral
+    called `search` anyway (4 refused), answer-only at step 3: 4 steps, 9 tool calls, 140k
+    prompt tokens, 121 s.
+  - UI: refused `search`/`fetch` calls fold into one muted line at the first refusal, "Search
+    limit reached — N extra searches skipped" (or "Research limit reached — …"); the user had
+    counted 18 "searches" on a turn where 5 ran. "Completed N steps" still counts every call.
+    `lib/utils/skipped-tool-calls.ts`, `components/skipped-tool-calls-section.tsx`.
+    → [pipeline › round cap](/search/pipeline#round-cap), [telemetry](/operations/telemetry#the-lines), [frontend › refused calls](/request-lifecycle/frontend#refused-calls-fold-into-one-line)
 - **10-07** — **After the search round cap, `search` is withdrawn, then the turn is made to
   answer** (lab `d1a86bda` + `c86bbdaa` + `798030de`; staging `d799a91c` + `1f8ece82` +
   `49e33297`; prod `275ce8da` + `5adf51d1` + `4b4d4e5e`;
