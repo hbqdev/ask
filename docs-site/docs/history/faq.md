@@ -221,6 +221,11 @@ If it still appears on a current build, match it to one of the cases left alone 
   a long or list-shaped status note: kept by design
   ([known issue](/history/known-issues#narration-the-structural-rules-keep-by-design)).
 - **An answer with no `## ` heading at all**: never cut, since there is no safe place to cut.
+- **An outline plus notes about "cite strings", toolCallIds or a "spec block" in front of the
+  answer** (glm-5.3-flash): a planning draft. Builds since 2026-10-06 (lab and staging; prod
+  pending) cut it when the answer is glued to the last note; while the answer streams the draft
+  is shown until enough of the answer has arrived
+  ([known issue](/history/known-issues#a-planning-draft-shows-while-the-answer-streams)).
 - **Only in search results or a recall excerpt**: the stored row still holds it. Staging and
   prod history was cleaned on 2026-09-28/29; an answer saved before a newer rule needs the
   backfill re-run ([runbook](/operations/runbooks#re-run-the-narration-backfill)).
@@ -272,9 +277,12 @@ Three pipeline causes were fixed on 2026-09-24, and copied placeholders and too-
 2026-09-26. Builds with the 09-26 fix also count out-of-range numbers as unresolved, so their
 rate reads higher than older lines for the same answers
 ([telemetry](/operations/telemetry#tokens-citations-and-totals)). Since 2026-09-27 models copy a
-ready-made citation from each result, so out-of-range numbers should be rare; the typical
-leftover is an id copied with one character missing, which is dropped. A rate that stays high
-on live turns of one build is worth a look.
+ready-made citation from each result, so out-of-range numbers should be rare. The typical
+leftover was an id copied with one character missing or cut short (`[1](#71cee5ba...)`); builds
+since 2026-10-06 (lab and staging; prod pending) resolve both when the id names exactly one call
+of the turn and count them in `citations_recovered`
+([D44](/history/decisions#d44-shortened-and-one-character-off-citation-ids-resolve)). A rate
+that stays high on live turns of one build is worth a look.
 → [Known issues › Unresolved citations](/history/known-issues#unresolved-citations),
 [Citation placeholders and out-of-range numbers](/history/known-issues#citation-placeholders-and-out-of-range-numbers)
 

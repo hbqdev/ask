@@ -48,7 +48,7 @@ names the lab original. See [deploy](/operations/deploy) for the flow.
 | [D17](#d17-20k-per-page-crop-with-a-crop-position-shadow) | 20k per-page crop + crop-position shadow | adopted (experiment) | 2026-08-06 |
 | [D18](#d18-targeted-reasoning-reasoning-only-on-research-turns) | Targeted reasoning (research turns only); since D37 nearly every turn is a research turn | **inconclusive** | 2026-09-19 |
 | [D19](#d19-follow-up-re-search-prompt-nudge) | Follow-up re-search prompt nudge (only re-searching since D37) | adopted (soft) | 2026-09-19 |
-| [D20](#d20-narration-strippers-strict-at-persist-best-effort-live) | Narration strippers: strict at persist, best-effort live; language-agnostic rules applied wherever text is read; stored history backfilled | adopted | 2026-09-10 / 09-17 / 09-28 / 09-29 |
+| [D20](#d20-narration-strippers-strict-at-persist-best-effort-live) | Narration strippers: strict at persist, best-effort live; language-agnostic rules applied wherever text is read; stored history backfilled; a planning draft in front of a glued restart is cut (10-06: lab and staging; prod pending) | adopted | 2026-09-10 / 09-17 / 09-28 / 09-29 / 10-06 |
 | [D21](#d21-other-latency-knobs-measured) | Other latency knobs measured (rerank budget, enrich cap, crawl parallelism, turn budget) | mixed | 2026-07/09 |
 | [D22](#d22-multi-agent-deep-research) | Multi-agent deep research | **shelved** | 2026-08-04 |
 | [D23](#d23-uploads-and-url-rag-on-disk-not-pgvector) | Uploads / URL RAG on disk, not pgvector | adopted | 2026-07-07 → 09-12 |
@@ -72,6 +72,7 @@ names the lab original. See [deploy](/operations/deploy) for the flow.
 | [D41](#d41-on-wsl-hosts-nothing-that-waits-for-docker-is-enabled-at-boot) | On WSL hosts, nothing that waits for Docker is enabled into `multi-user.target` | adopted | 2026-09-29 |
 | [D42](#d42-near-duplicate-search-skip-only-for-true-repeats) | Near-duplicate search skip only for true repeats: exact, or cosine ≥ 0.90 with no new word or number (was cosine ≥ 0.92 alone) | adopted | 2026-10-01 |
 | [D43](#d43-snippet-citations-measured-not-re-pointed) | Snippet citations: evidence telemetry only; in-page cite markers and automatic re-pointing measured and dropped | adopted (telemetry); two fixes **rejected** | 2026-10-01 |
+| [D44](#d44-shortened-and-one-character-off-citation-ids-resolve) | Shortened and one-character-off citation ids resolve to the one call of the turn they name (`id-prefix`, `id-typo`) | adopted (lab and staging; prod pending) | 2026-10-06 |
 
 ---
 
@@ -508,7 +509,8 @@ non-determinism, the agent's search-or-not choice and the ceiling swamp live A/B
   `6e19914f` (2026-09-28, [addendum › Decision 5](#decision-5-the-live-transform-cuts-the-glued-seam)),
   `d751352d` (2026-09-29, [addendum › Decision 6](#decision-6-the-glued-seam-wins-at-persist-too)),
   backfill tool `a59d0c65` (run 2026-09-28/29, [addendum › Backfill](#backfill-2026-09-28-29));
-  earlier `f4c53a7a` (2026-07-08)
+  lab `a6a9d6c0` / staging `1a43ef1c` (2026-10-06, [addendum › Decision 7](#decision-7-a-planning-draft-in-front-of-a-glued-restart-is-cut);
+  lab and staging, prod pending); earlier `f4c53a7a` (2026-07-08)
 - **Context.** Reasoning models emit "process narration" such as "I have comprehensive data now…
   let me search…" or "The search limit has been reached (3 rounds)…" as text parts. Two families
   exist: separate inter-step text parts, and narration **fused into the final text part** (after
@@ -574,8 +576,8 @@ non-determinism, the agent's search-or-not choice and the ceiling swamp live A/B
   - **Decision 1: inter-step chatter in any language.** A non-final text part whose next
     significant part is a tool call is dropped when it is at most 600 characters, has no
     heading, table, code fence, list of 3+ items or citation marker, and is not longer than the
-    final answer (`looksLikeInterStepChatter`, `lib/streaming/helpers/strip-narration-preamble.ts:383`;
-    `lib/streaming/helpers/strip-narration-from-message.ts:112-122`). The English phrase rule
+    final answer (`looksLikeInterStepChatter`, `lib/streaming/helpers/strip-narration-preamble.ts:595`;
+    `lib/streaming/helpers/strip-narration-from-message.ts:115-125`). The English phrase rule
     still drops a narration part at any length. The final-answer guard protects "short real
     reply → side-effect tool → shorter sign-off". **Why 600:** in stored history (831 assistant
     messages, prod and lab), text written right before a tool call is 110–180 characters at the
@@ -592,8 +594,8 @@ non-determinism, the agent's search-or-not choice and the ceiling swamp live A/B
     their answers); a stray glyph glued in front of a heading was 2; real reasoning dumps start
     around 8 KB and carry English starters. 2000 is about 3× the largest non-English preamble.
   - **Decision 3: English first, structure second.** Both rules run **after** the existing
-    English rules (`stripNarrationPreamble`, `strip-narration-preamble.ts:417-426`; the
-    phrase test is the first alternative in `strip-narration-from-message.ts:113-117`), so they
+    English rules (`stripNarrationPreamble`, `strip-narration-preamble.ts:631-640`; the
+    phrase test is the first alternative in `strip-narration-from-message.ts:116-120`), so they
     only add removals and English behaviour is unchanged. One exception since 2026-09-29
     (Decision 6): a glued seam in front of the first line-start heading is decided by the glued
     rule alone.
@@ -676,8 +678,8 @@ non-determinism, the agent's search-or-not choice and the ceiling swamp live A/B
     wins at persist too, and two more English starters.** Prod `d751352d`, lab `0cb22cf9`,
     staging `95c73f74` (2026-09-29).
     - **Seam precedence.** `stripNarrationPreamble`
-      (`lib/streaming/helpers/strip-narration-preamble.ts:417-426`) first removes stray
-      think-tag reasoning, then asks `gluedSeamLeads` (`:401-406`): is there a qualifying glued
+      (`lib/streaming/helpers/strip-narration-preamble.ts:631-640`) first removes stray
+      think-tag reasoning, then asks `gluedSeamLeads` (`:613-618`): is there a qualifying glued
       seam (`findGluedPreambleSeam`) before the first line-start heading? If so the glued rule
       alone decides (cut at the seam, or keep the text); the phrase rule never runs, so it
       cannot cut at the later `\n## B` and take section A with it. Otherwise the order is
@@ -767,6 +769,78 @@ non-determinism, the agent's search-or-not choice and the ceiling swamp live A/B
   - **Don't** raise 600 or 2000 without re-running the corpus review, and don't cut a
     non-English intro before a proper `\n\n## ` heading on a guess: that is exactly where
     genuine intro prose lives.
+- <span id="decision-7-a-planning-draft-in-front-of-a-glued-restart-is-cut"></span>**Addendum
+  2026-10-06 (Decision 7): a planning draft in front of a glued restart is cut.** Lab
+  `a6a9d6c0`, staging `1a43ef1c`. **Status: lab and staging; prod pending** (the prod rollout,
+  and the backfill of the 4 affected prod rows). It shipped together with the citation resolver
+  repair ([D44](#d44-shortened-and-one-character-off-citation-ids-resolve)); see "Why it ships
+  with D44" below.
+  - **What leaked.** Prod chat `mzwbeqoe15wgh12et66fybzo` (glm-5.3-flash, 2026-10-06), 4
+    answers. The model wrote its plan into the final text part: an outline of the answer with
+    its own `## ` headings, scratch notes on the prompt's mechanics ("Available cite strings
+    (toolCallIds) in this turn…", "Related questions spec block? … skip"), then the real answer
+    glued to the last note (`…at end.## Why…`, `…per rules).</think>## Re-enabling…`). The
+    drafts were 2.0–15.1 KB. The glued rule (Decision 2) refuses a prefix with a heading of its
+    own (there it would be a missing newline inside an answer) and stops at 2,000 characters,
+    so all four drafts were shown and saved as part of the answer.
+  - **Decision: cut at the glued seam on evidence that the prefix is scratch work.**
+    `findDraftRestartSeam` (`lib/streaming/helpers/strip-narration-preamble.ts:537-563`) finds
+    the seam and `stripDraftBeforeRestart` (`:571-574`) cuts there. `stripNarrationPreamble`
+    calls it right after `stripStrayThinkTags` (`:637`), so persist, the render view, the
+    history fed back to the model, copy, the spoken gist, recall indexing, keyword-search
+    snippets and the narration backfill all make the same cut. The rule is written up in the
+    block comment at `:364-399`. All four conditions must hold:
+    1. The prefix's prose (code masked) uses the prompt's internal vocabulary,
+       `SCRATCH_TOKEN_FAMILIES` (`:408-419`), one regex per family: `toolCallId(s)` /
+       `tool_call_id`; the placeholder `[n](#…` / `[number](#…`; an id elided inside an anchor
+       (`](#71cee5ba...)`, `](#74661147-…)`); "cite string(s)" / "cite id(s)"; "spec block" /
+       "related-questions block". An answer has no reason to use any of them.
+    2. The cut is the first glued `## ` **after the last such token anywhere in the text**, code
+       included, so the kept answer never contains one. An answer about Ask or about tool calling
+       that uses the words after the seam is never cut.
+    3. The kept answer has at least `DRAFT_ANSWER_MIN` = 400 non-space prose characters (code
+       masked, `:433`), so a long message is never reduced to a stub such as a trailing glued
+       `## Related` section. The four answers carried 1.5–6 K.
+    4. An independent second signal. A prefix with headings of its own (line-start, or glued
+       earlier) must be an outline **of** the answer: one of its headings is restated by one of
+       the answer's, at a character-bigram Dice similarity of at least `HEADING_RESTATED_MIN` =
+       0.8, on headings of at least `HEADING_COMPARE_MIN_CHARS` = 8 normalized characters
+       (`:440-441`), with the same numbers in both (sibling sections such as "Part 1" / "Part 2"
+       score 0). The four drafts' outline-to-answer pairs scored 0.83–0.95. A prefix with no
+       heading has no outline to compare, so it must use at least `NO_OUTLINE_MIN_FAMILIES` = 2
+       vocabulary families (`:425`) and cite nothing; an elided `[1](#71cee5ba...)` is a note
+       about a citation, not one (`ELIDED_ANCHOR`, `:427`).
+  - **Deliberately not vocabulary:** "citation mapping" (a bibliometrics term) and a shortened id
+    inside an otherwise valid anchor (`[2](#a1bf94e4)`), which real answers on several models
+    contain.
+  - **Why the glued seam stays required.** A `## ` fused to a sentence never renders as a
+    heading, and it is where these drafts end. With a proper `\n\n## ` restart the vocabulary
+    alone would have to decide, and an answer about Ask's own citations can use it.
+  - **Why the live transform is unchanged.** An outline draft opens with `## ` like any answer, so
+    the transform could not hold it without holding every answer, and condition 2 depends on
+    text after the seam that has not streamed yet. While the answer streams, the draft is
+    therefore shown: the render view displays it (it starts with a heading) until the answer
+    after the seam reaches 400 prose characters (and, for an outline draft, a heading that
+    restates the outline has arrived); from then on `narrationCleanView` shows only the answer.
+    The saved message is cut at persist. A heading-less draft that opens with English narration
+    is held by the transform as before and flushed unchanged at the end of the part, and the
+    render view then cuts it. Tracked as a
+    [known issue](/history/known-issues#a-planning-draft-shows-while-the-answer-streams).
+  - **Evidence.** A replay over every stored assistant text part (prod 495, staging 522, lab
+    425) cuts exactly the 4 prod answers and nothing else. 72 English answers that discuss
+    citations or tool calls, and all 46 Vietnamese answers, are untouched. A deliberate worst
+    case (a glued heading plus injected vocabulary in 498 real answers) left 1 residual cut,
+    from parallel headings that score as a restatement ("The external rotation half" /
+    "The internal rotation half"). Tests:
+    `lib/streaming/helpers/__tests__/strip-narration-draft.test.ts` (fixtures trimmed from the 4
+    prod answers, the unchanged live transform, false-positive guards).
+  - **Limits.** A draft followed by a proper `\n\n## ` restart is not cut (0 cases in stored
+    history). Separate and unchanged: a long reasoning part in the middle of a turn (over 600
+    characters, or structured) is kept by design, as above.
+  - **Why it ships with D44.** The glm anchors that D44's prefix repair recovers sat in this
+    leaked planning text (43 of the 48 anchors glm-5.3-flash lost on prod since 2026-10-04). The
+    resolver fix alone would have rendered them as source chips inside a draft the reader should
+    not see; with the draft cut, they go with it.
 
 ### D21. Other latency knobs measured
 
@@ -1278,7 +1352,7 @@ turn-based loop (`git revert b0ff56ad`) brings back the same latency.
     prompts also taught two numbering schemes (the speed prompt: one number per toolCallId,
     assigned sequentially; the balanced prompt: result order within each search) and used
     `<id-A>`-style placeholders that models copied verbatim.
-  - **Decision 1: a single resolver.** `resolveCitationAnchor` (`lib/utils/citation.ts:279-307`)
+  - **Decision 1: a single resolver.** `resolveCitationAnchor` (`lib/utils/citation.ts:376-411`)
     is the only place an anchor is resolved, and all three callers use it, so the counter
     reports exactly what the reader sees. It returns `own`, `recovered` (with the repair used)
     or `unresolved`. Lookup order: the id as written (after the `toolu_`/`call_`/`search-`
@@ -1287,10 +1361,13 @@ turn-based loop (`git revert b0ff56ad`) brings back the same latency.
     resolved only when the message made exactly one citable call; the URL-fragment rule from
     2026-09-24. Within a call, an in-range N is that result; an out-of-range N resolves only on
     a fetch whose output holds exactly one page that is not a `Fetch failed:` result
-    (`resolveWithinCall`, `:224-258`).
+    (`resolveWithinCall`, `:317-351`). Since 2026-10-06 (lab and staging; prod pending) two
+    more steps sit between the unwrap and the placeholder: a shortened id (`id-prefix`) and a
+    full-length id one character off (`id-typo`), each only when it names exactly one call of
+    the message ([D44](#d44-shortened-and-one-character-off-citation-ids-resolve)).
   - **Decision 2: N is the 1-based position of the result within that tool call's `results`,
     restarting at 1 for every call.** It is what `extractCitationMaps` always built
-    (`results[N-1]`, `lib/utils/citation.ts:427-432`), so the prompts were changed to match the
+    (`results[N-1]`, `lib/utils/citation.ts:531-536`), so the prompts were changed to match the
     renderer, not the other way round. One shared `getCitationFormatGuidance()`
     (`lib/agents/prompts/search-mode-prompts.ts:107-124`) states it for speed and balanced (and
     so quality), including "a one-page fetch is always [1]" and a running count shown as WRONG.
@@ -1312,7 +1389,7 @@ turn-based loop (`git revert b0ff56ad`) brings back the same latency.
     another message's calls.
   - **How the fetch rule knows the tool type.** `extractCitationMaps` records each map's part
     type in a module-level `WeakMap` keyed by the map object (`CITATION_MAP_TOOL_TYPE`,
-    `lib/utils/citation.ts:163`, set at `:437`), so the `Record<toolCallId, Record<N, item>>`
+    `lib/utils/citation.ts:163`, set at `:541`), so the `Record<toolCallId, Record<N, item>>`
     shape every component passes around did not change. A map that is copied or built by hand
     has no entry, and the fetch rule silently does not apply to it: pass the maps through by
     reference.
@@ -1415,7 +1492,10 @@ turn-based loop (`git revert b0ff56ad`) brings back the same latency.
     the gap holds (deepseek 11.1 % vs 67.6 %, kimi 17.4 % vs 56.8 %), and so does a comparison
     restricted to search results (deepseek 18.8 % vs 64 %, kimi 19.1 % vs 46.3 %).
   - kimi-k2.6 lost 3 citations by copying the 36-character id with one character missing. The
-    resolver has no typo repair, so they render as nothing. Shorter ids are a possible follow-up.
+    resolver had no typo repair, so they rendered as nothing. Shorter ids were a possible
+    follow-up. **Since 2026-10-06** (lab and staging; prod pending) the resolver maps an id one
+    character off exactly one call of the turn to that call, and a shortened id to the one call
+    it starts ([D44](#d44-shortened-and-one-character-off-citation-ids-resolve)).
   - **Open question:** with handles on, deepseek-v4.1-flash fetched a page on 4 of 4 turns, 0 of
     4 off (about +30 s per turn). Confounded with recall; not explained. Watch prod
     `tool_calls` and `fetch_ms` ([telemetry](/operations/telemetry#tokens-citations-and-totals)).
@@ -1471,12 +1551,12 @@ turn-based loop (`git revert b0ff56ad`) brings back the same latency.
   rendered, 54 % page and 46 % snippet only.
 - **Decision.** Measure on every turn and change nothing the reader or the model sees. Evidence
   helpers in `lib/utils/citation.ts` ([frontend › Citation evidence](/request-lifecycle/frontend#citation-evidence)):
-  `SNIPPET_MAX_CHARS` = 1000 (`:478`); `samePageKey()` (`:501-530`), which treats as one page
+  `SNIPPET_MAX_CHARS` = 1000 (`:582`); `samePageKey()` (`:605-634`), which treats as one page
   the spellings that differ in scheme, `www.` / `m.`, case, trailing slash, fragment, tracker or
   empty parameters and parameter order, and a GitHub repository page, its `?tab=` views and its
-  `/blob/<branch>/README`; `findPageTextForUrl()` (`:597-611`), message-scoped, never crossing
+  `/blob/<branch>/README`; `findPageTextForUrl()` (`:701-715`), message-scoped, never crossing
   turns ([D36](#d36-strip-historical-citation-anchors-resolve-citations-per-turn-only)); and
-  `auditCitationEvidence()` (`:647-707`), which sorts the rendered citations into page /
+  `auditCitationEvidence()` (`:751-811`), which sorts the rendered citations into page /
   snippet-read / snippet and counts fetched pages nothing cites. They become `citations_snippet`,
   `citations_snippet_read` and `fetch_pages_uncited` on the `[latency]` line
   ([telemetry](/operations/telemetry#tokens-citations-and-totals)). Rendering, the hover preview
@@ -1514,6 +1594,63 @@ turn-based loop (`git revert b0ff56ad`) brings back the same latency.
   the build) moves after a prompt or tool-output change, or when a fix for wrong-page attribution
   or assembled numbers is proposed (evaluate it with the method above). Open issue:
   [known issues](/history/known-issues#citations-point-at-a-snippet-instead-of-the-fetched-page).
+
+### D44. Shortened and one-character-off citation ids resolve
+
+- **Status:** adopted · **Rollout: lab and staging; prod pending** · **Date:** 2026-10-06 ·
+  **Commit:** lab `6b779bfe`, staging `5ab6760f`.
+- **Context.** glm-5.3-flash writes anchors with a truncated id, `[3](#17d98f5d)`,
+  `[1](#71cee5ba...)`, `[2](#74661147-...)`, for this turn's
+  `17d98f5d-f270-46f8-92e8-e2acaa3a4705`, although every result hands it the full id in its
+  `cite` string ([D38](#d38-ready-made-citation-handles)). Such an anchor rendered as nothing: on
+  prod 48 of its 121 citations were unresolved, and 43 of the 48 it lost since 2026-10-04
+  carried the right id cut to its first 8 characters. The same shape occurs in final answers
+  (prod glm-5.2 history, lab deepseek-v4-flash). Separately, kimi-k2.6 and deepseek-v4-flash
+  sometimes copy a full id with one character changed, dropped or added: 17 anchors across the
+  three stacks' history, each within one edit of exactly one call of its own turn and of no
+  other id. D38 recorded that near-miss as a caveat.
+- **Decision: two more repairs in the one resolver.** `resolveCitationAnchor`
+  (`lib/utils/citation.ts:376-411`) tries them after the id as written and the unwrapped
+  template id, and before the placeholder and URL-fragment rules (`:393-398`). Each names one
+  call of **this message** or nothing; N is then resolved against that call exactly as for its
+  full id, out-of-range rules included (`resolveWithinCall`, `:317-351`). Both return
+  `recovered` with the repair's name (`CitationRepair`, `:187-199`), so the anchor renders and
+  counts in `citations_recovered`, not in `citations_unresolved`.
+  1. **`id-prefix`** (`findMapByIdPrefix`, `:256-276`). Trim whitespace, one trailing ellipsis
+     (`...` or `…`) and trailing dashes. What remains must be at least `MIN_ID_PREFIX_LENGTH` = 8
+     hex/dash characters (`:234`) and a case-insensitive prefix of **exactly one** of this
+     message's citable call ids. Shorter, ambiguous (two calls start with it), a prefix of no
+     call of this message (another turn's, or invented), or followed by anything but an
+     ellipsis (`7affb9b0-... FAQ`, `7affb9b0..`, `toolu_7affb9b0`): dropped.
+  2. **`id-typo`** (`findMapByIdTypo`, `:300-315`, with `isOneEditApart`, `:279-287`). A
+     hex/dash id one substitution, insertion or deletion away from **exactly one** of this
+     message's UUID-shaped call ids. Two characters off (a swap of two neighbours is two
+     edits), one edit from two calls, or one edit from another turn's id: dropped.
+- **Why these are not guesses.** Eight hex characters are the first group of a UUID, the
+  git-style shortening models produce, and 16^8 values: two calls of one turn never share such a
+  prefix by chance, and an invented 8-character id never matches one by chance. Two random
+  UUIDs are never one edit apart, so a one-edit match names its call as surely as the full id.
+  Only UUID-shaped calls are `id-typo` candidates, the shape whose length makes one edit
+  meaningful. Per-turn scoping ([D36](#d36-strip-historical-citation-anchors-resolve-citations-per-turn-only))
+  is unchanged: no repair looks at another message's calls. The rationale and measurements are
+  also in the code comments (`:228-255`, `:289-299`).
+- **Evidence.** Every stored answer replayed through the old and the new resolver: unresolved
+  anchors prod 750 → 700, staging 1048 → 1044, lab 323 → 289; 0 previously rendered citations
+  changed.
+- **Caveat found in the replay.** The recovered glm anchors sat in planning text the model had
+  leaked in front of its answer, not in the answer. Recovering them alone would have rendered
+  source chips inside a draft the reader should not see, so the draft cut
+  ([D20 › Decision 7](#decision-7-a-planning-draft-in-front-of-a-glued-restart-is-cut)) ships
+  with this change.
+- **Telemetry.** On lines from a build with this change, the same answers report fewer
+  `citations_unresolved` and more `citations_recovered`; compare rates only between lines of one
+  build ([telemetry](/operations/telemetry#tokens-citations-and-totals)).
+- **Tests.** `lib/utils/__tests__/citation.test.ts`: "shortened ids", "full-length ids one
+  character off", and "shortened and mistyped ids: audit, rendering and cited URLs agree".
+- **Revisit if** a model's unresolved anchors are near-misses of its turn's ids in a shape not
+  covered here (fewer than 8 characters, two edits). Measure how often such a shape is ambiguous
+  in stored turns before widening either rule: a repair that can name the wrong call is worse
+  than a dropped anchor (D36).
 
 ## Retrieval policy
 
@@ -1608,7 +1745,7 @@ turn-based loop (`git revert b0ff56ad`) brings back the same latency.
     user-supplied-source check.
 - **Telemetry.** The `[latency]` line gains `turn_mode`, `forced_search` and (with the
   follow-up) `forced_skip`, the user-supplied-source reason
-  (`lib/streaming/latency-tracker.ts:335-339`, set from `onTurnPlan` at
+  (`lib/streaming/latency-tracker.ts:336-340`, set from `onTurnPlan` at
   `lib/streaming/create-chat-stream-response.ts:844-846`). The container log also gets
   `[Researcher] always-search: step 0 forced to search "<query>"`. On a forced turn the synthetic
   step emits at once, so `ttft_ms` and `first_step_ms` measure only the pre-work (about 2 s). Use
