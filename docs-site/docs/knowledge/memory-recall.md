@@ -233,7 +233,7 @@ pinned model; following them would corrupt data):
 - `lib/memory/write.ts:20-21` and the error text at `:81` ("Set EMBEDDING_MODEL=mixedbread-ai/mxbai-embed-large-v1");
 - `components/settings/memory-tab.tsx:328` (a user-facing hint telling the user to set mxbai);
 - `lib/embeddings/transformers-embedding.ts:56` and `lib/embeddings/rerank.ts:18` (historical measurements);
-- `docs/superpowers/specs|plans/2026-07-16-ask-memory*` (design records).
+- `docs/superpowers/specs|plans/2026-07-16-ask-memory*` (design records; local only, git-ignored).
 
 `lib/memory/recall-index.ts:12-19` has already been corrected and states the lock accurately.
 :::
