@@ -41,8 +41,8 @@ How to measure is covered in [Testing & QA](/operations/testing-qa#lab-a-b-metho
 ## 2. Port with `cherry-pick -x`
 
 `dev` and `admin-feature` are **no longer fast-forward related** — they carry different
-commit hashes for the same changes (e.g. the same fix is `2b321bf6` on `dev` and
-`7e52dfe1` on `admin-feature`, both annotated "cherry picked from commit d863157e…",
+commit hashes for the same changes (e.g. the same fix is `4a7a07e0` on `dev` and
+`5a8e2804` on `admin-feature`, both annotated "cherry picked from commit ef928980…",
 the `flow-design` hash). So each branch receives the lab commit directly:
 
 ```bash
@@ -89,7 +89,7 @@ When a cherry-pick conflicts:
 | Tests | Resolve with the code; run `bun run test` on the target worktree and compare against the known-failure list. |
 
 To stop the lab drifting behind prod, periodically **back-merge** `dev` into
-`flow-design` (last done 2026-08-22, merge `dd7e0ca1`; pre-merge lab tip tagged
+`flow-design` (last done 2026-08-22, merge `23960a92`; pre-merge lab tip tagged
 `lab-archive-2026-08-22`). Check with:
 
 ```bash

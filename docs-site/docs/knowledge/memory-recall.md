@@ -309,7 +309,7 @@ the change rests on.
 | Env | `RECALL_RERANK_POOL` | Set by |
 |---|---|---|
 | prod | `8` | `ask-prod/.env`, applied through the [Model Manager](/infrastructure/model-manager) |
-| lab | `8` | `docker-compose.lab.yaml` (`environment:`, lab `8b6103e9`) |
+| lab | `8` | `docker-compose.lab.yaml` (`environment:`, lab `18a7c9cd`) |
 | staging | unset (code default 10) | nothing |
 
 Check any env with `docker exec <container> printenv RECALL_RERANK_POOL` (empty means the code

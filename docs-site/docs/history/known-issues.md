@@ -81,8 +81,8 @@ thing.
 
 These were discovered by checking every page's claims against the live system and code. Most were
 fixed on 2026-09-23 and shipped to lab, staging and prod the same day; each entry's **Status**
-line says so. Prod (`dev`) commits are `fae9682a`..`50e03340` for the app fixes; the lab originals
-are `06dfbd2b`..`80c44c6a` on `flow-design`.
+line says so. Prod (`dev`) commits are `b1942c57`..`8ac4aeff` for the app fixes; the lab originals
+are `5a39df94`..`69a8107e` on `flow-design`.
 
 ### Serenity Ollama bound to loopback
 
@@ -157,7 +157,7 @@ On NightFuryX (.17) these container names do not resolve, so each silently degra
 - When SearXNG and its fallback both reject, `advancedSearchXNGSearch` catches the error and returns
   **empty results — discarding the Tavily/Brave/LangSearch/Ollama results already gathered**.
 - **Fix sketch.** Treat SearXNG as one provider among several: on failure, continue with the others.
-- **Status: fixed and shipped 2026-09-23** (lab `06dfbd2b`, prod `fae9682a`). A SearXNG rejection or malformed
+- **Status: fixed and shipped 2026-09-23** (lab `5a39df94`, prod `b1942c57`). A SearXNG rejection or malformed
   body now becomes an empty SearXNG share (`resolveSearxngContribution`,
   `app/api/advanced-search/searxng-contribution.ts`), logged as `[searxng] advanced search failed,
   continuing with the other providers`; `[latency:search]` carries `searxng=failed`. The degraded
@@ -171,7 +171,7 @@ On NightFuryX (.17) these container names do not resolve, so each silently degra
   route is token-gated and its URLs come from search engines, not users) but inconsistent with
   the `fetch` tool's guard.
 - **Fix sketch.** Route it through the same SSRF guard (and re-check each redirect hop).
-- **Status: fixed and shipped 2026-09-23** (lab `f5321457`, prod `4db7325e`). `fetchHtml` moved to
+- **Status: fixed and shipped 2026-09-23** (lab `0f186912`, prod `7ef2bb61`). `fetchHtml` moved to
   `lib/utils/legacy-fetch-html.ts`; it runs `assertUrlAllowed` on the start URL and on every
   redirect target before following it, and caps chains at 5. Residual: DNS-rebinding TOCTOU (as for
   the `fetch` tool). Tests: `lib/utils/__tests__/legacy-fetch-html.test.ts`.
@@ -184,7 +184,7 @@ On NightFuryX (.17) these container names do not resolve, so each silently degra
   [decisions](/history/decisions)). A late `fetch` can still run; its note to the model
   ("another tool call is impossible") is inaccurate.
 - **Fix sketch.** Enforce in the tool `execute` (as the search round cap does) or withhold tools.
-- **Status: fixed and shipped 2026-09-23** (lab `72fa6512`, prod `a3100ba6`). `enforceAnswerDeadline`
+- **Status: fixed and shipped 2026-09-23** (lab `187607c2`, prod `53eba161`). `enforceAnswerDeadline`
   (`lib/agents/answer-deadline.ts`) wraps every researcher tool's `execute`; past the deadline a call
   returns a non-error "answer now" result shaped like the tool's normal output and logs
   `[deadline] refused <tool> call`. The note now says further calls are refused. Tests drive the real
@@ -198,7 +198,7 @@ On NightFuryX (.17) these container names do not resolve, so each silently degra
 
 - Prod telemetry (46 recent turns): `recall_budget_hit=true` on 31; true `recall_ms` ≈ 5.5 s vs the
   1.5 s `RECALL_BUDGET_MS` cap. Past-conversation context rarely reaches the answer.
-- **Status: fixed and shipped 2026-09-23** (lab `f87b6d3d`, prod `d0585bf8`). Two causes: the 8B reranker's
+- **Status: fixed and shipped 2026-09-23** (lab `b7f464bc`, prod `d7f3ed9b`). Two causes: the 8B reranker's
   cost for 20 × 512-token passages (about 3.4 s alone), and the discarded speculative rerank
   holding the GPU ahead of the refetch rerank (3.3 s → 5.0 s). Speculation now prefetches only the
   embed and DB arms, and rerank runs once after `chooseRecall`. The default is 10 passages × 384
@@ -212,7 +212,7 @@ On NightFuryX (.17) these container names do not resolve, so each silently degra
   5-turn chat: `recall_ms` 1375–2076 ms, 3 of 5 budget hits). A bench of the refetch path on 40
   real prod queries put pool 10 at p50 1365 ms (63 of 80 samples over 1.2 s) and pool 8 at p50
   1088 ms (0 of 80), with the same injected set on 40 of 40. **Prod** (`ask-prod/.env`, applied
-  through the Model Manager) and **lab** (`docker-compose.lab.yaml`, lab `8b6103e9`) now set
+  through the Model Manager) and **lab** (`docker-compose.lab.yaml`, lab `18a7c9cd`) now set
   `RECALL_RERANK_POOL=8`; staging runs the code default, 10. A 4-turn prod chat afterwards had
   `recall_ms` 1080–1342 ms, 0 budget hits and recall injected on all 4. Details:
   [pool 10 → 8](/knowledge/memory-recall#recall-pool-8). What remains is contention, below.
@@ -286,7 +286,7 @@ On NightFuryX (.17) these container names do not resolve, so each silently degra
   (`lib/agents/memory-consolidator.ts:39`) lists users with the RLS-restricted `db`, which returns 0
   rows under `app_user` (`recall-backfill` correctly uses `dbAdmin`). Unverified at runtime.
 - **Fix sketch.** Use `dbAdmin` for the user listing; schedule the route (cron with the secret).
-- **Status: code fix shipped 2026-09-23 (lab `f80ff6d7`, prod `995f23f3`); scheduled 2026-09-24.**
+- **Status: code fix shipped 2026-09-23 (lab `661459f6`, prod `7339850d`); scheduled 2026-09-24.**
   The user listing now uses `dbAdmin`; per-user work stays RLS-scoped.
   Tests: `lib/agents/__tests__/memory-consolidator.test.ts`. A nightly job,
   `fleet-boot/memory-consolidate-nightly.sh`, runs from the .17 crontab at 03:45. It reads each
@@ -303,7 +303,7 @@ On NightFuryX (.17) these container names do not resolve, so each silently degra
   call `touchChat`. The sidebar reorders live, but after a reload the chat can sort lower than it
   should. See [client state](/request-lifecycle/client-state).
 - **Fix sketch.** Call `touchChat` for home-started chats too (after the row exists).
-- **Status: fixed and shipped 2026-09-23** (lab `b51a4a0d`, prod `5070af4c`). `safeSendMessage` bumps and
+- **Status: fixed and shipped 2026-09-23** (lab `74345fa6`, prod `ef5fa3ae`). `safeSendMessage` bumps and
   `touchChat`s a home-started chat's follow-ups (it has messages before the send), still with no
   refresh event. See [client state](/request-lifecycle/client-state#known-gaps).
 
@@ -313,7 +313,7 @@ On NightFuryX (.17) these container names do not resolve, so each silently degra
 - The ingestor claims any `pending` file, so it can re-process a file the in-app fast path is still
   indexing and overwrite its chunks. Not observed in production. Fix: mark fast-path files
   `processing` before indexing.
-- **Status: fixed and shipped 2026-09-23** (lab `72edc7d8`, prod `6a6c68af`). Fast-path rows are created
+- **Status: fixed and shipped 2026-09-23** (lab `2710d6b7`, prod `313b0284`). Fast-path rows are created
   `processing` with `ingest_stage='fast-path'` and a fresh `claimed_at`, which the claim query skips
   until stale (30 min). Success → `ready`; declined or failed → `releaseFastPathToWorker` puts it
   back to `pending` for the worker. See [RAG uploads](/knowledge/rag-uploads#fast-path-in-app).
@@ -356,7 +356,7 @@ On NightFuryX (.17) these container names do not resolve, so each silently degra
 
 ### Pre-existing test failures
 
-- **Status: fixed and shipped 2026-09-23** (lab `e36d5a5c`, prod `1ff09c73`). `bun run test` on `flow-design`
+- **Status: fixed and shipped 2026-09-23** (lab `bd6857f2`, prod `12e350c7`). `bun run test` on `flow-design`
   is green: 224 files / 1,844 tests pass, 1 skipped. The stale expectations were updated to the
   intended behaviour (granite4.2, think OFF by default, 20,000-character voice cap, the source
   selector's `Select sources` trigger); `chat-panel` mocks the Discover briefing and the canvas field;
@@ -439,8 +439,8 @@ values in it). Details: [security](/infrastructure/security).
 
 ### Model Manager rewrote `.env` ownership and could not switch features off {#model-manager-rewrote-env-ownership-and-could-not-switch-features-off}
 
-- **Found 2026-09-25, fixed the same day** (lab `d105bc7e`, staging `36ad4f0f`, prod branch
-  `f3592665`; the running Model Manager image was rebuilt from the staging worktree on
+- **Found 2026-09-25, fixed the same day** (lab `df96ef27`, staging `a51f3131`, prod branch
+  `3182583c`; the running Model Manager image was rebuilt from the staging worktree on
   2026-09-25).
 - **Ownership.** Every write (apply, restore) created a temp file as root and renamed it over
   `.env`, leaving `root:root` with the umask default mode. Now `writeFileAtomic`
@@ -609,10 +609,10 @@ These are decisions still pending, not bugs:
   wrapped a correct id in the same template syntax (`<id-470411cd-…>`), or used a number beyond
   what a call returned, for example `[2]` or `[3]` on a one-page `fetch`, which has one result. All
   three render as nothing, so the claim ends up uncited.
-- **Cause.** Three defects, all in the pre-fix code (`git show dbbbc376`):
+- **Cause.** Three defects, all in the pre-fix code (`git show 18e0faf1`):
   1. **Copyable placeholders.** Every citation example in the speed and balanced prompts used
      `<id-A>` / `<id-B>`. The prompts also showed example ids (`mK3pQr7sT9uV2wX4`,
-     `aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee`), and before 2026-08-02 (`f1652eab`) others such as
+     `aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee`), and before 2026-08-02 (`1154887c`) others such as
      `I8NzFUKwrKX88107`. Models copied them verbatim.
   2. **Two numbering schemes.** The renderer reads `[N](#id)` as **result N of that call**. The
      balanced prompt said the same ("the result order within each search"), but the speed prompt
@@ -630,8 +630,8 @@ These are decisions still pending, not bugs:
     glm-5.2) and one literal `toolCallId`. On the lab kimi-k2.6 copied `<id-A>`…`<id-E>` (21
     anchors) and wrapped a real id (7).
   - The audit agreed with rendering in 333 of 374 messages before the fix, 374 of 374 after.
-- **Status: fixed 2026-09-26** (lab `dbbbc376`; cherry-picked to `dev` as `0bd8f8cc` and to
-  `admin-feature` as `7af2beff`).
+- **Status: fixed 2026-09-26** (lab `18e0faf1`; cherry-picked to `dev` as `96c8b006` and to
+  `admin-feature` as `c55e6a52`).
   1. **One resolver.** `resolveCitationAnchor` (`lib/utils/citation.ts:376-411`) decides every
      anchor, and `processCitations` (rendering, `:845-869`), `auditCitations` (telemetry,
      `:450-475`) and `extractCitedSourceUrls` (`[cite-urls]`, `:557-571`) all call it, so the
@@ -689,7 +689,7 @@ These are decisions still pending, not bugs:
   citation: it is confidently wrong and invisible.
 - **Why the renderer cannot fix it.** An in-range `[N](#id)` is a well-formed anchor for result
   N. Nothing in it says the model meant something else, so any rewrite would be a guess.
-- **Status: fixed 2026-09-27** (prod `8878a42d`, lab `48cc3938`, staging `696bd454`). The
+- **Status: fixed 2026-09-27** (prod `a9f3970f`, lab `5fb4966f`, staging `f9b9d843`). The
   2026-09-26 prompt rule alone did not hold: on the lab it still failed on 11 of 19 citations in
   one turn. Every search result, fetched page and attached-document excerpt the answering model
   sees now carries its finished citation, `"cite":"[N](#<toolCallId>)"`, with N exactly what the
@@ -775,7 +775,7 @@ These are decisions still pending, not bugs:
   results an earlier search of the turn had already returned. So on a speed turn with more than
   one search, a later search's saved list could contain the removed duplicates again, every
   position after them shifted, and a stored `[N](#id)` resolved to a different result.
-- **Status: fixed 2026-09-27** (prod `0ca166fe`, lab `8a67e3cd`, staging `3402bc5d`). Full
+- **Status: fixed 2026-09-27** (prod `e77b7d9f`, lab `0cc68543`, staging `e98a4dfb`). Full
   content is now swapped in **by URL**, keeping the live results' order and length
   (`lib/search/rehydrate-full-content.ts:44-57`); a live result with no recorded full text keeps
   its excerpt. Answers saved before the fix keep the list they were saved with; nothing rewrites
@@ -826,8 +826,8 @@ These are decisions still pending, not bugs:
 - **Symptom (before the backfill).** Answers saved before a narration rule existed still held
   it in Postgres: status notes written before a tool call (in any language, or English with
   unlisted wording), a long reasoning preamble or stray `</think>` from before 2026-09-17
-  (`0290896c`), and a preamble glued to the answer heading (`…câu trả lời.## `) from before
-  2026-09-28 (`48d5b06d`).
+  (`9a24e1da`), and a preamble glued to the answer heading (`…câu trả lời.## `) from before
+  2026-09-28 (`a90e4b83`).
 - **Display fixed 2026-09-28.** Every reader applies the persist-time cleanup when it reads a
   message: the chat view, the copy shortcut and the action-row copy, the history fed back to
   the model and the classifier (logged-in and guest), the spoken gist and search snippets
@@ -836,7 +836,7 @@ These are decisions still pending, not bugs:
   note) and **recall chunks** indexed before 2026-09-28 that kept a glued preamble (on prod,
   the 3 Vietnamese answers of chat `pq6zs7w88m1kmowjdu9udfrw`).
 - **Status: fixed in storage 2026-09-28/29** with `scripts/backfill-narration.ts` (prod
-  `a59d0c65`, lab `449d8d3e`, staging `736faf57`):
+  `15b58f82`, lab `5801c67d`, staging `278810d5`):
   - **staging:** 99 messages, 242 text-part deletes, 5 rewrites; recall re-indexed for 4
     messages (23 → 14 chunks);
   - **prod:** 92 messages, 177 deletes, 4 rewrites; recall re-indexed for 8 messages
@@ -875,7 +875,7 @@ These are decisions still pending, not bugs:
 
   An earlier version of this entry described only the second case and understated the worst
   case.
-- **Status: fixed 2026-09-28** (prod `6e19914f`, lab `a3074f86`, staging `951b6a83`;
+- **Status: fixed 2026-09-28** (prod `82254324`, lab `0f3439cb`, staging `32a1cbae`;
   [D20 addendum › Decision 5](/history/decisions#decision-5-the-live-transform-cuts-the-glued-seam)).
   The transform now finds the glued seam through the same helpers as the persist rule
   (`findGluedPreambleSeam`, `gluedAnswerOutweighsPreamble`,
@@ -914,7 +914,7 @@ These are decisions still pending, not bugs:
 - **Impact.** Low. It needs a glued preamble, English narration in it, a later line-start
   heading, and a turn on which the live cut did not fire. The render view runs the same
   function, so what is shown matches what is saved.
-- **Status: fixed 2026-09-29** (prod `d751352d`, lab `0cb22cf9`, staging `95c73f74`;
+- **Status: fixed 2026-09-29** (prod `51516a89`, lab `7ce5e6c1`, staging `fd543310`;
   [D20 › Decision 6](/history/decisions#decision-6-the-glued-seam-wins-at-persist-too)).
   `stripNarrationPreamble` now asks `gluedSeamLeads`
   (`lib/streaming/helpers/strip-narration-preamble.ts:613-618`) first: a qualifying glued seam
@@ -937,7 +937,7 @@ These are decisions still pending, not bugs:
   refuses such a prefix, because it has headings of its own and is longer than 2,000
   characters.
 - **Status: the saved and displayed answer is fixed 2026-10-06 on lab, staging and prod** (lab
-  `a6a9d6c0`, staging `1a43ef1c`, prod `20cb9cc1`); the 4 stored prod answers were backfilled
+  `0c42230b`, staging `5bf81ec0`, prod `bfb71369`); the 4 stored prod answers were backfilled
   2026-10-07 ([runbook](/operations/runbooks#re-run-the-narration-backfill)). Persist,
   the render view and every other reader cut the draft at the glued seam
   (`stripDraftBeforeRestart`, `lib/streaming/helpers/strip-narration-preamble.ts:571-574`).
@@ -1042,7 +1042,7 @@ These are decisions still pending, not bugs:
 - **Cause.** The input schema required `id` and `timestamp` on every item. Models routinely left
   out `timestamp` (13 of the 14 stored validation failures on prod, staging and lab by
   2026-09-29), and one retry that added timestamps dropped `id`. Neither field is shown in the UI.
-- **Status: fixed 2026-09-29** (prod `3e715f2b`, lab `9cb61e63`, staging `5e614b72`). The model's
+- **Status: fixed 2026-09-29** (prod `1658df97`, lab `a9e99f28`, staging `10b47275`). The model's
   input schema (`todoItemInputSchema`, `lib/tools/todo.ts:27-38`) makes both optional, and
   `completeTodos` (`:57-72`) fills them server-side: `id` defaults to the item's 1-based
   position, `timestamp` to the time an earlier `todoWrite` call of the same tool instance recorded for
@@ -1053,7 +1053,7 @@ These are decisions still pending, not bugs:
 
 ### Mobile keyboard / composer on real devices
 
-- **Symptom.** Composer anchoring while typing on phones (`41f8ed8e`) and the click/keyboard timing
+- **Symptom.** Composer anchoring while typing on phones (`e99fc4ff`) and the click/keyboard timing
   of the mid-stream refresh fixes could only be checked headlessly, not on a real on-screen keyboard.
 - **Workaround.** Verify on a device after any change to `chat-panel.tsx` or `chat.tsx`.
 - **Fallback plan.** If the caret still drifts, pin the composer to the bottom (chat-app style).
@@ -1084,7 +1084,7 @@ These are decisions still pending, not bugs:
   drill-downs, 86 different searches), the cosine-only rule made 332 skips, 137 of them not
   repeats: precision 0.587, recall 0.796. No threshold fixes it: among labelled non-repeats,
   11 % of pairs score ≥ 0.97.
-- **Status: fixed 2026-10-01** (prod `befe76fe`, lab `e57724a5`, staging `9249eec9`). A skip now
+- **Status: fixed 2026-10-01** (prod `0ca3c4ed`, lab `30741f18`, staging `4da6f664`). A skip now
   needs an exact repeat (equal once case, punctuation and quotes are ignored) or a near repeat:
   cosine ≥ 0.90 **and** the later query adds no content word, drops no number other than a year
   and does not reverse the word order around to/from/than (`lib/tools/search/query-dedup.ts`,
@@ -1157,8 +1157,8 @@ These are decisions still pending, not bugs:
   remove bare tool-call ids. Of 33 UUIDs found outside citation markers in stored answers on
   prod, staging and lab, 32 were real content (for example a Hyper-V `VMCreatorId` and the UUID
   in `/uploads/asset/file/<uuid>/…`).
-- **Status: fixed for new indexing 2026-09-29** (prod `dfccc08c`, lab `418193e9`, staging
-  `f197f24a`). `extractIndexableText` strips only the message's **own** tool-call ids and a
+- **Status: fixed for new indexing 2026-09-29** (prod `2edddf3d`, lab `4f81508d`, staging
+  `f35edb95`). `extractIndexableText` strips only the message's **own** tool-call ids and a
   UUID in citation-anchor position (`#<uuid>`), and indexes any other UUID
   (`lib/memory/extract-indexable-text.ts:56-74`). The live indexer passes each part's
   `toolCallId` (`lib/streaming/create-chat-stream-response.ts:1194`), and the recall backfill's
@@ -1184,7 +1184,7 @@ These are decisions still pending, not bugs:
   the other.
 - **Recovery that day.** `wsl --shutdown` and a Docker Desktop restart from Windows. With the unit
   disabled, userspace boot on .171 takes 1.6 s.
-- **Status: fixed 2026-09-29** (prod `bbf936f8`, lab `8d59d2f1`, staging `d0fdba20`). `deploy.sh`
+- **Status: fixed 2026-09-29** (prod `e76c0d4d`, lab `21ecddf8`, staging `47d5b6d0`). `deploy.sh`
   leaves the unit **disabled** when `systemd-detect-virt --container` prints `wsl`
   (`fleet-boot/deploy.sh:44-53`) and enables it only on bare metal (.231). On the WSL hosts
   `fleet-boot.timer` (`lan_automation`, `OnBootSec=75s`) pulls it in after boot. Checked
@@ -1218,7 +1218,7 @@ These are decisions still pending, not bugs:
 - **Why the lab was unaffected.** Its image pull failed that morning (next entry), so nothing on
   the lab was recreated.
 - **Mitigation.** `docker restart ask ask-admin-feature` at about 20:03 UTC.
-- **Status: fixed 2026-09-27** (lab `a9c5914a`, prod `2f5eac13`, staging `c0df517f`, deployed
+- **Status: fixed 2026-09-27** (lab `6f354732`, prod `aeb6f4fa`, staging `3912d8ab`, deployed
   to prod and staging about 20:45 UTC):
   - `lib/redis/local-redis.ts` is the one way to get a local Redis client: an `'error'`
     listener that logs once per state change, `disableOfflineQueue`, bounded connect and
@@ -1255,7 +1255,7 @@ These are decisions still pending, not bugs:
 - **Impact.** Low. The stack keeps running on its old images, so nothing breaks; but the lab
   silently stops being a canary for new sidecar images, and a prod or staging pull failure
   would look like "no update available".
-- **Status: fixed 2026-09-29** (prod `507cd044`, lab `faacfd18`, staging `50c7e577`). The
+- **Status: fixed 2026-09-29** (prod `7a351a38`, lab `25ff9829`, staging `adaf4d48`). The
   script reads compose's own exit status right after the pipeline (`PIPESTATUS[0]`; the
   pipeline's status would come from `grep`, which exits 1 on empty output). A failed pull prints
   `FAIL pull (docker compose pull exited N) — continuing with the images already present` and
@@ -1339,7 +1339,7 @@ These are decisions still pending, not bugs:
   user is told processing is down.
 - **Impact.** A down ingestor means non-vision models cannot see images at all. The app makes no
   live VLM call; `qwen3-vl:4b` runs only at ingest time.
-- **Discrepancy.** Older notes say `INGEST_WAIT_TIMEOUT_MS` defaults to 120000. Since `8795e1b9`
+- **Discrepancy.** Older notes say `INGEST_WAIT_TIMEOUT_MS` defaults to 120000. Since `82adcf2b`
   (2026-09-10) the **code default is 30000 on every branch**. Check each env's `printenv` for an
   override.
 - **Check.** `redis-cli TTL ingest:heartbeat` in the env's Redis (a positive TTL means alive).
@@ -1381,10 +1381,10 @@ These are decisions still pending, not bugs:
 - **Status: fixed 2026-09-22** — comments and the error message in `lib/memory/write.ts`, the hint in
   `components/settings/memory-tab.tsx`, and `lib/embeddings/rerank.ts` now name Qwen3 and warn against
   switching. The Model Manager's `EMBEDDING_MODEL` field is read-only and its apply API rejects
-  edits (shipped and rebuilt 2026-09-23, prod `32e0b1d0`).
+  edits (shipped and rebuilt 2026-09-23, prod `2d20b3d6`).
 - **Original fix sketch.** Rewrite the comments and the error message to name Qwen3 and to warn against
   switching. The equivalent comment in `lib/memory/recall-index.ts` was already fixed in
-  `8795e1b9`.
+  `82adcf2b`.
 
 ### Other stale comments and docs
 
@@ -1395,7 +1395,7 @@ These are decisions still pending, not bugs:
   degoog to be merged into every search. degoog is disabled in every env (`DEGOOG_ENABLED=false`).
 - The `NEXT_PUBLIC_VOICE_ENABLED` and other `NEXT_PUBLIC_*` flags are build-inlined from each
   worktree's `.env`. Compose comments that present them as runtime env were corrected in
-  `90f5e6a6`. Watch for new ones.
+  `90a04b64`. Watch for new ones.
 - **Fixed 2026-09-24:**
   - Comments that still named `granite4.1:8b` now name `granite4.2:8b`, the current local model
     (`lib/agents/title-generator.ts`, `lib/voice/spoken-gist.ts`, `docker-compose.lab.yaml`,
@@ -1415,12 +1415,12 @@ These are decisions still pending, not bugs:
 ### Lab archive tag missing
 
 - Notes from 2026-08-22 say the pre-merge lab tip was archived as tag `lab-archive-2026-08-22`
-  before `dd7e0ca1`. On 2026-09-22 no tags were found. As of 2026-09-24 the tag **is present in
-  the local repository** and points at `5f5dbc51`, which is `dd7e0ca1^1` (the merge's first
+  before `23960a92`. On 2026-09-22 no tags were found. As of 2026-09-24 the tag **is present in
+  the local repository** and points at `e9b39969`, which is `23960a92^1` (the merge's first
   parent). It is not on `origin`. Either name recovers the pre-merge lab state.
 - **.231 archive branches (2026-09-23).** Before the old checkouts on .231 were deleted, the 42
   commits that existed only there were saved as **local branches** in the repository on .17:
-  `archive/231-flow-design-pipeline` (40 commits, last `dfe4a85e`, 2026-07-31) and
-  `archive/231-wip-context-latency-budget` (2 commits, last `9eadba76`, 2026-07-28). They are
+  `archive/231-flow-design-pipeline` (40 commits, last `36be771b`, 2026-07-31) and
+  `archive/231-wip-context-latency-budget` (2 commits, last `1421933a`, 2026-07-28). They are
   lab experiments (pipeline variants, context-budget measurements), not pushed to `origin`. Push
   them, or back up the repository, if they must survive the loss of .17's disk.

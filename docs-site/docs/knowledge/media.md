@@ -91,7 +91,7 @@ flowchart LR
 
 ### Read-aloud (Kokoro TTS)
 
-- **Voice mode toggle.** When on (`localStorage.voiceMode`), each chat request carries `voice: true`. After the answer finishes, the server emits a `data-spokenGist` part (`lib/voice/emit-spoken-gist.ts`). Despite the name, it is the **full answer**, cleaned for speech by `stripForSpeech` (markdown, citations and URLs removed) and truncated at a sentence boundary past 20,000 chars. No extra model call is made. (Until 2026-08-15, commit `ca098cd2`, a granite model condensed the answer into a 2–3 sentence gist. `lib/voice/spoken-gist.ts` / `condenseForSpeech` and `VOICE_GIST_MODEL_ID` are now unused leftovers.)
+- **Voice mode toggle.** When on (`localStorage.voiceMode`), each chat request carries `voice: true`. After the answer finishes, the server emits a `data-spokenGist` part (`lib/voice/emit-spoken-gist.ts`). Despite the name, it is the **full answer**, cleaned for speech by `stripForSpeech` (markdown, citations and URLs removed) and truncated at a sentence boundary past 20,000 chars. No extra model call is made. (Until 2026-08-15, commit `036fb543`, a granite model condensed the answer into a 2–3 sentence gist. `lib/voice/spoken-gist.ts` / `condenseForSpeech` and `VOICE_GIST_MODEL_ID` are now unused leftovers.)
 - **Listen button.** `SpeakButton` sits in the answer's action row (`components/message-actions.tsx`) for answers that carry the part, and autoplays on the latest answer while voice mode is on.
 - **Playback** (`hooks/use-speech-playback.ts`): **single-flight**. A new `speak()` aborts the previous fetch and bumps a generation counter, so voices never overlap. It is **progressive**: the mp3 stream is pumped into a `MediaSource` `SourceBuffer`, so audio starts on the first bytes (about 0.2 s, versus about 9 s to buffer a full 2k-char clip), with a buffered fallback on browsers without MSE mp3 support.
 - **Server** (`app/api/voice/speak/route.ts` → `lib/voice/tts-client.ts`): OpenAI-style `POST $TTS_SERVICE_URL/v1/audio/speech` with `response_format: mp3`, 20,000-char cap. Service failure → 503.
@@ -119,7 +119,7 @@ The ingestor worker transcribes **uploaded** audio/video with its own CPU faster
 
 A hands-free conversation loop (voice activity detection → auto-transcribe → auto-submit →
 read the answer → re-arm the mic) was built and validated on the lab, then **removed on
-2026-08-22** in commit `b0ff56ad` on `flow-design`. It never shipped to staging or prod.
+2026-08-22** in commit `13d50db4` on `flow-design`. It never shipped to staging or prod.
 
 **Why it was removed:** it worked, but every turn stacked VAD end-of-speech detection,
 Whisper, answer generation and TTS, and the per-turn latency made conversation feel
@@ -127,8 +127,8 @@ cumbersome. The STT itself was already optimal; the cost was the serial pipeline
 responsive version would need a streaming design (streaming STT/TTS, barge-in), which is a
 much larger subsystem.
 
-**How to revive:** `git revert b0ff56ad` (or cherry-pick the 14 build commits
-`746204ca..a10cbf0f`), then `bun install`. The design record is
+**How to revive:** `git revert 13d50db4` (or cherry-pick the 14 build commits
+`10f2a5c9..1eb999ff`), then `bun install`. The design record is
 `docs/superpowers/specs/2026-08-22-hands-free-voice-loop-design.md` and
 `docs/superpowers/plans/2026-08-22-hands-free-voice-loop.md` (local only, git-ignored). Known pitfalls if revived:
 

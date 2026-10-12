@@ -210,7 +210,7 @@ bypass only for a URL; they run the classifier in speed mode and have no Retry.
 | Setting | Value | Notes |
 |---|---|---|
 | `CLASSIFIER_MODEL_ID` | `deepseek-v4-pro:cloud` (all envs) | code default is `granite4.2:8b`, but every env overrides it. Chosen 2026-09-04 in a bake-off of the 7 roster models: the fastest usable one (~0.9s isolated, ~1.1–1.3s in a real turn), made the same search/no-search decisions as granite, and rewrote follow-ups better. `glm-5.3-flash` spiked to ~10s on follow-ups. kimi-k3 and minimax returned empty or failed tool calls |
-| Host | `CLASSIFIER_OLLAMA_BASE_URL`, falling back to `OLLAMA_BASE_URL` | NightFuryX `http://192.168.50.17:11434` in every env: prod from `.env`, staging and lab hardcoded in their overlays (they pointed at MiniNightFury's `.231:11434` until 2026-09-23, `20f59696`) |
+| Host | `CLASSIFIER_OLLAMA_BASE_URL`, falling back to `OLLAMA_BASE_URL` | NightFuryX `http://192.168.50.17:11434` in every env: prod from `.env`, staging and lab hardcoded in their overlays (they pointed at MiniNightFury's `.231:11434` until 2026-09-23, `7fd361c3`) |
 | Call shape | tool calling (not schema/`format`), `temperature: 0`, `think: false`, `keep_alive: -1` | cloud Ollama models honor tool calls reliably, and schema-constrained output is less reliable. `think:false` keeps the gate fast |
 | `CLASSIFIER_BUDGET_MS` | **4000** (soft) | aborts the in-flight request and falls back to "always search". Logged as `outcome:"budget"` |
 | `CLASSIFIER_TIMEOUT_MS` | 10000 (hard, constant) | logged as `outcome:"failed"` |
@@ -297,7 +297,7 @@ If these keep appearing on the current roster, the next option to consider is
 In `targeted` mode, reasoning is on only when `resolveTurnMode === 'research'`,
 and off for `direct` and `stable-knowledge` turns. The researcher passes
 `turnMode` into `getModel(model, abortSignal, turnMode)`. This exists **only on
-the lab branch** (`flow-design`, commit `68e3490d`). Prod and staging code have
+the lab branch** (`flow-design`, commit `c23542fd`). Prod and staging code have
 no `targeted` branch and pass no `turnMode`. It does nothing until
 `ANSWER_THINK=targeted` is set.
 
@@ -450,7 +450,7 @@ restart (`stripDraftBeforeRestart`, `:571-574`, since 2026-10-06;
 line-start heading (`gluedSeamLeads`, `:613-618`), the glued rule alone decides: cut at the
 seam, or keep the text. Otherwise the English phrase rule runs
 (`stripPhraseAnchoredPreamble`, `:643`), then the glued-seam cut on what remains. All rules are
-pure and idempotent. The seam-first check (2026-09-29, prod `d751352d`) closed a gap: with
+pure and idempotent. The seam-first check (2026-09-29, prod `51516a89`) closed a gap: with
 `narration.## A … \n## B` the phrase rule used to cut at `\n## B` and take section A with it
 whenever that text reached persist unstripped. The live transform already let the seam win, so
 live, persist and the render view now make the same cut
@@ -555,7 +555,7 @@ preamble, because that preamble sits inside the final answer part.
   seam is longer than the preamble, the cut is not certain, so nothing of that part is shown;
   then the answer appears from its heading and streams. The delay is at most one delta past
   prefix + 1 characters, with the prefix ≤ 2000. The preamble never flashes. Before
-  2026-09-28 (`6e19914f`) an English-looking glued preamble made the transform hold the whole
+  2026-09-28 (`82254324`) an English-looking glued preamble made the transform hold the whole
   answer until the part ended ([known issues](/history/known-issues#an-answer-with-a-glued-preamble-appears-late-while-streaming)).
 - **The English phrase list is still model-specific.** Its families were collected from
   specific models (deepseek-v4-flash, glm-5.3-flash). A new English phrasing in front of a
@@ -603,7 +603,7 @@ It only changes prompt text, so it adds **no latency**. It is a **soft** lever. 
 the lab, kimi-k2.6 still skipped the search on 1 of 2 follow-ups that needed a
 new fact. It did not cause extra searching on pure clarifications, because the
 classifier routes those to `direct` before the prompt applies. It shipped
-as low-cost insurance (lab `61ee1708`, staging `f83ede19`, prod `03e70c52`).
+as low-cost insurance (lab `77333dce`, staging `a2e9c60e`, prod `91bda83f`).
 
 ## `activeTools` does not block a tool
 

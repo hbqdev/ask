@@ -268,7 +268,7 @@ from the ingest token (a small code change, not yet made): `/api/advanced-search
 ::: danger Prod `.env` rewritten as `root:root 0644` (2026-09-25; code fixed, file needs a hand repair)
 The Model Manager runs as root. Until 2026-09-25 its atomic write replaced `.env` with a new
 root-owned file at the umask default, and an apply that day turned prod's
-`nightfury:nightfury 0600` `.env` into `root:root 0644`. The fix (lab `d105bc7e`, running since
+`nightfury:nightfury 0600` `.env` into `root:root 0644`. The fix (lab `df96ef27`, running since
 the 2026-09-25 rebuild) makes every write (apply and restore) **preserve the file's existing
 owner and mode**: the temp file is created exclusively at no broader than 0600, chowned and
 chmodded on its descriptor to match the original, fsynced, then renamed. Backups

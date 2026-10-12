@@ -52,7 +52,7 @@ The source exists in every worktree because it lives in the Ask repo. As of 2026
 flow-design (lab) copy and the staging (`admin-feature`) copy are **identical** in tracked
 source (`git diff admin-feature flow-design -- selfhosted/model-manager` is empty). Both carry
 the 2026-09-24 session, restore and clear-secret fixes and the 2026-09-25 ownership and boolean
-fixes (lab `d105bc7e`, `admin-feature` `36ad4f0f`). The running image
+fixes (lab `df96ef27`, `admin-feature` `a51f3131`). The running image
 (`model-manager-model-manager`) was rebuilt from the staging worktree at 2026-09-25 05:29 UTC,
 after that commit. The staging copy additionally holds the gitignored runtime files: `.env`,
 `secrets.env` and `keys/` (`selfhosted/model-manager/.gitignore`).
@@ -153,7 +153,7 @@ Until 2026-08-09 the tool pointed at the staging worktree and ran `docker compos
 with one `-f` and no `-p`. The base compose file is `name: ask-stack`, which is the **prod**
 project. Every apply therefore recreated **prod from staging's `.env`**, without the VPN
 overlay. This is why `ASK_COMPOSE_PROJECT` and `ASK_COMPOSE_FILES` exist (`lib/config.ts:12-20`),
-and why the apply is health-gated (`f45b96cc`, `49ffb638`). After re-deploying the tool, check
+and why the apply is health-gated (`b2649ab1`, `4ca2a19d`). After re-deploying the tool, check
 what an apply produced:
 `docker inspect ask --format '{{index .Config.Labels "com.docker.compose.project.config_files"}}'`.
 :::
@@ -290,7 +290,7 @@ The lock is enforced in three places:
 3. `buildPlan` skips read-only keys even if called directly (`lib/plan-builder.ts:57`).
 
 Tests pin this behaviour: `lib/__tests__/env-schema.test.ts:49-` and
-`lib/__tests__/plan-builder.test.ts:65-75` (fix `c080ac31`).
+`lib/__tests__/plan-builder.test.ts:65-75` (fix `a1a859e3`).
 
 To make another key read-only, set `readOnly: true` on its spec. Use it for any value that is
 baked into stored data.
@@ -300,7 +300,7 @@ baked into stored data.
 Ask does not read its boolean flags one way. Some are on only for the literal `true`, some are
 off only for `false`, and the kill switches are off only for `off`. A switch that always wrote
 `true`/`false` and treated "unset" as off therefore showed the wrong state for half the flags,
-and for the kill switches it could not turn anything off. Since 2026-09-25 (lab `d105bc7e`) each
+and for the kill switches it could not turn anything off. Since 2026-09-25 (lab `df96ef27`) each
 `bool` spec declares how the app reads it (`boolSense`, `lib/env-schema.ts:80-91`), and two
 helpers use that: `boolIsOn(spec, value)` (`:94-104`) decides what the switch shows, and
 `boolLiteral(spec, on)` (`:106-110`) decides what it writes.
@@ -316,8 +316,8 @@ helpers use that: `boolIsOn(spec, value)` (`:94-104`) decides what the switch sh
 | `DATABASE_SSL_DISABLED` | `true` | `=== 'true'` (`lib/db/index.ts:50`, `lib/db/migrate.ts:21`) | off (SSL on, verified) | `true` / `false` | `true` or `false` |
 | `MORPHIC_CLOUD_DEPLOYMENT` | `true` | `=== 'true'` everywhere | off | `true` / `false` | `true` or `false` |
 
-The `CITATION_HANDLES` switch was added on 2026-09-27 (lab `1194ae0f`, staging `2c41c22c`, the
-branch the running copy is built from; `dev` `337dbee7`). Switching it off reverts the ready-made
+The `CITATION_HANDLES` switch was added on 2026-09-27 (lab `af507504`, staging `6a020f82`, the
+branch the running copy is built from; `dev` `ee90b8a5`). Switching it off reverts the ready-made
 citation handles ([D38](/history/decisions#d38-ready-made-citation-handles)) on the next `ask`
 recreate, without a rebuild.
 
@@ -436,7 +436,7 @@ Step by step, with the reason for each:
    `.env` also holds `RERANKER_API_TOKEN`, and the reranker fails closed without it. The tool
    therefore reads the remote file, changes only `RERANKER_MODEL`, and writes the merged
    result back. If it cannot read the file it refuses rather than overwrite blind. An earlier
-   blind `cat >` wiped the token and took the reranker down (`49ffb638`). The merged text is
+   blind `cat >` wiped the token and took the reranker down (`4ca2a19d`). The merged text is
    written back with `cat >` over the **existing** file, which rewrites it in place (same inode),
    so the remote `.env` keeps its owner and mode (`lib/apply.ts:167-179`). Do not replace that
    with a temp file and `mv` unless the owner and mode are copied too; that is the bug the local
@@ -494,7 +494,7 @@ therefore owned by root unless it says otherwise. Until 2026-09-25 the atomic wr
 with the umask default `0644`. An apply that day turned prod's `nightfury:nightfury 0600`
 `.env` into `root:root 0644` (world-readable secrets, and no longer writable by its owner).
 
-Since 2026-09-25 (lab `d105bc7e`) every write of the env file (apply and restore) goes through
+Since 2026-09-25 (lab `df96ef27`) every write of the env file (apply and restore) goes through
 `writeAskEnvAtomic` (`lib/env-io.ts:90-96`) and `writeFileAtomic` (`:49-84`):
 
 1. `stat` the current file (`statAttrs`, `:24-32`) to get its uid, gid and permission bits.

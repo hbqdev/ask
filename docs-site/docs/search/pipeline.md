@@ -242,7 +242,7 @@ flowchart TD
      other tool stays offered, `fetch` included, which quality's notice still allows. Logged
      once per turn: `[search-cap] search withdrawn at step N after the round cap (rounds U/B,
      chat=…)`, where U can exceed B after a parallel overshoot.
-     - **Proactive, not after a refusal** (lab `c306b08f`, staging `8eba5e5f`, prod `7cadcf03`).
+     - **Proactive, not after a refusal** (lab `a623c905`, staging `31fac5dd`, prod `8a48c04c`).
        Stage 1 first fired only from the step after a refused search, so every capped turn
        spent one step calling `search` just to discover the cap. Prod chat
        `cznh8gc1gz41vq2lwjb560br`, a later turn (mistral-large-4, balanced, with all three

@@ -1,0 +1,8 @@
+Ask
+Copyright 2026 Tin Tran
+
+This product is based on Morphic, an AI answer engine
+(https://github.com/miurla/morphic), Copyright 2024-2026 Yoshiki Miura and
+contributors, licensed under the Apache License, Version 2.0. The Morphic
+source this project started from is the "Import Morphic" root commit.
+See LICENSE for the full license text.
