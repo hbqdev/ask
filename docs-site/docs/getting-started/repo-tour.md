@@ -39,7 +39,7 @@ flowchart TB
 | `drizzle/` | SQL migrations + `schema.ts`/`relations.ts` snapshots and `meta/` journal. The app's source-of-truth schema is `lib/db/schema.ts`. |
 | `fleet-boot/` | Operational scripts: rebuild/reclaim, boot reconcile, cron jobs, VPN rotation. See [Runbooks](/operations/runbooks). |
 | `scripts/` | Dev/one-off scripts: chat CLI, backfills, the eval harness. |
-| `docs/` | Older hand-written docs (`CONFIGURATION.md`, `DOCKER.md`, build reports) and `docs/superpowers/{specs,plans}` — ~50 design specs and implementation plans, including negative results. |
+| `docs/` | Older hand-written docs (`CONFIGURATION.md`, `DOCKER.md`, build reports) and `docs/superpowers/{specs,plans}` (local only, git-ignored since 2026-10-11) — ~50 design specs and implementation plans, including negative results. |
 | `docs-site/` | This documentation site (VitePress). Excluded from the Ask image by `.dockerignore`. |
 | `selfhosted/` | Companion apps shipped in the repo but **not** in the Ask image: `model-manager/` and `reranker/`. |
 | `config/models/cloud.json` | Model list used only when `MORPHIC_CLOUD_DEPLOYMENT=true` (not the self-hosted path). |

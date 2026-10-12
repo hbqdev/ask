@@ -50,3 +50,6 @@ next-env.d.ts
 
 # eval run outputs (data artifacts, not source)
 scripts/eval/results/
+
+# Local AI planning docs (kept on disk, not published)
+docs/superpowers/
