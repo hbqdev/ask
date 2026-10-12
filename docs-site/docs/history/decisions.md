@@ -121,12 +121,12 @@ names the lab original. See [deploy](/operations/deploy) for the flow.
 - **Evidence.** `needsSources` ([D3](#d3-needssources-skip-retrieval-for-stable-knowledge)) came
   out of a lab pipeline experiment. Only the one component that measured positive was ported; the
   architecture around it stayed on lab. The staging A/B of excerpts had compared identical arms
-  because prod and staging held the same flag value (`6366a90b` message).
+  because prod and staging held the same flag value (`de2b4fa6` message).
 - **Consequences.**
   - An **unflagged** code change reaches prod at prod's next rebuild. It does not stay on staging.
   - Before trusting an A/B, check whether the arms differed in **code** or only in **flags**.
   - Lab only receives prod's changes if someone merges them back. On 2026-08-22 `dev` was merged
-    into `flow-design` (`dd7e0ca1`) because 34 genuinely lab-only commits had built on stale code
+    into `flow-design` (`23960a92`) because 34 genuinely lab-only commits had built on stale code
     and prod-only work (tap-vs-hold voice, auth hardening, fleet-boot self-heal) was missing from
     lab. **Back-merge prod → lab periodically.**
   - `NEXT_PUBLIC_*` flags are inlined at build time from the worktree `.env`. They are not runtime
@@ -137,7 +137,7 @@ names the lab original. See [deploy](/operations/deploy) for the flow.
 ### D3. `needsSources`: skip retrieval for stable knowledge
 
 - **Status:** **reversed 2026-09-26 (owner)** by [D37](#d37-always-search-every-question) ·
-  **Date:** 2026-07-30 · **Commit:** `74062395`. The gate is still in the code and comes back
+  **Date:** 2026-07-30 · **Commit:** `7f6165da`. The gate is still in the code and comes back
   with `ALWAYS_SEARCH=off` (see "Reversal" below).
 - **Context.** Every turn searched, including "explain closures in JavaScript".
 - **Decision.** The classifier emits `needsSources: true` only when the answer turns on specifics an
@@ -203,8 +203,8 @@ names the lab original. See [deploy](/operations/deploy) for the flow.
 
 ### D5. Source tiering by search mode
 
-- **Status:** adopted · **Date:** 2026-09-02 → 09-03 · **Commits:** `8162458d` (speed fast path),
-  `8f4ca45a` (speed bypasses classifier + recall), `4002980f` (tiers), `4617678e` (crawl Brave)
+- **Status:** adopted · **Date:** 2026-09-02 → 09-03 · **Commits:** `421947a3` (speed fast path),
+  `487fbe29` (speed bypasses classifier + recall), `3339eb4b` (tiers), `3931d25b` (crawl Brave)
 - **Context.** Every mode ran the same fan-out and crawl, so "Speed" was not fast. Crawling was the
   bulk of balanced latency.
 - **Decision.**
@@ -240,7 +240,7 @@ names the lab original. See [deploy](/operations/deploy) for the flow.
 - **Rejected along the way.** Splitting expansion out of the classifier so it could "overlap" the
   search would **regress**: expansion is already fused (`expand_ms≈0`), and the primary advanced
   search does not block on it. An earlier cloud-classifier trial on kimi-k2.6 was reverted on
-  staging (`16854f60`: no warm speedup, 21 s cold, routing drift).
+  staging (`5142a711`: no warm speedup, 21 s cold, routing drift).
 - **Consequences.** On prod the real classify time is ~4.6 s median, not 1.1 s, because balanced
   turns also generate the fused expansion. Hence the soft budget in D8. **Gotcha:** staging and lab
   hard-code `CLASSIFIER_MODEL_ID` in their compose overlays, and overlay `environment:` beats
@@ -250,7 +250,7 @@ names the lab original. See [deploy](/operations/deploy) for the flow.
 
 ### D7. Cap the Brave crawl to the top 3
 
-- **Status:** adopted · **Date:** 2026-09-07 · **Commit:** `2f25aa21` (lab `ccfd7500`)
+- **Status:** adopted · **Date:** 2026-09-07 · **Commit:** `728bc643` (lab `f8d814c6`)
 - **Context.** After D5, balanced crawled all ~10 Brave URLs: `crawled=10 crawl_ms=17307` on prod,
   which roughly undid balanced's no-crawl win.
 - **Decision.** `BRAVE_CRAWL_MAX` (default 3) crawls Brave's top N by Brave's own rank. The rest
@@ -261,7 +261,7 @@ names the lab original. See [deploy](/operations/deploy) for the flow.
 
 ### D8. Timebox recall, classifier and LangSearch
 
-- **Status:** adopted · **Date:** 2026-09-07 · **Commit:** `442b5dcd`; observability `79fecb19`
+- **Status:** adopted · **Date:** 2026-09-07 · **Commit:** `003b8168`; observability `5dc87fe7`
 - **Decision.** Three env-tunable caps, all model-agnostic:
   - `RECALL_BUDGET_MS=1500`: critical-path past-conversation recall races this budget. Lab: recall
     wait 5.8 s → 1.5 s, TTFT **7.7 s → 3.6 s**. It drops past-conversation personalisation on slow
@@ -287,7 +287,7 @@ names the lab original. See [deploy](/operations/deploy) for the flow.
 
 ### D9. Search round cap, enforced inside the tool
 
-- **Status:** adopted · **Date:** 2026-09-07 · **Commit:** `53f03c4f` (lab `fb78c847`)
+- **Status:** adopted · **Date:** 2026-09-07 · **Commit:** `8ed7fe52` (lab `9f7249bf`)
 - **Context.** After D5–D8, real balanced turns still looped up to **7** `search` calls (~15 s
   fan-outs plus ~57 s of inter-call model reasoning).
 - **Decision.** `SEARCH_ROUNDS_MAX` (default 3) and `SEARCH_ROUNDS_MAX_QUALITY` (default 5; 10
@@ -316,8 +316,8 @@ names the lab original. See [deploy](/operations/deploy) for the flow.
   runs: a near-duplicate skip no longer uses one (`lib/tools/search.ts:519-521`). In quality mode the cap ends the
   searching, not the reading: the notice lets the model `fetch` URLs this turn already found,
   bounded by a per-turn fetch cap (`FETCH_ROUNDS_MAX_QUALITY`, 8). Speed and balanced keep 3
-  rounds and the "answer now" notice. Commits: prod `a6db72f1` + `30838a61` (lab `49379e09` +
-  `98ba1d36`; staging `4b5f6fd3` + `7a2d74ba`).
+  rounds and the "answer now" notice. Commits: prod `b26acdb5` + `ed465eb8` (lab `6f651230` +
+  `175020c3`; staging `c9251b7e` + `77d1cdd2`).
 - **Update 2026-10-01** ([D42](#d42-near-duplicate-search-skip-only-for-true-repeats)). The
   near-duplicate skip now fires only on true repeats (exact, or cosine ≥ 0.90 with no new word
   or number). About three in four true repeats it used to skip now run, and each uses a round
@@ -335,7 +335,7 @@ names the lab original. See [deploy](/operations/deploy) for the flow.
 
 ### D10. Answering-model reasoning OFF by default
 
-- **Status:** adopted · **Date:** 2026-09-09 · **Commit:** `06bd780b` (rollback point `79fecb19`)
+- **Status:** adopted · **Date:** 2026-09-09 · **Commit:** `a9aee9ef` (rollback point `5dc87fe7`)
 - **Context.** A single `deepseek-v4-flash:cloud` turn produced ~66k characters of raw
   chain-of-thought plus a ~17k answer, about 25k output tokens.
 - **Decision.** `ANSWER_THINK=on|low|off` via `resolveAnswerThink()` in
@@ -363,7 +363,7 @@ names the lab original. See [deploy](/operations/deploy) for the flow.
 
 ### D11. Hide raw reasoning in the UI
 
-- **Status:** adopted · **Date:** 2026-09-09 · **Commit:** `537fa8e6`
+- **Status:** adopted · **Date:** 2026-09-09 · **Commit:** `cfe627cf`
 - **Decision.** `components/reasoning-section.tsx` renders a compact "Thinking…" / "Thought" pill
   instead of the collapsible raw chain-of-thought. The raw text never enters the DOM. This covers
   live, reloaded and research-grouped paths. Persistence is unchanged. The flag is
@@ -423,7 +423,7 @@ bounded by the ~4–10% stable prefix.
 
 ### D15. Source excerpts instead of full pages
 
-- **Status:** **rejected** · **Date:** 2026-08-01 · **Commit:** `6366a90b`
+- **Status:** **rejected** · **Date:** 2026-08-01 · **Commit:** `de2b4fa6`
 - **Idea.** Hand the model the top-3 reranked passages per source (`SEARCH_EXCERPTS_ENABLED`)
   instead of the full cropped page, to shrink prompts.
 - **Evidence.** One build, flag toggled, same questions in the same order.
@@ -463,7 +463,7 @@ non-determinism, the agent's search-or-not choice and the ceiling swamp live A/B
 
 ### D17. 20k per-page crop with a crop-position shadow
 
-- **Status:** adopted (running as a real-traffic experiment) · **Date:** 2026-08-06 · **Commit:** `0e817799`
+- **Status:** adopted (running as a real-traffic experiment) · **Date:** 2026-08-06 · **Commit:** `aea4b75d`
 - **Decision.** `SEARCH_ENRICH_MAX_CHARS=20000` (was 10k) plus `SEARCH_CROP_POSITION_SHADOW=true`
   in the base compose (`${…:-20000}` / `${…:-true}`, shell-overridable). The shadow is
   measurement only: it runs after the response (`after()`), swallows errors and never changes
@@ -480,7 +480,7 @@ non-determinism, the agent's search-or-not choice and the ceiling swamp live A/B
 
 ### D18. Targeted reasoning (reasoning only on research turns)
 
-- **Status:** **inconclusive** — built, gated, not ported · **Date:** 2026-09-19 · **Commit:** lab `68e3490d`
+- **Status:** **inconclusive** — built, gated, not ported · **Date:** 2026-09-19 · **Commit:** lab `c23542fd`
 - **Idea.** `ANSWER_THINK=targeted` turns reasoning on only for `research` turns
   (`needsSources || needsRecent`) and keeps it off for direct/stable-knowledge turns. This aims at
   the root cause of both D10 side effects.
@@ -501,7 +501,7 @@ non-determinism, the agent's search-or-not choice and the ceiling swamp live A/B
 
 ### D19. Follow-up re-search prompt nudge
 
-- **Status:** adopted (soft lever) · **Date:** 2026-09-19 · **Commit:** `03e70c52`
+- **Status:** adopted (soft lever) · **Date:** 2026-09-19 · **Commit:** `91bda83f`
 - **Decision.** One conservative clause in `lib/agents/prompts/search-mode-prompts.ts`: a follow-up
   that needs a **new** fact, entity, number or date not already established is not
   "clarification", so search before answering. It is in the speed prompt and in the shared
@@ -517,13 +517,13 @@ non-determinism, the agent's search-or-not choice and the ceiling swamp live A/B
 
 ### D20. Narration strippers: strict at persist, best-effort live
 
-- **Status:** adopted · **Dates/commits:** `378e81af` (2026-09-10), `0290896c` (2026-09-17),
-  `48d5b06d` (2026-09-28, [addendum](#addendum-2026-09-28-language-agnostic-structural-rules)),
-  `6e19914f` (2026-09-28, [addendum › Decision 5](#decision-5-the-live-transform-cuts-the-glued-seam)),
-  `d751352d` (2026-09-29, [addendum › Decision 6](#decision-6-the-glued-seam-wins-at-persist-too)),
-  backfill tool `a59d0c65` (run 2026-09-28/29, [addendum › Backfill](#backfill-2026-09-28-29));
-  lab `a6a9d6c0` / staging `1a43ef1c` / prod `20cb9cc1` (2026-10-06, [addendum › Decision 7](#decision-7-a-planning-draft-in-front-of-a-glued-restart-is-cut);
-  prod rows backfilled 2026-10-07); earlier `f4c53a7a` (2026-07-08)
+- **Status:** adopted · **Dates/commits:** `572c38c9` (2026-09-10), `9a24e1da` (2026-09-17),
+  `a90e4b83` (2026-09-28, [addendum](#addendum-2026-09-28-language-agnostic-structural-rules)),
+  `82254324` (2026-09-28, [addendum › Decision 5](#decision-5-the-live-transform-cuts-the-glued-seam)),
+  `51516a89` (2026-09-29, [addendum › Decision 6](#decision-6-the-glued-seam-wins-at-persist-too)),
+  backfill tool `15b58f82` (run 2026-09-28/29, [addendum › Backfill](#backfill-2026-09-28-29));
+  lab `0c42230b` / staging `5bf81ec0` / prod `bfb71369` (2026-10-06, [addendum › Decision 7](#decision-7-a-planning-draft-in-front-of-a-glued-restart-is-cut);
+  prod rows backfilled 2026-10-07); earlier `527a0dfd` (2026-07-08)
 - **Context.** Reasoning models emit "process narration" such as "I have comprehensive data now…
   let me search…" or "The search limit has been reached (3 rounds)…" as text parts. Two families
   exist: separate inter-step text parts, and narration **fused into the final text part** (after
@@ -541,7 +541,7 @@ non-determinism, the agent's search-or-not choice and the ceiling swamp live A/B
      plausible-narration prefix for a bounded time.
 - **Why live is best-effort.** A live stripper has to decide from a **prefix**, before it knows
   whether a `##` answer follows. Being aggressive risks swallowing real answer text; a live
-  stripper did exactly that in July (`f4c53a7a`, "silently dropping answers"). So the live
+  stripper did exactly that in July (`527a0dfd`, "silently dropping answers"). So the live
   transform is conservative, and a brief flash of narration on some models (seen on glm) is
   accepted. The persisted message is cleaned properly and replaces the live view on reload.
   The one exception is the glued seam (addendum, Decision 5): there the persist rule's guard can
@@ -561,7 +561,7 @@ non-determinism, the agent's search-or-not choice and the ceiling swamp live A/B
   (`lib/streaming/helpers/__tests__`); don't loosen the structural thresholds without a corpus.
 - <span id="addendum-2026-09-28-language-agnostic-structural-rules"></span>**Addendum
   2026-09-28: language-agnostic structural rules, applied everywhere text is read.** Commit
-  `48d5b06d` (lab `5f8caf17`, staging `91d25f65`), ported to prod and staging the same day for
+  `a90e4b83` (lab `05c90289`, staging `7730d899`), ported to prod and staging the same day for
   release after a lab browser check.
   - **What leaked.** Prod chat `pq6zs7w88m1kmowjdu9udfrw` (deepseek-v4-pro, balanced,
     Vietnamese): its status notes before each tool call ("Tôi cần đọc trang này…") were saved,
@@ -625,7 +625,7 @@ non-determinism, the agent's search-or-not choice and the ceiling swamp live A/B
     prefix, which is why live stays best-effort. Decision 5 (a follow-up the same day) moved
     the glued-seam cut, and only that cut, into the transform.
   - <span id="decision-5-the-live-transform-cuts-the-glued-seam"></span>**Decision 5: the live
-    transform cuts the glued seam.** Prod `6e19914f`, lab `a3074f86`, staging `951b6a83`
+    transform cuts the glued seam.** Prod `82254324`, lab `0f3439cb`, staging `32a1cbae`
     (2026-09-28).
     - **What went wrong.** Lab chat `bllkvux84ck1uz3wwrwnydg5` (deepseek-v4-pro), turn 2: the
       final answer opened with a 785-character English preamble glued to its heading
@@ -688,8 +688,8 @@ non-determinism, the agent's search-or-not choice and the ceiling swamp live A/B
       that reached persist unstripped (an undecidable seam, or a non-narration-looking
       preamble released after the first 64 characters) could lose section A.
   - <span id="decision-6-the-glued-seam-wins-at-persist-too"></span>**Decision 6: the glued seam
-    wins at persist too, and two more English starters.** Prod `d751352d`, lab `0cb22cf9`,
-    staging `95c73f74` (2026-09-29).
+    wins at persist too, and two more English starters.** Prod `51516a89`, lab `7ce5e6c1`,
+    staging `fd543310` (2026-09-29).
     - **Seam precedence.** `stripNarrationPreamble`
       (`lib/streaming/helpers/strip-narration-preamble.ts:631-640`) first removes stray
       think-tag reasoning, then asks `gluedSeamLeads` (`:613-618`): is there a qualifying glued
@@ -739,8 +739,8 @@ non-determinism, the agent's search-or-not choice and the ceiling swamp live A/B
   - <span id="backfill-2026-09-28-29"></span>**Backfill: done 2026-09-28/29.** Stored history
     on staging and prod was cleaned with the app's own code, and the affected recall chunks
     were re-indexed. Tool: `scripts/backfill-narration.ts` (+ `scripts/backfill-narration-plan.ts`,
-    run through `scripts/backfill-narration.sh <env>`); prod `a59d0c65`, lab `449d8d3e`,
-    staging `736faf57`. How it works and how to re-run it:
+    run through `scripts/backfill-narration.sh <env>`); prod `15b58f82`, lab `5801c67d`,
+    staging `278810d5`. How it works and how to re-run it:
     [evaluation › data scripts](/operations/evaluation#narration-backfill),
     [runbook](/operations/runbooks#re-run-the-narration-backfill).
     - **Why a new tool, not `clean:narration`.** `scripts/clean-narration-preambles.ts` runs
@@ -784,7 +784,7 @@ non-determinism, the agent's search-or-not choice and the ceiling swamp live A/B
     genuine intro prose lives.
 - <span id="decision-7-a-planning-draft-in-front-of-a-glued-restart-is-cut"></span>**Addendum
   2026-10-06 (Decision 7): a planning draft in front of a glued restart is cut.** Lab
-  `a6a9d6c0`, staging `1a43ef1c`, prod `20cb9cc1`. **Status: lab, staging and prod**; the 4
+  `0c42230b`, staging `5bf81ec0`, prod `bfb71369`. **Status: lab, staging and prod**; the 4
   affected prod rows were backfilled on 2026-10-07 (backup, apply, verify 4/4, re-index). It shipped together with the citation resolver
   repair ([D44](#d44-shortened-and-one-character-off-citation-ids-resolve)); see "Why it ships
   with D44" below.
@@ -860,15 +860,15 @@ non-determinism, the agent's search-or-not choice and the ceiling swamp live A/B
 | Knob | Result | Status | Evidence |
 |---|---|---|---|
 | `RERANK_PASSAGE_BUDGET` 320 → 160 | −40% (~5 s) rerank, ~2.6 s off the turn, answers judged comparable on 3 searching prompts. The budget trims passages per document, not which documents surface. | **adopted** (env, all 3 `.env`) 2026-09-01 | lab A/B |
-| `images` SearXNG category only at advanced depth | image engines (rate-limited or CAPTCHA'd) blocked ~+3.5 s per basic search; `search_ms` ~28 s → 8–16 s | **adopted** `2f65f758` 2026-09-01 | lab A/B |
+| `images` SearXNG category only at advanced depth | image engines (rate-limited or CAPTCHA'd) blocked ~+3.5 s per basic search; `search_ms` ~28 s → 8–16 s | **adopted** `2d0cf97c` 2026-09-01 | lab A/B |
 | `MAX_ENRICH_URLS` 100 → 40 | 0 speedup: candidate pools are already ~36–43 pages, so the cap never binds; only a recall risk | **rejected** 2026-09-01 | lab A/B |
 | Raise crawl4ai parallelism | Throughput peaks at 24–32 concurrent pages (2.21 pages/s) and **regresses** at 40 (1.72). Bound by single-thread render and remote tail latency, not RAM or shm. Ask already fans out up to 48. | **rejected**: don't raise | benchmark 2026-08-04 |
-| Turn retrieval budget (deadline wrapper) | Did not close the 300 s failure (8/9 runs still failed). The model call is unbounded and dominates (~225 s of a 268 s step), and the deadline was not armed while parked at `yield`. | **reverted** `f0d146a6` 2026-07-28 | lab repro |
-| Classifier `queryIsStandalone` token trim | Reverted the same day (`738244f9`, `5d7bdd8d`) | **reverted** 2026-07-24 | eval harness |
+| Turn retrieval budget (deadline wrapper) | Did not close the 300 s failure (8/9 runs still failed). The model call is unbounded and dominates (~225 s of a 268 s step), and the deadline was not armed while parked at `yield`. | **reverted** `5bd24bb1` 2026-07-28 | lab repro |
+| Classifier `queryIsStandalone` token trim | Reverted the same day (`887214a6`, `27c99896`) | **reverted** 2026-07-24 | eval harness |
 
 ### D22. Multi-agent deep research
 
-- **Status:** **shelved** (lab-only; code in `lib/agents/deep-research/`) · **Date:** 2026-08-04 · lab `095780b9`
+- **Status:** **shelved** (lab-only; code in `lib/agents/deep-research/`) · **Date:** 2026-08-04 · lab `7c50b1bb`
 - **Idea.** Onyx-style planner → parallel `balanced` sub-agents → a synthesiser that merges
   citations.
 - **Evidence.** Clean n=3 blind-judge A/B (`scripts/eval/deep-research-ab/`). Ask's existing
@@ -887,7 +887,7 @@ the depth.
 ### D42. Near-duplicate search skip only for true repeats
 
 - **Status:** adopted · **Date:** 2026-10-01 (lab, staging and prod; deployed 10-01/02) ·
-  **Commit:** `befe76fe` (lab `e57724a5`, staging `9249eec9`).
+  **Commit:** `0ca3c4ed` (lab `30741f18`, staging `4da6f664`).
 - **Context.** The search tool skipped a later search of the turn whose query embedding
   (Qwen3-Embedding-0.6B) had cosine ≥ 0.92 with an earlier query of the same search mode, and
   returned a "reuse those results" note instead.
@@ -962,11 +962,11 @@ the depth.
 ### D45. Search withdrawn after the round cap, then answer-only steps
 
 - **Status:** adopted (lab, staging and prod) · **Date:** 2026-10-07 · **Commits:** lab
-  `d1a86bda` + `c86bbdaa` + `798030de`; staging `d799a91c` + `1f8ece82` + `49e33297`; prod
-  `275ce8da` + `5adf51d1` + `4b4d4e5e`. The
+  `6d17dfa5` + `4144072f` + `52d53a9f`; staging `b65f95b8` + `9cb265f0` + `ab0e9ca1`; prod
+  `ef840d59` + `e33827d8` + `84c6aaac`. The
   [addendum](#addendum-2026-10-07-search-withdrawn-as-soon-as-the-budget-is-spent) (withdrawn as
-  soon as the budget is spent; refused calls shown as one line) is lab `c306b08f` + `9e5cfec3`,
-  staging `8eba5e5f` + `a930c2c7`, prod `7cadcf03` + `8520e44d`.
+  soon as the budget is spent; refused calls shown as one line) is lab `a623c905` + `88aa5c5b`,
+  staging `31fac5dd` + `4b43ac71`, prod `8a48c04c` + `9400412c`.
 - **Context.** The round cap ([D9](#d9-search-round-cap-enforced-inside-the-tool)) refuses a
   search with an ordinary tool result whose only stop signal is its notice, and `search` stayed
   in `activeTools` on every later step. Prod chat `cznh8gc1gz41vq2lwjb560br` (mistral-large-4,
@@ -1037,15 +1037,15 @@ the depth.
   `research-process-section.test.tsx`.
 - **Revert.** No flag for stages 1–2: revert the commits. Stage 3 can be loosened with
   `POST_CAP_TOOL_STEPS_MAX` (a large value effectively disables it) on a container recreate.
-  The addendum has no flag either: reverting `c306b08f` restores withdrawal after the first
-  refusal; reverting `9e5cfec3` lists every refused call as its own step again.
+  The addendum has no flag either: reverting `a623c905` restores withdrawal after the first
+  refusal; reverting `88aa5c5b` lists every refused call as its own step again.
 - **Revisit if** a `… tool steps after the round cap` line shows up for a currently listed model
   on a turn that needed the extra reads (judge the answer first), or a model is seen ignoring
   the answer-only step itself (`[search-cap] refused <tool> call` lines). mistral-large-4 has
   done so once on prod (below); it answered on the next step.
 - <span id="addendum-2026-10-07-search-withdrawn-as-soon-as-the-budget-is-spent"></span>**Addendum
   2026-10-07: search withdrawn as soon as the budget is spent; refused calls shown as one
-  line.** Lab `c306b08f` + `9e5cfec3`, staging `8eba5e5f` + `a930c2c7`, prod `7cadcf03` + `8520e44d`.
+  line.** Lab `a623c905` + `88aa5c5b`, staging `31fac5dd` + `4b43ac71`, prod `8a48c04c` + `9400412c`.
   - **What was left.** Stage 1 fired only from the step after a refused search, so every capped
     turn spent one step calling `search` just to learn the cap was reached. Prod chat
     `cznh8gc1gz41vq2lwjb560br`, a later turn (mistral-large-4, balanced, with all three stages
@@ -1113,18 +1113,18 @@ the depth.
   `UPLOAD_TTL_DAYS=14`. A persistent document library was never built (explicitly deferred).
 - **Later hardening.**
   - `RAG_MIN_SCORE` relevance floor (default 0.01 on the cross-encoder scale; the cosine fallback
-    fails open) (`8795e1b9`).
+    fails open) (`82adcf2b`).
   - `budgetDocumentSources()` trims injected chunks to the real remaining context window, newest
     sources and best chunks first, so injected docs can no longer overflow the window and cause a
-    provider 400 (`538dd138`, env `DOC_INJECT_MAX_TOKENS`, `0` disables).
+    provider 400 (`12fef49b`, env `DOC_INJECT_MAX_TOKENS`, `0` disables).
   - The ingest wait is bounded (`INGEST_WAIT_TIMEOUT_MS`, `INGEST_WAIT_UNCLAIMED_MS`) with an
-    ingestor heartbeat (`2f18355c`).
+    ingestor heartbeat (`837beaca`).
 - **Revisit if** users need a persistent, cross-chat document library. That is the point to move
   chunks to pgvector (with RLS). See [RAG & uploads](/knowledge/rag-uploads).
 
 ### D24. The embedding model is data-locked
 
-- **Status:** adopted · **Date:** 2026-07-19 (Qwen3 embedder introduced, `f3f23550`)
+- **Status:** adopted · **Date:** 2026-07-19 (Qwen3 embedder introduced, `2259f327`)
 - **Decision.** `EMBEDDING_MODEL = Qwen/Qwen3-Embedding-0.6B` (1024-d, `remoteOnly`, GPU embedder
   on `.160:8788`) is **pinned**. Model refreshes (such as 2026-08-28) deliberately leave it alone.
 - **Why.** Every vector in `conversation_chunks` and `user_memories` (`vector(1024)`) was produced
@@ -1141,7 +1141,7 @@ the depth.
 
 ### D25. Signed upload URLs, shipped dormant
 
-- **Status:** adopted (dormant) · **Date:** 2026-09-12 · **Commit:** `44e4599f`
+- **Status:** adopted (dormant) · **Date:** 2026-09-12 · **Commit:** `f4cded03`
 - **Context.** `GET /uploads/[...path]` served any file with path-traversal protection only. The
   unguessable UUID path was the sole capability, with no expiry and no revocation. In anonymous
   mode the userId segment is a known constant.
@@ -1162,7 +1162,7 @@ then flip the flag. See [known issues](/history/known-issues#signed-upload-urls-
 
 ### D26. Model Manager is the sanctioned `.env` editor
 
-- **Status:** adopted · **Date:** 2026-07-17 (built); wiring fixed 2026-08-09 (`f45b96cc`, `49ffb638`); loopback bind `9b01367b`
+- **Status:** adopted · **Date:** 2026-07-17 (built); wiring fixed 2026-08-09 (`b2649ab1`, `4ca2a19d`); loopback bind `7de70dd5`
 - **What.** A separate Next.js app (`selfhosted/model-manager/` inside the repo, compose project
   `model-manager`, `127.0.0.1:3939`, password-gated). It edits prod's `.env` with automatic
   backups, recreates `ask`, and manages the reranker over SSH.
@@ -1176,7 +1176,7 @@ then flip the flag. See [known issues](/history/known-issues#signed-upload-urls-
   `--force-recreate` `.env` edits never took effect.
 - **Consequences.** It is effectively root on the host (repo RW, docker socket, SSH key), so it is
   bound to loopback; reach it with `ssh -L 3939:localhost:3939`. It now re-verifies the session
-  inside the `/api/apply` handler (`ac437a2b`). Because it writes prod's `.env` as root, every
+  inside the `/api/apply` handler (`01a8d053`). Because it writes prod's `.env` as root, every
   write must keep the file's owner and mode; until 2026-09-25 it did not, and left prod's file
   `root:root 0644` ([known issues](/history/known-issues#prod-env-left-root-root-0644)). Some
   newer knobs (for example the `UPLOADS_*` ones) may not yet be in its env schema *(unverified)*.
@@ -1184,7 +1184,7 @@ then flip the flag. See [known issues](/history/known-issues#signed-upload-urls-
 
 ### D27. Saved model pick outranks the default
 
-- **Status:** adopted (intentional) · **Date:** 2026-07-23 (`c1016bdd`); confirmed in the 2026-08-09 audit (M7 not changed)
+- **Status:** adopted (intentional) · **Date:** 2026-07-23 (`abfd18a3`); confirmed in the 2026-08-09 audit (M7 not changed)
 - **Behaviour.** Logged-in users' `user_settings.preferred_chat_model` and guests' `selectedModel`
   cookie outrank `DEFAULT_CHAT_MODEL` **forever**. `lib/utils/model-selection.ts` checks only that
   the provider is enabled, so a **delisted** model keeps being sent. The picker may display a
@@ -1202,8 +1202,8 @@ then flip the flag. See [known issues](/history/known-issues#signed-upload-urls-
 
 ### D28. Sidebar refresh invariants and uncached conversation reads
 
-- **Status:** adopted · **Commits:** `7516dce7` (optimistic reorder, 2026-09-10), `fb63e618`
-  (09-19), `eb461c8d` (09-21), `eb8de320` (09-22); uncached history read `3e39181d` (2026-07-16)
+- **Status:** adopted · **Commits:** `e4897454` (optimistic reorder, 2026-09-10), `e97d0d9d`
+  (09-19), `3cd2ee45` (09-21), `54db51e5` (09-22); uncached history read `19aee11b` (2026-07-16)
 - **Context.** A new chat starts at `/`. After the first send, `chat.tsx` calls
   `history.pushState` to `/search/<id>` while the real Next route stays `/`. The row is only
   persisted at the stream's `onFinish`, seconds later. Meanwhile the sidebar re-sorted "Recent"
@@ -1234,7 +1234,7 @@ then flip the flag. See [known issues](/history/known-issues#signed-upload-urls-
 
 ### D29. Stop keeps the partial answer
 
-- **Status:** adopted · **Date:** 2026-09-22 · **Commit:** `554a4921` (lab `e79e7b5c`)
+- **Status:** adopted · **Date:** 2026-09-22 · **Commit:** `1c2bbf13` (lab `7216eb68`)
 - **Decision.** Aborts carry a reason (user Stop vs superseded; a client disconnect never aborts an
   authed turn). On user Stop the partial is sanitised (`sanitize-stopped-message.ts`: keep only
   finished tool parts, set `metadata.stopped=true`) and saved. A newer-turn guard
@@ -1248,7 +1248,7 @@ then flip the flag. See [known issues](/history/known-issues#signed-upload-urls-
 
 ### D30. degoog: public instance kept, per-env scrapers disabled
 
-- **Status:** adopted · **Dates:** 2026-08-01 (incident), 2026-09-07 (`0347cdb2`, `ae81f4a9`)
+- **Status:** adopted · **Dates:** 2026-08-01 (incident), 2026-09-07 (`0a05bcff`, `8307ed1f`)
 - **Context.** There are four degoog stacks. `:4444` on `.231` is the **public / personal**
   instance, used directly by people. The per-env ones are prod `:4445`, staging `:4446` and lab
   `:4447`. On 2026-08-01 `:4444` was stopped as "orphaned" because no container env referenced it.
@@ -1265,9 +1265,9 @@ then flip the flag. See [known issues](/history/known-issues#signed-upload-urls-
 
 ### D31. Hands-free voice conversation loop
 
-- **Status:** **reverted** (lab-only; never shipped) · **Date:** 2026-08-22 · **Commit:** lab `b0ff56ad`
+- **Status:** **reverted** (lab-only; never shipped) · **Date:** 2026-08-22 · **Commit:** lab `13d50db4`
 - **What.** Voice "Slice 3": a VAD-driven loop (speak → auto-submit → hear the answer → re-arm the
-  mic). It was built in 14 commits (`746204ca..a10cbf0f`) and worked end to end with a real mic.
+  mic). It was built in 14 commits (`10f2a5c9..1eb999ff`) and worked end to end with a real mic.
 - **Why removed.** The per-turn read-back latency (VAD endpoint → Whisper → answer → TTS) made it
   **cumbersome**. STT was already optimal; the lag was the cumulative pipeline. Tap-to-dictate and
   read-aloud were kept.
@@ -1278,38 +1278,38 @@ then flip the flag. See [known issues](/history/known-issues#signed-upload-urls-
 
 ::: danger Do not retry unless…
 …you build a **streaming** voice pipeline (streaming STT/TTS, barge-in). Re-applying the
-turn-based loop (`git revert b0ff56ad`) brings back the same latency.
+turn-based loop (`git revert 13d50db4`) brings back the same latency.
 :::
 
 ### D32. Homepage and mobile layout
 
 - **Status:** adopted · **Dates:** 2026-08-20 → 2026-09-22
 - **Decisions.**
-  - **Cosmic "Orbit" homepage** (`8e0c1873`): a three-body canvas field, auto-cycling headline,
+  - **Cosmic "Orbit" homepage** (`b3b898ed`): a three-body canvas field, auto-cycling headline,
     glass composer, Hanken Grotesk / Instrument Serif, a Discover briefing row, and sidebar weather
     with worldwide location search. The composer is wide on the homepage only; the dark theme was
     retinted globally.
-  - **Mobile empty state** (`303d7a0d`): the empty-state container is
+  - **Mobile empty state** (`f0fa0876`): the empty-state container is
     `justify-start overflow-y-auto md:justify-center`. On phones it top-aligns **and scrolls**. The
     root cause was a non-scrolling `justify-center` flex container one level above the hero; a tall
     Discover column overflowed it and pushed the composer off the top.
-  - **Hero stays centred** on all breakpoints (`8d33b149`). Two earlier "shorter / top-aligned
-    hero" fixes (`671145de` and a `46vh` attempt) treated the wrong element and were superseded.
+  - **Hero stays centred** on all breakpoints (`bb91e039`). Two earlier "shorter / top-aligned
+    hero" fixes (`87dfe644` and a `46vh` attempt) treated the wrong element and were superseded.
   - **While the composer is focused on mobile** the hero switches to `justify-start pt-6`
-    (`41f8ed8e`). The on-screen keyboard plus textarea autosize otherwise re-centres the block and
+    (`e99fc4ff`). The on-screen keyboard plus textarea autosize otherwise re-centres the block and
     pushes the caret out of view. Fallback if it still drifts: pin the composer to the bottom.
-  - Mobile composer row: voice read-aloud and settings sit behind a `⋯` menu (`2f61714f`); the mic
+  - Mobile composer row: voice read-aloud and settings sit behind a `⋯` menu (`500f6904`); the mic
     stays inline (its press-and-hold gesture can't live in a popover). The left group doesn't
     shrink, the right group absorbs, and the model pill becomes icon-only when crowded
-    (`ed6f4b35`).
-  - The mobile sidebar weather is a one-line tap-to-expand (284 → 39 px, `688846c4`). Sidebar times
+    (`22471a8e`).
+  - The mobile sidebar weather is a one-line tap-to-expand (284 → 39 px, `e2745bc7`). Sidebar times
     render in the viewer's timezone after hydration.
 - **Lesson.** For "content pushed off-screen", inspect the **scroll/overflow container**, not only
   the element. Verify phone layouts with real mobile emulation (Playwright), not a resized desktop
   window. See [frontend](/request-lifecycle/frontend) and [testing](/operations/testing-qa).
 - **Also.** `Permissions-Policy` must keep `microphone=(self), geolocation=(self)` in
-  `next.config.mjs`. A hardening pass set them to `()`, which silently broke dictation (`9437d212`)
-  and the weather widget (`40eb0e86`).
+  `next.config.mjs`. A hardening pass set them to `()`, which silently broke dictation (`148d125c`)
+  and the weather widget (`dd7f8adc`).
 
 ### D33. Prod rate-limiters left inert
 
@@ -1323,8 +1323,8 @@ turn-based loop (`git revert b0ff56ad`) brings back the same latency.
 
 ### D34. Recall rerank deferred, not aborted
 
-- **Status:** adopted · **Date:** 2026-09-23 · **Commit:** `d0585bf8` (lab `f87b6d3d`); Model
-  Manager field `32e0b1d0`
+- **Status:** adopted · **Date:** 2026-09-23 · **Commit:** `d7f3ed9b` (lab `b7f464bc`); Model
+  Manager field `2d20b3d6`
 - **Context.** Prod telemetry showed `recall_budget_hit=true` on 31 of 46 turns (true
   `recall_ms` about 5.5 s against the 1.5 s `RECALL_BUDGET_MS` of D8); lab was 121 of 172. So
   past-conversation context almost never reached the answer. Stage timings on real prod history
@@ -1382,7 +1382,7 @@ turn-based loop (`git revert b0ff56ad`) brings back the same latency.
   configuration is not recorded; the 2026-09-24 bench is the direct comparison.) **Decision:**
   run `RECALL_RERANK_POOL=8` where recall matters most, without changing the code default (10):
   prod sets it in `ask-prod/.env` (applied through the Model Manager), the lab in
-  `docker-compose.lab.yaml` (lab `8b6103e9`); staging keeps the default. A 4-turn prod chat
+  `docker-compose.lab.yaml` (lab `18a7c9cd`); staging keeps the default. A 4-turn prod chat
   afterwards had `recall_ms` 1080–1342 ms, 0 of 4 budget hits, and recall injected on all 4.
   **Limit found in the same bench:** with a search-sized rerank already running on the shared
   reranker, recall missed the 1.5 s budget in 11 of 12 trials at either pool size. The GPU
@@ -1426,8 +1426,8 @@ turn-based loop (`git revert b0ff56ad`) brings back the same latency.
 
 ### D41. On WSL hosts, nothing that waits for Docker is enabled at boot
 
-- **Status:** adopted · **Date:** 2026-09-29 · **Commits:** prod `bbf936f8` (lab `8d59d2f1`;
-  staging `d0fdba20`)
+- **Status:** adopted · **Date:** 2026-09-29 · **Commits:** prod `e76c0d4d` (lab `21ecddf8`;
+  staging `47d5b6d0`)
 - **Context.** Since 2026-09-23 `fleet-boot/deploy.sh` enabled `ask-fleet-boot.service`
   (`WantedBy=multi-user.target`, `After=docker.service`) on every host. On WSL hosts Docker
   Desktop injects its WSL integration (`/var/run/docker.sock`) only **after** systemd reports
@@ -1494,8 +1494,8 @@ turn-based loop (`git revert b0ff56ad`) brings back the same latency.
 - **Revisit if** live turns still show copied old ids after the port (the strip regex
   `[N](#id)` would then be missing a format), or if per-turn scoping is ever replaced by a
   citation store that is stable across turns.
-- **Addendum 2026-09-26: one resolver; N is the position within that call.** Lab `dbbbc376`
-  (cherry-picked to `dev` as `0bd8f8cc`, staging `7af2beff`).
+- **Addendum 2026-09-26: one resolver; N is the position within that call.** Lab `18e0faf1`
+  (cherry-picked to `dev` as `96c8b006`, staging `c55e6a52`).
   - **Context.** Three places decided whether an anchor resolved, each with its own rules:
     `processCitations` (rendering), `auditCitations` (the `[latency]` counters) and
     `extractCitedSourceUrls` (`[cite-urls]`). The audit only checked that an anchor's id belonged
@@ -1565,9 +1565,9 @@ turn-based loop (`git revert b0ff56ad`) brings back the same latency.
 ### D38. Ready-made citation handles
 
 - **Status:** adopted · **Date:** 2026-09-27 (lab, staging and prod the same day) ·
-  **Commits:** `8878a42d` (lab `48cc3938`, staging `696bd454`); the reload fix below `0ca166fe`
-  (lab `8a67e3cd`, staging `3402bc5d`); the Model Manager switch `337dbee7` (lab `1194ae0f`,
-  staging `2c41c22c`).
+  **Commits:** `a9f3970f` (lab `5fb4966f`, staging `f9b9d843`); the reload fix below `e77b7d9f`
+  (lab `0cc68543`, staging `e98a4dfb`); the Model Manager switch `ee90b8a5` (lab `af507504`,
+  staging `6a020f82`).
 - **Context.** Since the D36 addendum the renderer and the prompts agree that `[N](#id)` means
   result N (1-based) of tool call `id`. The model still had to work N out: each call's results
   reached it as a bare JSON array, and many models numbered sources as a running count across
@@ -1679,7 +1679,7 @@ turn-based loop (`git revert b0ff56ad`) brings back the same latency.
 ### D43. Snippet citations: measured, not re-pointed
 
 - **Status:** adopted (evidence telemetry); two fixes **rejected** · **Date:** 2026-10-01 (lab,
-  staging and prod; deployed 10-01/02) · **Commit:** `01f07ef9` (lab `8922368d`, staging `f18717ab`).
+  staging and prod; deployed 10-01/02) · **Commit:** `0b0f1af8` (lab `cad59b06`, staging `890f9f7c`).
 - **Context.** In the 2026-09-30 quality re-test, citations of a search snippet (at most 1,000
   characters) were judged unsupported by their stored text 71 % of the time, against 23 % for
   citations of page text ([D40](#d40-quality-mode-read-pages-past-the-search-cap), findings).
@@ -1750,7 +1750,7 @@ turn-based loop (`git revert b0ff56ad`) brings back the same latency.
 ### D44. Shortened and one-character-off citation ids resolve
 
 - **Status:** adopted · **Rollout: lab, staging and prod** · **Date:** 2026-10-06 ·
-  **Commit:** lab `6b779bfe`, staging `5ab6760f`, prod `a89fb3f2`.
+  **Commit:** lab `72f2d2cb`, staging `ced112b6`, prod `c0cf276e`.
 - **Context.** glm-5.3-flash writes anchors with a truncated id, `[3](#17d98f5d)`,
   `[1](#71cee5ba...)`, `[2](#74661147-...)`, for this turn's
   `17d98f5d-f270-46f8-92e8-e2acaa3a4705`, although every result hands it the full id in its
@@ -1809,7 +1809,7 @@ turn-based loop (`git revert b0ff56ad`) brings back the same latency.
 ### D37. Always search every question
 
 - **Status:** adopted · **Date:** 2026-09-26 (owner decision; lab, staging and prod the same day)
-  · **Commit:** `0ea17872` (lab `453bfba1`, staging `3822f475`). Reverses
+  · **Commit:** `6224a9e4` (lab `ace42ae5`, staging `c40c2cd3`). Reverses
   [D3](#d3-needssources-skip-retrieval-for-stable-knowledge).
 - **Context.** Under D3 the classifier could send a question down one of two no-search paths:
   `direct` (`skipSearch`, "the conversation already answers this") or `stable-knowledge` (no
@@ -1959,8 +1959,8 @@ turn-based loop (`git revert b0ff56ad`) brings back the same latency.
   see D4), or the latency cost starts to hurt. The skip definition is the lever to tune first, not
   the forcing mechanism.
 - <span id="addendum-2026-09-27-the-forced-search-is-the-first-search"></span>**Addendum
-  2026-09-27: the forced search is the first search, not the only one.** Commit `facc98f3`
-  (lab `8c4a28b2`, staging `9c24ed64`).
+  2026-09-27: the forced search is the first search, not the only one.** Commit `bf479a9f`
+  (lab `959c8a93`, staging `0c619b89`).
   - **What was wrong.** The addendum ended: "Search again or fetch a page only if those results
     leave a specific gap you can name; if they turn out irrelevant, answer from what you know
     and do not cite them." It is appended after the mode prompt, so it wins over it. That
@@ -1995,15 +1995,15 @@ turn-based loop (`git revert b0ff56ad`) brings back the same latency.
     The expansion variants (up to 3) still run inside the forced call itself, so the UI shows
     one search entry for them and `tool_calls` counts one call
     ([pipeline](/search/pipeline#_3-expansion-variants)).
-  - **Watch** on prod lines from `facc98f3` onward: `tool_calls` and `total_ms` of research
+  - **Watch** on prod lines from `bf479a9f` onward: `tool_calls` and `total_ms` of research
     turns per `modelId` and mode. More searches cost time; whether they make better answers is
     a judging question ([D4](#d4-judge-answers-not-source-counts)), not a count.
 
 ### D40. Quality mode: read pages past the search cap
 
 - **Status:** adopted; the answer-step citation reminder is **shelved** (built, off by default) ·
-  **Date:** 2026-09-29 / 09-30 · **Commits:** prod `a6db72f1` + `30838a61` (lab `49379e09` +
-  `98ba1d36`; staging `4b5f6fd3` + `7a2d74ba`). The prod and staging ports call
+  **Date:** 2026-09-29 / 09-30 · **Commits:** prod `b26acdb5` + `ed465eb8` (lab `6f651230` +
+  `175020c3`; staging `c9251b7e` + `77d1cdd2`). The prod and staging ports call
   `getModel(model, abortSignal)` with two arguments: the lab's third argument (the turn mode
   that `ANSWER_THINK=targeted` reads, [D18](#d18-targeted-reasoning-reasoning-only-on-research-turns))
   exists only on the lab.
@@ -2103,7 +2103,7 @@ turn-based loop (`git revert b0ff56ad`) brings back the same latency.
 ### D39. Every local Redis client goes through `local-redis.ts`
 
 - **Status:** adopted · **Date:** 2026-09-27 (lab, staging and prod the same day) ·
-  **Commit:** `2f5eac13` (lab `a9c5914a`, staging `c0df517f`).
+  **Commit:** `aeb6f4fa` (lab `6f354732`, staging `3912d8ab`).
 - **Context.** Seven modules each built their own module-level node-redis client with a bare
   `createClient({ url }) + connect()`: no `'error'` listener, the default offline queue, no
   command timeout. When the weekly update recreated Redis under the running app, those clients

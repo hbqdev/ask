@@ -73,8 +73,8 @@ The app `Header` is rendered in `app/layout.tsx:144`, outside the chat's scroll 
 floats over it: `absolute top-0 … z-20 … bg-background/80 lg:bg-transparent`
 (`components/header.tsx:30`). The scroller (`components/chat-messages.tsx:235`) reserves the
 band with `pt-14`. Below 1024px the header's own translucent, blurred background hides the text
-under it. At `lg+` the header is fully transparent, so until 2026-09-25 (prod `6aa6b047`, lab
-`5a1e0e59`) scrolled answer text showed straight through behind the chat title.
+under it. At `lg+` the header is fully transparent, so until 2026-09-25 (prod `c683085b`, lab
+`004cba7a`) scrolled answer text showed straight through behind the chat title.
 
 The fix is an opaque strip **inside** the scroller, rendered only when there are messages
 (`components/chat-messages.tsx:239-255`, `data-testid="chat-header-backdrop"`):
@@ -226,7 +226,7 @@ answer text
 
 ### Half-streamed links and the "[blocked]" flash {#blocked-flash}
 
-**Symptom (fixed 2026-09-25, prod `a9ad0ce8`, lab `e658ef71`).** While an answer streamed,
+**Symptom (fixed 2026-09-25, prod `6658c4a0`, lab `bc74ace9`).** While an answer streamed,
 each citation briefly rendered as **"1 [blocked]"** until its anchor finished. An answer
 stopped in the middle of an anchor showed the marker **permanently**, including after a
 reload.

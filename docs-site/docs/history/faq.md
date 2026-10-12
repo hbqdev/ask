@@ -217,7 +217,7 @@ The model sometimes "thinks out loud" in the answer text: a status note before a
 ("Let me search…", "Tôi cần đọc trang này…") or a preamble in front of the answer's heading,
 sometimes glued to it ("…câu trả lời.## Title").
 
-**First check.** Is the build older than 2026-09-28 (prod `48d5b06d`)? Older builds cleaned only
+**First check.** Is the build older than 2026-09-28 (prod `a90e4b83`)? Older builds cleaned only
 English phrasing, so non-English status notes were kept and a preamble glued to the heading showed
 as "…sentence.## Title". Current builds clean both in any language, and apply the cleanup
 whenever a message is shown, copied, spoken, fed back to the model or indexed, so old answers
@@ -240,7 +240,7 @@ If it still appears on a current build, match it to one of the cases left alone 
   best-effort ([known issue](/history/known-issues#chain-of-thought-flash-in-the-live-stream)).
   An answer that appears a moment late, with no flash, is the glued-preamble case working as
   designed ([known issue](/history/known-issues#an-answer-with-a-glued-preamble-appears-late-while-streaming)).
-  On a build older than prod `6e19914f` (2026-09-28), such an answer could stay blank until the
+  On a build older than prod `82254324` (2026-09-28), such an answer could stay blank until the
   whole answer had streamed.
 
 A new shape outside these cases needs a rule plus tests in `lib/streaming/helpers/__tests__`.
@@ -248,7 +248,7 @@ A new shape outside these cases needs a rule plus tests in `lib/streaming/helper
 
 ### An answer shows "[blocked]" after a citation or a link
 
-**First check.** Is the build older than 2026-09-25 (prod `a9ad0ce8`)? On older builds a citation
+**First check.** Is the build older than 2026-09-25 (prod `6658c4a0`)? On older builds a citation
 cut off at the stream tail rendered as "1 [blocked]" for a moment, and an answer stopped in
 the middle of a citation kept it permanently, even after a reload. Current builds drop the
 unfinished anchor and show any unfinished link as plain text, so neither case should appear.
@@ -315,7 +315,7 @@ The anchor is valid, so no counter sees it (`citations_unresolved` stays 0 for i
 reading the stored answer text next to that call's stored `results` order: `[N](#id)` renders
 result N of call `id`.
 
-**What changed on 2026-09-27** (prod `8878a42d`, `0ca166fe`):
+**What changed on 2026-09-27** (prod `a9f3970f`, `e77b7d9f`):
 
 - **Models no longer count.** The usual cause was a model numbering its sources as a running
   count across the answer: `[5](#<search id>)` meaning "my fifth source" rendered that search's

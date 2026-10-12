@@ -42,7 +42,7 @@ alias, jsdom environment, `vitest.setup.ts`, the `server-only` stub) and fails e
 ### Pre-existing failures
 
 ::: tip The suite is green
-Since 2026-09-23 (lab `e36d5a5c`, prod `1ff09c73`, shipped to all three branches) `bun run test`
+Since 2026-09-23 (lab `bd6857f2`, prod `12e350c7`, shipped to all three branches) `bun run test`
 passes: 224 files / 1,844 tests, 1 skipped. The stale expectations were updated to current
 behaviour, `chat-panel` mocks the Discover briefing and the canvas, and the SearXNG and
 Brave-budget tests mock Redis so they no longer hang on `localhost:6379`. No runtime code

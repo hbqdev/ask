@@ -158,7 +158,7 @@ correct.)
    75 s after boot `journalctl -u ask-fleet-boot.service -b -o cat` shows the reconcile ran
    (pulled in by `fleet-boot.timer` → `fleet-boot.service`).
 4. If `fleet-boot/deploy.sh` must be re-run, run it from a current worktree. Copies older than
-   prod `bbf936f8` / lab `8d59d2f1` / staging `d0fdba20` enable the unit on every host.
+   prod `e76c0d4d` / lab `21ecddf8` / staging `47d5b6d0` enable the unit on every host.
 
 **Rule.** On a WSL host nothing that waits for Docker may be enabled into `multi-user.target`.
 Run such a job from a timer (as `fleet-boot.timer` does) or pull it in from one.
@@ -226,7 +226,7 @@ down. Log in and Docker Desktop will start everything; then run
 
 This took prod and staging search down for about 8.5 hours on 2026-09-27
 ([known issues](/history/known-issues#search-hung-after-the-weekly-redis-update)). Builds from
-prod `2f5eac13` / staging `c0df517f` / lab `a9c5914a` onward recover by themselves; this
+prod `aeb6f4fa` / staging `3912d8ab` / lab `6f354732` onward recover by themselves; this
 runbook is for confirming that, and for an older build.
 
 **Symptoms**
