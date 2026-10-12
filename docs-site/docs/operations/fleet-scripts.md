@@ -28,8 +28,8 @@ development worktree.
 Every file in `fleet-boot/` is identical in `ask-prod`, `ask` and `ask-flow`, and the deployed
 `~/ask-fleet-boot.sh` and `/etc/systemd/system/ask-fleet-boot.service` on all four hosts match
 the repo. The lab stack reached `dev`'s `update-ask.sh` and
-`update-images.sh` in `8976a6fb` (2026-09-24 UTC), and the 2026-09-27 app restart and Redis probe in
-`2f5eac13`. Check with
+`update-images.sh` in `1ee2bca1` (2026-09-24 UTC), and the 2026-09-27 app restart and Redis probe in
+`aeb6f4fa`. Check with
 `diff -q /home/nightfury/selfhosted/{ask-flow,ask-prod}/fleet-boot/update-images.sh`.
 :::
 
@@ -177,7 +177,7 @@ disable` and prints `script + unit deployed, left disabled (WSL)`; anything else
 enable` and prints `script + unit deployed, enabled`. The decision is by platform, not IP, so a
 new WSL host is safe by default. Before this change the script enabled the unit on every host,
 which deadlocked Serenity's boot ([D41](/history/decisions#d41-on-wsl-hosts-nothing-that-waits-for-docker-is-enabled-at-boot)).
-A copy of `deploy.sh` older than prod `bbf936f8` (lab `8d59d2f1`, staging `d0fdba20`) still
+A copy of `deploy.sh` older than prod `e76c0d4d` (lab `21ecddf8`, staging `47d5b6d0`) still
 enables it everywhere: don't run one.
 
 **Args.** `./deploy.sh` pushes (and enables on bare metal); `./deploy.sh run` also starts the

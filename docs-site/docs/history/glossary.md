@@ -17,7 +17,7 @@ use your browser's find to jump around. Where a term maps to code, the main file
 | **Worktree** | The three environments are three `git worktree`s of one repository under `/home/nightfury/selfhosted/`, each pinned to its branch. Each env builds from **its own** worktree. |
 | **Overlay** | An extra compose file stacked with `-f` (`.lab.yaml`, `.admin-feature.yaml`, `.vpn*.yaml`). Overlays **merge** `environment:` onto the base, and an overlay's value **beats `.env`**. |
 | **Port / cherry-pick** | Moving a lab commit to staging and prod with `git cherry-pick -x`. The `-x` trailer records the lab original. |
-| **Back-merge** | Merging `dev` into `flow-design` so lab has prod's changes (last done in `dd7e0ca1`, 2026-08-22). |
+| **Back-merge** | Merging `dev` into `flow-design` so lab has prod's changes (last done in `23960a92`, 2026-08-22). |
 | **`rebuild-ask.sh`** | `fleet-boot/rebuild-ask.sh {prod\|staging\|lab}`: build, health check and reclaim in one step, with the right `-p`/`-f` set. The safe way to rebuild. |
 | **Reclaim** | `fleet-boot/reclaim-space.sh`: prunes unused build cache and dangling images (never `-a`, never containers or volumes). Runs after every rebuild. |
 | **Rollback point** | The prod commit before a deploy, noted in the commit message or audit log. Roll back by resetting `dev` to it and rebuilding. → [deploy](/operations/deploy) |

@@ -119,7 +119,7 @@ the moment the tracker was created, which is right before `prepareMessages`.
 | `abort_silence_ms`, `blank_abort` | Only on aborted turns: how long the turn was silent before the abort, and whether any prose had been written. Silence ≥120s with no prose looks like a provider stall; a short silence is a user pressing Stop or a disconnect |
 
 ::: warning `citations_unresolved` jumps on builds with the 2026-09-26 citation fix
-That build (lab `dbbbc376`, prod `0bd8f8cc`, staging `7af2beff`) changed what the counter
+That build (lab `18e0faf1`, prod `96c8b006`, staging `c55e6a52`) changed what the counter
 counts, not how models cite. An anchor with a real id and an out-of-range number (for example
 `[12]` on a search that returned 10 results, written by a model counting its sources across the
 answer) used to be scored as resolved while rendering nothing; it is now unresolved. A replay
@@ -132,7 +132,7 @@ result ([known issue](/history/known-issues#running-count-citation-numbers-can-p
 :::
 
 ::: tip Citation handles (2026-09-27) change the answers, not the counters
-With `CITATION_HANDLES` on (the default since prod `8878a42d`), the model copies a ready-made
+With `CITATION_HANDLES` on (the default since prod `a9f3970f`), the model copies a ready-made
 `cite` string from each result instead of working out N
 ([D38](/history/decisions#d38-ready-made-citation-handles)). `citations_total`,
 `citations_unresolved` and `citations_recovered` are computed exactly as before. What to expect
@@ -160,7 +160,7 @@ and watch on lines from that build:
 :::
 
 ::: tip Shortened and one-character-off ids (2026-10-06) move anchors from unresolved to recovered
-Builds with lab `6b779bfe` / staging `5ab6760f` / prod `a89fb3f2` resolve an anchor whose id is cut
+Builds with lab `72f2d2cb` / staging `ced112b6` / prod `c0cf276e` resolve an anchor whose id is cut
 to at least 8 hex characters (`[1](#71cee5ba...)`) or is one character off a full id, when it
 names exactly one call of the turn
 ([D44](/history/decisions#d44-shortened-and-one-character-off-citation-ids-resolve)). For the
@@ -351,7 +351,7 @@ field **only the new code writes**:
 | ≥ 2026-09-08 (recall cap telemetry) | `recall_wait_ms` / `recall_budget_hit` on `[latency]` |
 | ≥ 2026-09-12 (doc budget) | `doc_inject_clipped` on `[latency]` |
 | ≥ 2026-09-26 (every question searches) | `turn_mode` / `forced_search` on `[latency]`; `forced_skip` once the user-supplied-source exception is deployed |
-| ≥ 2026-09-27 (advanced-search deadline) | `kind:"advanced-fallback"` exists at all. The forced-search rewording (prod `facc98f3`) adds no field; split research turns by deploy time (`docker logs -t`) instead |
+| ≥ 2026-09-27 (advanced-search deadline) | `kind:"advanced-fallback"` exists at all. The forced-search rewording (prod `bf479a9f`) adds no field; split research turns by deploy time (`docker logs -t`) instead |
 | ≥ 2026-09-30 (quality: search cap 10, fetch past the cap, fetch cap 8) | `fetch_allowed` on a `kind:"round-cap"` line. The fetch cap itself logs only to stdout (`[fetch] fetch cap reached`) |
 | ≥ 2026-10-01 (citation evidence; near-duplicate rule) | `citations_snippet` on `[latency]` (present on every line that has `citations_total`). The near-duplicate rule adds no stored field: its `[search-dedup]` lines are stdout only, and a skip line ending in `(exact)` or `(near, cos=…)` comes from the new rule |
 
