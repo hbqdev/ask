@@ -130,7 +130,7 @@ much larger subsystem.
 **How to revive:** `git revert b0ff56ad` (or cherry-pick the 14 build commits
 `746204ca..a10cbf0f`), then `bun install`. The design record is
 `docs/superpowers/specs/2026-08-22-hands-free-voice-loop-design.md` and
-`docs/superpowers/plans/2026-08-22-hands-free-voice-loop.md`. Known pitfalls if revived:
+`docs/superpowers/plans/2026-08-22-hands-free-voice-loop.md` (local only, git-ignored). Known pitfalls if revived:
 
 - `@ricky0123/vad-web@0.0.30` needs **exactly** `onnxruntime-web@1.22.0`. A caret range let bun install 1.27, whose wasm loader breaks with "error loading model file". Pin it with a bun `overrides` entry and vendor the `.mjs` glue and `.wasm` under `public/vad/`.
 - **Self-talk loop:** `speak()` must resolve on `onended`/`onerror`/`stop()`, not on `play()`, or the mic re-arms mid-reply and the VAD hears the assistant.
