@@ -6,18 +6,32 @@ describe('buildWarmRequests', () => {
   it('builds a tiny 1-token classifier generate that pins the model resident', () => {
     const reqs = buildWarmRequests({
       CLASSIFIER_OLLAMA_BASE_URL: 'http://classifier:11434',
-      CLASSIFIER_MODEL_ID: 'granite4.2:8b'
+      CLASSIFIER_MODEL_ID: 'gemma4:12b'
     })
 
     expect(reqs).toHaveLength(1)
     expect(reqs[0].url).toBe('http://classifier:11434/api/generate')
     const body = JSON.parse(reqs[0].body)
     expect(body).toMatchObject({
-      model: 'granite4.2:8b',
+      model: 'gemma4:12b',
       stream: false,
       keep_alive: -1,
       options: { num_predict: 1 }
     })
+  })
+
+  it('defaults the warmed model to gemma4:12b for a local classifier and for a cloud one', () => {
+    const local = buildWarmRequests({
+      CLASSIFIER_OLLAMA_BASE_URL: 'http://classifier:11434'
+    })
+    expect(JSON.parse(local[0].body).model).toBe('gemma4:12b')
+
+    const cloud = buildWarmRequests({
+      CLASSIFIER_MODEL_ID: 'deepseek-v4-pro:cloud',
+      LOCAL_LLM_BASE_URL: 'http://local:11434'
+    })
+    expect(cloud[0].url).toBe('http://local:11434/api/generate')
+    expect(JSON.parse(cloud[0].body).model).toBe('gemma4:12b')
   })
 
   it('strips a trailing slash on the base url', () => {

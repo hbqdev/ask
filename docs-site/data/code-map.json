@@ -19437,6 +19437,7 @@
       "route": null,
       "usedBy": [],
       "tests": [
+        "lib/voice/__tests__/spoken-gist-provider.test.ts",
         "lib/voice/__tests__/spoken-gist.test.ts"
       ],
       "docs": [

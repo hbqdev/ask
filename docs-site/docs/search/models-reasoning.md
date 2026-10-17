@@ -11,7 +11,7 @@ are configured separately:
 |---|---|---|---|---|
 | **Answering model** | runs the research agent (tool loop) and writes the answer | the user's pick from `OLLAMA_MODELS`; default `kimi-k2.6:cloud` | picker / `DEFAULT_CHAT_MODEL` | **No, not as a fix.** See [the principle](#optimize-the-pipeline-not-the-model) |
 | **Query classifier** (with fused query expansion) | decides search vs no search, rewrites the query into standalone form, emits expansion variants | `deepseek-v4-pro:cloud` | `CLASSIFIER_MODEL_ID` | **Yes.** It is a fixed pipeline component |
-| Expansion fallback, title generation, memory extraction | local small-model jobs | `granite4.2:8b` on Serenity (`LOCAL_LLM_BASE_URL`, `192.168.50.171:11434`) | `EXPANDER_MODEL_ID`, `TITLE_MODEL_ID`, `MEMORY_EXTRACTOR_MODEL_ID` | yes |
+| Expansion fallback, title generation, memory extraction | local small-model jobs | `gemma4:12b` on Serenity (`LOCAL_LLM_BASE_URL`, `192.168.50.171:11434`) | `EXPANDER_MODEL_ID`, `TITLE_MODEL_ID`, `MEMORY_EXTRACTOR_MODEL_ID` | yes |
 | Reranker / embedders | scoring, not generation | see [Search pipeline](/search/pipeline) and [Memory & recall](/knowledge/memory-recall) | | |
 
 ## Model roster
@@ -134,7 +134,7 @@ used to be two calls in a row to the same model (classify 6.9–9s, then expand
 6.6–12.3s). The second could not start until the first returned, because it
 needed `standaloneQuery`. Folding expansion into the classifier removed that
 round trip, so `expand_ms` is now ~0. The standalone expander
-(`lib/agents/query-expander.ts`, granite on Serenity, 15s timeout) runs only as
+(`lib/agents/query-expander.ts`, `gemma4:12b` on Serenity, 15s timeout) runs only as
 a **fallback** when the classifier returns no variants
 (`lib/agents/classifier-expansion.ts`). Splitting them again so that expansion
 could "overlap" was considered and rejected, because it would be slower: the
@@ -209,7 +209,7 @@ bypass only for a URL; they run the classifier in speed mode and have no Retry.
 
 | Setting | Value | Notes |
 |---|---|---|
-| `CLASSIFIER_MODEL_ID` | `deepseek-v4-pro:cloud` (all envs) | code default is `granite4.2:8b`, but every env overrides it. Chosen 2026-09-04 in a bake-off of the 7 roster models: the fastest usable one (~0.9s isolated, ~1.1–1.3s in a real turn), made the same search/no-search decisions as granite, and rewrote follow-ups better. `glm-5.3-flash` spiked to ~10s on follow-ups. kimi-k3 and minimax returned empty or failed tool calls |
+| `CLASSIFIER_MODEL_ID` | `deepseek-v4-pro:cloud` (all envs) | code default is `gemma4:12b`, but every env overrides it. Chosen 2026-09-04 in a bake-off of the 7 roster models: the fastest usable one (~0.9s isolated, ~1.1–1.3s in a real turn), made the same search/no-search decisions as granite, and rewrote follow-ups better. `glm-5.3-flash` spiked to ~10s on follow-ups. kimi-k3 and minimax returned empty or failed tool calls |
 | Host | `CLASSIFIER_OLLAMA_BASE_URL`, falling back to `OLLAMA_BASE_URL` | NightFuryX `http://192.168.50.17:11434` in every env: prod from `.env`, staging and lab hardcoded in their overlays (they pointed at MiniNightFury's `.231:11434` until 2026-09-23, `7fd361c3`) |
 | Call shape | tool calling (not schema/`format`), `temperature: 0`, `think: false`, `keep_alive: -1` | cloud Ollama models honor tool calls reliably, and schema-constrained output is less reliable. `think:false` keeps the gate fast |
 | `CLASSIFIER_BUDGET_MS` | **4000** (soft) | aborts the in-flight request and falls back to "always search". Logged as `outcome:"budget"` |

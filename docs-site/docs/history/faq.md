@@ -339,7 +339,7 @@ result N of call `id`.
 **First check.** `curl -s -m5 http://192.168.50.171:11434/api/ps` from the app host, and
 `docker logs --since 1h ask 2>&1 | grep 'Error generating chat title'`.
 
-Titles are written by a local model on Serenity (.171), `granite4.2:8b` by default
+Titles are written by a local model on Serenity (.171), `gemma4:12b` by default
 (`lib/agents/title-generator.ts:32`), with an 8 s timeout. On any failure the generator returns
 the first 75 characters of the user's message (`lib/agents/title-generator.ts:69`,
 `lib/agents/title-generator.ts:152`). So a "title that is the question" means .171 was

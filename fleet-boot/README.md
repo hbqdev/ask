@@ -16,7 +16,7 @@ systemd `oneshot` unit, deployed to each WSL2 GPU box, that on boot:
 | ---------- | -------------- | ---------------------------------------------------------- |
 | NightFuryX | 192.168.50.17  | reconcile `reranker-qwen` + `ingestor`, warm `qwen3-vl:4b` |
 | NightFuryS | 192.168.50.160 | reconcile `embedder` (preloads its own model)              |
-| Serenity   | 192.168.50.171 | warm `granite4.2:8b`                                       |
+| Serenity   | 192.168.50.171 | warm `gemma4:12b`                                          |
 
 ## Files
 

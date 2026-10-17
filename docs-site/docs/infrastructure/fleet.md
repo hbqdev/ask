@@ -24,7 +24,7 @@ Hardware and OS were checked live on 2026-09-22 (`hostname`, `nvidia-smi`, `dock
 |---|---|---|---|---|---|
 | **192.168.50.17** | NightFuryX | Windows + **WSL2** (Debian 13), **Docker Desktop** | Threadripper 3970X (32c/64t), 117 GB | RTX 2080 Ti **22 GB** (modded), Quadro P2200 5 GB, GTX 1070 8 GB | **App host**: prod/staging/lab stacks, Postgres, Redis, SearXNG+gluetun, reranker, Whisper STT, Kokoro TTS, ingestor workers, model-manager, Ollama (cloud proxy + VLM), cloudflared tunnel |
 | **192.168.50.160** | NightFuryS | Windows + WSL2, Docker Desktop | i7-12700 (20t), 58 GB | Quadro P4000 8 GB | GPU **embedder** (`:8788`) |
-| **192.168.50.171** | Serenity | Windows + WSL2, Docker Desktop | Xeon E5-2670 v3 (48t), 94 GB | Quadro P5000 16 GB | **Local LLM**: Ollama `granite4.2:8b` (`LOCAL_LLM_BASE_URL`) |
+| **192.168.50.171** | Serenity | Windows + WSL2, Docker Desktop | Xeon E5-2670 v3 (48t), 94 GB | Quadro P5000 16 GB | **Local LLM**: Ollama `gemma4:12b` (`LOCAL_LLM_BASE_URL`) |
 | **192.168.50.231** | MiniNightFury | **Native Linux** (Linux Mint 22.3) | i7-12650H (16t), 31 GB | none | **crawl4ai** (`:11235`), public SearXNG (`:8127`) + public degoog (`:4444`), FlareSolverr (`:8191`) |
 
 The three GPU boxes are WSL2. On them `nvidia-smi` is **not on `PATH`**; use
@@ -43,8 +43,9 @@ The three GPU boxes are WSL2. On them `nvidia-smi` is **not on `PATH`**; use
 - **Embedder on .160.** It is the only job on that GPU. The embedding model is **data-locked** to
   the `vector(1024)` columns (see [Data layer](/infrastructure/data-layer#pgvector)). Don't
   move or change it casually.
-- **granite on .171.** The P5000's 16 GB holds `granite4.2:8b` (~11.6 GB resident). Reaching a
-  GPU over the LAN was measured to beat running granite on a CPU or squeezing it onto a smaller
+- **Local LLM on .171.** The P5000's 16 GB holds `gemma4:12b` (replaced `granite4.2:8b`, which
+  sat at ~11.6 GB resident, on 2026-10-17 after a bake-off on the real jobs). Reaching a GPU over
+  the LAN was measured to beat running the local model on a CPU or squeezing it onto a smaller
   .17 card.
 
 ## GPU assignment on NightFuryX (.17)
@@ -85,7 +86,7 @@ four hosts ran **0.34.2** on 2026-09-22.
 | Host | Bind | What Ask uses it for |
 |---|---|---|
 | .17 | `0.0.0.0:11434` | `OLLAMA_BASE_URL` and `CLASSIFIER_OLLAMA_BASE_URL` (all envs). It proxies `*:cloud` models to Ollama Cloud, and serves `qwen3-vl:4b` locally on the 1070 to the ingestors (`OLLAMA_URL=http://host.docker.internal:11434`). Unit env: `OLLAMA_KEEP_ALIVE=-1`, `OLLAMA_CONTEXT_LENGTH=8192` |
-| .171 | `0.0.0.0:11434` (drop-in `ollama.service.d/host.conf`, restored 2026-09-23 after it was found on loopback) | `LOCAL_LLM_BASE_URL`: `granite4.2:8b` for titles, memory extraction, query-expansion fallback and voice gist |
+| .171 | `0.0.0.0:11434` (drop-in `ollama.service.d/host.conf`, restored 2026-09-23 after it was found on loopback) | `LOCAL_LLM_BASE_URL`: `gemma4:12b` for titles, memory extraction, query-expansion fallback and voice gist |
 | .231 | `:11434` | Not used by Ask since 2026-09-23 (it was the staging/lab classifier; their overlays now point at `.17`) |
 | .160 | `:11434` | Not used by Ask (nothing resident) |
 
@@ -175,7 +176,7 @@ on each host (unit file `fleet-boot/ask-fleet-boot.service`). It branches on `ho
 |---|---|
 | NightFuryX | everything in the diagram above |
 | NightFuryS | reconcile `embedder` (it preloads its own model; 300 s start period) |
-| Serenity | warm `granite4.2:8b` |
+| Serenity | warm `gemma4:12b` |
 | MiniNightFury | reconcile `crawl4ai` and `flaresolverr` |
 
 ::: warning Gaps observed on 2026-09-22

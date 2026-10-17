@@ -39,7 +39,7 @@
       "id": "h171",
       "label": "Serenity · .171",
       "kind": "host",
-      "description": "Xeon E5-2670 v3, 94 GB, WSL2, Quadro P5000 16 GB. Hosts the local small LLM (granite4.2:8b) on native Ollama.",
+      "description": "Xeon E5-2670 v3, 94 GB, WSL2, Quadro P5000 16 GB. Hosts the local small LLM (gemma4:12b) on native Ollama.",
       "link": "/infrastructure/fleet#hosts"
     },
     {
@@ -181,7 +181,7 @@
     },
     {
       "id": "ollama171",
-      "label": "Ollama granite4.2:8b",
+      "label": "Ollama gemma4:12b",
       "kind": "service",
       "host": "h171",
       "port": "11434",
