@@ -13920,7 +13920,8 @@
       "usedBy": [
         "components/chat.tsx",
         "components/message-actions.tsx",
-        "lib/streaming/helpers/strip-spec-from-messages.ts"
+        "lib/streaming/helpers/strip-spec-from-messages.ts",
+        "lib/voice/strip-for-speech.ts"
       ],
       "tests": [
         "lib/render/__tests__/strip-spec-blocks.test.ts"
