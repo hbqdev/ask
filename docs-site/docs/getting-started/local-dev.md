@@ -157,7 +157,7 @@ from the running containers with `docker exec <c> printenv <NAME>`):
 | SearXNG | `SEARXNG_API_URL` | `http://ask-gluetun:8080` | SearXNG lives inside the gluetun VPN container's network namespace, so it is addressed by the **gluetun** name. Staging: `ask-gluetun-admin-feature`; lab: `ask-gluetun-lab`. |
 | Ollama (answering models, cloud proxy) | `OLLAMA_BASE_URL` | `http://192.168.50.17:11434` | Native Ollama on the app host; `*:cloud` models are forwarded to Ollama Cloud. |
 | Classifier | `CLASSIFIER_OLLAMA_BASE_URL`, `CLASSIFIER_MODEL_ID` | `http://192.168.50.17:11434` (staging/lab overlays pin the same value) | Model is `deepseek-v4-pro:cloud` in all three. |
-| Local small LLM (titles, memory extraction, expander fallback) | `LOCAL_LLM_BASE_URL` | `http://192.168.50.171:11434` | granite on Serenity's P5000. |
+| Local small LLM (titles, memory extraction, expander fallback) | `LOCAL_LLM_BASE_URL` | `http://192.168.50.171:11434` | `gemma4:12b` on Serenity's P5000. |
 | Cross-encoder reranker | `RERANKER_URL` (+ token) | `http://192.168.50.17:8787` | |
 | Embedder | `EMBEDDING_SERVICE_URL` (+ token) | `http://192.168.50.160:8788` | Data-locked to the `vector(1024)` columns — never swap the model without a re-embed. |
 | crawl4ai | `CRAWL4AI_URL` (+ token) | `http://192.168.50.231:11235` | Same in all envs (from `.env`). |
@@ -187,7 +187,7 @@ confirm with `docker exec <c> printenv <NAME>` and a request from inside the con
 | Bare `docker compose up` in a worktree | Prod container replaced with the wrong code/`.env` | Always `rebuild-ask.sh` or the full `-p`/`-f` set. |
 | Untracked files in a worktree | They ship in that stack's image — the Dockerfile does `COPY . .` and `.dockerignore` excludes only `selfhosted/`, `.superpowers/`, `.claude/`, `.git/`, `docs-site/` | Keep worktrees clean before building staging/prod. |
 | Editing the lab's copy of another env's overlay | No effect: staging runs from `/home/nightfury/selfhosted/ask`, prod from `/home/nightfury/selfhosted/ask-prod` | Edit the file in the worktree that env actually builds from; verify with `docker exec <c> printenv`. |
-| Trusting a code default | e.g. the classifier's code default is a local granite model, but every env overrides it | Read the running container's env, not `?? 'default'` in code. |
+| Trusting a code default | e.g. the classifier's code default is a local gemma4 model, but every env overrides it | Read the running container's env, not `?? 'default'` in code. |
 | Changing the classifier model | Needs the prod `.env` **and** the staging/lab overlays (they hardcode `CLASSIFIER_MODEL_ID`; `environment:` wins over `.env`) | Change all three places. |
 | `.env` edited, nothing changed | Container not recreated | `up -d --force-recreate ask`. |
 | `NEXT_PUBLIC_*` edited, nothing changed | Build-time value | Rebuild. |

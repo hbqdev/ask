@@ -264,7 +264,7 @@ case "$HOST" in
     # embedder preloads its own model on start (compose start_period 300s)
     ;;
   Serenity)
-    warm granite4.2:8b
+    warm gemma4:12b
     ;;
   MiniNightFury)
     # The Ask app stacks MOVED to NightFuryX (2026-08-23 migration) and are

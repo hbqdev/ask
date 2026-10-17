@@ -250,7 +250,7 @@ export const REGISTRY: EnvVarSpec[] = [
     group: 'Serenity',
     label: 'Classifier model',
     type: 'model',
-    default: 'granite4.2:8b'
+    default: 'gemma4:12b'
   },
   {
     key: 'EXPANDER_MODEL_ID',
@@ -258,7 +258,7 @@ export const REGISTRY: EnvVarSpec[] = [
     group: 'Serenity',
     label: 'Query-expander model',
     type: 'model',
-    default: 'granite4.2:8b'
+    default: 'gemma4:12b'
   },
   {
     key: 'MEMORY_EXTRACTOR_MODEL_ID',
@@ -266,7 +266,7 @@ export const REGISTRY: EnvVarSpec[] = [
     group: 'Serenity',
     label: 'Memory-extractor model',
     type: 'model',
-    default: 'granite4.2:8b'
+    default: 'gemma4:12b'
   },
   // ---------- Models: Embeddings ----------
   {

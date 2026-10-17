@@ -113,7 +113,7 @@ A native systemd service on every host (not Docker). See
 | Instance | URL key | Serves |
 |---|---|---|
 | **.17 :11434** | `OLLAMA_BASE_URL` and `CLASSIFIER_OLLAMA_BASE_URL` (all envs), `NEXT_PUBLIC_OLLAMA_BASE_URL` | Cloud proxy for the **answering model** (`DEFAULT_CHAT_MODEL`, default `kimi-k2.6:cloud`) and the **classifier** in every env (`CLASSIFIER_MODEL_ID`, e.g. `deepseek-v4-pro:cloud`). Model list, context-window lookup and vision detection. Local `qwen3-vl:4b` on the GTX 1070 for the ingestors |
-| **.171 :11434** | `LOCAL_LLM_BASE_URL` | `granite4.2:8b`: title generation, memory extraction, query-expansion fallback, voice gist |
+| **.171 :11434** | `LOCAL_LLM_BASE_URL` | `gemma4:12b`: title generation, memory extraction, query-expansion fallback, voice gist |
 | **.231 :11434** | none since 2026-09-23 | Was the staging/lab classifier proxy; their overlays now point at `.17` |
 
 - **Auth:** none. Anything on the LAN can call it, including spending the Ollama Cloud balance.
@@ -209,7 +209,7 @@ requires a full re-embed migration.
 - **Auth:** **none**.
 - **Called by:** `app/api/voice/speak` (auth required, `VOICE_ENABLED`).
 - **Config keys:** `TTS_SERVICE_URL`, `VOICE_TTS_VOICE`, `VOICE_TTS_SPEED`, and
-  `VOICE_GIST_MODEL_ID` (the gist is produced by granite on .171).
+  `VOICE_GIST_MODEL_ID` (the gist is produced by `gemma4:12b` on .171).
 - **Failure:** **503 "TTS unavailable"**. Read-aloud fails and text is unaffected.
 
 ## Ingestor workers

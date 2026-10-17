@@ -379,7 +379,7 @@ leaves **no model loaded**: `keep_alive=-1` only pins a model after its first lo
 `ask-fleet-boot.sh` warms models only at **boot**.
 
 ```bash
-curl -s http://192.168.50.171:11434/api/ps   # expect granite4.2:8b
+curl -s http://192.168.50.171:11434/api/ps   # expect gemma4:12b
 curl -s http://192.168.50.17:11434/api/ps    # expect qwen3-vl:4b
 ```
 
@@ -389,7 +389,7 @@ On WSL2 hosts `nvidia-smi` is at `/usr/lib/wsl/lib/nvidia-smi`.
 
 ```bash
 curl -s http://192.168.50.171:11434/api/generate \
-  -d '{"model":"granite4.2:8b","prompt":"warmup","stream":false,"keep_alive":-1}' >/dev/null
+  -d '{"model":"gemma4:12b","prompt":"warmup","stream":false,"keep_alive":-1}' >/dev/null
 curl -s http://192.168.50.17:11434/api/generate \
   -d '{"model":"qwen3-vl:4b","prompt":"warmup","stream":false,"keep_alive":-1}' >/dev/null
 ```
@@ -413,7 +413,7 @@ recall.
 
 | Service down | What users see |
 |---|---|
-| `.171:11434` local LLM (granite) | Chat titles fall back to the first words of the question; no new long-term memories; expander fallback unavailable. |
+| `.171:11434` local LLM (`gemma4:12b`) | Chat titles fall back to the first words of the question; no new long-term memories; expander fallback unavailable. |
 | `.160:8788` embedder | Recall and memory lookups empty; upload RAG embedding fails (worker path). |
 | `.17:8787` reranker | Rerank drops to bi-encoder/keyword tiers (worse source ordering). |
 | `.231:11235` crawl4ai | Slower crawling via the in-process fallback. |
