@@ -37,3 +37,32 @@ describe('firstSentences', () => {
     expect(firstSentences('Only one.', 2)).toBe('Only one.')
   })
 })
+
+describe('firstSentences — decimals and sentence starts', () => {
+  it('does not split on a decimal point and starts at the true beginning', () => {
+    const text =
+      'Short answer: the 4090 is about 1.6–2× faster at token generation. Both have 24 GB.'
+    expect(firstSentences(text, 1)).toBe(
+      'Short answer: the 4090 is about 1.6–2× faster at token generation.'
+    )
+    expect(firstSentences(text, 2)).toBe(text)
+  })
+
+  it('keeps a decimal temperature inside its sentence', () => {
+    const text =
+      'A fever of 39°C (102.2°F) in a child is common. Most fevers pass in a few days. See a doctor if it persists.'
+    expect(firstSentences(text, 2)).toBe(
+      'A fever of 39°C (102.2°F) in a child is common. Most fevers pass in a few days.'
+    )
+  })
+
+  it('splits on ! and ?', () => {
+    expect(firstSentences('Wow! Really? Yes. No.', 3)).toBe('Wow! Really? Yes.')
+  })
+
+  it('returns trimmed text when there is no terminal punctuation', () => {
+    expect(firstSentences('  no punctuation here  ', 2)).toBe(
+      'no punctuation here'
+    )
+  })
+})
