@@ -22,6 +22,8 @@ export function buildGistPrompt(answer: string): string {
 
 // Injectable generate fn so tests never hit a model. Default calls
 // gistModelId() (granite4.2:8b) on the local host (same pattern as title-generator.ts).
+// think:false is load-bearing: thinking-capable local models reason by default,
+// which used the whole GIST_TIMEOUT_MS and sent every call to the fallback.
 type GenerateFn = (prompt: string, signal?: AbortSignal) => Promise<string>
 
 const defaultGenerate: GenerateFn = async (prompt, signal) => {
@@ -30,7 +32,7 @@ const defaultGenerate: GenerateFn = async (prompt, signal) => {
     fetch: createTimeoutFetch(GIST_TIMEOUT_MS)
   })
   const { text } = await generateText({
-    model: ollama(gistModelId()),
+    model: ollama(gistModelId(), { think: false, keep_alive: -1 }),
     prompt,
     abortSignal: signal
   })

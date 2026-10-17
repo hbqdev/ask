@@ -28,9 +28,11 @@ export function stripForSpeech(text: string): string {
 }
 
 // First n sentence-ish chunks — the fallback spoken text when the gist model is
-// unavailable.
+// unavailable. A terminator only ends a sentence when whitespace or the end of
+// the text follows it, so decimals like "1.6" or "102.2°F" stay inside their
+// sentence and the first chunk always starts at the true start of the text.
 export function firstSentences(text: string, n: number): string {
-  const parts = text.match(/[^.!?]+[.!?]+(\s|$)/g)
+  const parts = text.trim().match(/[\s\S]*?[.!?]+(?=\s|$)/g)
   if (!parts) return text.trim()
   return parts.slice(0, n).join('').trim()
 }
