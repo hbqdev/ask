@@ -37,7 +37,7 @@ procedure and the stale comments to ignore.
 flowchart TD
   A[Turn finishes: onFinish] --> B{MEMORY_ENABLED not off and user memory toggle on?}
   B -- no --> Z[log memory outcome disabled]
-  B -- yes --> C[extractMemories: granite4.2:8b on the local LLM host .171, 10 s timeout]
+  B -- yes --> C[extractMemories: gemma4:12b on the local LLM host .171, 10 s timeout]
   C --> D[candidates: content + category, status candidate]
   R[remember tool call during the turn] --> E{retrieval-driven turn?}
   E -- yes --> D
@@ -55,7 +55,7 @@ flowchart TD
 
 Two producers feed the same writer (`lib/memory/write.ts`):
 
-1. **The background extractor** (`lib/agents/memory-extractor.ts`). After every authenticated turn, `create-chat-stream-response.ts` (~L1056) fires a non-blocking job that sends the user's message (plus the classifier's resolved query) to `MEMORY_EXTRACTOR_MODEL_ID` (default `granite4.2:8b`) on `LOCAL_LLM_BASE_URL` (Serenity .171). The prompt asks only for stable preferences, identity/role, recurring interests and lasting constraints. It excludes transient details, the topic being researched, and sensitive categories unless stated as a lasting preference. Extracted facts are written as **candidates**. Each turn logs one structured line, `[memory] {"outcome": "disabled" | "no_user_text" | "no_candidates" | "saved" | "failed", …}`, so "nothing was saved" can be told apart from "it broke".
+1. **The background extractor** (`lib/agents/memory-extractor.ts`). After every authenticated turn, `create-chat-stream-response.ts` (~L1056) fires a non-blocking job that sends the user's message (plus the classifier's resolved query) to `MEMORY_EXTRACTOR_MODEL_ID` (default `gemma4:12b`) on `LOCAL_LLM_BASE_URL` (Serenity .171). The prompt asks only for stable preferences, identity/role, recurring interests and lasting constraints. It excludes transient details, the topic being researched, and sensitive categories unless stated as a lasting preference. Extracted facts are written as **candidates**. Each turn logs one structured line, `[memory] {"outcome": "disabled" | "no_user_text" | "no_candidates" | "saved" | "failed", …}`, so "nothing was saved" can be told apart from "it broke".
 2. **The `remember` tool** (`lib/tools/remember.ts`), offered to the researcher in every mode. It is used when the user says "remember that …" or states a clearly lasting preference.
 
 `decideWrite` is a pure function: no near-duplicate → insert; near-duplicate → bump
@@ -349,7 +349,7 @@ re-measure these gates after swapping `RERANKER_MODEL`.
 | Env var | Default | Effect |
 |---|---|---|
 | `MEMORY_ENABLED` | on | `off` disables extraction, the `remember` tool and injection globally. Only the literal `off` counts: `false` leaves memory **on** |
-| `MEMORY_EXTRACTOR_MODEL_ID` | `granite4.2:8b` | Extractor model on `LOCAL_LLM_BASE_URL` |
+| `MEMORY_EXTRACTOR_MODEL_ID` | `gemma4:12b` | Extractor model on `LOCAL_LLM_BASE_URL` |
 | `MEMORY_SIM_THRESHOLD` | 0.9 | Cosine above which a candidate counts as a repeat sighting |
 | `MEMORY_GRADUATE_SIGHTINGS` | 2 | Sightings needed for a candidate to become confirmed |
 | `MEMORY_MAX_PER_USER` | 30 | Confirmed memories kept per user (LRU eviction) |

@@ -128,7 +128,7 @@ reported only as log lines (`needs a human`, `STILL UNHEALTHY`, `warm FAILED`). 
 |---|---|
 | `NightFuryX` (.17) | `reconcile` reranker-qwen, the three ingestors (prod / `docker-compose.staging.yaml` / `docker-compose.lab.yaml`), ask-whisper; `warm qwen3-vl:4b`; `warm_whisper`; then `reconcile_app_stack` for prod/staging/lab, `ensure_vpn_search` for each env's gluetun+searxng, and `reconcile` model-manager (`:221-261`). |
 | `NightFuryS` (.160) | `reconcile` embedder (it preloads its own model). |
-| `Serenity` (.171) | `warm granite4.2:8b` (`:267`). |
+| `Serenity` (.171) | `warm gemma4:12b` (`:267`). |
 | `MiniNightFury` (.231) | `reconcile` crawl4ai and flaresolverr only — **never** the retired Ask stacks (`:269-280`). |
 
 The helper functions, each escalating only when something is actually broken, so a healthy
@@ -155,8 +155,8 @@ service is never reloaded:
 - A stale `~/ask-fleet-boot.sh` on .231 resurrected the retired Ask stacks at the
   2026-09-16 boot because `deploy.sh` did not target .231 then. After editing the script,
   **always run `deploy.sh`** — the repo copy is not what the hosts execute.
-- The Serenity branch warms `granite4.2:8b`. `README.md` and `keep-warm.sh` named `granite4.1:8b`
-  until 2026-09-24 and now agree with the script.
+- The Serenity branch warms `gemma4:12b` (`granite4.2:8b` until 2026-10-17). `README.md` and
+  `keep-warm.sh` agree with the script.
 - Re-run by hand: `sudo systemctl start ask-fleet-boot.service` (or `~/ask-fleet-boot.sh`).
   Starting a disabled unit by hand is fine; only enabling it at boot is not.
 

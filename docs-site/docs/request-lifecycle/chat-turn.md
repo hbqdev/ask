@@ -200,7 +200,7 @@ it (`attachment-reference`, e.g. "what is this", "summarise this file"). It is r
 parts because the classifier sees text only and does not run on the bypass paths. The result
 goes to the researcher and cancels the forced first search.
 
-**Cost & knobs.** `CLASSIFIER_MODEL_ID` (code default `granite4.2:8b`; the lab compose
+**Cost & knobs.** `CLASSIFIER_MODEL_ID` (code default `gemma4:12b`; the lab compose
 pins `deepseek-v4-pro:cloud`; check each env's compose/.env for its value),
 `CLASSIFIER_OLLAMA_BASE_URL` (falls back to `OLLAMA_BASE_URL`), `CLASSIFIER_BUDGET_MS`
 (soft cap, default 4000 — on expiry the turn continues with the default
@@ -230,7 +230,7 @@ steps instead of dead air.
 6. Truncate to the model's **probed** context window (`resolveContextWindow`,
    `getMaxAllowedTokens` reserves output + a 10% buffer). Unknown window → no truncation.
 7. **Title** (new chats only): `generateChatTitle` starts in parallel (`TITLE_MODEL_ID`,
-   code default `granite4.2:8b`, 8s timeout; `TITLE_USE_CHAT_MODEL=true` uses the chat
+   code default `gemma4:12b`, 8s timeout; `TITLE_USE_CHAT_MODEL=true` uses the chat
    model). On a model failure, an empty reply or a reply longer than a title, the generator
    returns the first 75 characters of the question (`lib/agents/title-generator.ts:69`);
    `"Untitled"` is used only if the call itself rejects

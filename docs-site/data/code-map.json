@@ -1,21 +1,21 @@
 {
   "generatedFrom": {
-    "ask": "ask-prod",
+    "ask": "ask-flow",
     "ingestor": "ingestor"
   },
-  "count": 664,
+  "count": 666,
   "coverage": {
-    "files": 664,
-    "withPurpose": 664,
-    "header": 176,
+    "files": 666,
+    "withPurpose": 666,
+    "header": 177,
     "jsdoc": 38,
     "derived": 59,
-    "override": 391,
-    "documented": 370
+    "override": 392,
+    "documented": 372
   },
   "kinds": {
     "dockerfile": 3,
-    "lib-module": 254,
+    "lib-module": 255,
     "route-handler": 37,
     "page": 13,
     "stylesheet": 2,
@@ -37,7 +37,7 @@
     "server-action": 8,
     "types": 8,
     "middleware": 2,
-    "script": 20
+    "script": 21
   },
   "files": [
     {
@@ -18010,7 +18010,8 @@
         "lib/agents/query-classifier.ts",
         "lib/agents/query-expander.ts",
         "lib/agents/title-generator.ts",
-        "lib/utils/registry.ts"
+        "lib/utils/registry.ts",
+        "lib/voice/spoken-gist.ts"
       ],
       "tests": [
         "lib/agents/__tests__/memory-extractor.test.ts",
@@ -18374,7 +18375,8 @@
       "usedBy": [
         "lib/agents/memory-extractor.ts",
         "lib/agents/query-expander.ts",
-        "lib/agents/title-generator.ts"
+        "lib/agents/title-generator.ts",
+        "lib/voice/spoken-gist.ts"
       ],
       "tests": [],
       "docs": [
@@ -18622,6 +18624,7 @@
       "purposeSource": "header",
       "exports": [
         "AnswerThink",
+        "AnswerTurnMode",
         "ANSWER_THINK_DEFAULT",
         "resolveAnswerThink",
         "thinkEnabledForOllama"
@@ -19332,6 +19335,7 @@
         "app/api/voice/speak/route.ts",
         "app/api/voice/transcribe/route.ts",
         "lib/streaming/create-chat-stream-response.ts",
+        "lib/voice/spoken-gist.ts",
         "lib/voice/stt-client.ts",
         "lib/voice/tts-client.ts"
       ],
@@ -19418,6 +19422,40 @@
       ]
     },
     {
+      "path": "lib/voice/spoken-gist.ts",
+      "dir": "lib/voice",
+      "area": "lib",
+      "project": "ask",
+      "kind": "lib-module",
+      "purpose": "Condenses a finished answer into a 2-3 sentence read-aloud gist using a local Ollama model with a timeout, for voice read-aloud.",
+      "purposeSource": "override",
+      "exports": [
+        "buildGistPrompt",
+        "condenseForSpeech"
+      ],
+      "methods": [],
+      "route": null,
+      "usedBy": [],
+      "tests": [
+        "lib/voice/__tests__/spoken-gist-provider.test.ts",
+        "lib/voice/__tests__/spoken-gist.test.ts"
+      ],
+      "docs": [
+        {
+          "page": "/history/known-issues",
+          "title": "Known issues",
+          "section": "Other stale comments and docs",
+          "anchor": "other-stale-comments-and-docs"
+        },
+        {
+          "page": "/knowledge/media",
+          "title": "Media, voice, weather & Discover",
+          "section": "Read-aloud (Kokoro TTS)",
+          "anchor": "read-aloud-kokoro-tts"
+        }
+      ]
+    },
+    {
       "path": "lib/voice/strip-for-speech.ts",
       "dir": "lib/voice",
       "area": "lib",
@@ -19432,7 +19470,8 @@
       "methods": [],
       "route": null,
       "usedBy": [
-        "lib/voice/emit-spoken-gist.ts"
+        "lib/voice/emit-spoken-gist.ts",
+        "lib/voice/spoken-gist.ts"
       ],
       "tests": [
         "lib/voice/__tests__/strip-for-speech.test.ts"
@@ -20453,6 +20492,35 @@
       ]
     },
     {
+      "path": "scripts/eval/harvest-pairs.py",
+      "dir": "scripts/eval",
+      "area": "scripts",
+      "project": "ask",
+      "kind": "script",
+      "purpose": "Harvest per-turn telemetry and answers for browser-driven staging/lab chats.",
+      "purposeSource": "header",
+      "exports": [
+        "sh",
+        "psql",
+        "turns",
+        "latency",
+        "summarise",
+        "main"
+      ],
+      "methods": [],
+      "route": null,
+      "usedBy": [],
+      "tests": [],
+      "docs": [
+        {
+          "page": "/operations/evaluation",
+          "title": "Evaluation harnesses & scripts",
+          "section": "Map of the harnesses",
+          "anchor": "map-of-the-harnesses"
+        }
+      ]
+    },
+    {
       "path": "scripts/eval/judge-flow-arms.py",
       "dir": "scripts/eval",
       "area": "scripts",
@@ -20467,7 +20535,8 @@
       "methods": [],
       "route": null,
       "usedBy": [
-        "scripts/eval/analyze-flow-arms.py"
+        "scripts/eval/analyze-flow-arms.py",
+        "scripts/eval/harvest-pairs.py"
       ],
       "tests": [],
       "docs": [

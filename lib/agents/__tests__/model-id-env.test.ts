@@ -13,10 +13,10 @@ const cases: [string, string][] = [
 
 describe('serenity model ids are env-driven', () => {
   for (const [file, envVar] of cases) {
-    it(`${file} reads ${envVar} from env with granite default`, () => {
+    it(`${file} reads ${envVar} from env with gemma4 default`, () => {
       const src = readFileSync(join(process.cwd(), file), 'utf8')
       expect(src).toContain(`process.env.${envVar}`)
-      expect(src).toContain(`'granite4.2:8b'`)
+      expect(src).toContain(`'gemma4:12b'`)
     })
   }
 })

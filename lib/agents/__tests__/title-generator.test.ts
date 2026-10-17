@@ -144,7 +144,7 @@ describe('generateChatTitle — model selection', () => {
     // The saving only exists if the expensive path is genuinely not taken.
     expect(getModel).not.toHaveBeenCalled()
     expect(vi.mocked(generateText).mock.calls[0][0].model).toBe(
-      'local:granite4.2:8b'
+      'local:gemma4:12b'
     )
   })
 
