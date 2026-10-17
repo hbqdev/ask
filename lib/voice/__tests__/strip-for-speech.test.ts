@@ -27,6 +27,31 @@ describe('stripForSpeech', () => {
       'Title Key point Another'
     )
   })
+
+  it('drops a terminated ```spec related-questions block, keeping the prose', () => {
+    const md =
+      'The engine keeps its character.\n\n```spec\n' +
+      '{"op":"add","path":"/root","value":"main"}\n' +
+      '{"op":"add","path":"/elements/main","value":{"type":"Stack"}}\n' +
+      '```\n\nThat is all.'
+    const out = stripForSpeech(md)
+    expect(out).toBe('The engine keeps its character. That is all.')
+    expect(out).not.toMatch(/spec|"op"|\/root/)
+  })
+
+  it('drops an unterminated trailing ```spec block (stream cut, no closing fence)', () => {
+    const md =
+      'The engine keeps its character.\n\n```spec\n' +
+      '{"op":"add","path":"/root","value":"main"}\n' +
+      '{"op":"add","path":"/elements/main"'
+    expect(stripForSpeech(md)).toBe('The engine keeps its character.')
+  })
+
+  it('removes horizontal-rule lines (---, ***, ___) between paragraphs', () => {
+    const md =
+      'First part.\n\n---\n\nSecond part.\n\n***\n\nThird.\n\n___\n\nEnd.'
+    expect(stripForSpeech(md)).toBe('First part. Second part. Third. End.')
+  })
 })
 
 describe('firstSentences', () => {

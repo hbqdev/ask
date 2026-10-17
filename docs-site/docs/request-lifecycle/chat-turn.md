@@ -442,7 +442,7 @@ with no model round trip, so `ttft_ms` measures only the pre-work; time to first
 before the `## ` heading, and cuts a preamble glued to the heading (`…breakdown.## `) once the
 answer after it outweighs it, exactly as persist will; what it lets through (other languages,
 a glued preamble released before its seam arrived) is cleaned when the message is rendered
-and saved. On voice turns the final text is condensed into a `data-spokenGist`
+and saved. On voice turns the final text is cleaned for speech (`stripForSpeech`) into a `data-spokenGist`
 part inside `execute` (the only scope where the writer is still open). All of this
 is detailed in [Streaming](/request-lifecycle/streaming).
 

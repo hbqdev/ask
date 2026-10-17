@@ -1,4 +1,5 @@
 // lib/voice/strip-for-speech.ts
+import { stripSpecBlocks } from '@/lib/render/strip-spec-blocks'
 
 // Turn written answer text into something a TTS model should read aloud: no
 // citation anchors, tables, URLs, or markdown syntax. Complements
@@ -6,7 +7,13 @@
 // it can also clean a plain-text fallback.
 export function stripForSpeech(text: string): string {
   return (
-    text
+    // ```spec json-render blocks (the related-questions UI) are not prose:
+    // drop terminated ones, then any unterminated trailing block (stream cut
+    // before the closing fence) from its opening fence to the end.
+    stripSpecBlocks(text)
+      .replace(/```spec[\s\S]*$/, '')
+      // horizontal rules (---, ***, ___ alone on a line)
+      .replace(/^ {0,3}([-*_])(?:[ \t]*\1){2,}[ \t]*$/gm, '')
       // [label](#call_id) citation anchors → removed entirely (drop the number)
       .replace(/\[[^\]]*\]\(#[^)]*\)/g, '')
       // [label](http…) markdown links → label
