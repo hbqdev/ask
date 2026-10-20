@@ -18,6 +18,12 @@ behind the change. Lab-first work lives on `flow-design`. `git cherry-pick -x` l
 
 ## 2026-10 — October
 
+- **10-19** — Model roster: `minimax-m3.1-flash:cloud`, `beam:cloud` and `muse-spark-open:cloud`
+  **added** in all three envs (config only, no code change). Prod via the Model Manager (backup
+  `.env.bak.2026-10-20T05-11-17-578Z`); staging and lab via `.env` plus `--force-recreate --no-deps ask`.
+  Each passed a real tool-calling, thinking and vision probe and one lab browser turn. See
+  [models](/search/models-reasoning).
+
 **A near-duplicate search skip with no false skips on labelled pairs, citation evidence on every
 turn, shortened citation ids that resolve, a planning draft cut from the answer, and a search
 cap that stops a model that ignores it**
