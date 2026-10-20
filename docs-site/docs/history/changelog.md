@@ -23,6 +23,14 @@ behind the change. Lab-first work lives on `flow-design`. `git cherry-pick -x` l
   `.env.bak.2026-10-20T05-11-17-578Z`); staging and lab via `.env` plus `--force-recreate --no-deps ask`.
   Each passed a real tool-calling, thinking and vision probe and one lab browser turn. See
   [models](/search/models-reasoning).
+- **10-17** — Local small-model jobs (titles, memory extraction, the expander fallback) move from
+  `granite4.2:8b` to **`gemma4:12b`** on Serenity's P5000 (`7778ea2e`). A bake-off on Ask's real
+  functions found that granite invented "Prefers concise answers" memories and missed durable facts.
+  gemma4:12b caught 12/12 cases with none invented and gave the most varied on-topic expansions.
+  granite and the other candidates were deleted from .171. The boot warm-up now loads gemma4 (`fleet-boot/deploy.sh`).
+  The classifier is unchanged (`deepseek-v4-pro:cloud` everywhere); only its unused local fallback default moved.
+- **10-17** — Read-aloud no longer speaks the related-questions ```` ```spec ```` JSON block or
+  `---` rules (`9dc2fbc9`). `firstSentences` no longer splits on decimals such as "1.6" (`7214c1d3`).
 
 **A near-duplicate search skip with no false skips on labelled pairs, citation evidence on every
 turn, shortened citation ids that resolve, a planning draft cut from the answer, and a search
