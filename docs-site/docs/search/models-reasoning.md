@@ -31,13 +31,26 @@ inherited from the upstream project), and they activate only if their API keys a
 
 The picker is populated from **`OLLAMA_MODELS`**, a comma-separated list
 (`lib/models/fetch-models.ts:393`). It is read when the container starts, so
-changing it needs a `--force-recreate`, not a rebuild. As of 2026-10-07 the three
+changing it needs a `--force-recreate`, not a rebuild. As of 2026-10-19 the three
 envs run the same list:
 
 ```
 kimi-k3:cloud, minimax-m3:cloud, deepseek-v4-pro:cloud, kimi-k2.6:cloud,
-mistral-large-4:cloud, glm-5.3-flash:cloud, kimi-k2.7-code:cloud, deepseek-v4.1-flash:cloud
+mistral-large-4:cloud, glm-5.3-flash:cloud, kimi-k2.7-code:cloud, deepseek-v4.1-flash:cloud,
+minimax-m3.1-flash:cloud, beam:cloud, muse-spark-open:cloud
 ```
+
+The last three were **added** on 2026-10-19. Before listing, each was checked with real calls
+through NightFuryX's Ollama, and each got one browser turn in Ask on the lab:
+
+| Model | Capabilities (`/api/show`) | Thinking with `think: false` | Lab turn (balanced) |
+|---|---|---|---|
+| `minimax-m3.1-flash:cloud` | tools, thinking, vision; 1,000,000 ctx | **still thinks** | 57 s, 6 tool calls, 17 citations (0 unresolved), 6,196 completion tokens |
+| `beam:cloud` | tools, thinking; 1,048,576 ctx | **still thinks** | 25 s, 4 tool calls, 3 citations (0 unresolved) |
+| `muse-spark-open:cloud` | tools, thinking, vision; 1,048,576 ctx | honoured | 21 s, 2 tool calls, 13 citations (0 unresolved) |
+
+`ANSWER_THINK=off` only saves tokens on models that honour `think: false`. minimax-m3.1-flash
+and beam reason anyway, the same way `low`/`med`/`high` are no-ops on most of the roster.
 
 `deepseek-v4-flash:cloud` was **delisted** on 2026-09-11 (replaced by
 `deepseek-v4.1-flash`), and `qwen3.5:397b:cloud` on 2026-10-07 (replaced by
