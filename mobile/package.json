@@ -2,18 +2,41 @@
   "name": "ask-mobile",
   "private": true,
   "version": "1.0.0",
-  "description": "Native iOS shell for Ask (https://ask.hbqnexus.win). Not published; installed locally with Xcode.",
+  "description": "Ask for iOS: a bundled React app in a Capacitor shell. Not published; installed locally with Xcode.",
+  "type": "module",
   "scripts": {
-    "sync": "cap sync ios"
+    "dev": "vite",
+    "build": "tsc -b && vite build",
+    "preview": "vite preview",
+    "test": "vitest run",
+    "coverage": "vitest run --coverage",
+    "typecheck": "tsc --noEmit -p tsconfig.json",
+    "cap:sync": "npm run build && cap sync ios"
   },
   "dependencies": {
     "@capacitor/app": "^8.1.2",
     "@capacitor/core": "^8.5.3",
     "@capacitor/ios": "^8.5.3",
-    "@capacitor/splash-screen": "^8.0.2"
+    "@capacitor/splash-screen": "^8.0.2",
+    "react": "~19.2.9",
+    "react-dom": "~19.2.9"
   },
   "devDependencies": {
     "@capacitor/cli": "^8.5.3",
-    "typescript": "^5.6.0"
+    "@tailwindcss/vite": "^4.3.3",
+    "@testing-library/dom": "^10.4.2",
+    "@testing-library/jest-dom": "~6.9.1",
+    "@testing-library/react": "^16.3.3",
+    "@testing-library/user-event": "^14.6.8",
+    "@types/node": "^20.19.43",
+    "@types/react": "~19.2.18",
+    "@types/react-dom": "~19.2.7",
+    "@vitejs/plugin-react": "^5.2.0",
+    "@vitest/coverage-v8": "^4.1.12",
+    "jsdom": "^28.1.0",
+    "tailwindcss": "^4.3.3",
+    "typescript": "~5.9.3",
+    "vite": "^7.3.7",
+    "vitest": "^4.1.12"
   }
 }

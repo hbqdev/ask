@@ -54,8 +54,12 @@ scripts/eval/results/
 # Local AI planning docs (kept on disk, not published)
 docs/superpowers/
 
-# Native iOS shell (Capacitor) build outputs
+# Ask for iOS (Capacitor + Vite) build outputs and local env
 mobile/node_modules/
+mobile/dist/
+mobile/coverage/
+mobile/.env.local
+mobile/.env.e2e
 mobile/ios/App/build/
 mobile/ios/DerivedData/
 mobile/ios/App/App/public/

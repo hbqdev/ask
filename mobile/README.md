@@ -1,25 +1,32 @@
 # Ask for iOS
 
-A native iOS shell around the live site (`https://ask.hbqnexus.win`). It is not
-published: it's installed on Tin's devices with Xcode, signed by the paid
-Apple Development team `P7G23CKH62`, so an install lasts a year.
+A bundled React app (React 19, Vite 7, Tailwind 4) in a Capacitor 8 shell.
+Vite builds `src/` into `dist/` and Capacitor ships `dist/` inside the app; it
+talks to Ask's backend (`https://ask.hbqnexus.win` by default) over fetch with
+a bearer token. It is not published: it's installed on Tin's devices with
+Xcode, signed by the paid Apple Development team `P7G23CKH62`, so an install
+lasts a year.
 
-The app loads the live site, so **web deploys reach the app with no rebuild**.
-Rebuild only when something in this folder changes.
+UI changes need an app rebuild; backend changes reach the app with no rebuild.
 
-## What the shell adds over Safari
+## Develop and test
 
-- Login that persists: `CapacitorCookies` stores the cookies Supabase writes
-  from page scripts in the native cookie store. Safari caps script-written
-  cookies at 7 days, the likely cause of the web logouts.
-- Full screen with no browser bars. The web view is pinned to the safe area
-  (`MainViewController.swift`) and the notch and home-indicator strips take
-  the page's background colour, light or dark.
-- Swipe from the left edge to go back. Links to other sites open in Safari.
-- "Sign in with Google" works in-app: the app presents a mobile Safari user
-  agent, because Google blocks OAuth in embedded web views.
-- Microphone (dictation), camera and photos (attachments), location (weather)
-  and background audio (read-aloud) permissions.
+Use npm in this folder (it has its own `package-lock.json`; Ask's root
+typecheck, lint and tests exclude `mobile/`). npm 9.2 hits an `edgesOut`
+install bug, so on the dev box use `npx npm@10 install`.
+
+```bash
+scripts/env-from-ask.sh [api-url]  # writes .env.local (git-ignored) from Ask's .env
+npm run dev          # Vite dev server
+npm test             # Vitest (jsdom + Testing Library)
+npm run coverage     # fails below functions 100 / lines 95 / branches 90 / statements 95
+npm run typecheck
+npm run build        # tsc -b && vite build -> dist/
+npm run cap:sync     # build, then `cap sync ios`
+```
+
+`@/` resolves to `src/`; `@ask/` resolves to Ask's pure modules in `../lib/`
+(set in both `vite.config.ts` and `tsconfig.json`).
 
 ## Build and install
 
@@ -43,12 +50,13 @@ Mac, and enable Developer Mode under Settings → Privacy & Security).
 
 ## Files
 
-- `capacitor.config.ts`: app id `win.hbqnexus.ask`, site URL, allowed hosts,
-  cookies, splash.
+- `capacitor.config.ts`: app id `win.hbqnexus.ask`, `webDir: 'dist'`, iOS
+  view settings, splash.
+- `src/`: the app (`main.tsx` entry, `App.tsx`, `styles.css` theme).
+- `scripts/env-from-ask.sh`: writes `.env.local` (prints variable names only).
 - `ios/App/App/MainViewController.swift`: safe-area container, theme colour,
   swipe-back.
 - `ios/App/App/Info.plist`: permission prompts, background audio.
 - `assets/icon.svg`, `assets/splash.svg`: sources for the icon and launch
   images in `ios/App/App/Assets.xcassets` (rendered on the Mac with `sips`;
   use hex colours, `sips` misreads `hsl()`).
-- `www/`: the offline page shown when the site can't be reached.
