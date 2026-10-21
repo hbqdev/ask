@@ -49,6 +49,8 @@ export type Library = {
 /** The list for one user and sort; rows never outlive that pair. */
 type ListState = {
   key: string
+  /** The page-0 load that produced this list; -1 for none yet. */
+  gen: number
   chats: ChatRow[]
   total?: number
   nextOffset: number | null
@@ -58,6 +60,7 @@ type ListState = {
 
 const emptyList = (key: string): ListState => ({
   key,
+  gen: -1,
   chats: [],
   nextOffset: null,
   status: 'loading'
@@ -85,10 +88,11 @@ export function useLibrary({ sort }: { sort: ChatSort }): Library {
   // The generation of the page now loading, if any. A page dropped by a
   // newer generation does not hold up the next loadMore.
   const loadingMoreIn = useRef<number | null>(null)
-  // The generation of the page 0 now loading, if any. While it loads, the
-  // list's next offset belongs to the list it replaces, so loadMore waits and
-  // runs once page 0 has landed (`moreWanted`).
-  const firstPageIn = useRef<number | null>(null)
+  // Set when loadMore is asked for while the shown (committed) list is not
+  // the current generation's: page 0 is loading, or has landed but is not yet
+  // committed. That list's next offset belongs to the list being replaced, so
+  // the page runs once the new list is committed. A newer page 0 or a failed
+  // page 0 drops the request.
   const moreWanted = useRef(false)
   // Offsets after removes: whenever it is unknown whether the server had
   // applied a delete when it ran a page query, assume it had not and ask for
@@ -102,12 +106,12 @@ export function useLibrary({ sort }: { sort: ChatSort }): Library {
 
   const loadFirstPage = useCallback(async () => {
     const mine = ++generation.current
+    moreWanted.current = false
     // Signed out: nothing to show and nothing to ask the server for.
     if (!userId) {
-      setState({ key, chats: [], nextOffset: null, status: 'ready' })
+      setState({ key, gen: mine, chats: [], nextOffset: null, status: 'ready' })
       return
     }
-    firstPageIn.current = mine
     setState(s =>
       s.key === key
         ? { ...s, status: s.chats.length ? 'refreshing' : 'loading' }
@@ -119,21 +123,26 @@ export function useLibrary({ sort }: { sort: ChatSort }): Library {
         sort,
         withCount: true
       })
-      if (firstPageIn.current === mine) firstPageIn.current = null
       if (mine !== generation.current) return
       setState({
         key,
+        gen: mine,
         chats: page.chats.filter(c => !removed.current.has(c.id)),
         total: page.total,
         nextOffset: page.nextOffset,
         status: 'ready'
       })
     } catch (error) {
-      if (firstPageIn.current === mine) firstPageIn.current = null
       if (mine !== generation.current) return
-      // The list did not change, so a page wanted meanwhile is not loaded.
+      // The list did not change: it stays, now as this generation's, and a
+      // page wanted meanwhile is not loaded.
       moreWanted.current = false
-      setState(s => ({ ...s, status: 'error', error: errorMessage(error) }))
+      setState(s => ({
+        ...s,
+        gen: mine,
+        status: 'error',
+        error: errorMessage(error)
+      }))
     }
   }, [client, key, sort, userId])
 
@@ -177,12 +186,13 @@ export function useLibrary({ sort }: { sort: ChatSort }): Library {
   }, [state, key, userId, sort])
 
   const loadMore = useCallback(async () => {
-    if (firstPageIn.current !== null) {
+    // Only the committed list of the current generation gives the offset.
+    const { key: listKey, gen, nextOffset } = stateRef.current
+    const mine = generation.current
+    if (gen !== mine) {
       moreWanted.current = true
       return
     }
-    const { key: listKey, nextOffset } = stateRef.current
-    const mine = generation.current
     if (
       listKey !== key ||
       nextOffset === null ||
@@ -306,14 +316,23 @@ export function useLibrary({ sort }: { sort: ChatSort }): Library {
       setState(s => ({ ...s, error: errorMessage(error) }))
       return false
     }
-    generation.current += 1
-    setState({ key, chats: [], total: 0, nextOffset: null, status: 'ready' })
+    // A page wanted before this is run by the effect below, as a no-op on the
+    // empty list.
+    const mine = ++generation.current
+    setState({
+      key,
+      gen: mine,
+      chats: [],
+      total: 0,
+      nextOffset: null,
+      status: 'ready'
+    })
     return true
   }, [client, key])
 
-  // A loadMore asked for while page 0 was loading runs once it has landed.
+  // A wanted loadMore runs once the current generation's list is committed.
   useEffect(() => {
-    if (!moreWanted.current || firstPageIn.current !== null) return
+    if (!moreWanted.current || state.gen !== generation.current) return
     if (state.status !== 'ready') return
     moreWanted.current = false
     void loadMore()
