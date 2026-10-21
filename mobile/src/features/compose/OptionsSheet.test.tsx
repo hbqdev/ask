@@ -292,49 +292,111 @@ describe('OptionsSheet', () => {
       expect(fetchImpl).toHaveBeenCalledTimes(1)
     })
 
-    it('keeps the latest pick when an earlier save answers last', async () => {
-      const first = deferred()
-      const second = deferred()
-      const save = vi
-        .fn<Route>()
-        .mockReturnValueOnce(first.promise)
-        .mockReturnValueOnce(second.promise)
-      serve({ models: async () => json(DATA), save })
-      setup()
-      await screen.findByRole('radiogroup', { name: 'Model' })
-      fireEvent.click(modelRadio('Kimi'))
-      fireEvent.click(modelRadio('Gemma'))
-      await act(async () =>
-        second.resolve(json({ ok: true, selectedModelKey: 'ollama:gemma' }))
-      )
-      await act(async () =>
-        first.resolve(json({ error: 'Invalid model' }, 400))
-      )
-      expect(modelRadio('Gemma')).toHaveAttribute('aria-checked', 'true')
-      expect(screen.queryByText(MODEL_SAVE_ERROR)).toBeNull()
-    })
+    describe('rapid picks', () => {
+      const OK = (key: string) => json({ ok: true, selectedModelKey: key })
+      const FAIL = () => json({ error: 'Invalid model' }, 400)
 
-    it('puts back the last saved model when the latest of several picks fails', async () => {
-      const first = deferred()
-      const second = deferred()
-      const save = vi
-        .fn<Route>()
-        .mockReturnValueOnce(first.promise)
-        .mockReturnValueOnce(second.promise)
-      serve({ models: async () => json(DATA), save })
-      setup()
-      await screen.findByRole('radiogroup', { name: 'Model' })
-      fireEvent.click(modelRadio('Kimi'))
-      fireEvent.click(modelRadio('Gemma'))
-      await act(async () =>
-        first.resolve(json({ ok: true, selectedModelKey: 'cloud:kimi' }))
-      )
-      expect(modelRadio('Gemma')).toHaveAttribute('aria-checked', 'true')
-      await act(async () =>
-        second.resolve(json({ error: 'Invalid model' }, 400))
-      )
-      expect(modelRadio('Kimi')).toHaveAttribute('aria-checked', 'true')
-      expect(screen.getByText(MODEL_SAVE_ERROR)).toBeInTheDocument()
+      /** Each PUT waits for the test to answer it, in the order sent. */
+      async function rapid() {
+        const answers: ReturnType<typeof deferred>[] = []
+        const sent: unknown[] = []
+        serve({
+          models: async () => json(DATA),
+          save: init => {
+            sent.push(JSON.parse(String(init?.body)))
+            const answer = deferred()
+            answers.push(answer)
+            return answer.promise
+          }
+        })
+        setup()
+        await screen.findByRole('radiogroup', { name: 'Model' })
+        const answer = async (index: number, res: Response) =>
+          act(async () => answers[index].resolve(res))
+        return { sent, answer }
+      }
+
+      /** A tap, then a flush, so any save it starts reaches the server. */
+      const tap = (name: string) =>
+        act(async () => fireEvent.click(modelRadio(name)))
+
+      const checked = () =>
+        within(screen.getByRole('radiogroup', { name: 'Model' }))
+          .getAllByRole('radio')
+          .filter(r => r.getAttribute('aria-checked') === 'true')
+          .map(r => r.textContent)
+
+      it('sends one save at a time, then the newest pick, and checks it when both save', async () => {
+        const { sent, answer } = await rapid()
+        await tap('Kimi')
+        await tap('Gemma')
+        expect(sent).toEqual([{ providerId: 'cloud', modelId: 'kimi' }])
+        expect(checked()).toEqual(['Gemma'])
+        await answer(0, OK('cloud:kimi'))
+        expect(checked()).toEqual(['Gemma'])
+        expect(sent).toHaveLength(2)
+        await answer(1, OK('ollama:gemma'))
+        expect(sent.at(-1)).toEqual({ providerId: 'ollama', modelId: 'gemma' })
+        expect(checked()).toEqual(['Gemma'])
+        expect(screen.queryByText(MODEL_SAVE_ERROR)).toBeNull()
+      })
+
+      it('skips picks overtaken while a save is in flight', async () => {
+        const { sent, answer } = await rapid()
+        await tap('Kimi')
+        await tap('Gemma')
+        await tap('Qwen 3')
+        await answer(0, OK('cloud:kimi'))
+        await answer(1, OK('ollama:qwen3'))
+        expect(sent).toEqual([
+          { providerId: 'cloud', modelId: 'kimi' },
+          { providerId: 'ollama', modelId: 'qwen3' }
+        ])
+        expect(checked()).toEqual(['Qwen 3'])
+      })
+
+      it('the reviewer case: A still saving when B is tapped, A saves late, B fails: the checked model is the server key (A) and the error shows', async () => {
+        const { sent, answer } = await rapid()
+        await tap('Kimi')
+        await tap('Gemma')
+        // B cannot fail before A settles: it is not sent until then.
+        expect(sent).toHaveLength(1)
+        await answer(0, OK('cloud:kimi'))
+        await answer(1, FAIL())
+        expect(checked()).toEqual(['Kimi'])
+        expect(screen.getByText(MODEL_SAVE_ERROR)).toBeInTheDocument()
+      })
+
+      it('an earlier pick that fails does not undo a later one that saves', async () => {
+        const { answer } = await rapid()
+        await tap('Kimi')
+        await tap('Gemma')
+        await answer(0, FAIL())
+        expect(checked()).toEqual(['Gemma'])
+        await answer(1, OK('ollama:gemma'))
+        expect(checked()).toEqual(['Gemma'])
+        expect(screen.queryByText(MODEL_SAVE_ERROR)).toBeNull()
+      })
+
+      it('both failing puts back the model the server still holds', async () => {
+        const { answer } = await rapid()
+        await tap('Kimi')
+        await tap('Gemma')
+        await answer(0, FAIL())
+        await answer(1, FAIL())
+        expect(checked()).toEqual(['Qwen 3'])
+        expect(screen.getByText(MODEL_SAVE_ERROR)).toBeInTheDocument()
+      })
+
+      it('sends nothing more when the newest pick is what the server already holds', async () => {
+        const { sent, answer } = await rapid()
+        await tap('Kimi')
+        await tap('Qwen 3')
+        await answer(0, FAIL())
+        expect(sent).toHaveLength(1)
+        expect(checked()).toEqual(['Qwen 3'])
+        expect(screen.queryByText(MODEL_SAVE_ERROR)).toBeNull()
+      })
     })
 
     it.each([

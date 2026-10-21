@@ -138,10 +138,13 @@ function ModelSection() {
   const [loadFailed, setLoadFailed] = useState(false)
   const [selected, setSelected] = useState('')
   const [saveFailed, setSaveFailed] = useState(false)
-  // The pick the server last confirmed, for undoing a failed save.
+  // The pick the server last confirmed: what a failed save puts back.
   const saved = useRef('')
-  // Only the latest save may change what is shown.
-  const latest = useRef(0)
+  // One save at a time, so responses can't arrive out of order: a pick made
+  // while one is in flight waits here, and only the newest waiting pick is
+  // sent when it settles.
+  const inFlight = useRef(false)
+  const waiting = useRef<Model | null>(null)
 
   useEffect(() => {
     let live = true
@@ -169,23 +172,36 @@ function ModelSection() {
   }
   if (!data.enabled || !data.hasAvailableModels) return null
 
-  const pick = (model: Model) => {
-    const key = modelKey(model)
-    if (key === selected) return
-    const request = ++latest.current
-    setSelected(key)
-    setSaveFailed(false)
+  const send = (model: Model) => {
+    inFlight.current = true
     saveModel(client, model.providerId, model.id).then(
       confirmed => {
         saved.current = confirmed
-        if (request === latest.current) setSelected(confirmed)
+        settle(true)
       },
-      () => {
-        if (request !== latest.current) return
-        setSelected(saved.current)
-        setSaveFailed(true)
-      }
+      () => settle(false)
     )
+  }
+
+  // Sends the newest waiting pick, unless the server already holds it;
+  // otherwise shows what the server holds, and the error if the last save
+  // failed.
+  const settle = (ok: boolean) => {
+    const next = waiting.current
+    waiting.current = null
+    if (next && modelKey(next) !== saved.current) return send(next)
+    inFlight.current = false
+    setSelected(saved.current)
+    setSaveFailed(!ok && !next)
+  }
+
+  const pick = (model: Model) => {
+    const key = modelKey(model)
+    if (key === selected) return
+    setSelected(key)
+    setSaveFailed(false)
+    if (inFlight.current) waiting.current = model
+    else send(model)
   }
 
   const providers = Object.entries(data.modelsByProvider).sort(([a], [b]) =>
