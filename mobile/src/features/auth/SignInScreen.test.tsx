@@ -159,14 +159,22 @@ describe('SignInScreen', () => {
     expect(Browser.open).toHaveBeenCalledWith({ url: FORGOT_PASSWORD_URL })
   })
 
-  it('stays put when the browser cannot open', async () => {
+  it('says where to go when the browser cannot open', async () => {
     fakeAuth()
     vi.mocked(Browser.open).mockRejectedValueOnce(new Error('no browser'))
     const user = userEvent.setup()
     render(<SignInScreen />)
+    const link = screen.getByRole('link', { name: 'Forgot password?' })
 
-    await user.click(screen.getByRole('link', { name: 'Forgot password?' }))
+    await user.click(link)
     expect(Browser.open).toHaveBeenCalledTimes(1)
-    expect(emailField()).toBeInTheDocument()
+    expect(await screen.findByRole('status')).toHaveTextContent(
+      "Couldn't open the browser. Visit ask.hbqnexus.win/auth/forgot-password"
+    )
+
+    // A later tap that works clears the message.
+    await user.click(link)
+    expect(Browser.open).toHaveBeenCalledTimes(2)
+    expect(screen.queryByRole('status')).not.toBeInTheDocument()
   })
 })

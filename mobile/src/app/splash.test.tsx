@@ -3,7 +3,13 @@ import { SplashScreen } from '@capacitor/splash-screen'
 import { act, renderHook } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
-import { SPLASH_FALLBACK_MS, useHideSplash } from '@/app/splash'
+import {
+  armSplashFailsafe,
+  hideSplash,
+  resetSplashForTests,
+  SPLASH_FALLBACK_MS,
+  useHideSplash
+} from '@/app/splash'
 
 vi.mock('@capacitor/core', () => ({
   Capacitor: { isNativePlatform: vi.fn(() => true) }
@@ -13,17 +19,65 @@ vi.mock('@capacitor/splash-screen', () => ({
   SplashScreen: { hide: vi.fn(async () => {}) }
 }))
 
+beforeEach(() => {
+  vi.useFakeTimers()
+  resetSplashForTests()
+  vi.mocked(Capacitor.isNativePlatform).mockReturnValue(true)
+  vi.mocked(SplashScreen.hide).mockReset().mockResolvedValue(undefined)
+})
+
+afterEach(() => {
+  vi.useRealTimers()
+})
+
+describe('armSplashFailsafe', () => {
+  it('hides the splash once at the timeout on native, without React', () => {
+    armSplashFailsafe()
+    vi.advanceTimersByTime(SPLASH_FALLBACK_MS - 1)
+    expect(SplashScreen.hide).not.toHaveBeenCalled()
+
+    vi.advanceTimersByTime(1)
+    expect(SplashScreen.hide).toHaveBeenCalledTimes(1)
+  })
+
+  it('takes a custom timeout', () => {
+    armSplashFailsafe(100)
+    vi.advanceTimersByTime(100)
+    expect(SplashScreen.hide).toHaveBeenCalledTimes(1)
+  })
+
+  it('never fires on the web', () => {
+    vi.mocked(Capacitor.isNativePlatform).mockReturnValue(false)
+    armSplashFailsafe()
+    vi.advanceTimersByTime(SPLASH_FALLBACK_MS)
+    expect(SplashScreen.hide).not.toHaveBeenCalled()
+  })
+
+  it('does not hide again when the app already hid the splash', () => {
+    armSplashFailsafe()
+    renderHook(() => useHideSplash(true))
+    expect(SplashScreen.hide).toHaveBeenCalledTimes(1)
+
+    vi.advanceTimersByTime(SPLASH_FALLBACK_MS)
+    expect(SplashScreen.hide).toHaveBeenCalledTimes(1)
+  })
+})
+
+describe('hideSplash', () => {
+  it('hides once however often it is called', () => {
+    hideSplash()
+    hideSplash()
+    expect(SplashScreen.hide).toHaveBeenCalledTimes(1)
+  })
+
+  it('does nothing on the web', () => {
+    vi.mocked(Capacitor.isNativePlatform).mockReturnValue(false)
+    hideSplash()
+    expect(SplashScreen.hide).not.toHaveBeenCalled()
+  })
+})
+
 describe('useHideSplash', () => {
-  beforeEach(() => {
-    vi.useFakeTimers()
-    vi.mocked(Capacitor.isNativePlatform).mockReturnValue(true)
-    vi.mocked(SplashScreen.hide).mockReset().mockResolvedValue(undefined)
-  })
-
-  afterEach(() => {
-    vi.useRealTimers()
-  })
-
   it('keeps the splash up until the app is ready, then hides it once', () => {
     const { rerender } = renderHook(({ ready }) => useHideSplash(ready), {
       initialProps: { ready: false }

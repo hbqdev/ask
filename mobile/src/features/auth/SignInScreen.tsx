@@ -18,6 +18,7 @@ export function SignInScreen() {
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [submitting, setSubmitting] = useState(false)
+  const [browserFailed, setBrowserFailed] = useState(false)
 
   const trimmedEmail = email.trim()
   const canSubmit = trimmedEmail !== '' && password !== '' && !submitting
@@ -34,8 +35,11 @@ export function SignInScreen() {
 
   function openForgotPassword(event: MouseEvent<HTMLAnchorElement>) {
     event.preventDefault()
-    // Nothing to do if the browser cannot open; the link stays tappable.
-    Browser.open({ url: FORGOT_PASSWORD_URL }).catch(() => {})
+    setBrowserFailed(false)
+    // If the browser cannot open, say where to go instead.
+    Browser.open({ url: FORGOT_PASSWORD_URL }).catch(() =>
+      setBrowserFailed(true)
+    )
   }
 
   return (
@@ -107,6 +111,12 @@ export function SignInScreen() {
         >
           Forgot password?
         </a>
+        {browserFailed && (
+          <p role="status" className="text-center text-sm text-foreground/60">
+            Couldn't open the browser. Visit
+            ask.hbqnexus.win/auth/forgot-password
+          </p>
+        )}
       </div>
     </main>
   )

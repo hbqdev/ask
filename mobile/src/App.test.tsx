@@ -120,6 +120,30 @@ describe('App', () => {
     expect(mocks.hideSplash).toHaveBeenCalledTimes(1)
   })
 
+  it('catches a crash anywhere in the app, even in ThemeProvider', async () => {
+    vi.spyOn(console, 'error').mockImplementation(() => {})
+    vi.resetModules()
+    vi.doMock('@/core/ThemeProvider', () => ({
+      ThemeProvider: () => {
+        throw new Error('theme exploded')
+      },
+      useTheme: vi.fn()
+    }))
+    try {
+      const App = (await import('@/App')).default
+      render(<App />)
+
+      expect(
+        screen.getByRole('heading', { name: 'Something went wrong' })
+      ).toBeInTheDocument()
+      expect(screen.getByText('theme exploded')).toBeInTheDocument()
+      expect(mocks.hideSplash).toHaveBeenCalledTimes(1)
+    } finally {
+      vi.doUnmock('@/core/ThemeProvider')
+      vi.mocked(console.error).mockRestore()
+    }
+  })
+
   it('shows a configuration error for a non-Error failure', async () => {
     mocks.getConfig.mockImplementation(() => {
       throw 'config unreadable'

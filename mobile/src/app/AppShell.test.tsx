@@ -9,6 +9,7 @@ import userEvent from '@testing-library/user-event'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { AppShell } from '@/app/AppShell'
+import { resetSplashForTests } from '@/app/splash'
 import { AuthProvider } from '@/core/auth/AuthProvider'
 import type { AuthStorage } from '@/core/auth/preferences-storage'
 import { ThemeProvider } from '@/core/ThemeProvider'
@@ -84,6 +85,7 @@ const signInButton = () => screen.findByRole('button', { name: 'Sign in' })
 describe('AppShell', () => {
   beforeEach(() => {
     vi.clearAllMocks()
+    resetSplashForTests()
     vi.stubGlobal(
       'matchMedia',
       vi.fn(() => ({

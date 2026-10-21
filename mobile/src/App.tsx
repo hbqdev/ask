@@ -1,6 +1,7 @@
 import type { SupabaseClient } from '@supabase/supabase-js'
 
 import { AppShell } from '@/app/AppShell'
+import { ErrorBoundary } from '@/app/ErrorBoundary'
 import { useHideSplash } from '@/app/splash'
 import { AuthProvider } from '@/core/auth/AuthProvider'
 import { createSupabase } from '@/core/auth/supabase'
@@ -38,19 +39,21 @@ function ConfigError({ message }: { message: string }) {
 export default function App() {
   startup ??= start()
   return (
-    <ThemeProvider>
-      <div
-        data-testid="app-root"
-        className="flex h-dvh flex-col bg-background text-foreground"
-      >
-        {'client' in startup ? (
-          <AuthProvider client={startup.client}>
-            <AppShell />
-          </AuthProvider>
-        ) : (
-          <ConfigError message={startup.error} />
-        )}
-      </div>
-    </ThemeProvider>
+    <ErrorBoundary>
+      <ThemeProvider>
+        <div
+          data-testid="app-root"
+          className="flex h-dvh flex-col bg-background text-foreground"
+        >
+          {'client' in startup ? (
+            <AuthProvider client={startup.client}>
+              <AppShell />
+            </AuthProvider>
+          ) : (
+            <ConfigError message={startup.error} />
+          )}
+        </div>
+      </ThemeProvider>
+    </ErrorBoundary>
   )
 }
