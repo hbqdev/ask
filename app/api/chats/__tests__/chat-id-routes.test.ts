@@ -48,7 +48,7 @@ describe('DELETE /api/chats/[chatId]', () => {
     expect(await res.json()).toEqual({ error: 'Unauthorized' })
   })
 
-  it('returns 404 with the error when the chat is missing or not owned', async () => {
+  it('returns 404 Not found when the chat is missing or not owned', async () => {
     vi.mocked(deleteChat).mockResolvedValue({
       success: false,
       error: 'Unauthorized'
@@ -58,7 +58,36 @@ describe('DELETE /api/chats/[chatId]', () => {
 
     expect(deleteChat).toHaveBeenCalledWith('c2')
     expect(res.status).toBe(404)
-    expect(await res.json()).toEqual({ error: 'Unauthorized' })
+    expect(await res.json()).toEqual({ error: 'Not found' })
+  })
+
+  it('returns a retryable 500 when the delete itself failed', async () => {
+    vi.mocked(deleteChat).mockResolvedValue({
+      success: false,
+      error: 'Failed to delete chat'
+    })
+
+    const res = await DELETE(makeRequest('c3', 'DELETE'), context('c3'))
+
+    expect(res.status).toBe(500)
+    expect(await res.json()).toEqual({
+      error: 'Failed to delete chat',
+      retryable: true
+    })
+  })
+
+  it('returns a retryable 500 when deleteChat throws', async () => {
+    const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {})
+    vi.mocked(deleteChat).mockRejectedValue(new Error('db down'))
+
+    const res = await DELETE(makeRequest('c4', 'DELETE'), context('c4'))
+
+    expect(res.status).toBe(500)
+    expect(await res.json()).toEqual({
+      error: 'Failed to delete chat',
+      retryable: true
+    })
+    consoleError.mockRestore()
   })
 })
 
