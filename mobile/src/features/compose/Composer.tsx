@@ -12,7 +12,10 @@ import {
   type KeyboardEvent
 } from 'react'
 
-import { OptionsSheet, SEARCH_MODES } from '@/features/compose/OptionsSheet'
+import {
+  OptionsSheet,
+  SEARCH_MODE_LABELS
+} from '@/features/compose/OptionsSheet'
 import type { SearchSettings } from '@/features/thread/chat-body'
 
 const LINE_HEIGHT_PX = 24
@@ -110,9 +113,10 @@ export function Composer({
     send()
   }
 
-  const modeLabel = SEARCH_MODES.find(
-    m => m.value === settings.searchMode
-  )!.label
+  // A mode with no label (never stored: settings are validated) shows as is.
+  const modeLabel =
+    (SEARCH_MODE_LABELS[settings.searchMode] as string | undefined) ??
+    settings.searchMode
 
   return (
     <form className="composer bg-background px-3 pt-2" onSubmit={onSubmit}>

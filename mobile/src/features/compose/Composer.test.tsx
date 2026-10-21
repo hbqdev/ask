@@ -175,6 +175,18 @@ describe('Composer', () => {
     ).toBeInTheDocument()
   })
 
+  it('still renders for a mode it has no label for', () => {
+    setup({
+      settings: {
+        searchMode: 'turbo',
+        sources: ['web']
+      } as unknown as SearchSettings
+    })
+    expect(
+      screen.getByRole('button', { name: 'Search mode: turbo' })
+    ).toBeInTheDocument()
+  })
+
   it('grows with its text', () => {
     Object.defineProperty(HTMLTextAreaElement.prototype, 'scrollHeight', {
       configurable: true,

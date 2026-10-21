@@ -62,6 +62,9 @@ export function GeneratedImage({ part, baseUrl }: GeneratedImageProps) {
     )
   }
 
+  // A malformed (or oddly reloaded) output has no image to show.
+  if (typeof output.imageUrl !== 'string') return null
+
   const src = absoluteUrl(output.imageUrl, baseUrl)
   return (
     <figure className="max-w-md">

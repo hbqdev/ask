@@ -149,6 +149,19 @@ describe('extractSpecContent', () => {
     ])
   })
 
+  it('keeps only an http(s) source page, else the image opens itself', () => {
+    const text = imageFence([
+      image('https://a.test/1.png', { sourceUrl: 'javascript:alert(1)' }),
+      image('https://a.test/2.png', { sourceUrl: 'ask://ask?q=planted' }),
+      image('https://a.test/3.png', { sourceUrl: 'HTTPS://b.test/page' })
+    ])
+    expect(extractSpecContent(text).images).toEqual([
+      { src: 'https://a.test/1.png' },
+      { src: 'https://a.test/2.png' },
+      { src: 'https://a.test/3.png', sourceUrl: 'HTTPS://b.test/page' }
+    ])
+  })
+
   it('collects from several fences, images first then related', () => {
     const text = [
       imageFence([image('https://a.test/1.png')]),

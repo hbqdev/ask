@@ -17,11 +17,15 @@ export const MODEL_LOAD_ERROR = 'Couldn’t load the models.'
 export const MODEL_SAVE_ERROR = 'Couldn’t change the model. Try again.'
 
 /** The search modes, in the order the sheet lists them. */
-export const SEARCH_MODES: { value: SearchMode; label: string }[] = [
-  { value: 'speed', label: 'Speed' },
-  { value: 'balanced', label: 'Balanced' },
-  { value: 'quality', label: 'Quality' }
-]
+export const SEARCH_MODE_LABELS: Record<SearchMode, string> = {
+  speed: 'Speed',
+  balanced: 'Balanced',
+  quality: 'Quality'
+}
+
+export const SEARCH_MODES: { value: SearchMode; label: string }[] = (
+  ['speed', 'balanced', 'quality'] as const
+).map(value => ({ value, label: SEARCH_MODE_LABELS[value] }))
 
 const SOURCES: { value: SourceMode; label: string }[] = [
   { value: 'web', label: 'Web' },

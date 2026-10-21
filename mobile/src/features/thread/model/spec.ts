@@ -66,7 +66,10 @@ function imageOf(element: UIElement): SpecImage | undefined {
   if (typeof src !== 'string' || !HTTP_URL_RE.test(src)) return undefined
   const image: SpecImage = { src }
   if (typeof title === 'string') image.title = title
-  if (typeof sourceUrl === 'string') image.sourceUrl = sourceUrl
+  // Only a web page is opened; any other link falls back to the image.
+  if (typeof sourceUrl === 'string' && HTTP_URL_RE.test(sourceUrl)) {
+    image.sourceUrl = sourceUrl
+  }
   return image
 }
 

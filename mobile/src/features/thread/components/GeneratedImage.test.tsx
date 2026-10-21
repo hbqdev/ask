@@ -117,6 +117,19 @@ describe('GeneratedImage', () => {
     expect(screen.queryByRole('img')).not.toBeInTheDocument()
   })
 
+  it.each([
+    ['neither an image nor an error', {}],
+    ['an image URL that is not text', { imageUrl: 42, prompt: 'x' }]
+  ])('renders nothing for an output with %s', (_label, output) => {
+    const { container } = render(
+      <GeneratedImage
+        part={imagePart('output-available', output)}
+        baseUrl={BASE}
+      />
+    )
+    expect(container).toBeEmptyDOMElement()
+  })
+
   it('renders nothing for a call that errored', () => {
     const { container } = render(
       <GeneratedImage part={imagePart('output-error')} baseUrl={BASE} />
