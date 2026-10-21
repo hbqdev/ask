@@ -2,6 +2,12 @@ import { cloneElement } from 'react'
 
 import { UseChatHelpers } from '@ai-sdk/react'
 
+import {
+  isAnswerText,
+  isGeneratedImagePart,
+  isResearchPart,
+  isTurnStreaming
+} from '@/lib/render/message-parts'
 import { narrationCleanView } from '@/lib/streaming/helpers/strip-narration-from-message'
 import type { SearchResultItem } from '@/lib/types'
 import type {
@@ -168,9 +174,10 @@ export function RenderMessage({
   // answer that doesn't start with a heading, and its research process would
   // light up as "Working on it" (the "double search" UI bug). Scope it to
   // this specific message.
-  const isThisMessageStreaming =
-    Boolean(isLatestMessage) &&
-    (status === 'streaming' || status === 'submitted')
+  const isThisMessageStreaming = isTurnStreaming(
+    Boolean(isLatestMessage),
+    status ?? ''
+  )
   const isStreamingComplete = !isThisMessageStreaming
 
   // Voice read-aloud: the finished answer carries a data-spokenGist part (see
@@ -234,10 +241,10 @@ export function RenderMessage({
       // else may. That's knowable immediately, without waiting for more
       // parts to arrive, so it's what mutes interim narration during
       // streaming instead of letting it flash on screen first.
-      const looksLikeFinalAnswer = /^#{1,6}\s/.test(part.text.trimStart())
-      const shouldRenderAsAnswer = isStreamingComplete
-        ? isLastTextPart
-        : looksLikeFinalAnswer
+      const shouldRenderAsAnswer = isAnswerText(part.text, {
+        streamingComplete: isStreamingComplete,
+        isLastNonEmptyTextPart: isLastTextPart
+      })
 
       if (!shouldRenderAsAnswer) {
         return
@@ -278,13 +285,12 @@ export function RenderMessage({
         />
       )
     } else if (
-      part.type === 'tool-generateImage' ||
       // generateImage can also surface as a dynamic-tool part (it is not one of
       // the client's statically-typed UITools): live it streams as
       // tool-generateImage, but a reloaded turn can rehydrate the image tool as
       // a dynamic-tool. Both forms are answer content — the standalone image
       // card — never a buried research step.
-      (part.type === 'dynamic-tool' && part.toolName === 'generateImage')
+      isGeneratedImagePart(part)
     ) {
       // Generated images are answer content, not research process — they
       // render standalone, never buried in the collapsed accordion.
@@ -296,23 +302,12 @@ export function RenderMessage({
         />
       )
     } else if (
-      part.type === 'reasoning' ||
-      part.type === 'data-classifier' ||
-      part.type === 'data-attachments' ||
-      // Recall attribution rides inside the research process as one of its
-      // steps (user preference: the answer view stays clean; the past-chat
-      // links are found under "Completed N steps"). Empty recall parts are
-      // dropped so they can't render a blank step.
-      (part.type === 'data-recall' && part.data?.chats?.length) ||
-      // tool-generateImage / the generateImage image card are handled above;
-      // every other tool-* part is research process and buffers.
-      (part.type?.startsWith?.('tool-') &&
-        part.type !== 'tool-generateImage') ||
-      // Dynamic tools (calculate, get_weather, remember, recall, MCP mcp__*)
-      // are ordinary research steps: buffer them into the accordion so they
-      // collapse under "Completed N steps" instead of rendering as a
-      // standalone, un-collapsible "Custom Tool" box.
-      part.type === 'dynamic-tool'
+      // Reasoning, classifier, attachments, a non-empty recall (past-chat
+      // links ride under "Completed N steps"; an empty one would render a
+      // blank step), and every tool-* / dynamic-tool part other than the
+      // generated image (handled above) are research steps: buffer them into
+      // the accordion so they collapse under "Completed N steps".
+      isResearchPart(part)
     ) {
       buffer.push(part)
     }
