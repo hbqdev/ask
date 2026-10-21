@@ -173,8 +173,9 @@ function wrapper({ children }: { children: ReactNode }) {
 }
 
 function renderThread(isNew = true) {
-  return renderHook(() => useThread({ chatId: CHAT_ID, isNew, settings }), {
-    wrapper
+  return renderHook(({ chatId }) => useThread({ chatId, isNew, settings }), {
+    wrapper,
+    initialProps: { chatId: CHAT_ID }
   })
 }
 
@@ -524,6 +525,77 @@ describe('useThread', () => {
     ])
   })
 
+  it('does not let a late load overwrite a question sent meanwhile', async () => {
+    let answerLoad: (res: Response) => void = () => {}
+    serve({
+      messages: [
+        () =>
+          new Promise<Response>(resolve => {
+            answerLoad = resolve
+          })
+      ],
+      chat: [hang]
+    })
+    const { result } = renderThread(false)
+    await waitFor(() =>
+      expect(requests('GET', `/api/chat/${CHAT_ID}/messages`)).toHaveLength(1)
+    )
+    act(() => result.current.send('Asked early'))
+    await waitFor(() => expect(result.current.status).toBe('submitted'))
+
+    await act(async () => {
+      answerLoad(json({ messages: [user('u0', 'Saved')] }))
+      // Past the 100 ms message throttle, so a late update would show.
+      await new Promise(resolve => setTimeout(resolve, 150))
+    })
+
+    expect(transcript(result.current.messages)).toEqual([
+      { role: 'user', texts: ['Asked early'] }
+    ])
+    expect(result.current.loading).toBe(false)
+  })
+
+  it('loads the next chat when the chat id changes', async () => {
+    const pending: Record<string, (res: Response) => void> = {}
+    fetchMock.mockImplementation(
+      async input =>
+        new Promise<Response>(resolve => {
+          pending[String(input)] = resolve
+        })
+    )
+    const { result, rerender } = renderHook(
+      ({ chatId }) => useThread({ chatId, isNew: false, settings }),
+      { wrapper, initialProps: { chatId: 'chat-a' } }
+    )
+    await waitFor(() =>
+      expect(pending[`${BASE}/api/chat/chat-a/messages`]).toBeDefined()
+    )
+    await act(async () =>
+      pending[`${BASE}/api/chat/chat-a/messages`](
+        json({ messages: [user('a', 'Chat A')] })
+      )
+    )
+    await waitFor(() => expect(result.current.loading).toBe(false))
+
+    rerender({ chatId: 'chat-b' })
+
+    expect(result.current.loading).toBe(true)
+    await waitFor(() =>
+      expect(pending[`${BASE}/api/chat/chat-b/messages`]).toBeDefined()
+    )
+    await act(async () =>
+      pending[`${BASE}/api/chat/chat-b/messages`](
+        json({ messages: [user('b', 'Chat B')] })
+      )
+    )
+    await waitFor(() => expect(result.current.loading).toBe(false))
+    await waitFor(() =>
+      expect(transcript(result.current.messages)).toEqual([
+        { role: 'user', texts: ['Chat B'] }
+      ])
+    )
+  })
+
   describe('retryLast', () => {
     it('reloads after a failed load', async () => {
       serve({
@@ -691,11 +763,33 @@ describe('useThread', () => {
       return result
     }
 
+    /** backgroundMidAnswer, also handing back unmount. */
+    async function backgroundMidAnswerHook(live: ReturnType<typeof liveSse>) {
+      const hook = renderThread()
+      await waitFor(() => expect(app.listeners).toHaveLength(1))
+      act(() => hook.result.current.send('Q'))
+      live.push({ type: 'start', messageId: 'a1' })
+      await waitFor(() => expect(hook.result.current.status).toBe('streaming'))
+      setAppActive(false)
+      live.fail(new TypeError('Load failed'))
+      await waitFor(() => expect(hook.result.current.status).toBe('error'))
+      return hook
+    }
+
     function serveWithLiveChat(
       live: ReturnType<typeof liveSse>,
       routes: Routes
     ) {
-      serve({ chat: [() => live.response], ...routes })
+      // Like a real fetch, aborting the request errors its body.
+      const chat: Handler = init => {
+        init.signal?.addEventListener('abort', () =>
+          live.fail(
+            new DOMException('The operation was aborted.', 'AbortError')
+          )
+        )
+        return live.response
+      }
+      serve({ chat: [chat], ...routes })
     }
 
     it('resumes on foreground when a turn was in flight', async () => {
@@ -862,6 +956,163 @@ describe('useThread', () => {
         { role: 'user', texts: ['Q'] },
         { role: 'assistant', texts: ['Hel'] }
       ])
+    })
+
+    it('stops the saved-copy retries when the thread goes away', async () => {
+      const live = liveSse()
+      const unsaved = () => json({ messages: [user('u1', 'Q')] })
+      serveWithLiveChat(live, {
+        stream: [() => new Response(null, { status: 204 })],
+        messages: [unsaved, unsaved, unsaved]
+      })
+      const { result, unmount } = await backgroundMidAnswerHook(live)
+      expect(result.current.status).toBe('error')
+      vi.useFakeTimers({ shouldAdvanceTime: true })
+
+      setAppActive(true)
+      await waitFor(() =>
+        expect(requests('GET', `/api/chat/${CHAT_ID}/messages`)).toHaveLength(1)
+      )
+      unmount()
+      await act(() => vi.advanceTimersByTimeAsync(3000))
+
+      expect(requests('GET', `/api/chat/${CHAT_ID}/messages`)).toHaveLength(1)
+    })
+
+    it('does not put a saved copy into the next chat', async () => {
+      const live = liveSse()
+      let answerReload: (res: Response) => void = () => {}
+      serveWithLiveChat(live, {
+        stream: [() => new Response(null, { status: 204 })],
+        messages: [
+          () =>
+            new Promise<Response>(resolve => {
+              answerReload = resolve
+            })
+        ]
+      })
+      const { result, rerender } = await backgroundMidAnswerHook(live)
+
+      setAppActive(true)
+      await waitFor(() =>
+        expect(requests('GET', `/api/chat/${CHAT_ID}/messages`)).toHaveLength(1)
+      )
+      rerender({ chatId: 'chat-2' })
+      await act(async () => {
+        answerReload(
+          json({ messages: [user('u1', 'Q'), assistant('a1', 'Saved')] })
+        )
+        // Past the 100 ms message throttle, so a late update would show.
+        await new Promise(resolve => setTimeout(resolve, 150))
+      })
+
+      expect(result.current.messages).toEqual([])
+    })
+
+    /**
+     * Leaves the app mid-answer and comes back while the request still looks
+     * alive; the suspended request only errors after that.
+     */
+    async function foregroundBeforeTheDropIsSeen(
+      live: ReturnType<typeof liveSse>
+    ) {
+      const { result } = renderThread()
+      await waitFor(() => expect(app.listeners).toHaveLength(1))
+      act(() => result.current.send('Q'))
+      await waitFor(() => expect(result.current.status).toBe('submitted'))
+      live.push({ type: 'start', messageId: 'a1' })
+      live.push({ type: 'text-start', id: 't1' })
+      live.push({ type: 'text-delta', id: 't1', delta: 'Hel' })
+      await waitFor(() => expect(result.current.status).toBe('streaming'))
+
+      setAppActive(false)
+      setAppActive(true)
+      await act(async () => {})
+      expect(requests('GET', `/api/chat/${CHAT_ID}/stream`)).toHaveLength(0)
+
+      live.fail(new TypeError('Load failed'))
+      return result
+    }
+
+    it('resumes after the suspended request errors post-foreground', async () => {
+      const live = liveSse()
+      serveWithLiveChat(live, {
+        stream: [() => new Response(null, { status: 204 })],
+        messages: [
+          () => json({ messages: [user('u1', 'Q'), assistant('a1', 'Hello')] })
+        ]
+      })
+      const result = await foregroundBeforeTheDropIsSeen(live)
+
+      await waitFor(() =>
+        expect(requests('GET', `/api/chat/${CHAT_ID}/messages`)).toHaveLength(1)
+      )
+      expect(requests('GET', `/api/chat/${CHAT_ID}/stream`)).toHaveLength(1)
+      await waitFor(() =>
+        expect(transcript(result.current.messages)).toEqual([
+          { role: 'user', texts: ['Q'] },
+          { role: 'assistant', texts: ['Hello'] }
+        ])
+      )
+      expect(result.current.status).toBe('ready')
+      expect(result.current.error).toBeUndefined()
+    })
+
+    it('replays a still-live turn after the suspended request errors post-foreground', async () => {
+      const live = liveSse()
+      serveWithLiveChat(live, {
+        stream: [() => sse(answerChunks('a1', 'Hello'))]
+      })
+      const result = await foregroundBeforeTheDropIsSeen(live)
+
+      await waitFor(() =>
+        expect(transcript(result.current.messages)).toEqual([
+          { role: 'user', texts: ['Q'] },
+          { role: 'assistant', texts: ['Hello'] }
+        ])
+      )
+      await waitFor(() => expect(result.current.status).toBe('ready'))
+      expect(result.current.error).toBeUndefined()
+    })
+
+    it('does not resume a chat the user has left', async () => {
+      const live = liveSse()
+      serveWithLiveChat(live, {})
+      const { result, rerender } = renderThread()
+      await waitFor(() => expect(app.listeners).toHaveLength(1))
+      act(() => result.current.send('Q'))
+      live.push({ type: 'start', messageId: 'a1' })
+      await waitFor(() => expect(result.current.status).toBe('streaming'))
+      setAppActive(false)
+      setAppActive(true)
+
+      rerender({ chatId: 'chat-2' })
+      live.fail(new TypeError('Load failed'))
+      await act(() => new Promise(resolve => setTimeout(resolve, 50)))
+
+      expect(fetchMock.mock.calls.map(([input]) => String(input))).toEqual([
+        `${BASE}/api/chat`
+      ])
+    })
+
+    it('does not resume after the user stopped the turn', async () => {
+      const live = liveSse()
+      serveWithLiveChat(live, {
+        stop: [() => new Response(null, { status: 204 })]
+      })
+      const { result } = renderThread()
+      await waitFor(() => expect(app.listeners).toHaveLength(1))
+      act(() => result.current.send('Q'))
+      live.push({ type: 'start', messageId: 'a1' })
+      await waitFor(() => expect(result.current.status).toBe('streaming'))
+      setAppActive(false)
+      setAppActive(true)
+
+      await act(() => result.current.stop())
+
+      await waitFor(() => expect(result.current.status).toBe('ready'))
+      await act(async () => {})
+      expect(requests('GET', `/api/chat/${CHAT_ID}/stream`)).toHaveLength(0)
     })
 
     it('keeps what is on screen when the reload fails', async () => {

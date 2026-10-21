@@ -142,24 +142,50 @@ export function useThread({
     []
   )
 
+  // The app came back while its turn still looked connected; resume once
+  // that turn ends (the suspended request usually errors only afterwards).
+  const resumeWhenSettledRef = useRef(false)
+  const resumeStreamRef = useRef(resumeStream)
+  useEffect(() => {
+    resumeStreamRef.current = resumeStream
+  }, [resumeStream])
+
   const runTurn = useCallback((turn: () => Promise<void>) => {
     turnRef.current = true
     setLoadError(undefined)
     void turn().finally(() => {
       turnRef.current = false
+      if (resumeWhenSettledRef.current) {
+        resumeWhenSettledRef.current = false
+        runTurn(() => resumeStreamRef.current())
+      }
     })
   }, [])
+
+  // Bumped when this thread goes away (unmount or another chat id), so async
+  // work started for it stops writing into whatever is shown next.
+  const generation = useRef(0)
+  useEffect(
+    () => () => {
+      generation.current++
+      resumeWhenSettledRef.current = false
+    },
+    [chatId]
+  )
 
   // An existing chat: show its saved messages (again on each reload).
   const [loadRequest, setLoadRequest] = useState(0)
   useEffect(() => {
+    setLoadError(undefined)
+    setLoading(!isNew)
     if (isNew) return
     let cancelled = false
     client
       .json<MessagesResponse>(`/api/chat/${chatId}/messages`)
       .then(
         data => {
-          if (!cancelled) setMessages(data.messages ?? [])
+          // A question sent while loading wins over the saved copy.
+          if (!cancelled && !inFlight()) setMessages(data.messages ?? [])
         },
         (err: Error) => {
           if (!cancelled) setLoadError(err)
@@ -171,20 +197,20 @@ export function useThread({
     return () => {
       cancelled = true
     }
-  }, [chatId, isNew, client, setMessages, loadRequest])
+  }, [chatId, isNew, client, inFlight, setMessages, loadRequest])
 
   const reload = useCallback(() => {
-    if (isNew) return
-    setLoadError(undefined)
-    setLoading(true)
-    setLoadRequest(n => n + 1)
+    if (!isNew) setLoadRequest(n => n + 1)
   }, [isNew])
 
   // Resume outcomes (see ResumableChatTransport).
   const reloadSaved = useCallback(async () => {
+    const started = generation.current
+    const gone = () => generation.current !== started
     for (let attempt = 0; attempt < RELOAD_ATTEMPTS; attempt++) {
       if (attempt > 0) {
         await new Promise(resolve => setTimeout(resolve, RELOAD_DELAY_MS))
+        if (gone()) return
       }
       let saved: UIMessage[] | undefined
       try {
@@ -195,7 +221,7 @@ export function useThread({
         console.warn('[thread] reload after resume failed', err)
         return
       }
-      if (!saved?.length) return
+      if (gone() || !saved?.length) return
       // The stream can report done a moment before the answer is saved.
       if (saved[saved.length - 1].role !== 'assistant') continue
       // The user started something new meanwhile: keep what is on screen.
@@ -227,10 +253,6 @@ export function useThread({
 
   // Backgrounding drops the connection but the server keeps generating, so a
   // turn in flight when the app left is resumed when it comes back.
-  const resumeStreamRef = useRef(resumeStream)
-  useEffect(() => {
-    resumeStreamRef.current = resumeStream
-  }, [resumeStream])
   useEffect(() => {
     let leftMidTurn = false
     const handle = App.addListener('appStateChange', ({ isActive }) => {
@@ -238,10 +260,11 @@ export function useThread({
         leftMidTurn = inFlight()
         return
       }
-      // Still connected (or already resuming): nothing to do yet.
-      if (!leftMidTurn || inFlight()) return
+      if (!leftMidTurn) return
       leftMidTurn = false
-      runTurn(() => resumeStreamRef.current())
+      // Still looks connected (or already resuming): resume when it ends.
+      if (inFlight()) resumeWhenSettledRef.current = true
+      else runTurn(() => resumeStreamRef.current())
     })
     return () => {
       void handle.then(h => h.remove())
@@ -260,6 +283,8 @@ export function useThread({
   // The server keeps generating after a disconnect, so stop it there first,
   // then cancel the local read.
   const stop = useCallback(async () => {
+    // The user ended the turn: don't bring it back.
+    resumeWhenSettledRef.current = false
     try {
       const res = await client.fetch(`/api/chat/${chatId}/stop`, {
         method: 'POST'
