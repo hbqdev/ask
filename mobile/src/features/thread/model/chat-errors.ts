@@ -25,6 +25,7 @@ function parseJsonObject(text: string): Record<string, unknown> | null {
   }
 }
 
+/** An auth error is never retryable: Retry would fail the same way; sign in instead. */
 export function describeChatError(error: Error): ChatErrorView {
   const text = error.message.trim()
   if (!text) {
@@ -42,16 +43,15 @@ export function describeChatError(error: Error): ChatErrorView {
       typeof body.error === 'string' && body.error.trim()
         ? body.error
         : payload.error
+    const authRequired =
+      payload.authRequired === true || payload.code === 'auth_required'
     return {
       message,
-      retryable: payload.retryable !== false,
-      authRequired: payload.authRequired === true
+      retryable: !authRequired && payload.retryable !== false,
+      authRequired
     }
   }
 
-  return {
-    message: text,
-    retryable: text !== AUTH_REQUIRED,
-    authRequired: text === AUTH_REQUIRED || text === SIGNED_OUT
-  }
+  const authRequired = text === AUTH_REQUIRED || text === SIGNED_OUT
+  return { message: text, retryable: !authRequired, authRequired }
 }

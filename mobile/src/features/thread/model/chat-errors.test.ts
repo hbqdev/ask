@@ -49,8 +49,32 @@ describe('describeChatError', () => {
     })
   })
 
-  it('treats "Signed out" as sign-in', () => {
-    expect(view('Signed out').authRequired).toBe(true)
+  it('treats "Signed out" as sign-in, not retryable', () => {
+    expect(view('Signed out')).toEqual<ChatErrorView>({
+      message: 'Signed out',
+      retryable: false,
+      authRequired: true
+    })
+  })
+
+  it('never offers Retry on an auth payload, even one marked retryable', () => {
+    expect(
+      view('{"error":"Please sign in","authRequired":true,"retryable":true}')
+    ).toEqual<ChatErrorView>({
+      message: 'Please sign in',
+      retryable: false,
+      authRequired: true
+    })
+  })
+
+  it('treats an auth_required code as sign-in, not retryable', () => {
+    expect(
+      view('{"error":"Sign in","code":"auth_required","retryable":true}')
+    ).toEqual<ChatErrorView>({
+      message: 'Sign in',
+      retryable: false,
+      authRequired: true
+    })
   })
 
   it('uses a plain-text body as it is, retryable by default', () => {
