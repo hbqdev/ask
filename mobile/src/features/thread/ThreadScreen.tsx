@@ -32,6 +32,17 @@ import { isTurnStreaming } from '@/lib/render/message-parts'
 /** How far above the bottom the user may be and still be followed. */
 const FOLLOW_SLACK_PX = 80
 
+type ScrollLook = { top: number; height: number }
+
+const lookAt = (el: HTMLElement): ScrollLook => ({
+  top: el.scrollTop,
+  height: el.scrollHeight
+})
+
+/** More than the slack is hidden below the visible part. */
+const belowFold = (el: HTMLElement) =>
+  el.scrollHeight - el.scrollTop - el.clientHeight > FOLLOW_SLACK_PX
+
 export type ThreadScreenProps = {
   chatId: string
   /** A chat started on this device: nothing saved to load. Fixed for the screen's life. */
@@ -166,9 +177,10 @@ export function ThreadScreen({
   const busy = status === 'submitted' || status === 'streaming'
 
   // The answer renderer is a separate chunk: fetch it while the question is
-  // on its way, so the first answer renders at once.
+  // on its way, so the first answer renders at once. A failed preload is
+  // not this screen's error: the answer's own load meets it when it renders.
   useEffect(() => {
-    void preloadAnswerRenderer()
+    preloadAnswerRenderer().catch(() => {})
   }, [])
 
   // The opening question, sent once (a double mount must not ask it twice).
@@ -180,23 +192,58 @@ export function ThreadScreen({
   }, [initialQuestion, send])
 
   // --- Following the bottom ---------------------------------------------------
+  // The answer renderer commits its blocks after React's update (and the
+  // keyboard resizes the scroller), so the pin runs from ResizeObservers, not
+  // only on renders. Only an upward move by the user stops following: a
+  // scroll event the pin or a browser clamp causes never does.
   const scroller = useRef<HTMLDivElement>(null)
-  const [following, setFollowing] = useState(true)
+  const content = useRef<HTMLDivElement>(null)
+  const [following, setFollowingState] = useState(true)
+  const followingRef = useRef(true)
+  // Where the scroller was, and how tall its content, when last looked at.
+  const last = useRef<ScrollLook>({ top: 0, height: 0 })
+
+  const setFollowing = useCallback((next: boolean) => {
+    followingRef.current = next
+    setFollowingState(next)
+  }, [])
 
   const toBottom = useCallback(() => {
     const el = scroller.current!
     el.scrollTop = el.scrollHeight
+    last.current = lookAt(el)
   }, [])
 
   const onScroll = () => {
     const el = scroller.current!
-    const below = el.scrollHeight - el.scrollTop - el.clientHeight
-    setFollowing(below <= FOLLOW_SLACK_PX)
+    if (!belowFold(el)) {
+      if (!followingRef.current) setFollowing(true)
+    } else if (
+      followingRef.current &&
+      el.scrollTop < last.current.top - 1 &&
+      // A move up while the content changed size is the browser's clamp.
+      el.scrollHeight === last.current.height
+    ) {
+      setFollowing(false)
+    }
+    last.current = lookAt(el)
   }
 
   useLayoutEffect(() => {
     if (following) toBottom()
   }, [messages, status, following, toBottom])
+
+  useEffect(() => {
+    const el = scroller.current!
+    const observer = new ResizeObserver(() => {
+      if (followingRef.current) toBottom()
+      // Nothing left below to jump to: follow again.
+      else if (!belowFold(el)) setFollowing(true)
+    })
+    observer.observe(el)
+    observer.observe(content.current!)
+    return () => observer.disconnect()
+  }, [toBottom, setFollowing])
 
   const jumpToLatest = () => {
     setFollowing(true)
@@ -244,49 +291,51 @@ export function ThreadScreen({
           onScroll={onScroll}
           className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-4 py-4"
         >
-          {thread.loading ? (
-            <LoadingSkeleton />
-          ) : (
-            <div className="flex flex-col gap-5">
-              {messages.map((message, i) => {
-                if (message.role === 'user') {
+          <div ref={content} data-testid="thread-content">
+            {thread.loading ? (
+              <LoadingSkeleton />
+            ) : (
+              <div className="flex flex-col gap-5">
+                {messages.map((message, i) => {
+                  if (message.role === 'user') {
+                    return (
+                      <p
+                        key={message.id}
+                        className="ml-auto max-w-[85%] rounded-3xl bg-foreground/8 px-4 py-2.5 text-base whitespace-pre-wrap"
+                      >
+                        {textOf(message)}
+                      </p>
+                    )
+                  }
+                  const isLatest = i === messages.length - 1
+                  const prev = messages[i - 1]
                   return (
-                    <p
+                    <AssistantTurn
                       key={message.id}
-                      className="ml-auto max-w-[85%] rounded-3xl bg-foreground/8 px-4 py-2.5 text-base whitespace-pre-wrap"
-                    >
-                      {textOf(message)}
-                    </p>
+                      message={message}
+                      streaming={isTurnStreaming(isLatest, status)}
+                      isLatest={isLatest}
+                      question={prev?.role === 'user' ? textOf(prev) : ''}
+                      onAsk={send}
+                      onRetry={thread.retry}
+                      baseUrl={baseUrl}
+                    />
                   )
-                }
-                const isLatest = i === messages.length - 1
-                const prev = messages[i - 1]
-                return (
-                  <AssistantTurn
-                    key={message.id}
-                    message={message}
-                    streaming={isTurnStreaming(isLatest, status)}
-                    isLatest={isLatest}
-                    question={prev?.role === 'user' ? textOf(prev) : ''}
-                    onAsk={send}
-                    onRetry={thread.retry}
-                    baseUrl={baseUrl}
-                  />
-                )
-              })}
-              {status === 'submitted' &&
-                messages.at(-1)?.role !== 'assistant' && <Thinking />}
-            </div>
-          )}
-          {thread.error && (
-            <div className="pt-4">
-              <ErrorBanner
-                error={thread.error}
-                onRetry={thread.retryLast}
-                onSignIn={() => void signOut()}
-              />
-            </div>
-          )}
+                })}
+                {status === 'submitted' &&
+                  messages.at(-1)?.role !== 'assistant' && <Thinking />}
+              </div>
+            )}
+            {thread.error && (
+              <div className="pt-4">
+                <ErrorBanner
+                  error={thread.error}
+                  onRetry={thread.retryLast}
+                  onSignIn={() => void signOut()}
+                />
+              </div>
+            )}
+          </div>
         </div>
         {!following && (
           <button

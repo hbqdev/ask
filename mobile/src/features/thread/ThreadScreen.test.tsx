@@ -2,6 +2,7 @@ import type { UIMessage } from 'ai'
 import { act, fireEvent, render, screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { StrictMode, type ReactNode } from 'react'
+import { Share } from '@capacitor/share'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { useApi, type Api } from '@/core/api/ApiProvider'
@@ -13,11 +14,33 @@ import type { ChatErrorView } from '@/features/thread/model/chat-errors'
 import { openThread, ThreadScreen } from '@/features/thread/ThreadScreen'
 import { useThread, type ThreadSession } from '@/features/thread/useThread'
 import { memoryStorage } from '@/test/memory-storage'
+import { resize } from '@/test/resize-observer'
 
 vi.mock('@/features/thread/useThread', () => ({ useThread: vi.fn() }))
 vi.mock('@/core/auth/AuthProvider', () => ({ useAuth: vi.fn() }))
 vi.mock('@/core/api/ApiProvider', () => ({ useApi: vi.fn() }))
 vi.mock('@/core/ids', () => ({ newId: vi.fn(() => 'new-chat-id') }))
+// A plain function, not vi.fn: a mock records each promise it returns, which
+// would mark a rejection as handled and hide the bug the test looks for.
+const preload = vi.hoisted(() => ({
+  calls: 0,
+  fail: undefined as Error | undefined
+}))
+vi.mock('@/features/thread/components/AssistantTurn', async importOriginal => {
+  const real =
+    await importOriginal<
+      typeof import('@/features/thread/components/AssistantTurn')
+    >()
+  return {
+    ...real,
+    preloadAnswerRenderer: () => {
+      preload.calls++
+      const fail = preload.fail
+      preload.fail = undefined
+      return fail ? Promise.reject(fail) : real.preloadAnswerRenderer()
+    }
+  }
+})
 vi.mock('@capacitor/clipboard', () => ({
   Clipboard: { write: vi.fn(async () => {}) }
 }))
@@ -248,6 +271,57 @@ describe('ThreadScreen', () => {
     ).toBeInTheDocument()
   })
 
+  it('survives a failed preload of the answer renderer', async () => {
+    const unhandled = vi.fn()
+    process.on('unhandledRejection', unhandled)
+    preload.calls = 0
+    preload.fail = new Error('Failed to fetch dynamically imported module')
+    renderScreen(session())
+    await act(() => new Promise(resolve => setTimeout(resolve, 10)))
+    process.off('unhandledRejection', unhandled)
+
+    expect(preload.calls).toBe(1)
+    expect(unhandled).not.toHaveBeenCalled()
+  })
+
+  it('shows only the text of a question with other parts', async () => {
+    const userEv = userEvent.setup()
+    const question = {
+      id: 'u1',
+      role: 'user',
+      parts: [
+        {
+          type: 'file',
+          mediaType: 'image/png',
+          url: 'https://ask.test.invalid/uploads/a.png'
+        },
+        { type: 'text', text: 'What is in this picture?' }
+      ]
+    } as UIMessage
+    renderScreen(
+      session({ messages: [question, assistant('a1', 'A red fox.')] })
+    )
+    expect(
+      screen.getByText('What is in this picture?', { selector: 'p' })
+    ).toBeVisible()
+
+    // The answer is shared under its question's text.
+    await userEv.click(screen.getByRole('button', { name: 'Share' }))
+    expect(Share.share).toHaveBeenCalledWith(
+      expect.objectContaining({ title: 'What is in this picture?' })
+    )
+  })
+
+  it('shares an answer with no question before it untitled', async () => {
+    const userEv = userEvent.setup()
+    renderScreen(session({ messages: [assistant('a1', 'Hello.')] }))
+
+    await userEv.click(screen.getByRole('button', { name: 'Share' }))
+    expect(Share.share).toHaveBeenCalledWith(
+      expect.objectContaining({ title: '' })
+    )
+  })
+
   it('shows the question and the answer of each turn', async () => {
     renderScreen(session({ messages: TURN }))
     expect(
@@ -402,31 +476,52 @@ describe('ThreadScreen', () => {
   })
 
   describe('following the answer', () => {
-    /** Scroll metrics for the thread's scroller, which jsdom doesn't lay out. */
+    /**
+     * Scroll metrics for the thread's scroller, which jsdom doesn't lay out.
+     * Like a browser, scrollTop stays within 0..scrollHeight - clientHeight.
+     */
     function metrics(el: HTMLElement, height: number, client: number) {
       let top = 0
       let scrollHeight = height
+      let clientHeight = client
+      const clamp = (v: number) =>
+        Math.max(0, Math.min(v, scrollHeight - clientHeight))
       Object.defineProperty(el, 'scrollHeight', {
         configurable: true,
         get: () => scrollHeight
       })
       Object.defineProperty(el, 'clientHeight', {
         configurable: true,
-        get: () => client
+        get: () => clientHeight
       })
       Object.defineProperty(el, 'scrollTop', {
         configurable: true,
         get: () => top,
         set: (v: number) => {
-          top = v
+          top = clamp(v)
         }
       })
       return {
+        /** The content's height changes; no React render, no scroll event. */
         grow(h: number) {
           scrollHeight = h
         },
-        scrollTo(v: number) {
+        /** The visible height changes (the keyboard opens or closes). */
+        setClient(h: number) {
+          clientHeight = h
+          top = clamp(top)
+        },
+        /** The browser moves the scroll position on its own (a clamp). */
+        clampTo(v: number) {
           top = v
+        },
+        /** A scroll event at the current position. */
+        fire() {
+          fireEvent.scroll(el)
+        },
+        /** The user scrolls to `v`. */
+        scrollTo(v: number) {
+          top = clamp(v)
           fireEvent.scroll(el)
         },
         top: () => top
@@ -434,6 +529,7 @@ describe('ThreadScreen', () => {
     }
 
     const scroller = () => screen.getByTestId('thread-scroll')
+    const content = () => screen.getByTestId('thread-content')
     const jump = () => screen.queryByRole('button', { name: 'Jump to latest' })
     const more = (n: number, status: ThreadSession['status'] = 'streaming') =>
       session({
@@ -445,54 +541,143 @@ describe('ThreadScreen', () => {
         ]
       })
 
-    it('keeps the newest text in view while streaming', () => {
+    /** The screen streaming, its scroller pinned to the bottom of 1000 px. */
+    function pinned() {
       const view = renderScreen(more(1))
       const m = metrics(scroller(), 1000, 500)
       m.scrollTo(500)
+      return { view, m }
+    }
+
+    it('keeps the newest text in view while streaming', () => {
+      const { view, m } = pinned()
 
       m.grow(1400)
       view.update(more(2))
-      expect(m.top()).toBe(1400)
+      expect(m.top()).toBe(900)
       expect(jump()).not.toBeInTheDocument()
     })
 
+    it('keeps following when content grows after the pin (not a user scroll)', () => {
+      const { m } = pinned()
+
+      // The answer renderer commits its blocks after React's update: the
+      // content grows with no render of this screen.
+      m.grow(1400)
+      act(() => resize(content()))
+      expect(m.top()).toBe(900)
+
+      // The scroll event the pin causes is not the user's.
+      m.fire()
+      expect(jump()).not.toBeInTheDocument()
+      m.grow(1800)
+      act(() => resize(content()))
+      expect(m.top()).toBe(1300)
+    })
+
+    it('keeps following through a shrink the browser clamps', () => {
+      const { m } = pinned()
+
+      // The content shrinks a little: the browser clamps scrollTop up to the
+      // new bottom and fires a scroll event.
+      m.grow(965)
+      m.clampTo(465)
+      m.fire()
+      expect(jump()).not.toBeInTheDocument()
+
+      // Clamped again, but the content regrows before the event arrives:
+      // the move up is still the browser's, not the user's.
+      m.grow(930)
+      m.clampTo(430)
+      m.grow(2543)
+      m.fire()
+      expect(jump()).not.toBeInTheDocument()
+      act(() => resize(content()))
+      expect(m.top()).toBe(2043)
+    })
+
+    it('stops following when the user scrolls up mid-stream', () => {
+      const { view, m } = pinned()
+
+      m.scrollTo(300)
+      expect(jump()).toBeInTheDocument()
+
+      m.grow(1400)
+      act(() => resize(content()))
+      view.update(more(2))
+      expect(m.top()).toBe(300)
+      expect(jump()).toBeInTheDocument()
+    })
+
     it('keeps following when scrolled up by no more than 80 px', () => {
-      const view = renderScreen(more(1))
-      const m = metrics(scroller(), 1000, 500)
+      const { view, m } = pinned()
       m.scrollTo(420)
       expect(jump()).not.toBeInTheDocument()
 
       m.grow(1400)
       view.update(more(2))
-      expect(m.top()).toBe(1400)
+      expect(m.top()).toBe(900)
     })
 
-    it('stops following once scrolled up, and jumps back on request', () => {
-      const view = renderScreen(more(1))
-      const m = metrics(scroller(), 1000, 500)
-      m.scrollTo(300)
+    it('re-pins when the scroller itself resizes (the keyboard opens)', () => {
+      const { m } = pinned()
+
+      m.setClient(200)
+      act(() => resize(scroller()))
+      expect(m.top()).toBe(800)
+      expect(jump()).not.toBeInTheDocument()
+    })
+
+    it('does not re-pin on a resize while the user reads above', () => {
+      const { m } = pinned()
+      m.scrollTo(100)
+
+      m.setClient(200)
+      act(() => resize(scroller()))
+      expect(m.top()).toBe(100)
       expect(jump()).toBeInTheDocument()
+    })
+
+    it('drops "Jump to latest" once nothing is below the fold', () => {
+      const { m } = pinned()
+      m.scrollTo(0)
+      expect(jump()).toBeInTheDocument()
+
+      // The content shrinks to fit: nothing left to jump to.
+      m.grow(450)
+      act(() => resize(content()))
+      expect(jump()).not.toBeInTheDocument()
+    })
+
+    it('jumps back on request', () => {
+      const { view, m } = pinned()
+      m.scrollTo(300)
 
       m.grow(1400)
       view.update(more(2))
-      expect(m.top()).toBe(300)
-
       fireEvent.click(jump()!)
-      expect(m.top()).toBe(1400)
+      expect(m.top()).toBe(900)
       expect(jump()).not.toBeInTheDocument()
+
+      // And follows again from there.
+      m.grow(1800)
+      act(() => resize(content()))
+      expect(m.top()).toBe(1300)
     })
 
     it('follows again after the user sends a follow-up', async () => {
       const userEv = userEvent.setup()
       const view = renderScreen(more(1, 'ready'))
       const m = metrics(scroller(), 1000, 500)
+      m.scrollTo(500)
       m.scrollTo(100)
+      expect(jump()).toBeInTheDocument()
       await userEv.type(composer(), 'Again{Enter}')
       expect(jump()).not.toBeInTheDocument()
 
       m.grow(1600)
       view.update(more(3))
-      expect(m.top()).toBe(1600)
+      expect(m.top()).toBe(1100)
     })
   })
 })
