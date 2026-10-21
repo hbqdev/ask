@@ -65,10 +65,57 @@ describe('createApiClient().fetch', () => {
     expect(sentHeaders(fetchImpl).get('Authorization')).toBe(`Bearer ${TOKEN}`)
   })
 
-  it('omits Authorization when there is no token', async () => {
+  it('rejects with a non-retryable 401 and never fetches when there is no token', async () => {
     const { client, fetchImpl } = setup(async () => new Response('ok'), null)
-    await client.fetch('/api/chats')
+    const err = await rejection(client.fetch('/api/chats'))
+    expect(err.status).toBe(401)
+    expect(err.message).toBe('Signed out')
+    expect(err.retryable).toBe(false)
+    expect(fetchImpl).not.toHaveBeenCalled()
+  })
+
+  it('rejects with a 401 and never fetches when getToken throws', async () => {
+    const fetchImpl = vi.fn(async () => new Response('ok'))
+    const client = createApiClient({
+      baseUrl: BASE,
+      getToken: async () => {
+        throw new Error('refresh failed')
+      },
+      fetchImpl: fetchImpl as unknown as typeof fetch
+    })
+    const err = await rejection(client.fetch('/api/chats'))
+    expect(err.status).toBe(401)
+    expect(err.message).toBe('Signed out')
+    expect(err.retryable).toBe(false)
+    expect(fetchImpl).not.toHaveBeenCalled()
+  })
+
+  it('json() also rejects signed-out without fetching', async () => {
+    const { client, fetchImpl } = setup(async () => Response.json({}), null)
+    const err = await rejection(client.json('/api/chats'))
+    expect(err.status).toBe(401)
+    expect(fetchImpl).not.toHaveBeenCalled()
+  })
+
+  it('skips the token entirely for a public request (auth: false)', async () => {
+    const { client, fetchImpl, getToken } = setup(
+      async () => new Response('ok'),
+      null
+    )
+    const res = await client.fetch('/api/config', { auth: false })
+    expect(res.status).toBe(200)
+    expect(getToken).not.toHaveBeenCalled()
     expect(sentHeaders(fetchImpl).has('Authorization')).toBe(false)
+    const init = fetchImpl.mock.calls[0][1] as Record<string, unknown>
+    expect('auth' in init).toBe(false)
+  })
+
+  it('json() honours auth: false', async () => {
+    const { client, getToken } = setup(async () => Response.json({ ok: 1 }))
+    await expect(
+      client.json('/api/config', { auth: false, method: 'GET' })
+    ).resolves.toEqual({ ok: 1 })
+    expect(getToken).not.toHaveBeenCalled()
   })
 
   it('keeps the caller init and headers', async () => {
@@ -128,6 +175,29 @@ describe('createApiClient().fetch', () => {
       throw abort
     })
     await expect(client.fetch('/api/chats')).rejects.toBe(abort)
+  })
+
+  it('rethrows the original rejection when the caller aborted with a custom reason', async () => {
+    const controller = new AbortController()
+    const reason = new Error('user pressed stop')
+    const { client } = setup(async () => {
+      controller.abort(reason)
+      throw reason
+    })
+    await expect(
+      client.fetch('/api/chat', { signal: controller.signal })
+    ).rejects.toBe(reason)
+  })
+
+  it('still reports a network error when the signal was not aborted', async () => {
+    const controller = new AbortController()
+    const { client } = setup(async () => {
+      throw new TypeError('Failed to fetch')
+    })
+    const err = await rejection(
+      client.fetch('/api/chat', { signal: controller.signal })
+    )
+    expect(err.status).toBe(0)
   })
 })
 
