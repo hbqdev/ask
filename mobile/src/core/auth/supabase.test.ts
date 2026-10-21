@@ -2,7 +2,7 @@ import { createClient } from '@supabase/supabase-js'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { preferencesStorage } from '@/core/auth/preferences-storage'
-import { createSupabase } from '@/core/auth/supabase'
+import { AUTH_STORAGE_KEY, createSupabase } from '@/core/auth/supabase'
 import type { AppConfig } from '@/core/config'
 
 vi.mock('@supabase/supabase-js', () => ({
@@ -21,6 +21,7 @@ const config: AppConfig = {
 }
 
 const authOptions = {
+  storageKey: 'ask-auth',
   persistSession: true,
   autoRefreshToken: true,
   detectSessionInUrl: false,
@@ -28,6 +29,10 @@ const authOptions = {
 }
 
 describe('createSupabase', () => {
+  it('stores the session under a fixed key', () => {
+    expect(AUTH_STORAGE_KEY).toBe('ask-auth')
+  })
+
   beforeEach(() => {
     vi.clearAllMocks()
   })

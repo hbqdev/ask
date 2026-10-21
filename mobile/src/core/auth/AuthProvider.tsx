@@ -10,9 +10,16 @@ import {
   useContext,
   useEffect,
   useMemo,
+  useRef,
   useState,
   type ReactNode
 } from 'react'
+
+import {
+  preferencesStorage,
+  type AuthStorage
+} from '@/core/auth/preferences-storage'
+import { AUTH_STORAGE_KEY } from '@/core/auth/supabase'
 
 export type AuthStatus = 'loading' | 'signedOut' | 'signedIn'
 
@@ -26,50 +33,100 @@ export type Auth = {
   getAccessToken(): Promise<string | null>
 }
 
+type View = { status: AuthStatus; session: Session | null }
+
 const AuthContext = createContext<Auth | null>(null)
+
+// The messages WebKit, Chromium and Firefox give a fetch that never reached
+// the server.
+const FETCH_FAILURE = /Failed to fetch|Load failed|NetworkError/
+
+function isNetworkFailure(err: unknown): boolean {
+  return (
+    isAuthRetryableFetchError(err) ||
+    (err instanceof TypeError && FETCH_FAILURE.test(err.message))
+  )
+}
 
 /** A short, user-facing message for a failed sign-in. */
 function signInErrorMessage(err: unknown): string {
-  // supabase-js reports an unreachable server as AuthRetryableFetchError; a
-  // raw fetch rejection is a TypeError ("Failed to fetch" / "Load failed").
-  if (isAuthRetryableFetchError(err) || err instanceof TypeError) {
-    return 'Network error. Check your connection.'
-  }
+  if (isNetworkFailure(err)) return 'Network error. Check your connection.'
   if (isAuthApiError(err) && err.code === 'invalid_credentials') {
     return 'Invalid email or password'
   }
   return err instanceof Error ? err.message : 'Sign-in failed'
 }
 
+/**
+ * The session supabase-js persisted, read straight from storage so a cold
+ * start shows it without waiting for the network. Anything unreadable or
+ * without a refresh token counts as nothing stored.
+ */
+async function readStoredSession(storage: AuthStorage): Promise<Session | null> {
+  try {
+    const raw = await storage.getItem(AUTH_STORAGE_KEY)
+    const parsed = raw ? (JSON.parse(raw) as Partial<Session> | null) : null
+    return parsed?.refresh_token ? (parsed as Session) : null
+  } catch {
+    return null
+  }
+}
+
 export function AuthProvider({
   client,
+  storage = preferencesStorage,
   children
 }: {
   client: SupabaseClient
+  storage?: AuthStorage
   children: ReactNode
 }) {
-  const [status, setStatus] = useState<AuthStatus>('loading')
-  const [session, setSession] = useState<Session | null>(null)
+  const [view, setView] = useState<View>({ status: 'loading', session: null })
   const [error, setError] = useState<string | null>(null)
+  // Set by signOut until the next signIn: a refresh that races the sign-out
+  // must not sign the user back in.
+  const signedOutHere = useRef(false)
 
-  const apply = useCallback((next: Session | null) => {
-    setSession(next)
-    setStatus(next ? 'signedIn' : 'signedOut')
+  const showSession = useCallback((session: Session) => {
+    if (signedOutHere.current) return
+    setView({ status: 'signedIn', session })
+  }, [])
+
+  const showSignedOut = useCallback(() => {
+    setView({ status: 'signedOut', session: null })
   }, [])
 
   useEffect(() => {
-    // Restore the persisted session (refreshed if expired) before deciding
-    // whether to show sign-in; until then the status stays 'loading'.
-    client.auth.getSession().then(
-      ({ data }) => apply(data.session),
-      () => apply(null)
-    )
-    // Refreshes, sign-outs and recoveries after a failed refresh.
-    const { data } = client.auth.onAuthStateChange((_event, next) =>
-      apply(next)
-    )
+    // Only SIGNED_OUT (supabase-js emits it whenever it drops the session)
+    // signs out here. A null INITIAL_SESSION also comes from a refresh that
+    // failed offline, and the stored session is still good then.
+    const { data } = client.auth.onAuthStateChange((event, next) => {
+      if (event === 'SIGNED_OUT') showSignedOut()
+      else if (next) showSession(next)
+    })
+
+    async function restore() {
+      const stored = await readStoredSession(storage)
+      if (stored && !signedOutHere.current) {
+        // Optimistic: only if nothing (e.g. a SIGNED_OUT) has settled it yet.
+        setView((prev) =>
+          prev.status === 'loading'
+            ? { status: 'signedIn', session: stored }
+            : prev
+        )
+      }
+      // Then reconcile: refreshed if expired, which can take a while offline.
+      const fresh = await client.auth.getSession().then(
+        ({ data }) => data.session,
+        () => null
+      )
+      if (fresh) showSession(fresh)
+      else if (!stored) showSignedOut()
+    }
+    void restore()
+
     return () => data.subscription.unsubscribe()
-  }, [client, apply])
+  }, [client, storage, showSession, showSignedOut])
 
   const signIn = useCallback(
     async (email: string, password: string) => {
@@ -78,21 +135,35 @@ export function AuthProvider({
         const { data, error: authError } =
           await client.auth.signInWithPassword({ email, password })
         if (authError) throw authError
-        apply(data.session)
+        signedOutHere.current = false
+        showSession(data.session)
         return true
       } catch (err) {
         setError(signInErrorMessage(err))
         return false
       }
     },
-    [client, apply]
+    [client, showSession]
   )
 
   const signOut = useCallback(async () => {
-    await client.auth.signOut()
+    signedOutHere.current = true
+    // supabase-js keeps the local session when the server can't be reached;
+    // remove it ourselves so the next cold start doesn't restore it.
+    const cleared = await client.auth.signOut({ scope: 'local' }).then(
+      ({ error: authError }) => !authError,
+      () => false
+    )
+    if (!cleared) {
+      await Promise.allSettled(
+        ['', '-code-verifier', '-user'].map((suffix) =>
+          storage.removeItem(AUTH_STORAGE_KEY + suffix)
+        )
+      )
+    }
     setError(null)
-    apply(null)
-  }, [client, apply])
+    showSignedOut()
+  }, [client, storage, showSignedOut])
 
   const getAccessToken = useCallback(async () => {
     const { data } = await client.auth.getSession()
@@ -100,8 +171,8 @@ export function AuthProvider({
   }, [client])
 
   const value = useMemo(
-    () => ({ status, session, error, signIn, signOut, getAccessToken }),
-    [status, session, error, signIn, signOut, getAccessToken]
+    () => ({ ...view, error, signIn, signOut, getAccessToken }),
+    [view, error, signIn, signOut, getAccessToken]
   )
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>
