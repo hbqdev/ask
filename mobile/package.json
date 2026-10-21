@@ -17,7 +17,9 @@
     "@capacitor/app": "^8.1.2",
     "@capacitor/core": "^8.5.3",
     "@capacitor/ios": "^8.5.3",
+    "@capacitor/preferences": "^8.0.1",
     "@capacitor/splash-screen": "^8.0.2",
+    "@supabase/supabase-js": "^2.49.4",
     "react": "~19.2.9",
     "react-dom": "~19.2.9"
   },
