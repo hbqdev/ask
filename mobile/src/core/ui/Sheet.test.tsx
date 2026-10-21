@@ -51,6 +51,15 @@ describe('Sheet', () => {
     expect(panel()).toHaveFocus()
   })
 
+  it('leaves focus on a field inside that took it as the sheet opened', () => {
+    render(
+      <Sheet open onClose={vi.fn()} title="Rename">
+        <input aria-label="Name" autoFocus />
+      </Sheet>
+    )
+    expect(screen.getByRole('textbox', { name: 'Name' })).toHaveFocus()
+  })
+
   it('closes on a backdrop tap', () => {
     const { onClose } = setup()
     fireEvent.click(screen.getByTestId('sheet-backdrop'))

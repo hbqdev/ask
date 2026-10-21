@@ -222,6 +222,20 @@ body {
   }
 }
 
+/* --- Swipe row --------------------------------------------------------------
+   Vertical drags on a row stay a native scroll; horizontal ones reach the
+   swipe. The content slides with a transform and settles on the navigation
+   curve (the drag itself sets an inline transform with no transition). */
+.swipe-row {
+  touch-action: pan-y;
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .swipe-row-content {
+    transition: transform var(--nav-duration) var(--nav-ease);
+  }
+}
+
 /* --- Answer -----------------------------------------------------------------
    The answer's markdown. Streamdown spaces the blocks and styles headings,
    lists, quotes, code and tables itself (its classes, with the surface tokens

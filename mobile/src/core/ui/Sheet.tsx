@@ -42,7 +42,10 @@ function SheetPanel({ onClose, title, children }: Omit<SheetProps, 'open'>) {
   close.current = onClose
 
   useEffect(() => {
-    panel.current?.focus()
+    // Into the dialog, unless a field inside already took focus (autoFocus).
+    if (!panel.current?.contains(document.activeElement)) {
+      panel.current?.focus()
+    }
     const onKey = (e: KeyboardEvent) => {
       if (e.key === 'Escape') close.current()
     }

@@ -1,7 +1,13 @@
 import { useRef, type PointerEvent } from 'react'
 
+/**
+ * The default width, in px, of the left-edge zone the back swipe starts in.
+ * Other horizontal gestures (a list row's swipe) leave this zone to it.
+ */
+export const EDGE_ZONE = 24
+
 export type EdgeSwipeOptions = {
-  /** How close to the left edge, in px, a drag must start. Default 24. */
+  /** How close to the left edge, in px, a drag must start. Default EDGE_ZONE. */
   edge?: number
   /** The fraction of the screen width a drag must pass. Default 0.33. */
   threshold?: number
@@ -32,7 +38,7 @@ export function useEdgeSwipe(
   onBack: () => void,
   opts: EdgeSwipeOptions = {}
 ): EdgeSwipeHandlers {
-  const { edge = 24, threshold = 0.33, onDrag, onCancel } = opts
+  const { edge = EDGE_ZONE, threshold = 0.33, onDrag, onCancel } = opts
   const drag = useRef<Drag | null>(null)
 
   const current = (e: PointerEvent<Element>): Drag | null => {
