@@ -38,13 +38,14 @@ remote() { ssh -o BatchMode=yes "$MAC" "export PATH=/opt/homebrew/bin:\$PATH; cd
 # ship a stale dist/), so functions are never called on the left of && or ||,
 # where bash ignores `set -e`.
 
-# dist/ is built here; .env.local (git-ignored) supplies the VITE_ values. It
-# is written when missing, and rewritten whenever ASK_URL is set (e.g. to
-# point a build at staging).
+# dist/ is built here. .env.local (git-ignored) supplies the VITE_ values and
+# is rewritten before EVERY build, so a build never reuses a server left over
+# from an earlier one: production by default, ASK_URL to point a build
+# elsewhere (e.g. staging). The API origin is printed first (it is not secret).
 build_local() {
-  if [ ! -f "$HERE/.env.local" ] || [ -n "${ASK_URL:-}" ]; then
-    "$HERE/scripts/env-from-ask.sh" "${ASK_URL:-https://ask.hbqnexus.win}"
-  fi
+  local api="${ASK_URL:-https://ask.hbqnexus.win}"
+  echo "Building for API: $api"
+  "$HERE/scripts/env-from-ask.sh" "$api"
   (cd "$HERE" && npm run build)
 }
 

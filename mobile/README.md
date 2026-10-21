@@ -20,8 +20,9 @@ in this repo, and the MacBook (`tintran@nightfurym3max.local`,
 | `npm test`, `coverage`, `typecheck`, `npm run build` -> `dist/` | NightFuryX | they resolve `@/lib/` and `@ask/` to Ask's `../lib/`, whose imports need Ask's root `node_modules` |
 | `npm install` (Capacitor packages), `npx cap sync ios`, `xcodebuild` | Mac | the plugins' Swift packages live in `node_modules/@capacitor/*`; the Capacitor CLI needs Node >= 22 (never run `cap` on NightFuryX) |
 
-`sync-mac.sh` does the whole hand-off: it builds `dist/` here (writing
-`.env.local` first if it is missing), copies the folder to the Mac without
+`sync-mac.sh` does the whole hand-off: it builds `dist/` here (rewriting
+`.env.local` before every build and printing the target, e.g.
+`Building for API: https://ask.hbqnexus.win`), copies the folder to the Mac without
 `src/`, `node_modules/`, `coverage/` or any `.env*` file (the values are
 already baked into `dist/`), then runs `npm install` and `cap sync ios` there.
 
@@ -31,9 +32,11 @@ already baked into `dist/`), then runs `npm install` and `cap sync ios` there.
 - This folder's packages: `npx npm@10 install` (npm 9.2 hits an `edgesOut`
   install bug).
 - `.env.local`: `scripts/env-from-ask.sh [api-url]` writes it (git-ignored)
-  from Ask's root `.env`; `sync-mac.sh` runs it when the file is missing,
-  and whenever `ASK_URL` is set (e.g. `ASK_URL=<staging-url> ./sync-mac.sh
-  sim <dir>`; the default is `https://ask.hbqnexus.win`).
+  from Ask's root `.env`. `sync-mac.sh` runs it before every build, so an
+  app build never reuses a server from an earlier one: the default is
+  `https://ask.hbqnexus.win`, and `ASK_URL` picks another (e.g.
+  `ASK_URL=<staging-url> ./sync-mac.sh sim <dir>`). Only a bare
+  `npm run build` uses whatever `.env.local` already holds.
 
 ## Develop and test
 
@@ -101,8 +104,9 @@ Mac, and enable Developer Mode under Settings → Privacy & Security).
 - `scripts/env-from-ask.sh`: writes `.env.local` (prints variable names only).
 - `sync-mac.sh` (runs here) and `build-install.sh` (runs on the Mac): see
   above.
-- `ios/App/App/MainViewController.swift`: safe-area container, theme colour,
-  swipe-back.
+- `ios/App/App/MainViewController.swift`: safe-area container, theme colour
+  (swipe-back is the app's own, in `src/core/nav/stack.tsx`; the web view's
+  back/forward gestures stay off).
 - `ios/App/App/Info.plist`: permission prompts, background audio.
 - `assets/icon.svg`, `assets/splash.svg`: sources for the icon and launch
   images in `ios/App/App/Assets.xcassets` (rendered on the Mac with `sips`;
