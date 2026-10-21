@@ -247,16 +247,21 @@ describe('useLibrary', () => {
     expect(result.current.chats).toEqual([])
   })
 
-  it('with no signed-in user it neither reads nor writes the cache', async () => {
+  it('with no signed-in user it neither reads nor writes the cache, nor asks the server', async () => {
     useServer(fakeServer(2), null)
     await saveLibraryCache('user-1', { sort: 'recent', chats: [row(9)] })
     vi.mocked(Preferences.set).mockClear()
     const { result } = renderLibrary()
     await waitFor(() => expect(result.current.status).toBe('ready'))
+    await act(() => result.current.refresh())
+    act(() => emitChatsChanged('created', 'c9'))
     await act(async () => {})
     expect(Preferences.get).not.toHaveBeenCalled()
     expect(Preferences.set).not.toHaveBeenCalled()
-    expect(ids(result.current.chats)).toEqual(['c0', 'c1'])
+    expect(server.fetchImpl).not.toHaveBeenCalled()
+    expect(result.current.chats).toEqual([])
+    expect(result.current.hasMore).toBe(false)
+    expect(result.current.error).toBeUndefined()
   })
 
   it('never shows another user’s rows after the user changes, not even for one render', async () => {
@@ -390,6 +395,144 @@ describe('useLibrary', () => {
     const loaded = ids(result.current.chats)
     expect(new Set(loaded).size).toBe(loaded.length)
     expect(loaded).toEqual(ids(server.chats.slice(0, 89)))
+  })
+
+  it('delete pending when the page is requested', async () => {
+    useServer(fakeServer(95))
+    const { result } = renderLibrary()
+    await waitFor(() => expect(result.current.status).toBe('ready'))
+    // The server commits the delete at once but its reply is slow, so the
+    // page query runs on the shifted list.
+    const reply = deferred<void>()
+    server.on('DELETE', /^\/api\/chats\/c3$/, async () => {
+      server.chats.splice(3, 1)
+      await reply.promise
+      return json({ ok: true })
+    })
+    let removed!: Promise<boolean>
+    let more!: Promise<void>
+    act(() => {
+      removed = result.current.remove('c3')
+      more = result.current.loadMore()
+    })
+    await act(() => more)
+    expect(server.pageRequests().at(-1)).toMatchObject({ offset: '29' })
+    await act(async () => {
+      reply.resolve()
+      await removed
+    })
+    await act(() => result.current.loadMore())
+    await act(() => result.current.loadMore())
+
+    const loaded = ids(result.current.chats)
+    expect(loaded).toContain('c30')
+    expect(new Set(loaded).size).toBe(loaded.length)
+    expect(loaded).toEqual(ids(server.chats))
+  })
+
+  it('delete pending when the page is requested, landing after the page query', async () => {
+    useServer(fakeServer(95))
+    const { result } = renderLibrary()
+    await waitFor(() => expect(result.current.status).toBe('ready'))
+    // The page query runs first on the unshifted list; the delete lands and
+    // succeeds while the page reply is still on its way.
+    const commit = deferred<void>()
+    server.on('DELETE', /^\/api\/chats\/c3$/, async () => {
+      await commit.promise
+      server.chats.splice(3, 1)
+      return json({ ok: true })
+    })
+    const held = deferred<void>()
+    let calls = 0
+    server.on('GET', /^\/api\/chats$/, async url => {
+      const offset = Number(url.searchParams.get('offset'))
+      const rows = server.chats.slice(offset, offset + 30)
+      if (calls++ === 0) await held.promise
+      return json({
+        chats: rows,
+        nextOffset: rows.length === 30 ? offset + 30 : null,
+        badges: {}
+      })
+    })
+    let removed!: Promise<boolean>
+    let more!: Promise<void>
+    act(() => {
+      removed = result.current.remove('c3')
+      more = result.current.loadMore()
+    })
+    await act(async () => {})
+    expect(calls).toBe(1)
+    await act(async () => {
+      commit.resolve()
+      await removed
+    })
+    held.resolve()
+    await act(() => more)
+    await act(() => result.current.loadMore())
+    await act(() => result.current.loadMore())
+
+    const loaded = ids(result.current.chats)
+    expect(new Set(loaded).size).toBe(loaded.length)
+    expect(loaded).toEqual(ids(server.chats))
+  })
+
+  it('a delete that lands after a sort change does not skip on the new list', async () => {
+    useServer(fakeServer(95))
+    const { result, rerender } = renderLibrary()
+    await waitFor(() => expect(result.current.status).toBe('ready'))
+    const commit = deferred<void>()
+    server.on('DELETE', /^\/api\/chats\/c3$/, async () => {
+      await commit.promise
+      server.chats.splice(3, 1)
+      return json({ ok: true })
+    })
+    let removed!: Promise<boolean>
+    act(() => {
+      removed = result.current.remove('c3')
+    })
+    // The new sort's page 0 is read before the delete lands (the fake
+    // server keeps one order for every sort).
+    rerender({ sort: 'oldest' })
+    await waitFor(() => expect(result.current.status).toBe('ready'))
+    expect(result.current.chats).toHaveLength(29)
+    await act(async () => {
+      commit.resolve()
+      await removed
+    })
+    await act(() => result.current.loadMore())
+    expect(ids(result.current.chats)).toContain('c30')
+  })
+
+  it('a page dropped by a refresh does not block the next loadMore', async () => {
+    useServer(fakeServer(45))
+    const { result } = renderLibrary()
+    await waitFor(() => expect(result.current.status).toBe('ready'))
+    const stale = deferred<Response>()
+    let calls = 0
+    server.on('GET', /^\/api\/chats$/, url => {
+      const offset = Number(url.searchParams.get('offset'))
+      if (offset === 30 && calls++ === 0) return stale.promise
+      const rows = server.chats.slice(offset, offset + 30)
+      return json({
+        chats: rows,
+        nextOffset: rows.length === 30 ? offset + 30 : null,
+        badges: {},
+        total: 45
+      })
+    })
+    let first!: Promise<void>
+    act(() => {
+      first = result.current.loadMore()
+    })
+    await act(() => result.current.refresh())
+    // The stale page is still on its way; a new loadMore must still run.
+    await act(() => result.current.loadMore())
+    expect(result.current.chats).toHaveLength(45)
+    await act(async () => {
+      stale.resolve(json({ chats: [], nextOffset: null, badges: {} }))
+      await first
+    })
+    expect(result.current.chats).toHaveLength(45)
   })
 
   it('an optimistic remove is restored on failure', async () => {

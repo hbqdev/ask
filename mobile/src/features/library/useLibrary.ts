@@ -82,16 +82,26 @@ export function useLibrary({ sort }: { sort: ChatSort }): Library {
 
   // Bumped by every page-0 load: a page from an older generation is dropped.
   const generation = useRef(0)
-  const loadingMore = useRef(false)
-  // Successful removes so far. A page that was loading while some succeeded
-  // moves its next offset back by that many, so nothing is skipped (a repeat
-  // is dropped as a duplicate instead).
+  // The generation of the page now loading, if any. A page dropped by a
+  // newer generation does not hold up the next loadMore.
+  const loadingMoreIn = useRef<number | null>(null)
+  // Offsets after removes: whenever it is unknown whether the server had
+  // applied a delete when it ran a page query, assume it had not and ask for
+  // a smaller offset. A repeat is dropped as a duplicate; a skip would lose a
+  // chat. So a page starts `pendingRemoves` earlier, and its next offset moves
+  // back by every remove that succeeded while it was loading.
+  const pendingRemoves = useRef(0)
   const removals = useRef(0)
   // Rows removed here (pending or done), kept out of any page that raced it.
   const removed = useRef(new Set<string>())
 
   const loadFirstPage = useCallback(async () => {
     const mine = ++generation.current
+    // Signed out: nothing to show and nothing to ask the server for.
+    if (!userId) {
+      setState({ key, chats: [], nextOffset: null, status: 'ready' })
+      return
+    }
     setState(s =>
       s.key === key
         ? { ...s, status: s.chats.length ? 'refreshing' : 'loading' }
@@ -115,7 +125,7 @@ export function useLibrary({ sort }: { sort: ChatSort }): Library {
       if (mine !== generation.current) return
       setState(s => ({ ...s, status: 'error', error: errorMessage(error) }))
     }
-  }, [client, key, sort])
+  }, [client, key, sort, userId])
 
   // A new user or sort: start over, show the cache when it comes, revalidate.
   useEffect(() => {
@@ -158,12 +168,20 @@ export function useLibrary({ sort }: { sort: ChatSort }): Library {
 
   const loadMore = useCallback(async () => {
     const { key: listKey, nextOffset } = stateRef.current
-    if (listKey !== key || nextOffset === null || loadingMore.current) return
-    loadingMore.current = true
     const mine = generation.current
+    if (
+      listKey !== key ||
+      nextOffset === null ||
+      loadingMoreIn.current === mine
+    )
+      return
+    loadingMoreIn.current = mine
     const removalsBefore = removals.current
     try {
-      const page = await fetchChatsPage(client, { offset: nextOffset, sort })
+      const page = await fetchChatsPage(client, {
+        offset: Math.max(0, nextOffset - pendingRemoves.current),
+        sort
+      })
       if (mine !== generation.current) return
       const shift = removals.current - removalsBefore
       setState(s => {
@@ -183,7 +201,7 @@ export function useLibrary({ sort }: { sort: ChatSort }): Library {
       if (mine !== generation.current) return
       setState(s => ({ ...s, status: 'error', error: errorMessage(error) }))
     } finally {
-      loadingMore.current = false
+      if (loadingMoreIn.current === mine) loadingMoreIn.current = null
     }
   }, [client, key, sort])
 
@@ -199,6 +217,7 @@ export function useLibrary({ sort }: { sort: ChatSort }): Library {
         chats: s.chats.filter(c => c.id !== id),
         total: addTo(s.total, -1)
       }))
+      pendingRemoves.current += 1
       try {
         await deleteChat(client, id)
       } catch (error) {
@@ -221,8 +240,12 @@ export function useLibrary({ sort }: { sort: ChatSort }): Library {
           })
           return false
         }
+      } finally {
+        pendingRemoves.current -= 1
       }
       removals.current += 1
+      // Also on a list that replaced the one this row was in: its page 0 may
+      // have been read before the delete landed (see pendingRemoves).
       setState(s =>
         s.nextOffset === null ? s : { ...s, nextOffset: s.nextOffset - 1 }
       )
