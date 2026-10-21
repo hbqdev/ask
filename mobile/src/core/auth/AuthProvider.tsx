@@ -20,6 +20,7 @@ import {
   type AuthStorage
 } from '@/core/auth/preferences-storage'
 import { AUTH_STORAGE_KEY } from '@/core/auth/supabase'
+import { resetModelChoice } from '@/features/compose/model-choice'
 import { clearLibraryCache } from '@/features/library/library-cache'
 
 export type AuthStatus = 'loading' | 'signedOut' | 'signedIn'
@@ -90,12 +91,24 @@ export function AuthProvider({
   // must not sign the user back in.
   const signedOutHere = useRef(false)
 
+  // The user the app last showed. Account state kept in memory (the shared
+  // model pick and its save queue) is reset whenever the account changes, so
+  // nothing of one account's is ever shown to, or sent for, the next.
+  const accountId = useRef<string | null>(null)
+
   const showSession = useCallback((session: Session) => {
     if (signedOutHere.current) return
+    const id = session.user.id
+    if (accountId.current !== null && accountId.current !== id) {
+      resetModelChoice()
+    }
+    accountId.current = id
     setView({ status: 'signedIn', session })
   }, [])
 
   const showSignedOut = useCallback(() => {
+    accountId.current = null
+    resetModelChoice()
     setView({ status: 'signedOut', session: null })
   }, [])
 
@@ -111,6 +124,7 @@ export function AuthProvider({
     async function restore() {
       const stored = await readStoredSession(storage)
       if (stored && !signedOutHere.current) {
+        accountId.current ??= stored.user?.id ?? null
         // Optimistic: only if nothing (e.g. a SIGNED_OUT) has settled it yet.
         setView(prev =>
           prev.status === 'loading'
@@ -152,6 +166,9 @@ export function AuthProvider({
 
   const signOut = useCallback(async () => {
     signedOutHere.current = true
+    // At once, before awaiting the server: a save that settles meanwhile
+    // must not send a waiting pick for this account.
+    resetModelChoice()
     // supabase-js keeps the local session when the server can't be reached;
     // remove it ourselves so the next cold start doesn't restore it.
     const cleared = await client.auth.signOut({ scope: 'local' }).then(

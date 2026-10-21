@@ -14,6 +14,7 @@ import { ApiProvider } from '@/core/api/ApiProvider'
 import { AuthProvider } from '@/core/auth/AuthProvider'
 import type { AuthStorage } from '@/core/auth/preferences-storage'
 import { ThemeProvider } from '@/core/ThemeProvider'
+import { resetModelChoice } from '@/features/compose/model-choice'
 import { memoryStorage } from '@/test/memory-storage'
 
 vi.mock('@capacitor/core', () => ({
@@ -90,6 +91,7 @@ const signInButton = () => screen.findByRole('button', { name: 'Sign in' })
 
 describe('AppShell', () => {
   beforeEach(() => {
+    resetModelChoice()
     vi.clearAllMocks()
     resetSplashForTests()
     vi.stubGlobal(

@@ -8,11 +8,19 @@ import {
 } from '@supabase/supabase-js'
 import { act, renderHook, waitFor } from '@testing-library/react'
 import type { ReactNode } from 'react'
-import { describe, expect, it, vi } from 'vitest'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { AuthProvider, useAuth } from '@/core/auth/AuthProvider'
 import type { AuthStorage } from '@/core/auth/preferences-storage'
 import { AUTH_STORAGE_KEY } from '@/core/auth/supabase'
+import { createApiClient } from '@/core/api/client'
+import {
+  getModelChoice,
+  modelListLoaded,
+  modelListMark,
+  pickModel,
+  resetModelChoice
+} from '@/features/compose/model-choice'
 import { SEARCH_SETTINGS_KEY } from '@/features/compose/search-settings'
 import { LIBRARY_CACHE_KEY } from '@/features/library/library-cache'
 import { LIBRARY_SORT_KEY } from '@/features/library/library-sort'
@@ -540,5 +548,93 @@ describe('useAuth', () => {
       'useAuth must be used inside AuthProvider'
     )
     vi.mocked(console.error).mockRestore()
+  })
+})
+
+describe('AuthProvider: the shared model pick', () => {
+  const model = (id: string) => ({
+    id,
+    name: id,
+    provider: 'Cloud',
+    providerId: 'cloud'
+  })
+
+  /** A client whose model saves answer when the test says so. */
+  function savingClient() {
+    const answers: Array<(res: Response) => void> = []
+    const fetchImpl = vi.fn(
+      () => new Promise<Response>(resolve => answers.push(resolve))
+    )
+    const client = createApiClient({
+      baseUrl: 'https://ask.test.invalid',
+      getToken: async () => 'fake-token',
+      fetchImpl
+    })
+    return { client, fetchImpl, answers }
+  }
+
+  const ok = (key: string) =>
+    new Response(JSON.stringify({ ok: true, selectedModelKey: key }), {
+      headers: { 'Content-Type': 'application/json' }
+    })
+
+  /** Account A: a save in flight and a pick waiting behind it. */
+  async function pickTwice() {
+    const api = savingClient()
+    modelListLoaded('cloud:start', modelListMark())
+    pickModel(api.client, model('a-first'))
+    pickModel(api.client, model('a-waiting'))
+    await waitFor(() => expect(api.fetchImpl).toHaveBeenCalledTimes(1))
+    return api
+  }
+
+  /** The store is empty and takes the next session's list load. */
+  function expectFresh() {
+    expect(getModelChoice()).toEqual({ selected: '', saveFailed: false })
+    modelListLoaded('cloud:account-b', modelListMark())
+    expect(getModelChoice().selected).toBe('cloud:account-b')
+  }
+
+  beforeEach(() => {
+    resetModelChoice()
+  })
+
+  it('sign-out with a save in flight and a waiting pick sends nothing afterwards and the next session reloads from the server', async () => {
+    const { result } = await signedInAuth()
+    const api = await pickTwice()
+    await act(async () => {
+      await result.current.signOut()
+    })
+    // A's save answers after the sign-out: the waiting pick is never sent.
+    await act(async () => api.answers[0](ok('cloud:a-first')))
+    await new Promise(resolve => setTimeout(resolve, 0))
+    expect(api.fetchImpl).toHaveBeenCalledTimes(1)
+    expectFresh()
+  })
+
+  it('SIGNED_OUT event resets the store', async () => {
+    const { emit } = await signedInAuth()
+    const api = await pickTwice()
+    emit('SIGNED_OUT', null)
+    await act(async () => api.answers[0](ok('cloud:a-first')))
+    expect(api.fetchImpl).toHaveBeenCalledTimes(1)
+    expectFresh()
+  })
+
+  it('a session for another user resets the store', async () => {
+    const { emit } = await signedInAuth()
+    const api = await pickTwice()
+    const other = { ...session, user: { id: 'user-2' } } as unknown as Session
+    emit('SIGNED_IN', other)
+    await act(async () => api.answers[0](ok('cloud:a-first')))
+    expect(api.fetchImpl).toHaveBeenCalledTimes(1)
+    expectFresh()
+  })
+
+  it('a refreshed session for the same user keeps the pick', async () => {
+    const { emit } = await signedInAuth()
+    await pickTwice()
+    emit('TOKEN_REFRESHED', { ...session, access_token: 'fake-refreshed' })
+    expect(getModelChoice().selected).toBe('cloud:a-waiting')
   })
 })
