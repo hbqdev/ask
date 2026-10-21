@@ -16,7 +16,7 @@ import {
   type RefObject
 } from 'react'
 
-import { useSelectTab } from '@/app/Tabs'
+import { useSelectTab, useTabActive } from '@/app/Tabs'
 import { useStack } from '@/core/nav/stack'
 import { ConfirmSheet } from '@/core/ui/ConfirmSheet'
 import { Sheet } from '@/core/ui/Sheet'
@@ -367,15 +367,16 @@ const ChatList = memo(function ChatList({
   onRename
 }: ChatListProps) {
   const selectTab = useSelectTab()
+  const active = useTabActive()
   const idPrefix = useId()
 
   // The end of the list: in view (or nearly), it asks for the next page. It is
-  // watched again whenever a page lands, as it may still be in view.
+  // watched again whenever the list changes (a page landed, even one of rows
+  // already shown), as it may still be in view. A hidden tab pages nothing.
   const sentinel = useRef<HTMLDivElement>(null)
-  const rowCount = chats.length
   useEffect(() => {
     const el = sentinel.current
-    if (!el) return
+    if (!el || !active) return
     const observer = new IntersectionObserver(
       entries => {
         if (entries.some(e => e.isIntersecting)) void loadMore()
@@ -384,7 +385,7 @@ const ChatList = memo(function ChatList({
     )
     observer.observe(el)
     return () => observer.disconnect()
-  }, [hasMore, loadMore, rowCount, scroller])
+  }, [active, hasMore, loadMore, chats, scroller])
 
   // Rows' times and the sections depend on the day only, so `now` (and every
   // memoized row) stays the same until midnight.
@@ -406,7 +407,7 @@ const ChatList = memo(function ChatList({
     </div>
   )
 
-  if (rowCount === 0) {
+  if (chats.length === 0) {
     if (status === 'loading' || status === 'refreshing') return <Skeleton />
     if (status === 'error' || error) {
       return (

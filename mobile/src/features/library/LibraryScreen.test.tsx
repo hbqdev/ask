@@ -10,7 +10,7 @@ import {
 import userEvent from '@testing-library/user-event'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
-import { useSelectTab } from '@/app/Tabs'
+import { Tabs, useSelectTab } from '@/app/Tabs'
 import { StackProvider } from '@/core/nav/stack'
 import { groupByDate } from '@/features/library/group-by-date'
 import type { ChatRow, SearchHit } from '@/features/library/library-api'
@@ -24,14 +24,17 @@ import {
   type Library
 } from '@/features/library/useLibrary'
 import { openThread } from '@/features/thread/ThreadScreen'
-import { intersect, isObserved } from '@/test/intersection-observer'
+import { intersect, isObserved, observerOf } from '@/test/intersection-observer'
 
 vi.mock('@/features/library/useLibrary', () => ({
   useLibrary: vi.fn(),
   useChatSearch: vi.fn()
 }))
 vi.mock('@/features/thread/ThreadScreen', () => ({ openThread: vi.fn() }))
-vi.mock('@/app/Tabs', () => ({ useSelectTab: vi.fn() }))
+vi.mock('@/app/Tabs', async importOriginal => ({
+  ...(await importOriginal<typeof import('@/app/Tabs')>()),
+  useSelectTab: vi.fn()
+}))
 // Spies over the real functions: each row render calls relativeTime once,
 // and each list render (outside the title sort) calls groupByDate once.
 vi.mock('@/features/library/relative-time', async importOriginal => {
@@ -322,6 +325,59 @@ describe('LibraryScreen list', () => {
     act(() => intersect(after))
     expect(lib.loadMore).toHaveBeenCalledOnce()
     expect(first).toBe(after)
+  })
+
+  it('watches the end afresh after a page of only rows already shown', async () => {
+    const lib = library({ hasMore: true })
+    const { update } = await renderScreen(lib)
+    const sentinel = screen.getByTestId('library-more')
+    const before = observerOf(sentinel)
+
+    // The page's rows were all duplicates: same count, a new list.
+    update({ lib: { ...lib, chats: [...ROWS] } })
+
+    expect(screen.getByTestId('library-more')).toBe(sentinel)
+    expect(observerOf(sentinel)).toBeDefined()
+    expect(observerOf(sentinel)).not.toBe(before)
+  })
+
+  it('does not page while the Library tab is hidden, and watches again when shown', async () => {
+    const lib = library({ hasMore: true })
+    vi.mocked(useLibrary).mockReturnValue(lib)
+    vi.mocked(useChatSearch).mockReturnValue(chatSearch())
+    const user = userEvent.setup()
+    render(
+      <StackProvider root={HOME}>
+        <Tabs
+          tabs={[
+            {
+              id: 'library',
+              label: 'Library',
+              icon: null,
+              render: () => <LibraryScreen />
+            },
+            {
+              id: 'settings',
+              label: 'Settings',
+              icon: null,
+              render: () => <p>Settings</p>
+            }
+          ]}
+        />
+      </StackProvider>
+    )
+    const sentinel = await screen.findByTestId('library-more')
+    expect(isObserved(sentinel)).toBe(true)
+
+    await user.click(screen.getByRole('tab', { name: 'Settings' }))
+    expect(isObserved(sentinel)).toBe(false)
+    act(() => intersect(sentinel))
+    expect(lib.loadMore).not.toHaveBeenCalled()
+
+    await user.click(screen.getByRole('tab', { name: 'Library' }))
+    expect(isObserved(sentinel)).toBe(true)
+    act(() => intersect(sentinel))
+    expect(lib.loadMore).toHaveBeenCalledOnce()
   })
 
   it('keeps loading when every loaded row is deleted but more remain', async () => {

@@ -60,3 +60,8 @@ export function intersect(target: Element, isIntersecting = true) {
 export function isObserved(target: Element) {
   return [...observers].some(o => o.targets.has(target))
 }
+
+/** The observer watching `target`, if any: a new one means it is watched afresh. */
+export function observerOf(target: Element): IntersectionObserver | undefined {
+  return [...observers].find(o => o.targets.has(target))
+}
