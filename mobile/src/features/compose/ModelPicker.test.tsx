@@ -9,6 +9,7 @@ import {
   MODEL_SAVE_ERROR,
   ModelPicker
 } from '@/features/compose/ModelPicker'
+import { resetModelChoice } from '@/features/compose/model-choice'
 import type { ModelSelectorData } from '@/lib/types/model-selector'
 
 vi.mock('@/core/api/ApiProvider', () => ({ useApi: vi.fn() }))
@@ -80,6 +81,7 @@ const modelRadio = (name: string) =>
 
 beforeEach(() => {
   vi.clearAllMocks()
+  resetModelChoice()
 })
 
 describe('ModelPicker', () => {
@@ -388,6 +390,29 @@ describe('ModelPicker', () => {
       expect(modelRadio('Qwen 3')).toHaveAttribute('aria-checked', 'true')
     })
 
+    it('a reload that started before a pick does not undo it once saved', async () => {
+      const save = deferred()
+      const reload = deferred()
+      const models = vi
+        .fn<Route>()
+        .mockResolvedValueOnce(json(DATA))
+        .mockReturnValueOnce(reload.promise)
+      serve({ models, save: () => save.promise })
+      render(<Tabs tabs={TABS} initial="settings" />)
+      await screen.findByRole('radiogroup', { name: 'Model' })
+      await show('Ask')
+      await show('Settings')
+      // The old list stays tappable while the reload is on its way.
+      await act(async () => fireEvent.click(modelRadio('Kimi')))
+      await act(async () =>
+        save.resolve(json({ ok: true, selectedModelKey: 'cloud:kimi' }))
+      )
+      // The reload answers last, with the key from before the save.
+      await act(async () => reload.resolve(json(DATA)))
+      expect(modelRadio('Kimi')).toHaveAttribute('aria-checked', 'true')
+      expect(modelRadio('Qwen 3')).toHaveAttribute('aria-checked', 'false')
+    })
+
     it('a reload while a save is in flight keeps the pick', async () => {
       const save = deferred()
       const models = vi
@@ -405,6 +430,93 @@ describe('ModelPicker', () => {
         save.resolve(json({ ok: true, selectedModelKey: 'cloud:kimi' }))
       )
       expect(modelRadio('Kimi')).toHaveAttribute('aria-checked', 'true')
+    })
+  })
+
+  describe('two pickers', () => {
+    /** Picker A and picker B, each found by its own container. */
+    function renderTwo({ withB = true } = {}) {
+      const view = render(
+        <>
+          <div data-testid="a">
+            <ModelPicker />
+          </div>
+          {withB && (
+            <div data-testid="b">
+              <ModelPicker />
+            </div>
+          )}
+        </>
+      )
+      return view
+    }
+    const radioIn = (picker: string, name: string) =>
+      within(screen.getByTestId(picker)).getByRole('radio', { name })
+    const checkedIn = (picker: string) =>
+      within(screen.getByTestId(picker))
+        .getAllByRole('radio')
+        .filter(r => r.getAttribute('aria-checked') === 'true')
+        .map(r => r.textContent)
+
+    function queuedServer() {
+      const answers: ReturnType<typeof deferred>[] = []
+      const sent: unknown[] = []
+      serve({
+        models: async () => json(DATA),
+        save: init => {
+          sent.push(JSON.parse(String(init?.body)))
+          const answer = deferred()
+          answers.push(answer)
+          return answer.promise
+        }
+      })
+      const answer = (index: number, res: Response) =>
+        act(async () => answers[index].resolve(res))
+      return { sent, answer }
+    }
+
+    it('share one queue: a pick in A while B’s save is in flight waits, and both end on the server key', async () => {
+      const { sent, answer } = queuedServer()
+      renderTwo()
+      await act(async () => {})
+      await act(async () => fireEvent.click(radioIn('b', 'Kimi')))
+      await act(async () => fireEvent.click(radioIn('a', 'Gemma')))
+      expect(sent).toEqual([{ providerId: 'cloud', modelId: 'kimi' }])
+      expect(checkedIn('a')).toEqual(['Gemma'])
+      expect(checkedIn('b')).toEqual(['Gemma'])
+
+      await answer(0, json({ ok: true, selectedModelKey: 'cloud:kimi' }))
+      expect(sent).toHaveLength(2)
+      await answer(1, json({ error: 'Invalid model' }, 400))
+      expect(checkedIn('a')).toEqual(['Kimi'])
+      expect(checkedIn('b')).toEqual(['Kimi'])
+      for (const picker of ['a', 'b']) {
+        expect(
+          within(screen.getByTestId(picker)).getByText(MODEL_SAVE_ERROR)
+        ).toBeInTheDocument()
+      }
+    })
+
+    it('a save still in flight from a picker that closed is queued with a pick in another', async () => {
+      const { sent, answer } = queuedServer()
+      const { rerender } = renderTwo()
+      await act(async () => {})
+      await act(async () => fireEvent.click(radioIn('b', 'Kimi')))
+      // B closes (the options sheet) with its save in flight.
+      rerender(
+        <div data-testid="a">
+          <ModelPicker />
+        </div>
+      )
+      await act(async () => fireEvent.click(radioIn('a', 'Gemma')))
+      expect(sent).toHaveLength(1)
+      await answer(0, json({ ok: true, selectedModelKey: 'cloud:kimi' }))
+      expect(sent.at(-1)).toEqual({ providerId: 'ollama', modelId: 'gemma' })
+      await answer(1, json({ ok: true, selectedModelKey: 'ollama:gemma' }))
+      expect(checkedIn('a')).toEqual(['Gemma'])
+      expect(
+        within(screen.getByTestId('a')).queryByText(MODEL_SAVE_ERROR)
+      ).toBeNull()
     })
   })
 })

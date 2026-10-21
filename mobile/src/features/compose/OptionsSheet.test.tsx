@@ -7,6 +7,7 @@ import {
   MODEL_LOAD_ERROR,
   MODEL_SAVE_ERROR
 } from '@/features/compose/ModelPicker'
+import { resetModelChoice } from '@/features/compose/model-choice'
 import { OptionsSheet } from '@/features/compose/OptionsSheet'
 import type { SearchSettings } from '@/features/thread/chat-body'
 import type { ModelSelectorData } from '@/lib/types/model-selector'
@@ -95,6 +96,7 @@ const modelRadio = (name: string) =>
 
 beforeEach(() => {
   vi.clearAllMocks()
+  resetModelChoice()
 })
 
 describe('OptionsSheet', () => {

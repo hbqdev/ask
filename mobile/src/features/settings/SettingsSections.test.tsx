@@ -8,6 +8,7 @@ import { useApi, type Api } from '@/core/api/ApiProvider'
 import { createApiClient } from '@/core/api/client'
 import { useAuth, type Auth } from '@/core/auth/AuthProvider'
 import { onChatsChanged } from '@/core/chats-events'
+import { resetModelChoice } from '@/features/compose/model-choice'
 import { SEARCH_SETTINGS_KEY } from '@/features/compose/search-settings'
 import {
   SearchSettingsProvider,
@@ -137,6 +138,7 @@ const flush = () => act(async () => {})
 
 beforeEach(() => {
   vi.clearAllMocks()
+  resetModelChoice()
   prefs.clear()
   app.listeners.length = 0
 })

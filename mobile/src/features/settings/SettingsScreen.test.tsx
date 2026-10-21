@@ -8,6 +8,7 @@ import { createApiClient } from '@/core/api/client'
 import { useAuth, type Auth } from '@/core/auth/AuthProvider'
 import { THEME_STORAGE_KEY } from '@/core/theme'
 import { ThemeProvider } from '@/core/ThemeProvider'
+import { resetModelChoice } from '@/features/compose/model-choice'
 import { SearchSettingsProvider } from '@/features/compose/SearchSettingsProvider'
 import { SettingsScreen } from '@/features/settings/SettingsScreen'
 import { memoryStorage } from '@/test/memory-storage'
@@ -89,6 +90,7 @@ const root = document.documentElement
 describe('SettingsScreen', () => {
   beforeEach(() => {
     vi.clearAllMocks()
+    resetModelChoice()
     vi.stubGlobal(
       'matchMedia',
       vi.fn(() => ({
