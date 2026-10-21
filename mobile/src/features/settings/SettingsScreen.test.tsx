@@ -1,5 +1,5 @@
 import type { Session } from '@supabase/supabase-js'
-import { act, render, screen } from '@testing-library/react'
+import { act, render, screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
@@ -156,12 +156,19 @@ describe('SettingsScreen', () => {
     expect(root.classList.contains('dark')).toBe(false)
   })
 
-  it('Sign out calls signOut', async () => {
+  it('Sign out calls signOut once confirmed', async () => {
     const auth = fakeAuth()
     const user = userEvent.setup()
     await renderSettings()
 
     await user.click(screen.getByRole('button', { name: 'Sign out' }))
+    expect(auth.signOut).not.toHaveBeenCalled()
+    await user.click(
+      within(screen.getByRole('dialog', { name: 'Sign out?' })).getByRole(
+        'button',
+        { name: 'Sign out' }
+      )
+    )
     expect(auth.signOut).toHaveBeenCalledTimes(1)
   })
 })

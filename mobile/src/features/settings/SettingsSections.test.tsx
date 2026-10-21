@@ -146,12 +146,42 @@ beforeEach(() => {
 // --- Account ----------------------------------------------------------------
 
 describe('AccountSection', () => {
-  it('shows the email and signs out', () => {
-    const auth = fakeAuth()
+  const signOutRow = () => screen.getByRole('button', { name: 'Sign out' })
+
+  it('shows the email, asks first, then signs out', async () => {
+    let finish: () => void = () => {}
+    const auth = fakeAuth({
+      signOut: vi.fn(() => new Promise<void>(resolve => (finish = resolve)))
+    })
     render(<AccountSection />)
     expect(screen.getByText('user@example.test')).toBeInTheDocument()
-    fireEvent.click(screen.getByRole('button', { name: 'Sign out' }))
+
+    fireEvent.click(signOutRow())
+    expect(auth.signOut).not.toHaveBeenCalled()
+    const dialog = screen.getByRole('dialog', { name: 'Sign out?' })
+    const confirm = within(dialog).getByRole('button', { name: 'Sign out' })
+    expect(confirm).toHaveClass('bg-red-500')
+
+    fireEvent.click(confirm)
     expect(auth.signOut).toHaveBeenCalledTimes(1)
+    expect(screen.queryByRole('dialog')).toBeNull()
+    // Pending until the sign-out ends: shown, and not asked for twice.
+    const busy = screen.getByRole('button', { name: 'Signing out…' })
+    expect(busy).toBeDisabled()
+
+    await act(async () => finish())
+    expect(signOutRow()).toBeEnabled()
+  })
+
+  it('Cancel keeps the user signed in', () => {
+    const auth = fakeAuth()
+    render(<AccountSection />)
+    fireEvent.click(signOutRow())
+    fireEvent.click(
+      within(screen.getByRole('dialog')).getByRole('button', { name: 'Cancel' })
+    )
+    expect(screen.queryByRole('dialog')).toBeNull()
+    expect(auth.signOut).not.toHaveBeenCalled()
   })
 
   it('still offers Sign out when the session has no email', () => {

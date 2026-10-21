@@ -37,10 +37,18 @@ const NOTE = 'px-4 pt-2 text-sm'
 
 // --- Account ----------------------------------------------------------------
 
-/** The signed-in email and Sign out. */
+/** The signed-in email and Sign out, after a confirmation. */
 export function AccountSection() {
   const { session, signOut } = useAuth()
   const email = session?.user.email
+  const [confirming, setConfirming] = useState(false)
+  const [signingOut, setSigningOut] = useState(false)
+
+  const confirmSignOut = () => {
+    setSigningOut(true)
+    void signOut().finally(() => setSigningOut(false))
+  }
+
   return (
     <section className="flex flex-col gap-3">
       <h2 className={SECTION_TITLE}>Account</h2>
@@ -52,11 +60,20 @@ export function AccountSection() {
       )}
       <button
         type="button"
-        onClick={() => void signOut()}
-        className={`${ROW_BUTTON} text-red-500`}
+        disabled={signingOut}
+        onClick={() => setConfirming(true)}
+        className={`${ROW_BUTTON} text-red-500 disabled:opacity-50`}
       >
-        Sign out
+        {signingOut ? 'Signing out…' : 'Sign out'}
       </button>
+      <ConfirmSheet
+        open={confirming}
+        title="Sign out?"
+        confirmLabel="Sign out"
+        tone="destructive"
+        onConfirm={confirmSignOut}
+        onClose={() => setConfirming(false)}
+      />
     </section>
   )
 }

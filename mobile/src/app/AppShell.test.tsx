@@ -4,7 +4,7 @@ import type {
   Session,
   SupabaseClient
 } from '@supabase/supabase-js'
-import { act, render, screen, waitFor } from '@testing-library/react'
+import { act, render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
@@ -247,6 +247,12 @@ describe('AppShell', () => {
 
     await user.click(await screen.findByRole('tab', { name: 'Settings' }))
     await user.click(screen.getByRole('button', { name: 'Sign out' }))
+    await user.click(
+      within(screen.getByRole('dialog', { name: 'Sign out?' })).getByRole(
+        'button',
+        { name: 'Sign out' }
+      )
+    )
 
     expect(auth.signOut).toHaveBeenCalledWith({ scope: 'local' })
     expect(await signInButton()).toBeInTheDocument()
