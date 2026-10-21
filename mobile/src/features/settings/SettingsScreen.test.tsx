@@ -3,13 +3,52 @@ import { act, render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
+import { useApi, type Api } from '@/core/api/ApiProvider'
+import { createApiClient } from '@/core/api/client'
 import { useAuth, type Auth } from '@/core/auth/AuthProvider'
 import { THEME_STORAGE_KEY } from '@/core/theme'
 import { ThemeProvider } from '@/core/ThemeProvider'
+import { SearchSettingsProvider } from '@/features/compose/SearchSettingsProvider'
 import { SettingsScreen } from '@/features/settings/SettingsScreen'
 import { memoryStorage } from '@/test/memory-storage'
 
 vi.mock('@/core/auth/AuthProvider', () => ({ useAuth: vi.fn() }))
+vi.mock('@/core/api/ApiProvider', () => ({ useApi: vi.fn() }))
+vi.mock('@capacitor/preferences', () => ({
+  Preferences: {
+    get: vi.fn(async () => ({ value: null })),
+    set: vi.fn(async () => {}),
+    remove: vi.fn(async () => {})
+  }
+}))
+vi.mock('@capacitor/app', () => ({
+  App: { addListener: vi.fn(async () => ({ remove: async () => {} })) }
+}))
+
+const BASE = 'https://ask.test.invalid'
+
+/** A server whose model list is off, so the Answers section needs no data. */
+function fakeApi() {
+  const client = createApiClient({
+    baseUrl: BASE,
+    getToken: async () => 'token',
+    fetchImpl: async () =>
+      new Response(
+        JSON.stringify({
+          enabled: false,
+          hasAvailableModels: false,
+          selectedModelKey: '',
+          modelsByProvider: {}
+        }),
+        { headers: { 'Content-Type': 'application/json' } }
+      )
+  })
+  vi.mocked(useApi).mockReturnValue({
+    client,
+    baseUrl: BASE,
+    getToken: async () => 'token'
+  } satisfies Api)
+}
 
 // Fake values only.
 const session = {
@@ -33,9 +72,12 @@ function fakeAuth(overrides: Partial<Auth> = {}): Auth {
 }
 
 async function renderSettings(storage = memoryStorage()) {
+  fakeApi()
   render(
     <ThemeProvider storage={storage}>
-      <SettingsScreen />
+      <SearchSettingsProvider storage={memoryStorage()}>
+        <SettingsScreen />
+      </SearchSettingsProvider>
     </ThemeProvider>
   )
   await act(async () => {})
@@ -61,6 +103,21 @@ describe('SettingsScreen', () => {
     vi.unstubAllGlobals()
     root.className = ''
     root.style.colorScheme = ''
+  })
+
+  it('shows the sections in order', async () => {
+    fakeAuth()
+    await renderSettings()
+    expect(
+      screen.getAllByRole('heading', { level: 2 }).map(h => h.textContent)
+    ).toEqual([
+      'Account',
+      'Answers',
+      'Personalization',
+      'Appearance',
+      'Data',
+      'About'
+    ])
   })
 
   it('shows the signed-in email', async () => {

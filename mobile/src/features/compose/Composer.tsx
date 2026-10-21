@@ -13,10 +13,8 @@ import {
   type KeyboardEvent
 } from 'react'
 
-import {
-  OptionsSheet,
-  SEARCH_MODE_LABELS
-} from '@/features/compose/OptionsSheet'
+import { OptionsSheet } from '@/features/compose/OptionsSheet'
+import { SEARCH_MODE_LABELS } from '@/features/compose/SearchOptionFields'
 import type { SearchSettings } from '@/features/thread/chat-body'
 
 const LINE_HEIGHT_PX = 24

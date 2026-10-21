@@ -13,6 +13,10 @@ import { describe, expect, it, vi } from 'vitest'
 import { AuthProvider, useAuth } from '@/core/auth/AuthProvider'
 import type { AuthStorage } from '@/core/auth/preferences-storage'
 import { AUTH_STORAGE_KEY } from '@/core/auth/supabase'
+import { SEARCH_SETTINGS_KEY } from '@/features/compose/search-settings'
+import { LIBRARY_CACHE_KEY } from '@/features/library/library-cache'
+import { LIBRARY_SORT_KEY } from '@/features/library/library-sort'
+import { CUSTOM_INSTRUCTIONS_KEY } from '@/features/settings/custom-instructions'
 import { memoryStorage } from '@/test/memory-storage'
 
 vi.mock('@capacitor/preferences', () => ({
@@ -407,8 +411,46 @@ describe('AuthProvider: signOut', () => {
     expect(auth.signOut).toHaveBeenCalledWith({ scope: 'local' })
     expect(result.current.status).toBe('signedOut')
     expect(result.current.session).toBeNull()
-    // supabase-js removed the session itself; nothing left to clear.
-    expect(storage.removeItem).not.toHaveBeenCalled()
+    // supabase-js removed the session itself; only the app's caches remain.
+    expect(storage.removeItem.mock.calls).toEqual([[LIBRARY_CACHE_KEY]])
+  })
+
+  it('signOut clears the library cache and keeps the device preferences', async () => {
+    const { result, storage } = await signedInAuth()
+    const prefs = {
+      [LIBRARY_SORT_KEY]: 'title',
+      [SEARCH_SETTINGS_KEY]: '{"searchMode":"speed","sources":["web"]}',
+      [CUSTOM_INSTRUCTIONS_KEY]: 'Be brief.'
+    }
+    for (const [key, value] of Object.entries(prefs))
+      storage.data.set(key, value)
+    storage.data.set(LIBRARY_CACHE_KEY, '{"userId":"user-1"}')
+    await act(async () => {
+      await result.current.signOut()
+    })
+    expect(storage.data.has(LIBRARY_CACHE_KEY)).toBe(false)
+    for (const [key, value] of Object.entries(prefs)) {
+      expect(storage.data.get(key)).toBe(value)
+    }
+  })
+
+  it('signOut clears the library cache when the server can’t be reached too', async () => {
+    const { auth, result, storage } = await signedInAuth()
+    auth.signOut.mockRejectedValue(new TypeError('Failed to fetch'))
+    storage.data.set(LIBRARY_CACHE_KEY, '{"userId":"user-1"}')
+    await act(async () => {
+      await result.current.signOut()
+    })
+    expect(storage.data.has(LIBRARY_CACHE_KEY)).toBe(false)
+  })
+
+  it('signOut still signs out when clearing the library cache fails', async () => {
+    const { result, storage } = await signedInAuth()
+    storage.removeItem.mockRejectedValue(new Error('storage unavailable'))
+    await act(async () => {
+      await result.current.signOut()
+    })
+    expect(result.current.status).toBe('signedOut')
   })
 
   it("signOut clears stored keys when the server can't be reached", async () => {

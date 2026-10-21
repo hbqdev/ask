@@ -5,7 +5,7 @@ import { fireEvent, render, screen } from '@testing-library/react'
 import { useState } from 'react'
 import { describe, expect, it, vi } from 'vitest'
 
-import { Tabs, useSelectTab, type TabSpec } from '@/app/Tabs'
+import { Tabs, useSelectTab, useTabActive, type TabSpec } from '@/app/Tabs'
 
 // Vitest does not process CSS, so read the stylesheet as text.
 const css = readFileSync(resolve(__dirname, '../styles.css'), 'utf8')
@@ -148,5 +148,34 @@ describe('useSelectTab', () => {
     }
     render(<Probe />)
     expect(selectTab).toBeUndefined()
+  })
+})
+
+describe('useTabActive', () => {
+  function ActiveProbe() {
+    return <p>{useTabActive() ? 'library shown' : 'library hidden'}</p>
+  }
+
+  it('tells a tab’s content whether its tab is the one shown', () => {
+    render(
+      <Tabs
+        tabs={makeTabs(() => (
+          <ActiveProbe />
+        ))}
+        initial="library"
+      />
+    )
+    expect(screen.getByText('library shown')).toBeInTheDocument()
+
+    fireEvent.click(tab('Settings'))
+    expect(screen.getByText('library hidden')).toBeInTheDocument()
+
+    fireEvent.click(tab('Library'))
+    expect(screen.getByText('library shown')).toBeInTheDocument()
+  })
+
+  it('is true outside the tab shell', () => {
+    render(<ActiveProbe />)
+    expect(screen.getByText('library shown')).toBeInTheDocument()
   })
 })

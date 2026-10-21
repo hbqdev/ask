@@ -5,9 +5,9 @@ import { useApi, type Api } from '@/core/api/ApiProvider'
 import { createApiClient } from '@/core/api/client'
 import {
   MODEL_LOAD_ERROR,
-  MODEL_SAVE_ERROR,
-  OptionsSheet
-} from '@/features/compose/OptionsSheet'
+  MODEL_SAVE_ERROR
+} from '@/features/compose/ModelPicker'
+import { OptionsSheet } from '@/features/compose/OptionsSheet'
 import type { SearchSettings } from '@/features/thread/chat-body'
 import type { ModelSelectorData } from '@/lib/types/model-selector'
 
@@ -201,217 +201,13 @@ describe('OptionsSheet', () => {
   })
 
   describe('model', () => {
-    it('shows a loading line, then the models grouped by provider with the selected one checked', async () => {
-      const response = deferred()
-      serve({ models: () => response.promise })
+    it('shows the model picker', async () => {
+      serve({ models: async () => json(DATA) })
       setup()
       expect(screen.getByText('Loading models…')).toBeInTheDocument()
-      await act(async () => response.resolve(json(DATA)))
-      expect(screen.queryByText('Loading models…')).toBeNull()
-
-      const group = screen.getByRole('radiogroup', { name: 'Model' })
-      const headings = within(group)
-        .getAllByRole('heading')
-        .map(h => h.textContent)
-      expect(headings).toEqual(['Cloud', 'Ollama'])
-      expect(modelRadio('Qwen 3')).toHaveAttribute('aria-checked', 'true')
-      expect(modelRadio('Gemma')).toHaveAttribute('aria-checked', 'false')
-      expect(modelRadio('Kimi')).toHaveAttribute('aria-checked', 'false')
-    })
-
-    it('tapping a model saves it with a PUT and checks it', async () => {
-      const fetchImpl = serve({
-        models: async () => json(DATA),
-        save: async () => json({ ok: true, selectedModelKey: 'cloud:kimi' })
-      })
-      const { onSettings } = setup()
-      await screen.findByRole('radiogroup', { name: 'Model' })
-      await act(async () => fireEvent.click(modelRadio('Kimi')))
-
-      const put = fetchImpl.mock.calls.find(
-        ([url]) => String(url) === `${BASE}/api/settings/model`
-      )
-      expect(put?.[1]?.method).toBe('PUT')
-      expect(JSON.parse(String(put?.[1]?.body))).toEqual({
-        providerId: 'cloud',
-        modelId: 'kimi'
-      })
-      expect(modelRadio('Kimi')).toHaveAttribute('aria-checked', 'true')
-      expect(modelRadio('Qwen 3')).toHaveAttribute('aria-checked', 'false')
-      expect(onSettings).not.toHaveBeenCalled()
-    })
-
-    it('checks the tapped model at once, before the save answers', async () => {
-      const save = deferred()
-      serve({ models: async () => json(DATA), save: () => save.promise })
-      setup()
-      await screen.findByRole('radiogroup', { name: 'Model' })
-      fireEvent.click(modelRadio('Gemma'))
-      expect(modelRadio('Gemma')).toHaveAttribute('aria-checked', 'true')
-      await act(async () =>
-        save.resolve(json({ ok: true, selectedModelKey: 'ollama:gemma' }))
-      )
-      expect(modelRadio('Gemma')).toHaveAttribute('aria-checked', 'true')
-    })
-
-    it('a failed save shows the error and puts the check back', async () => {
-      serve({
-        models: async () => json(DATA),
-        save: async () => json({ error: 'Invalid model' }, 400)
-      })
-      setup()
-      await screen.findByRole('radiogroup', { name: 'Model' })
-      await act(async () => fireEvent.click(modelRadio('Kimi')))
-      expect(screen.getByText(MODEL_SAVE_ERROR)).toBeInTheDocument()
-      expect(modelRadio('Qwen 3')).toHaveAttribute('aria-checked', 'true')
-      expect(modelRadio('Kimi')).toHaveAttribute('aria-checked', 'false')
-    })
-
-    it('clears the error on the next successful pick', async () => {
-      const save = vi
-        .fn<Route>()
-        .mockResolvedValueOnce(json({ error: 'Invalid model' }, 400))
-        .mockResolvedValueOnce(
-          json({ ok: true, selectedModelKey: 'ollama:gemma' })
-        )
-      serve({ models: async () => json(DATA), save })
-      setup()
-      await screen.findByRole('radiogroup', { name: 'Model' })
-      await act(async () => fireEvent.click(modelRadio('Kimi')))
-      expect(screen.getByText(MODEL_SAVE_ERROR)).toBeInTheDocument()
-      await act(async () => fireEvent.click(modelRadio('Gemma')))
-      expect(screen.queryByText(MODEL_SAVE_ERROR)).toBeNull()
-      expect(modelRadio('Gemma')).toHaveAttribute('aria-checked', 'true')
-    })
-
-    it('ignores a tap on the model already chosen', async () => {
-      const fetchImpl = serve({ models: async () => json(DATA) })
-      setup()
-      await screen.findByRole('radiogroup', { name: 'Model' })
-      fireEvent.click(modelRadio('Qwen 3'))
-      expect(fetchImpl).toHaveBeenCalledTimes(1)
-    })
-
-    describe('rapid picks', () => {
-      const OK = (key: string) => json({ ok: true, selectedModelKey: key })
-      const FAIL = () => json({ error: 'Invalid model' }, 400)
-
-      /** Each PUT waits for the test to answer it, in the order sent. */
-      async function rapid() {
-        const answers: ReturnType<typeof deferred>[] = []
-        const sent: unknown[] = []
-        serve({
-          models: async () => json(DATA),
-          save: init => {
-            sent.push(JSON.parse(String(init?.body)))
-            const answer = deferred()
-            answers.push(answer)
-            return answer.promise
-          }
-        })
-        setup()
+      expect(
         await screen.findByRole('radiogroup', { name: 'Model' })
-        const answer = async (index: number, res: Response) =>
-          act(async () => answers[index].resolve(res))
-        return { sent, answer }
-      }
-
-      /** A tap, then a flush, so any save it starts reaches the server. */
-      const tap = (name: string) =>
-        act(async () => fireEvent.click(modelRadio(name)))
-
-      const checked = () =>
-        within(screen.getByRole('radiogroup', { name: 'Model' }))
-          .getAllByRole('radio')
-          .filter(r => r.getAttribute('aria-checked') === 'true')
-          .map(r => r.textContent)
-
-      it('sends one save at a time, then the newest pick, and checks it when both save', async () => {
-        const { sent, answer } = await rapid()
-        await tap('Kimi')
-        await tap('Gemma')
-        expect(sent).toEqual([{ providerId: 'cloud', modelId: 'kimi' }])
-        expect(checked()).toEqual(['Gemma'])
-        await answer(0, OK('cloud:kimi'))
-        expect(checked()).toEqual(['Gemma'])
-        expect(sent).toHaveLength(2)
-        await answer(1, OK('ollama:gemma'))
-        expect(sent.at(-1)).toEqual({ providerId: 'ollama', modelId: 'gemma' })
-        expect(checked()).toEqual(['Gemma'])
-        expect(screen.queryByText(MODEL_SAVE_ERROR)).toBeNull()
-      })
-
-      it('skips picks overtaken while a save is in flight', async () => {
-        const { sent, answer } = await rapid()
-        await tap('Kimi')
-        await tap('Gemma')
-        await tap('Qwen 3')
-        await answer(0, OK('cloud:kimi'))
-        await answer(1, OK('ollama:qwen3'))
-        expect(sent).toEqual([
-          { providerId: 'cloud', modelId: 'kimi' },
-          { providerId: 'ollama', modelId: 'qwen3' }
-        ])
-        expect(checked()).toEqual(['Qwen 3'])
-      })
-
-      it('the reviewer case: A still saving when B is tapped, A saves late, B fails: the checked model is the server key (A) and the error shows', async () => {
-        const { sent, answer } = await rapid()
-        await tap('Kimi')
-        await tap('Gemma')
-        // B cannot fail before A settles: it is not sent until then.
-        expect(sent).toHaveLength(1)
-        await answer(0, OK('cloud:kimi'))
-        await answer(1, FAIL())
-        expect(checked()).toEqual(['Kimi'])
-        expect(screen.getByText(MODEL_SAVE_ERROR)).toBeInTheDocument()
-      })
-
-      it('an earlier pick that fails does not undo a later one that saves', async () => {
-        const { answer } = await rapid()
-        await tap('Kimi')
-        await tap('Gemma')
-        await answer(0, FAIL())
-        expect(checked()).toEqual(['Gemma'])
-        await answer(1, OK('ollama:gemma'))
-        expect(checked()).toEqual(['Gemma'])
-        expect(screen.queryByText(MODEL_SAVE_ERROR)).toBeNull()
-      })
-
-      it('both failing puts back the model the server still holds', async () => {
-        const { answer } = await rapid()
-        await tap('Kimi')
-        await tap('Gemma')
-        await answer(0, FAIL())
-        await answer(1, FAIL())
-        expect(checked()).toEqual(['Qwen 3'])
-        expect(screen.getByText(MODEL_SAVE_ERROR)).toBeInTheDocument()
-      })
-
-      it('sends nothing more when the newest pick is what the server already holds', async () => {
-        const { sent, answer } = await rapid()
-        await tap('Kimi')
-        await tap('Qwen 3')
-        await answer(0, FAIL())
-        expect(sent).toHaveLength(1)
-        expect(checked()).toEqual(['Qwen 3'])
-        expect(screen.queryByText(MODEL_SAVE_ERROR)).toBeNull()
-      })
-    })
-
-    it.each([
-      ['model selection is off', { ...DATA, enabled: false }],
-      [
-        'no model is available',
-        { ...DATA, hasAvailableModels: false, modelsByProvider: {} }
-      ]
-    ])('hides the model section when %s', async (_name, data) => {
-      serve({ models: async () => json(data) })
-      setup()
-      await act(async () => {})
-      expect(screen.queryByText('Loading models…')).toBeNull()
-      expect(screen.queryByRole('radiogroup', { name: 'Model' })).toBeNull()
-      expect(screen.queryByText('Model')).toBeNull()
+      ).toBeInTheDocument()
     })
 
     it('a failed model list shows a short message and leaves mode and sources usable', async () => {

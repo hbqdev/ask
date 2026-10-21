@@ -117,4 +117,34 @@ describe('buildChatBody', () => {
 
     expect(body).toMatchObject({ messageId: 'u1', message: question })
   })
+
+  it('sends the custom instructions when there are some', () => {
+    const body = buildChatBody({
+      trigger: 'submit-message',
+      chatId: 'c1',
+      messages: [user('u1', 'a')],
+      isNewChat: true,
+      settings,
+      systemInstructions: 'Use British English.'
+    })
+
+    expect(body.systemInstructions).toBe('Use British English.')
+  })
+
+  it.each([
+    ['missing', undefined],
+    ['empty', ''],
+    ['only whitespace', '  \n ']
+  ])('leaves out systemInstructions when they are %s', (_name, value) => {
+    const body = buildChatBody({
+      trigger: 'submit-message',
+      chatId: 'c1',
+      messages: [user('u1', 'a')],
+      isNewChat: true,
+      settings,
+      systemInstructions: value
+    })
+
+    expect(body).not.toHaveProperty('systemInstructions')
+  })
 })

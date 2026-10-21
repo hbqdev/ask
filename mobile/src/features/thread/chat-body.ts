@@ -1,7 +1,8 @@
 // The /api/chat request body, built as the web builds it (components/chat.tsx
-// prepareSendMessagesRequest; code map §1) plus the mobile's search settings,
-// except that isNewChat survives a first submit that failed (see below). Never the conversation (the server loads it), a
-// model (signed-in users get their saved preference) or an analytics id.
+// prepareSendMessagesRequest; code map §1) plus the mobile's search settings
+// and custom instructions, except that isNewChat survives a first submit that
+// failed (see below). Never the conversation (the server loads it), a model
+// (signed-in users get their saved preference) or an analytics id.
 import type { UIMessage } from 'ai'
 
 import type { SearchMode, SearchSources } from '@/lib/types/search'
@@ -20,6 +21,8 @@ export type ChatBodyInput = {
   /** The chat had no saved messages when it was opened. */
   isNewChat: boolean
   settings: SearchSettings
+  /** The user's custom instructions; sent only when there are some. */
+  systemInstructions?: string
 }
 
 export function buildChatBody({
@@ -28,8 +31,10 @@ export function buildChatBody({
   messageId,
   messages,
   isNewChat,
-  settings
+  settings,
+  systemInstructions
 }: ChatBodyInput): Record<string, unknown> {
+  const instructions = systemInstructions?.trim()
   const target =
     trigger === 'regenerate-message'
       ? messages.find(m => m.id === messageId)
@@ -55,6 +60,7 @@ export function buildChatBody({
       trigger === 'submit-message' &&
       !messages.some(m => m.role === 'assistant'),
     searchMode: settings.searchMode,
-    sources: settings.sources
+    sources: settings.sources,
+    ...(instructions ? { systemInstructions: instructions } : {})
   }
 }

@@ -6,6 +6,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { ApiProvider } from '@/core/api/ApiProvider'
 import { useAuth, type Auth } from '@/core/auth/AuthProvider'
 import { onChatsChanged } from '@/core/chats-events'
+import { saveCustomInstructions } from '@/features/settings/custom-instructions'
 import type { SearchSettings } from '@/features/thread/chat-body'
 import { useThread } from '@/features/thread/useThread'
 
@@ -250,6 +251,36 @@ describe('useThread', () => {
       searchMode: 'quality',
       sources: ['web']
     })
+  })
+
+  it('sends the saved custom instructions, read afresh for each question', async () => {
+    serve({
+      chat: [
+        () => sse(answerChunks('a1', 'One', 'Title')),
+        () => sse(answerChunks('a2', 'Two'))
+      ]
+    })
+    await saveCustomInstructions('Use British English.')
+    try {
+      const { result } = renderThread()
+
+      act(() => result.current.send('first'))
+      await waitFor(() => expect(result.current.status).toBe('ready'))
+      await waitFor(() => expect(result.current.messages).toHaveLength(2))
+
+      // Changed in Settings mid-chat: the next question carries the change.
+      await saveCustomInstructions('Answer in French.')
+      act(() => result.current.send('second'))
+      await waitFor(() => expect(result.current.messages).toHaveLength(4))
+      await waitFor(() => expect(result.current.status).toBe('ready'))
+
+      expect(chatBodies().map(b => b.systemInstructions)).toEqual([
+        'Use British English.',
+        'Answer in French.'
+      ])
+    } finally {
+      await saveCustomInstructions('')
+    }
   })
 
   it('keeps the chat title from an earlier turn when a later one has none', async () => {

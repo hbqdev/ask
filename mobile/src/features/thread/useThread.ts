@@ -14,6 +14,7 @@ import { useApi } from '@/core/api/ApiProvider'
 import { emitChatsChanged } from '@/core/chats-events'
 import { newId } from '@/core/ids'
 import { touchChat } from '@/features/library/library-api'
+import { loadCustomInstructions } from '@/features/settings/custom-instructions'
 import { buildChatBody, type SearchSettings } from '@/features/thread/chat-body'
 import {
   describeChatError,
@@ -103,7 +104,9 @@ export function useThread({
             if (!token) throw new Error('Signed out')
             return { Authorization: `Bearer ${token}` }
           },
-          prepareSendMessagesRequest: ({
+          // The custom instructions are read for each request, so a change
+          // made in Settings applies to the next question.
+          prepareSendMessagesRequest: async ({
             id,
             messages,
             trigger,
@@ -115,7 +118,8 @@ export function useThread({
               messageId,
               messages,
               isNewChat: live.current.isNew,
-              settings: live.current.settings
+              settings: live.current.settings,
+              systemInstructions: await loadCustomInstructions()
             })
           })
         },

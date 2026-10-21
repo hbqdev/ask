@@ -20,6 +20,7 @@ import {
   type AuthStorage
 } from '@/core/auth/preferences-storage'
 import { AUTH_STORAGE_KEY } from '@/core/auth/supabase'
+import { clearLibraryCache } from '@/features/library/library-cache'
 
 export type AuthStatus = 'loading' | 'signedOut' | 'signedIn'
 
@@ -157,13 +158,13 @@ export function AuthProvider({
       ({ error: authError }) => !authError,
       () => false
     )
-    if (!cleared) {
-      await Promise.allSettled(
-        ['', '-code-verifier', '-user'].map(suffix =>
-          storage.removeItem(AUTH_STORAGE_KEY + suffix)
-        )
-      )
-    }
+    const authKeys = cleared ? [] : ['', '-code-verifier', '-user']
+    // The cached Library rows belong to this account; device preferences
+    // (search settings, Library sort, custom instructions) stay.
+    await Promise.allSettled([
+      ...authKeys.map(suffix => storage.removeItem(AUTH_STORAGE_KEY + suffix)),
+      clearLibraryCache(storage)
+    ])
     setError(null)
     showSignedOut()
   }, [client, storage, showSignedOut])

@@ -5,7 +5,7 @@
 import { memo } from 'react'
 
 import { SwipeRow } from '@/core/ui/SwipeRow'
-import { SEARCH_MODE_LABELS } from '@/features/compose/OptionsSheet'
+import { SEARCH_MODE_LABELS } from '@/features/compose/SearchOptionFields'
 import type { ChatRow } from '@/features/library/library-api'
 import { relativeTime } from '@/features/library/relative-time'
 

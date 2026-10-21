@@ -28,6 +28,17 @@ export function useSelectTab(): ((id: TabId) => void) | undefined {
   return useContext(SelectTabContext)
 }
 
+const TabActiveContext = createContext(true)
+
+/**
+ * Whether the tab holding this content is the one shown (true outside the
+ * shell). Kept tabs stay mounted while hidden, so this is how their content
+ * knows it was left or shown again.
+ */
+export function useTabActive(): boolean {
+  return useContext(TabActiveContext)
+}
+
 // Switching tabs re-renders Tabs only; a kept tab's content does not re-render.
 const TabContent = memo(function TabContent({ tab }: { tab: TabSpec }) {
   return tab.render()
@@ -73,7 +84,9 @@ export function Tabs({ tabs, initial }: TabsProps) {
                 style={isActive ? undefined : { visibility: 'hidden' }}
                 inert={!isActive}
               >
-                <TabContent tab={tab} />
+                <TabActiveContext.Provider value={isActive}>
+                  <TabContent tab={tab} />
+                </TabActiveContext.Provider>
               </div>
             )
           })}

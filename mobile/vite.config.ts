@@ -4,6 +4,8 @@ import tailwindcss from '@tailwindcss/vite'
 import react from '@vitejs/plugin-react'
 import { defineConfig } from 'vite'
 
+import pkg from './package.json'
+
 const askLib = fileURLToPath(new URL('../lib/', import.meta.url))
 
 // `@ask/` is Ask's pure modules in the repo's lib/ (reused, not copied), and
@@ -33,6 +35,8 @@ export const dedupe = [
 export default defineConfig({
   plugins: [react(), tailwindcss()],
   resolve: { alias, dedupe },
+  // The app version Settings shows (declared in src/env.d.ts).
+  define: { __APP_VERSION__: JSON.stringify(pkg.version) },
   // Capacitor serves dist/ from the app bundle, so asset URLs stay relative.
   base: './',
   build: { outDir: 'dist', emptyOutDir: true }
