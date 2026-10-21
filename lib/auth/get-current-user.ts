@@ -1,6 +1,11 @@
 import { headers } from 'next/headers'
 
-import { hasSupabasePublicConfig } from '@/lib/supabase/keys'
+import { createClient as createSupabaseClient } from '@supabase/supabase-js'
+
+import {
+  getSupabasePublishableKey,
+  hasSupabasePublicConfig
+} from '@/lib/supabase/keys'
 import { createClient } from '@/lib/supabase/server'
 import { perfLog } from '@/lib/utils/perf-logging'
 import { incrementAuthCallCount } from '@/lib/utils/perf-tracking'
@@ -24,19 +29,45 @@ async function readAuthorizationHeader(): Promise<string | null> {
   }
 }
 
+// Validates a bearer with a client that has no session storage. The cookie-
+// bound SSR client must not be used here: auth-js removes the stored session
+// when getUser(jwt) hits AuthSessionMissingError, and for the SSR client that
+// storage is the request's cookies, so a revoked bearer could wipe a
+// co-present cookie session.
+async function getUserFromBearer(token: string) {
+  const supabase = createSupabaseClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    getSupabasePublishableKey()!,
+    {
+      auth: {
+        persistSession: false,
+        autoRefreshToken: false,
+        detectSessionInUrl: false
+      }
+    }
+  )
+  const { data } = await supabase.auth.getUser(token)
+  return data.user ?? null
+}
+
 export async function getCurrentUser() {
   if (!hasSupabasePublicConfig()) {
     return null // Supabase is not configured
   }
 
-  const supabase = await createClient()
   // Native clients (the mobile app) cannot carry the cookie session, so they
-  // send the Supabase access token as a bearer. A present-but-invalid token
-  // resolves to null; it never falls back to the cookie session.
-  const token = bearerToken(await readAuthorizationHeader())
-  const { data } = token
-    ? await supabase.auth.getUser(token)
-    : await supabase.auth.getUser()
+  // send the Supabase access token as a bearer. A request that uses the Bearer
+  // scheme is decided by that token alone: a malformed or invalid bearer
+  // resolves to null and never falls back to the cookie session. Other schemes
+  // (e.g. Basic) are not ours and keep the cookie path.
+  const authorization = await readAuthorizationHeader()
+  if (authorization && /^Bearer(\s|$)/i.test(authorization)) {
+    const token = bearerToken(authorization)
+    return token ? getUserFromBearer(token) : null
+  }
+
+  const supabase = await createClient()
+  const { data } = await supabase.auth.getUser()
   return data.user ?? null
 }
 
