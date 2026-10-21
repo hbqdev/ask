@@ -40,3 +40,94 @@ body {
   -webkit-tap-highlight-color: transparent;
   overscroll-behavior: none;
 }
+
+/* --- Navigation -------------------------------------------------------------
+   Stack pushes and pops slide with transforms only (compositor-friendly at
+   120 Hz), on the curve iOS uses for its own navigation. */
+:root {
+  --nav-duration: 280ms;
+  --nav-ease: cubic-bezier(0.32, 0.72, 0, 1);
+}
+
+.stack-view {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+  isolation: isolate;
+}
+
+.stack-layer {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  background-color: var(--background);
+  /* Vertical scrolling stays native; horizontal moves reach the swipe. */
+  touch-action: pan-y;
+}
+
+/* A pushed screen casts a soft edge over the one below. */
+.stack-layer + .stack-layer {
+  box-shadow: -6px 0 24px rgb(0 0 0 / 0.12);
+}
+
+.stack-leave {
+  pointer-events: none;
+}
+
+@keyframes stack-in {
+  from {
+    transform: translate3d(100%, 0, 0);
+  }
+  to {
+    transform: translate3d(0, 0, 0);
+  }
+}
+
+@keyframes stack-fade-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .stack-layer {
+    /* Snapping back after a short swipe, and the slide out on a pop. */
+    transition: transform var(--nav-duration) var(--nav-ease);
+  }
+
+  .stack-enter {
+    animation: stack-in var(--nav-duration) var(--nav-ease);
+  }
+
+  .stack-leave {
+    /* Overrides the drag's inline transform, so a swipe slides out from
+       where the finger let go. */
+    transform: translate3d(100%, 0, 0) !important;
+  }
+}
+
+/* Reduced motion: screens cross-fade instead of sliding. */
+@media (prefers-reduced-motion: reduce) {
+  .stack-layer {
+    transition: opacity 200ms linear;
+  }
+
+  .stack-enter {
+    animation: stack-fade-in 200ms linear;
+  }
+
+  .stack-leave {
+    opacity: 0;
+  }
+}
+
+/* The tab bar clears the home indicator should the web view ever extend
+   under it (today the native container keeps it inside the safe area). */
+.tab-bar {
+  padding-bottom: max(8px, env(safe-area-inset-bottom));
+}
