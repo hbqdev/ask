@@ -10,6 +10,7 @@ import { OrbitMark } from '@/core/ui/OrbitMark'
 import { AskHome } from '@/features/ask/AskHome'
 import { SignInScreen } from '@/features/auth/SignInScreen'
 import { SearchSettingsProvider } from '@/features/compose/SearchSettingsProvider'
+import { LibraryScreen } from '@/features/library/LibraryScreen'
 import { SettingsScreen } from '@/features/settings/SettingsScreen'
 
 // --- Tab icons (24px line icons in the tab's text colour) -------------------
@@ -50,19 +51,6 @@ const SETTINGS_ICON = (
   </Icon>
 )
 
-// --- Placeholder screens (later tasks replace these) ------------------------
-
-function LibraryPlaceholder() {
-  return (
-    <main className="flex flex-1 flex-col px-4 pt-6">
-      <h1 className="px-2 text-3xl font-bold tracking-tight">Library</h1>
-      <p className="flex flex-1 items-center justify-center text-foreground/55">
-        Your chats will appear here
-      </p>
-    </main>
-  )
-}
-
 // Module constants: Tabs memoizes each tab's content on its spec, and the
 // stack keeps its root entry, so these must not change between renders.
 const TABS: TabSpec[] = [
@@ -71,7 +59,7 @@ const TABS: TabSpec[] = [
     id: 'library',
     label: 'Library',
     icon: LIBRARY_ICON,
-    render: () => <LibraryPlaceholder />
+    render: () => <LibraryScreen />
   },
   {
     id: 'settings',

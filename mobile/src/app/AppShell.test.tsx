@@ -180,16 +180,38 @@ describe('AppShell', () => {
     expect(ApiProvider).not.toHaveBeenCalled()
   })
 
-  it('shows the Library placeholder and the Settings screen', async () => {
+  it('shows the Library and the Settings screen', async () => {
     const { client } = fakeClient(async () => ({
       data: { session },
       error: null
     }))
+    const fetchMock = vi.fn(
+      async (_input: RequestInfo | URL) =>
+        new Response(
+          JSON.stringify({ chats: [], nextOffset: null, badges: {}, total: 0 }),
+          { headers: { 'Content-Type': 'application/json' } }
+        )
+    )
+    vi.stubGlobal('fetch', fetchMock)
     const user = userEvent.setup()
     renderShell(client)
 
     await user.click(await screen.findByRole('tab', { name: 'Library' }))
-    expect(screen.getByText('Your chats will appear here')).toBeVisible()
+    expect(
+      screen.getByRole('heading', { level: 1, name: 'Library' })
+    ).toBeVisible()
+    expect(await screen.findByText('No chats yet')).toBeVisible()
+    expect(String(fetchMock.mock.calls[0][0])).toMatch(
+      /^https:\/\/ask\.test\.invalid\/api\/chats\?/
+    )
+
+    // The empty Library leads back to the Ask tab.
+    await user.click(screen.getByRole('button', { name: 'Ask a question' }))
+    expect(screen.getByRole('tab', { name: 'Ask' })).toHaveAttribute(
+      'aria-selected',
+      'true'
+    )
+    await user.click(screen.getByRole('tab', { name: 'Library' }))
 
     await user.click(screen.getByRole('tab', { name: 'Settings' }))
     expect(screen.getByText('user@example.test')).toBeInTheDocument()

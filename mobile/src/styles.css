@@ -236,6 +236,20 @@ body {
   }
 }
 
+/* --- Library ----------------------------------------------------------------
+   Pulled down, the list follows the finger with no transition; released (or
+   held while refreshing) it settles on the navigation curve. The search field
+   has its own clear button, so WebKit's is hidden. */
+@media (prefers-reduced-motion: no-preference) {
+  .pull-settle {
+    transition: transform var(--nav-duration) var(--nav-ease);
+  }
+}
+
+.library-search::-webkit-search-cancel-button {
+  appearance: none;
+}
+
 /* --- Answer -----------------------------------------------------------------
    The answer's markdown. Streamdown spaces the blocks and styles headings,
    lists, quotes, code and tables itself (its classes, with the surface tokens

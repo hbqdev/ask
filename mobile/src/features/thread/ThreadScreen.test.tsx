@@ -220,6 +220,21 @@ describe('openThread', () => {
     expect(thread.send).not.toHaveBeenCalled()
   })
 
+  it('a saved chat shows its title at once', async () => {
+    const thread = session({ loading: true })
+    vi.mocked(useThread).mockReturnValue(thread)
+    renderStack({ chatId: 'saved-1', title: 'Facts, explained' })
+    await act(async () => screen.getByRole('button', { name: 'Open' }).click())
+
+    expect(
+      screen.getByRole('heading', { level: 1, name: 'Facts, explained' })
+    ).toBeInTheDocument()
+    expect(useThread).toHaveBeenCalledWith(
+      expect.objectContaining({ chatId: 'saved-1', isNew: false })
+    )
+    expect(thread.send).not.toHaveBeenCalled()
+  })
+
   it('goes back with the back button', async () => {
     vi.mocked(useThread).mockReturnValue(session({ messages: TURN }))
     renderStack({ chatId: 'saved-1' })
@@ -386,6 +401,20 @@ describe('ThreadScreen', () => {
     renderScreen(session(), { isNew: true, initialQuestion: 'Pending?' })
     expect(
       screen.getByRole('heading', { level: 1, name: 'Pending?' })
+    ).toBeInTheDocument()
+  })
+
+  it('heads the screen with the title it opened with until the chat’s own arrives', () => {
+    const { update } = renderScreen(session({ loading: true }), {
+      initialTitle: 'From the Library'
+    })
+    expect(
+      screen.getByRole('heading', { level: 1, name: 'From the Library' })
+    ).toBeInTheDocument()
+
+    update(session({ messages: TURN, title: 'Renamed elsewhere' }))
+    expect(
+      screen.getByRole('heading', { level: 1, name: 'Renamed elsewhere' })
     ).toBeInTheDocument()
   })
 

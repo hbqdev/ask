@@ -1,0 +1,567 @@
+import { Preferences } from '@capacitor/preferences'
+import {
+  act,
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+  within
+} from '@testing-library/react'
+import userEvent from '@testing-library/user-event'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+
+import { useSelectTab } from '@/app/Tabs'
+import { StackProvider } from '@/core/nav/stack'
+import type { ChatRow, SearchHit } from '@/features/library/library-api'
+import { LIBRARY_SORT_KEY } from '@/features/library/library-sort'
+import { LibraryScreen } from '@/features/library/LibraryScreen'
+import {
+  useChatSearch,
+  useLibrary,
+  type ChatSearch,
+  type Library
+} from '@/features/library/useLibrary'
+import { openThread } from '@/features/thread/ThreadScreen'
+import { intersect, isObserved } from '@/test/intersection-observer'
+
+vi.mock('@/features/library/useLibrary', () => ({
+  useLibrary: vi.fn(),
+  useChatSearch: vi.fn()
+}))
+vi.mock('@/features/thread/ThreadScreen', () => ({ openThread: vi.fn() }))
+vi.mock('@/app/Tabs', () => ({ useSelectTab: vi.fn() }))
+
+const prefsData = vi.hoisted(() => new Map<string, string>())
+vi.mock('@capacitor/preferences', () => ({
+  Preferences: {
+    get: vi.fn(async ({ key }: { key: string }) => ({
+      value: prefsData.get(key) ?? null
+    })),
+    set: vi.fn(async ({ key, value }: { key: string; value: string }) => {
+      prefsData.set(key, value)
+    }),
+    remove: vi.fn(async () => {})
+  }
+}))
+
+// --- Fixtures ----------------------------------------------------------------
+
+// Local times, so the date sections are the device's days.
+const NOW = new Date(2026, 9, 21, 15, 30)
+const daysAgo = (n: number) => new Date(2026, 9, 21 - n, 12).toISOString()
+
+const row = (id: string, over: Partial<ChatRow> = {}): ChatRow => ({
+  id,
+  title: `Chat ${id}`,
+  createdAt: daysAgo(40),
+  lastViewedAt: null,
+  fileCount: 0,
+  ...over
+})
+
+const ROWS = [
+  row('a', { lastViewedAt: daysAgo(0), createdAt: daysAgo(3) }),
+  row('b', { lastViewedAt: daysAgo(1), createdAt: daysAgo(0) }),
+  row('c', { lastViewedAt: null, createdAt: daysAgo(3) })
+]
+
+function library(over: Partial<Library> = {}): Library {
+  return {
+    chats: ROWS,
+    total: 3,
+    status: 'ready',
+    error: undefined,
+    hasMore: false,
+    loadMore: vi.fn(async () => {}),
+    refresh: vi.fn(async () => {}),
+    remove: vi.fn(async () => true),
+    rename: vi.fn(async () => true),
+    clearAll: vi.fn(async () => true),
+    ...over
+  }
+}
+
+function chatSearch(over: Partial<ChatSearch> = {}): ChatSearch {
+  return {
+    query: '',
+    setQuery: vi.fn(),
+    results: [],
+    status: 'idle',
+    submit: vi.fn(),
+    ...over
+  }
+}
+
+const HOME = { key: 'tabs', render: () => <LibraryScreen /> }
+
+/** The screen as the stack's root, once the stored sort has loaded. */
+async function renderScreen(
+  lib: Library = library(),
+  search: ChatSearch = chatSearch()
+) {
+  vi.mocked(useLibrary).mockReturnValue(lib)
+  vi.mocked(useChatSearch).mockReturnValue(search)
+  const utils = render(
+    <StackProvider root={HOME}>
+      <LibraryScreen />
+    </StackProvider>
+  )
+  await screen.findByRole('heading', { level: 1, name: 'Library' })
+  await waitFor(() => expect(useLibrary).toHaveBeenCalled())
+  return {
+    ...utils,
+    update(next: { lib?: Library; search?: ChatSearch }) {
+      if (next.lib) vi.mocked(useLibrary).mockReturnValue(next.lib)
+      if (next.search) vi.mocked(useChatSearch).mockReturnValue(next.search)
+      utils.rerender(
+        <StackProvider root={HOME}>
+          <LibraryScreen />
+        </StackProvider>
+      )
+    }
+  }
+}
+
+const rowButton = (title: string) =>
+  screen.getByRole('button', { name: new RegExp(`^${title}`) })
+
+/** Opens a row's swipe actions with a left drag, as a finger would. */
+function swipeOpen(content: HTMLElement) {
+  const at = (x: number) => ({
+    clientX: x,
+    clientY: 100,
+    pointerId: 1,
+    isPrimary: true
+  })
+  fireEvent.pointerDown(content, at(300))
+  fireEvent.pointerMove(content, at(250))
+  fireEvent.pointerMove(content, at(180))
+  fireEvent.pointerUp(content, at(180))
+}
+
+function swipeAction(title: string, action: 'Delete' | 'Rename') {
+  const content = rowButton(title)
+  swipeOpen(content)
+  fireEvent.click(
+    within(content.closest('li')!).getByRole('button', { name: action })
+  )
+}
+
+/** The date sections, by their accessible names (their headings). */
+const sectionNames = () =>
+  screen
+    .getAllByRole('region')
+    .map(section =>
+      section.getAttribute('aria-labelledby')
+        ? document.getElementById(section.getAttribute('aria-labelledby')!)!
+            .textContent
+        : null
+    )
+
+const selectTab = vi.fn()
+
+beforeEach(() => {
+  prefsData.clear()
+  vi.clearAllMocks()
+  vi.useFakeTimers({ toFake: ['Date'] })
+  vi.setSystemTime(NOW)
+  vi.mocked(useSelectTab).mockReturnValue(selectTab)
+  vi.spyOn(HTMLElement.prototype, 'clientWidth', 'get').mockReturnValue(375)
+})
+
+afterEach(() => {
+  vi.useRealTimers()
+  vi.restoreAllMocks()
+})
+
+// --- Header -------------------------------------------------------------------
+
+describe('LibraryScreen header', () => {
+  it('shows the total count', async () => {
+    await renderScreen(library({ total: 42 }))
+    expect(screen.getByText('42 chats')).toBeInTheDocument()
+  })
+
+  it('says "1 chat" for one', async () => {
+    await renderScreen(library({ total: 1, chats: [ROWS[0]] }))
+    expect(screen.getByText('1 chat')).toBeInTheDocument()
+  })
+
+  it('shows no count until it is known', async () => {
+    await renderScreen(library({ total: undefined }))
+    expect(screen.queryByText(/\d+ chats?$/)).toBeNull()
+  })
+
+  it('waits for the stored sort before loading the list', async () => {
+    prefsData.set(LIBRARY_SORT_KEY, 'title')
+    await renderScreen()
+    expect(useLibrary).toHaveBeenCalledWith({ sort: 'title' })
+    expect(useLibrary).not.toHaveBeenCalledWith({ sort: 'recent' })
+    expect(screen.getByRole('button', { name: 'Sort: Title' })).toBeVisible()
+  })
+
+  it('persists a sort change and loads the list in that order', async () => {
+    const user = userEvent.setup()
+    await renderScreen()
+    expect(useLibrary).toHaveBeenLastCalledWith({ sort: 'recent' })
+
+    await user.click(screen.getByRole('button', { name: 'Sort: Recent' }))
+    const menu = screen.getByRole('dialog', { name: 'Sort by' })
+    const options = within(menu).getAllByRole('radio')
+    expect(options.map(o => o.textContent)).toEqual([
+      'Recent',
+      'Newest',
+      'Oldest',
+      'Title'
+    ])
+    expect(options[0]).toHaveAttribute('aria-checked', 'true')
+
+    await user.click(within(menu).getByRole('radio', { name: 'Oldest' }))
+    expect(screen.queryByRole('dialog')).toBeNull()
+    expect(useLibrary).toHaveBeenLastCalledWith({ sort: 'oldest' })
+    expect(Preferences.set).toHaveBeenCalledWith({
+      key: LIBRARY_SORT_KEY,
+      value: 'oldest'
+    })
+    expect(screen.getByRole('button', { name: 'Sort: Oldest' })).toBeVisible()
+  })
+
+  it('keeps the sort when the menu is dismissed', async () => {
+    const user = userEvent.setup()
+    await renderScreen()
+    await user.click(screen.getByRole('button', { name: 'Sort: Recent' }))
+    await user.keyboard('{Escape}')
+    expect(screen.queryByRole('dialog')).toBeNull()
+    expect(useLibrary).toHaveBeenLastCalledWith({ sort: 'recent' })
+    expect(Preferences.set).not.toHaveBeenCalled()
+  })
+
+  it('goes back to the top of the list on a sort change', async () => {
+    const user = userEvent.setup()
+    await renderScreen()
+    const scroller = screen.getByTestId('library-scroll')
+    scroller.scrollTop = 500
+    await user.click(screen.getByRole('button', { name: 'Sort: Recent' }))
+    await user.click(screen.getByRole('radio', { name: 'Title' }))
+    expect(scroller.scrollTop).toBe(0)
+  })
+})
+
+// --- List ---------------------------------------------------------------------
+
+describe('LibraryScreen list', () => {
+  it('renders the rows in date sections by last viewed for the recent sort', async () => {
+    await renderScreen()
+    const sections = screen.getAllByRole('region')
+    expect(sectionNames()).toEqual(['Today', 'Yesterday', 'Previous 7 days'])
+    expect(within(sections[0]).getByText('Chat a')).toBeInTheDocument()
+    expect(within(sections[1]).getByText('Chat b')).toBeInTheDocument()
+    // Never viewed: its creation date.
+    expect(within(sections[2]).getByText('Chat c')).toBeInTheDocument()
+    expect(
+      within(sections[0]).getByRole('heading', { level: 2, name: 'Today' })
+    ).toBeInTheDocument()
+  })
+
+  it('sections by creation date for the newest and oldest sorts', async () => {
+    prefsData.set(LIBRARY_SORT_KEY, 'newest')
+    await renderScreen(library({ chats: [ROWS[1], ROWS[0], ROWS[2]] }))
+    const sections = screen.getAllByRole('region')
+    expect(sectionNames()).toEqual(['Today', 'Previous 7 days'])
+    expect(within(sections[0]).getByText('Chat b')).toBeInTheDocument()
+    // Row times follow the same date.
+    expect(rowButton('Chat a')).toHaveTextContent('3 days ago')
+  })
+
+  it('shows the title sort as one flat list', async () => {
+    prefsData.set(LIBRARY_SORT_KEY, 'title')
+    await renderScreen()
+    expect(screen.queryAllByRole('heading', { level: 2 })).toEqual([])
+    expect(screen.getAllByRole('listitem')).toHaveLength(3)
+  })
+
+  it('opens a chat on a tap with its id and title', async () => {
+    await renderScreen()
+    fireEvent.click(rowButton('Chat b'))
+    expect(openThread).toHaveBeenCalledExactlyOnceWith(expect.any(Function), {
+      chatId: 'b',
+      title: 'Chat b'
+    })
+  })
+
+  it('loads more when the end of the list comes into view', async () => {
+    const lib = library({ hasMore: true })
+    await renderScreen(lib)
+    const sentinel = screen.getByTestId('library-more')
+    act(() => intersect(sentinel, false))
+    expect(lib.loadMore).not.toHaveBeenCalled()
+    act(() => intersect(sentinel))
+    expect(lib.loadMore).toHaveBeenCalledOnce()
+  })
+
+  it('watches the end again after a page lands, in case it is still in view', async () => {
+    const lib = library({ hasMore: true, chats: ROWS.slice(0, 2) })
+    const { update } = await renderScreen(lib)
+    const first = screen.getByTestId('library-more')
+    update({ lib: { ...lib, chats: ROWS } })
+    const after = screen.getByTestId('library-more')
+    expect(isObserved(after)).toBe(true)
+    act(() => intersect(after))
+    expect(lib.loadMore).toHaveBeenCalledOnce()
+    expect(first).toBe(after)
+  })
+
+  it('has no end to watch when there is nothing more', async () => {
+    await renderScreen(library({ hasMore: false }))
+    expect(screen.queryByTestId('library-more')).toBeNull()
+  })
+
+  it('refreshes on a pull down from the top', async () => {
+    const lib = library()
+    await renderScreen(lib)
+    const scroller = screen.getByTestId('library-scroll')
+    const touch = (y: number) => ({ identifier: 0, clientX: 100, clientY: y })
+    fireEvent.touchStart(scroller, {
+      touches: [touch(100)],
+      changedTouches: [touch(100)]
+    })
+    fireEvent.touchMove(scroller, {
+      touches: [touch(400)],
+      changedTouches: [touch(400)]
+    })
+    const content = screen.getByTestId('library-content')
+    expect(content.style.transform).toMatch(/^translate3d\(0, [\d.]+px, 0\)$/)
+    expect(content).not.toHaveClass('pull-settle')
+    await act(async () =>
+      fireEvent.touchEnd(scroller, {
+        touches: [],
+        changedTouches: [touch(400)]
+      })
+    )
+    expect(lib.refresh).toHaveBeenCalledOnce()
+    expect(content).toHaveClass('pull-settle')
+  })
+})
+
+// --- Swipe actions --------------------------------------------------------------
+
+describe('LibraryScreen swipe actions', () => {
+  it('deletes a chat after confirming', async () => {
+    const lib = library()
+    await renderScreen(lib)
+    swipeAction('Chat b', 'Delete')
+    const sheet = screen.getByRole('dialog', { name: 'Delete this chat?' })
+    expect(lib.remove).not.toHaveBeenCalled()
+    fireEvent.click(within(sheet).getByRole('button', { name: 'Delete' }))
+    expect(lib.remove).toHaveBeenCalledExactlyOnceWith('b')
+    expect(screen.queryByRole('dialog')).toBeNull()
+  })
+
+  it('keeps the chat when the delete is cancelled', async () => {
+    const lib = library()
+    await renderScreen(lib)
+    swipeAction('Chat b', 'Delete')
+    fireEvent.click(screen.getByRole('button', { name: 'Cancel' }))
+    expect(lib.remove).not.toHaveBeenCalled()
+    expect(screen.queryByRole('dialog')).toBeNull()
+  })
+
+  it('renames a chat with the trimmed title', async () => {
+    const user = userEvent.setup()
+    const lib = library()
+    await renderScreen(lib)
+    swipeAction('Chat a', 'Rename')
+    const field = screen.getByRole('textbox', { name: 'Rename chat' })
+    expect(field).toHaveValue('Chat a')
+    expect(field).toHaveAttribute('maxLength', '255')
+    await user.clear(field)
+    await user.type(field, '  Sky colours  {Enter}')
+    expect(lib.rename).toHaveBeenCalledExactlyOnceWith('a', 'Sky colours')
+    expect(screen.queryByRole('dialog')).toBeNull()
+  })
+
+  it('blocks an empty rename', async () => {
+    const user = userEvent.setup()
+    const lib = library()
+    await renderScreen(lib)
+    swipeAction('Chat a', 'Rename')
+    const sheet = screen.getByRole('dialog', { name: 'Rename chat' })
+    const field = within(sheet).getByRole('textbox', { name: 'Rename chat' })
+    await user.clear(field)
+    await user.type(field, '   {Enter}')
+    expect(within(sheet).getByRole('button', { name: 'Rename' })).toBeDisabled()
+    expect(lib.rename).not.toHaveBeenCalled()
+    expect(screen.getByRole('dialog', { name: 'Rename chat' })).toBeVisible()
+  })
+})
+
+// --- Search ---------------------------------------------------------------------
+
+const HITS: SearchHit[] = [
+  {
+    chatId: 'b',
+    title: 'Chat b',
+    snippet: '…the sky is blue because…',
+    lastViewedAt: null
+  },
+  { chatId: 'z', title: '', snippet: 'an untitled match', lastViewedAt: null }
+]
+
+describe('LibraryScreen search', () => {
+  it('passes typing to the search', async () => {
+    const search = chatSearch()
+    await renderScreen(library(), search)
+    fireEvent.change(screen.getByRole('searchbox', { name: 'Search chats' }), {
+      target: { value: 'sky' }
+    })
+    expect(search.setQuery).toHaveBeenLastCalledWith('sky')
+  })
+
+  it('shows the results (title and snippet) instead of the list', async () => {
+    await renderScreen(
+      library(),
+      chatSearch({ query: 'sky', results: HITS, status: 'ready' })
+    )
+    const results = screen.getByRole('list', { name: 'Search results' })
+    const items = within(results).getAllByRole('button')
+    expect(items[0]).toHaveTextContent('Chat b')
+    expect(items[0]).toHaveTextContent('…the sky is blue because…')
+    expect(items[1]).toHaveTextContent('Untitled')
+    expect(screen.queryByRole('region')).toBeNull()
+    expect(screen.queryByTestId('library-more')).toBeNull()
+  })
+
+  it('opens the chat of a tapped result', async () => {
+    await renderScreen(
+      library(),
+      chatSearch({ query: 'sky', results: HITS, status: 'ready' })
+    )
+    fireEvent.click(screen.getByRole('button', { name: /^Chat b/ }))
+    expect(openThread).toHaveBeenCalledExactlyOnceWith(expect.any(Function), {
+      chatId: 'b',
+      title: 'Chat b'
+    })
+  })
+
+  it('runs a semantic search on Return and closes the keyboard', async () => {
+    const search = chatSearch({ query: 'sky' })
+    await renderScreen(library(), search)
+    const field = screen.getByRole('searchbox', { name: 'Search chats' })
+    field.focus()
+    fireEvent.submit(field.closest('form')!)
+    expect(search.submit).toHaveBeenCalledOnce()
+    expect(field).not.toHaveFocus()
+  })
+
+  it('clears back to the list', async () => {
+    const search = chatSearch({ query: 'sky', results: HITS, status: 'ready' })
+    const { update } = await renderScreen(library(), search)
+    fireEvent.click(screen.getByRole('button', { name: 'Clear search' }))
+    expect(search.setQuery).toHaveBeenLastCalledWith('')
+
+    update({ search: chatSearch() })
+    expect(screen.queryByRole('button', { name: 'Clear search' })).toBeNull()
+    expect(screen.getAllByRole('region')).toHaveLength(3)
+  })
+
+  it('says it is searching until results come', async () => {
+    await renderScreen(library(), chatSearch({ query: 'sky' }))
+    expect(screen.getByRole('status')).toHaveTextContent('Searching…')
+  })
+
+  it('says when nothing matches', async () => {
+    await renderScreen(
+      library(),
+      chatSearch({ query: 'sky', status: 'ready', results: [] })
+    )
+    expect(screen.getByText('No chats match “sky”')).toBeInTheDocument()
+  })
+
+  it('says when the search failed', async () => {
+    await renderScreen(
+      library(),
+      chatSearch({ query: 'sky', status: 'error', results: [] })
+    )
+    expect(screen.getByRole('alert')).toHaveTextContent('Couldn’t search')
+  })
+})
+
+// --- States ---------------------------------------------------------------------
+
+describe('LibraryScreen states', () => {
+  it('shows skeleton rows while the list loads', async () => {
+    await renderScreen(
+      library({ chats: [], total: undefined, status: 'loading' })
+    )
+    expect(
+      screen.getByRole('status', { name: 'Loading chats' })
+    ).toBeInTheDocument()
+  })
+
+  it('shows skeleton rows while an empty cache revalidates', async () => {
+    await renderScreen(library({ chats: [], status: 'refreshing' }))
+    expect(
+      screen.getByRole('status', { name: 'Loading chats' })
+    ).toBeInTheDocument()
+  })
+
+  it('shows skeleton rows while the stored sort loads', async () => {
+    vi.mocked(Preferences.get).mockReturnValueOnce(new Promise(() => {}))
+    vi.mocked(useLibrary).mockReturnValue(library())
+    vi.mocked(useChatSearch).mockReturnValue(chatSearch())
+    render(
+      <StackProvider root={HOME}>
+        <LibraryScreen />
+      </StackProvider>
+    )
+    expect(
+      screen.getByRole('heading', { level: 1, name: 'Library' })
+    ).toBeInTheDocument()
+    expect(
+      screen.getByRole('status', { name: 'Loading chats' })
+    ).toBeInTheDocument()
+    expect(useLibrary).not.toHaveBeenCalled()
+  })
+
+  it('shows "No chats yet" with a way to the Ask tab', async () => {
+    await renderScreen(library({ chats: [], total: 0 }))
+    expect(screen.getByText('No chats yet')).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: 'Ask a question' }))
+    expect(selectTab).toHaveBeenCalledExactlyOnceWith('ask')
+  })
+
+  it('shows an error with Retry when there is no cache', async () => {
+    const lib = library({
+      chats: [],
+      total: undefined,
+      status: 'error',
+      error: 'Network error. Check your connection.'
+    })
+    await renderScreen(lib)
+    const alert = screen.getByRole('alert')
+    expect(alert).toHaveTextContent('Couldn’t load your chats')
+    expect(alert).toHaveTextContent('Network error. Check your connection.')
+    expect(screen.queryByText('No chats yet')).toBeNull()
+    fireEvent.click(within(alert).getByRole('button', { name: 'Retry' }))
+    expect(lib.refresh).toHaveBeenCalledOnce()
+  })
+
+  it('shows the cached list with an error when refresh fails', async () => {
+    const lib = library({
+      status: 'error',
+      error: 'Network error. Check your connection.'
+    })
+    await renderScreen(lib)
+    const alert = screen.getByRole('alert')
+    expect(alert).toHaveTextContent('Network error. Check your connection.')
+    expect(screen.getAllByRole('listitem')).toHaveLength(3)
+    fireEvent.click(within(alert).getByRole('button', { name: 'Retry' }))
+    expect(lib.refresh).toHaveBeenCalledOnce()
+  })
+
+  it('shows a failed delete or rename over the list', async () => {
+    await renderScreen(library({ status: 'ready', error: 'Not allowed' }))
+    expect(screen.getByRole('alert')).toHaveTextContent('Not allowed')
+    expect(screen.getAllByRole('listitem')).toHaveLength(3)
+  })
+})

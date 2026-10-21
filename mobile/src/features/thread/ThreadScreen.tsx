@@ -49,16 +49,19 @@ export type ThreadScreenProps = {
   isNew: boolean
   /** Asked once when the screen opens. */
   initialQuestion?: string
+  /** A saved chat's title, shown until the chat's own title loads. */
+  initialTitle?: string
 }
 
 /**
  * Opens a thread over the current screen: a new chat (a fresh id) that asks
- * `question`, or the saved chat `chatId`. Whether it is new is decided here,
+ * `question`, or the saved chat `chatId`, headed by `title` (from the
+ * Library) until its own title loads. Whether it is new is decided here,
  * once, so it never changes while the screen is up.
  */
 export function openThread(
   push: Stack['push'],
-  o: { question?: string; chatId?: string }
+  o: { question?: string; chatId?: string; title?: string }
 ) {
   const chatId = o.chatId ?? newId()
   const isNew = o.chatId === undefined
@@ -69,6 +72,7 @@ export function openThread(
         chatId={chatId}
         isNew={isNew}
         initialQuestion={o.question}
+        initialTitle={o.title}
       />
     )
   })
@@ -166,7 +170,8 @@ function LoadingSkeleton() {
 export function ThreadScreen({
   chatId,
   isNew,
-  initialQuestion
+  initialQuestion,
+  initialTitle
 }: ThreadScreenProps) {
   const { pop } = useStack()
   const { signOut } = useAuth()
@@ -261,6 +266,7 @@ export function ThreadScreen({
   const firstQuestion = messages.find(m => m.role === 'user')
   const title =
     thread.title ||
+    initialTitle ||
     (firstQuestion ? textOf(firstQuestion) : initialQuestion) ||
     'Chat'
 
