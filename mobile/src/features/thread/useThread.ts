@@ -37,6 +37,8 @@ export type ThreadSession = {
   send(text: string): void
   stop(): Promise<void>
   retry(assistantMessageId: string): void
+  /** Loads an existing chat's saved messages again (after a failed load). */
+  reload(): void
   /** True while an existing chat's saved messages load. */
   loading: boolean
 }
@@ -140,7 +142,8 @@ export function useThread({
     })
   }, [])
 
-  // An existing chat: show its saved messages.
+  // An existing chat: show its saved messages (again on each reload).
+  const [loadRequest, setLoadRequest] = useState(0)
   useEffect(() => {
     if (isNew) return
     let cancelled = false
@@ -160,7 +163,14 @@ export function useThread({
     return () => {
       cancelled = true
     }
-  }, [chatId, isNew, client, setMessages])
+  }, [chatId, isNew, client, setMessages, loadRequest])
+
+  const reload = useCallback(() => {
+    if (isNew) return
+    setLoadError(undefined)
+    setLoading(true)
+    setLoadRequest(n => n + 1)
+  }, [isNew])
 
   // Resume outcomes (see ResumableChatTransport).
   const reloadSaved = useCallback(async () => {
@@ -280,6 +290,7 @@ export function useThread({
     send,
     stop,
     retry,
+    reload,
     loading
   }
 }

@@ -432,6 +432,98 @@ describe('useThread', () => {
     })
   })
 
+  it('reload re-fetches messages after a failed load', async () => {
+    serve({
+      messages: [
+        () => new Response('Internal error', { status: 500 }),
+        () => json({ messages: [user('u1', 'Q'), assistant('a1', 'A')] })
+      ]
+    })
+    const { result } = renderThread(false)
+    await waitFor(() => expect(result.current.error).toBeDefined())
+    expect(result.current.loading).toBe(false)
+
+    act(() => result.current.reload())
+    expect(result.current.loading).toBe(true)
+    expect(result.current.error).toBeUndefined()
+
+    await waitFor(() => expect(result.current.loading).toBe(false))
+    expect(requests('GET', `/api/chat/${CHAT_ID}/messages`)).toHaveLength(2)
+    expect(transcript(result.current.messages)).toEqual([
+      { role: 'user', texts: ['Q'] },
+      { role: 'assistant', texts: ['A'] }
+    ])
+    expect(result.current.error).toBeUndefined()
+  })
+
+  it('reload does nothing for a new chat, which has nothing saved', async () => {
+    serve({})
+    const { result } = renderThread()
+
+    act(() => result.current.reload())
+
+    await act(async () => {})
+    expect(fetchMock).not.toHaveBeenCalled()
+    expect(result.current.loading).toBe(false)
+  })
+
+  it('drops a load that finishes after the thread is gone', async () => {
+    const consoleError = vi.spyOn(console, 'error')
+    const pending: Array<(res: Response) => void> = []
+    const later = () =>
+      new Promise<Response>(resolve => {
+        pending.push(resolve)
+      })
+    serve({ messages: [later, later] })
+    const first = renderThread(false)
+    const second = renderThread(false)
+    await waitFor(() => expect(pending).toHaveLength(2))
+    const shown = [first.result.current, second.result.current]
+
+    first.unmount()
+    second.unmount()
+    await act(async () => {
+      pending[0](json({ messages: [user('u1', 'Q')] }))
+      pending[1](new Response('Internal error', { status: 500 }))
+    })
+
+    // Nothing landed in the unmounted hooks, and React saw no late update.
+    expect(first.result.current).toBe(shown[0])
+    expect(second.result.current).toBe(shown[1])
+    expect(first.result.current.messages).toEqual([])
+    expect(consoleError).not.toHaveBeenCalled()
+    consoleError.mockRestore()
+  })
+
+  it('a superseded load does not overwrite the newer one', async () => {
+    let answerFirst: (res: Response) => void = () => {}
+    serve({
+      messages: [
+        () =>
+          new Promise<Response>(resolve => {
+            answerFirst = resolve
+          }),
+        () => json({ messages: [user('u1', 'Newer')] })
+      ]
+    })
+    const { result } = renderThread(false)
+    await waitFor(() =>
+      expect(requests('GET', `/api/chat/${CHAT_ID}/messages`)).toHaveLength(1)
+    )
+
+    act(() => result.current.reload())
+    await waitFor(() => expect(result.current.loading).toBe(false))
+    await act(async () => {
+      answerFirst(json({ messages: [user('u0', 'Older')] }))
+      // Past the 100 ms message throttle, so a late update would show.
+      await new Promise(resolve => setTimeout(resolve, 150))
+    })
+
+    expect(transcript(result.current.messages)).toEqual([
+      { role: 'user', texts: ['Newer'] }
+    ])
+  })
+
   describe('background resume', () => {
     /**
      * Sends a question whose answer streams on `live`, then leaves the app
@@ -583,6 +675,52 @@ describe('useThread', () => {
         role: 'user',
         texts: ['Next question']
       })
+    })
+
+    it('keeps the local partial when the replay is a different message', async () => {
+      const live = liveSse()
+      serveWithLiveChat(live, {
+        stream: [() => sse(answerChunks('a2', 'Newer'))]
+      })
+      const result = await backgroundMidAnswer(live)
+
+      setAppActive(true)
+
+      await waitFor(() => expect(result.current.messages).toHaveLength(3))
+      await waitFor(() => expect(result.current.status).toBe('ready'))
+      const [, partial, replayed] = result.current.messages
+      expect(partial.id).toBe('a1')
+      expect(transcript([partial])).toEqual([
+        { role: 'assistant', texts: ['Hel'] }
+      ])
+      expect(replayed.id).toBe('a2')
+      // The SDK builds a resumed turn on top of the last assistant message,
+      // so the appended one also carries the partial's parts (same as web).
+      expect(transcript([replayed])).toEqual([
+        { role: 'assistant', texts: ['Hel', 'Newer'] }
+      ])
+    })
+
+    it('stops at an empty saved copy without retrying', async () => {
+      const live = liveSse()
+      serveWithLiveChat(live, {
+        stream: [() => new Response(null, { status: 204 })],
+        messages: [() => json({ messages: [] })]
+      })
+      const result = await backgroundMidAnswer(live)
+      vi.useFakeTimers({ shouldAdvanceTime: true })
+
+      setAppActive(true)
+      await waitFor(() =>
+        expect(requests('GET', `/api/chat/${CHAT_ID}/messages`)).toHaveLength(1)
+      )
+      await act(() => vi.advanceTimersByTimeAsync(3000))
+
+      expect(requests('GET', `/api/chat/${CHAT_ID}/messages`)).toHaveLength(1)
+      expect(transcript(result.current.messages)).toEqual([
+        { role: 'user', texts: ['Q'] },
+        { role: 'assistant', texts: ['Hel'] }
+      ])
     })
 
     it('keeps what is on screen when the reload fails', async () => {
