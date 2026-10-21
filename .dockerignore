@@ -12,3 +12,6 @@ selfhosted/
 # Standalone VitePress docs site: built by docs-site/Dockerfile, not part of
 # the Ask image.
 docs-site/
+
+# Capacitor app: built separately (mobile/sync-mac.sh), never part of the web image
+mobile/
