@@ -791,6 +791,20 @@ describe('Chat Actions', () => {
       expect(result).toEqual({ ok: true, title: capped })
     })
 
+    it('drops the spaces the cap leaves at the end of the title', async () => {
+      vi.mocked(getCurrentUserId).mockResolvedValue(userId)
+      const kept = 'a'.repeat(CHAT_TITLE_MAX_LENGTH - 2)
+      vi.mocked(dbActions.updateChatTitle).mockResolvedValue(row(kept))
+
+      await renameChat('chat-1', `${kept}   tail`)
+
+      expect(dbActions.updateChatTitle).toHaveBeenCalledWith(
+        'chat-1',
+        kept,
+        userId
+      )
+    })
+
     it('rejects an empty or whitespace-only title without writing', async () => {
       vi.mocked(getCurrentUserId).mockResolvedValue(userId)
 

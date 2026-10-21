@@ -369,7 +369,7 @@ export async function renameChat(
 
   const updated = await dbActions.updateChatTitle(
     chatId,
-    trimmed.slice(0, CHAT_TITLE_MAX_LENGTH),
+    trimmed.slice(0, CHAT_TITLE_MAX_LENGTH).trimEnd(),
     userId
   )
   if (!updated) {
