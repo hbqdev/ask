@@ -16,7 +16,8 @@ import type { SearchMode, SourceMode } from '@/lib/types/search'
 export const MODEL_LOAD_ERROR = 'Couldn’t load the models.'
 export const MODEL_SAVE_ERROR = 'Couldn’t change the model. Try again.'
 
-const MODES: { value: SearchMode; label: string }[] = [
+/** The search modes, in the order the sheet lists them. */
+export const SEARCH_MODES: { value: SearchMode; label: string }[] = [
   { value: 'speed', label: 'Speed' },
   { value: 'balanced', label: 'Balanced' },
   { value: 'quality', label: 'Quality' }
@@ -73,7 +74,7 @@ export function OptionsSheet({
             aria-labelledby={modeLabel}
             className={`${GROUP} flex gap-1 p-1`}
           >
-            {MODES.map(mode => {
+            {SEARCH_MODES.map(mode => {
               const checked = mode.value === settings.searchMode
               return (
                 <button

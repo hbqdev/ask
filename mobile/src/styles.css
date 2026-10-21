@@ -181,6 +181,12 @@ body {
   padding-bottom: max(8px, env(safe-area-inset-bottom));
 }
 
+/* The composer sits at the bottom of its screen and clears the home
+   indicator the same way. */
+.composer {
+  padding-bottom: max(env(safe-area-inset-bottom), 8px);
+}
+
 /* --- Bottom sheet -----------------------------------------------------------
    The sheet clears the home indicator, rises on the navigation curve, and
    settles back with a transition after a short drag (the drag itself sets an

@@ -154,6 +154,9 @@ describe('AppShell', () => {
     expect(
       screen.getByRole('heading', { name: 'Ask anything' })
     ).toBeInTheDocument()
+    expect(
+      screen.getByRole('textbox', { name: 'Ask a question' })
+    ).toBeInTheDocument()
   })
 
   it('gives the signed-in app an API client on the configured server', async () => {

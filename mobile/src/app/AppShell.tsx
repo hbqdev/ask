@@ -7,7 +7,9 @@ import { useAuth } from '@/core/auth/AuthProvider'
 import { StackProvider, StackView, type ScreenEntry } from '@/core/nav/stack'
 import { useTheme } from '@/core/ThemeProvider'
 import { OrbitMark } from '@/core/ui/OrbitMark'
+import { AskHome } from '@/features/ask/AskHome'
 import { SignInScreen } from '@/features/auth/SignInScreen'
+import { SearchSettingsProvider } from '@/features/compose/SearchSettingsProvider'
 import { SettingsScreen } from '@/features/settings/SettingsScreen'
 
 // --- Tab icons (24px line icons in the tab's text colour) -------------------
@@ -50,15 +52,6 @@ const SETTINGS_ICON = (
 
 // --- Placeholder screens (later tasks replace these) ------------------------
 
-function AskPlaceholder() {
-  return (
-    <main className="flex flex-1 flex-col items-center justify-center gap-4 px-6">
-      <OrbitMark className="size-14" />
-      <h1 className="text-2xl font-semibold tracking-tight">Ask anything</h1>
-    </main>
-  )
-}
-
 function LibraryPlaceholder() {
   return (
     <main className="flex flex-1 flex-col px-4 pt-6">
@@ -73,7 +66,7 @@ function LibraryPlaceholder() {
 // Module constants: Tabs memoizes each tab's content on its spec, and the
 // stack keeps its root entry, so these must not change between renders.
 const TABS: TabSpec[] = [
-  { id: 'ask', label: 'Ask', icon: ASK_ICON, render: () => <AskPlaceholder /> },
+  { id: 'ask', label: 'Ask', icon: ASK_ICON, render: () => <AskHome /> },
   {
     id: 'library',
     label: 'Library',
@@ -109,7 +102,8 @@ function LaunchView() {
  * The app's top level: the launch view while the stored session is read,
  * sign-in when signed out, and the tab shell (inside a navigation stack)
  * when signed in. The native splash stays up until the theme and the
- * session are both known. Signed-in screens reach Ask's API through useApi.
+ * session are both known. Signed-in screens reach Ask's API through useApi
+ * and share one set of search settings (useSharedSearchSettings).
  */
 export function AppShell({ apiBaseUrl }: { apiBaseUrl: string }) {
   const { status } = useAuth()
@@ -120,9 +114,11 @@ export function AppShell({ apiBaseUrl }: { apiBaseUrl: string }) {
   if (status === 'signedOut') return <SignInScreen apiBaseUrl={apiBaseUrl} />
   return (
     <ApiProvider baseUrl={apiBaseUrl}>
-      <StackProvider root={TABS_SCREEN}>
-        <StackView />
-      </StackProvider>
+      <SearchSettingsProvider>
+        <StackProvider root={TABS_SCREEN}>
+          <StackView />
+        </StackProvider>
+      </SearchSettingsProvider>
     </ApiProvider>
   )
 }
