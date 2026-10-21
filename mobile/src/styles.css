@@ -1,7 +1,10 @@
 @import 'tailwindcss';
 
-/* Ask's palette, matching the web app (app/globals.css). Dark follows the
-   system setting. */
+/* `dark:` utilities follow the theme the user picked (System, Light or Dark),
+   which ThemeProvider puts on <html> as the `dark` class. */
+@custom-variant dark (&:where(.dark, .dark *));
+
+/* Ask's palette, matching the web app (app/globals.css). */
 :root {
   --background: oklch(0.99 0 0);
   --foreground: oklch(0 0 0);
@@ -12,8 +15,15 @@
   color-scheme: light dark;
 }
 
+/* Dark: the user's pick (`dark` class), or the device setting until the
+   app has set a class, so launch never flashes light on a dark device. */
+:root.dark {
+  --background: oklch(0.1 0.022 289);
+  --foreground: oklch(0.95 0.012 281);
+}
+
 @media (prefers-color-scheme: dark) {
-  :root {
+  :root:not(.light) {
     --background: oklch(0.1 0.022 289);
     --foreground: oklch(0.95 0.012 281);
   }
