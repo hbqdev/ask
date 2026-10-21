@@ -503,6 +503,113 @@ describe('useLibrary', () => {
     expect(ids(result.current.chats)).toContain('c30')
   })
 
+  it('loadMore during a refresh does not skip rows', async () => {
+    useServer(fakeServer(95))
+    const { result } = renderLibrary()
+    await waitFor(() => expect(result.current.status).toBe('ready'))
+    await act(() => result.current.loadMore())
+    expect(result.current.chats).toHaveLength(60)
+
+    const page0 = deferred<void>()
+    let held = true
+    server.on('GET', /^\/api\/chats$/, async url => {
+      const offset = Number(url.searchParams.get('offset'))
+      if (offset === 0 && held) {
+        held = false
+        await page0.promise
+      }
+      const rows = server.chats.slice(offset, offset + 30)
+      return json({
+        chats: rows,
+        nextOffset: rows.length === 30 ? offset + 30 : null,
+        badges: {},
+        total: 95
+      })
+    })
+    const requestsBefore = server.pageRequests().length
+    let refreshed!: Promise<void>
+    act(() => {
+      refreshed = result.current.refresh()
+    })
+    expect(result.current.status).toBe('refreshing')
+    // The list scrolled to the end while page 0 is on its way.
+    await act(() => result.current.loadMore())
+    await act(async () => {})
+    // Only page 0 has gone out: no page at the old list's offset (60).
+    expect(server.pageRequests().slice(requestsBefore)).toEqual([
+      { offset: '0', limit: '30', sort: 'recent', withCount: '1' }
+    ])
+
+    await act(async () => {
+      page0.resolve()
+      await refreshed
+    })
+    // Page 0 landed; the wanted next page follows from its offset, 30.
+    await waitFor(() => expect(result.current.chats).toHaveLength(60))
+    expect(server.pageRequests().slice(requestsBefore)).toEqual([
+      { offset: '0', limit: '30', sort: 'recent', withCount: '1' },
+      { offset: '30', limit: '30', sort: 'recent' }
+    ])
+    expect(ids(result.current.chats)).toEqual(ids(server.chats.slice(0, 60)))
+  })
+
+  it('a loadMore asked for during a refresh that fails is not run', async () => {
+    useServer(fakeServer(95))
+    const { result } = renderLibrary()
+    await waitFor(() => expect(result.current.status).toBe('ready'))
+    const page0 = deferred<Response>()
+    server.on('GET', /^\/api\/chats$/, () => page0.promise)
+    let refreshed!: Promise<void>
+    act(() => {
+      refreshed = result.current.refresh()
+    })
+    await act(() => result.current.loadMore())
+    await act(async () => {
+      page0.resolve(json({ error: 'down' }, 503))
+      await refreshed
+    })
+    await act(async () => {})
+    expect(result.current.status).toBe('error')
+    expect(server.pageRequests()).toHaveLength(2)
+    expect(result.current.chats).toHaveLength(30)
+    // Nor later, when a refresh succeeds.
+    server.on('GET', /^\/api\/chats$/, () =>
+      json({ chats: [row(0)], nextOffset: 30, badges: {}, total: 95 })
+    )
+    await act(() => result.current.refresh())
+    await act(async () => {})
+    expect(server.pageRequests()).toHaveLength(3)
+  })
+
+  it('clearAll during a refresh does not leave loadMore blocked', async () => {
+    useServer(fakeServer(95))
+    const { result } = renderLibrary()
+    await waitFor(() => expect(result.current.status).toBe('ready'))
+    const page0 = deferred<Response>()
+    server.on('GET', /^\/api\/chats$/, () => page0.promise)
+    act(() => {
+      void result.current.refresh()
+    })
+    await act(async () => {
+      await result.current.clearAll()
+    })
+    expect(result.current.chats).toEqual([])
+    // A list loaded after the clear can page again.
+    server.chats.push(...Array.from({ length: 45 }, (_, i) => row(200 + i)))
+    server.on('GET', /^\/api\/chats$/, url => {
+      const offset = Number(url.searchParams.get('offset'))
+      const rows = server.chats.slice(offset, offset + 30)
+      return json({
+        chats: rows,
+        nextOffset: rows.length === 30 ? offset + 30 : null,
+        badges: {}
+      })
+    })
+    await act(() => result.current.refresh())
+    await act(() => result.current.loadMore())
+    expect(result.current.chats).toHaveLength(45)
+  })
+
   it('a page dropped by a refresh does not block the next loadMore', async () => {
     useServer(fakeServer(45))
     const { result } = renderLibrary()

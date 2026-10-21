@@ -85,6 +85,11 @@ export function useLibrary({ sort }: { sort: ChatSort }): Library {
   // The generation of the page now loading, if any. A page dropped by a
   // newer generation does not hold up the next loadMore.
   const loadingMoreIn = useRef<number | null>(null)
+  // The generation of the page 0 now loading, if any. While it loads, the
+  // list's next offset belongs to the list it replaces, so loadMore waits and
+  // runs once page 0 has landed (`moreWanted`).
+  const firstPageIn = useRef<number | null>(null)
+  const moreWanted = useRef(false)
   // Offsets after removes: whenever it is unknown whether the server had
   // applied a delete when it ran a page query, assume it had not and ask for
   // a smaller offset. A repeat is dropped as a duplicate; a skip would lose a
@@ -102,6 +107,7 @@ export function useLibrary({ sort }: { sort: ChatSort }): Library {
       setState({ key, chats: [], nextOffset: null, status: 'ready' })
       return
     }
+    firstPageIn.current = mine
     setState(s =>
       s.key === key
         ? { ...s, status: s.chats.length ? 'refreshing' : 'loading' }
@@ -113,6 +119,7 @@ export function useLibrary({ sort }: { sort: ChatSort }): Library {
         sort,
         withCount: true
       })
+      if (firstPageIn.current === mine) firstPageIn.current = null
       if (mine !== generation.current) return
       setState({
         key,
@@ -122,7 +129,10 @@ export function useLibrary({ sort }: { sort: ChatSort }): Library {
         status: 'ready'
       })
     } catch (error) {
+      if (firstPageIn.current === mine) firstPageIn.current = null
       if (mine !== generation.current) return
+      // The list did not change, so a page wanted meanwhile is not loaded.
+      moreWanted.current = false
       setState(s => ({ ...s, status: 'error', error: errorMessage(error) }))
     }
   }, [client, key, sort, userId])
@@ -167,6 +177,10 @@ export function useLibrary({ sort }: { sort: ChatSort }): Library {
   }, [state, key, userId, sort])
 
   const loadMore = useCallback(async () => {
+    if (firstPageIn.current !== null) {
+      moreWanted.current = true
+      return
+    }
     const { key: listKey, nextOffset } = stateRef.current
     const mine = generation.current
     if (
@@ -296,6 +310,14 @@ export function useLibrary({ sort }: { sort: ChatSort }): Library {
     setState({ key, chats: [], total: 0, nextOffset: null, status: 'ready' })
     return true
   }, [client, key])
+
+  // A loadMore asked for while page 0 was loading runs once it has landed.
+  useEffect(() => {
+    if (!moreWanted.current || firstPageIn.current !== null) return
+    if (state.status !== 'ready') return
+    moreWanted.current = false
+    void loadMore()
+  }, [state, loadMore])
 
   // Rows from another user or sort are never shown, even for one render.
   const current = state.key === key ? state : emptyList(key)
