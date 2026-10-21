@@ -6,7 +6,7 @@ import { generateChatTitle } from '@/lib/agents/title-generator'
 import { getCurrentUserId } from '@/lib/auth/get-current-user'
 import * as dbActions from '@/lib/db/actions'
 import type { Chat, Message } from '@/lib/db/schema'
-import { generateId } from '@/lib/db/schema'
+import { CHAT_TITLE_MAX_LENGTH, generateId } from '@/lib/db/schema'
 import { signFilePartUrlsInMessages } from '@/lib/storage/r2-client'
 import { signUploadUrlsInMessages } from '@/lib/storage/upload-url-signing'
 import type { UIMessage } from '@/lib/types/ai'
@@ -341,6 +341,43 @@ export async function clearChats() {
   // Clear all chat caches since we deleted all chats
   revalidateTag('chat', 'max')
   return { success: true }
+}
+
+/**
+ * Rename one of the current user's chats. Resolves the user itself (never
+ * takes a userId) so it is safe as a 'use server' export. The title is trimmed,
+ * an empty one is rejected, and an over-long one is truncated to
+ * CHAT_TITLE_MAX_LENGTH. updateChatTitle's ownership predicate means a missing
+ * or foreign chat updates no row, reported as 'Not found'.
+ */
+export async function renameChat(
+  chatId: string,
+  title: string
+): Promise<
+  | { ok: true; title: string }
+  | { error: 'User not authenticated' | 'Empty title' | 'Not found' }
+> {
+  const userId = await getCurrentUserId()
+  if (!userId) {
+    return { error: 'User not authenticated' }
+  }
+
+  const trimmed = typeof title === 'string' ? title.trim() : ''
+  if (!trimmed) {
+    return { error: 'Empty title' }
+  }
+
+  const updated = await dbActions.updateChatTitle(
+    chatId,
+    trimmed.slice(0, CHAT_TITLE_MAX_LENGTH),
+    userId
+  )
+  if (!updated) {
+    return { error: 'Not found' }
+  }
+
+  revalidateTag(`chat-${chatId}`, 'max')
+  return { ok: true, title: updated.title }
 }
 
 /**
