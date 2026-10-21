@@ -1,0 +1,75 @@
+import { describe, expect, it } from 'vitest'
+
+import {
+  type ChatErrorView,
+  describeChatError
+} from '@/features/thread/model/chat-errors'
+import { toPublicErrorPayload } from '@/lib/errors/public-error'
+
+const view = (message: string) => describeChatError(new Error(message))
+
+describe('describeChatError', () => {
+  it('reads a JSON public error payload', () => {
+    expect(
+      view(
+        '{"error":"Rate limited","code":"rate_limit","type":"rate-limit","retryable":false}'
+      )
+    ).toEqual<ChatErrorView>({
+      message: 'Rate limited',
+      retryable: false,
+      authRequired: false
+    })
+  })
+
+  it('reads authRequired from a JSON 401 body', () => {
+    expect(
+      view('{"error":"Please sign in","mode":"quality","authRequired":true}')
+    ).toEqual<ChatErrorView>({
+      message: 'Please sign in',
+      retryable: false,
+      authRequired: true
+    })
+  })
+
+  it('shows the public message for a JSON body with no top-level error text', () => {
+    const raw = '{"error":{"message":"upstream 502 from 10.0.0.5"}}'
+    expect(view(raw)).toEqual<ChatErrorView>({
+      message: toPublicErrorPayload(raw).error,
+      retryable: true,
+      authRequired: false
+    })
+    expect(view(raw).message).not.toContain('10.0.0.5')
+  })
+
+  it('treats "Authentication required" as sign-in, not retryable', () => {
+    expect(view('Authentication required')).toEqual<ChatErrorView>({
+      message: 'Authentication required',
+      retryable: false,
+      authRequired: true
+    })
+  })
+
+  it('treats "Signed out" as sign-in', () => {
+    expect(view('Signed out').authRequired).toBe(true)
+  })
+
+  it('uses a plain-text body as it is, retryable by default', () => {
+    expect(view('No enabled model is available')).toEqual<ChatErrorView>({
+      message: 'No enabled model is available',
+      retryable: true,
+      authRequired: false
+    })
+  })
+
+  it('treats JSON that is not an object as plain text', () => {
+    expect(view('42').message).toBe('42')
+  })
+
+  it('says "Something went wrong" for an empty message', () => {
+    expect(view('')).toEqual<ChatErrorView>({
+      message: 'Something went wrong',
+      retryable: true,
+      authRequired: false
+    })
+  })
+})
