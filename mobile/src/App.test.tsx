@@ -88,6 +88,15 @@ describe('App', () => {
     expect(mocks.hideSplash).toHaveBeenCalledTimes(1)
   })
 
+  it('points Forgot password? at the configured server', async () => {
+    const App = await loadApp()
+    render(<App />)
+
+    expect(
+      await screen.findByRole('link', { name: 'Forgot password?' })
+    ).toHaveAttribute('href', 'https://ask.test.invalid/auth/forgot-password')
+  })
+
   it('creates the Supabase client once, from the build config', async () => {
     const App = await loadApp()
     const { rerender, unmount } = render(<App />)

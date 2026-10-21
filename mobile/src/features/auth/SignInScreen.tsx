@@ -4,21 +4,29 @@ import { useState, type FormEvent, type MouseEvent } from 'react'
 import { useAuth } from '@/core/auth/AuthProvider'
 import { OrbitMark } from '@/core/ui/OrbitMark'
 
-/** Ask's web reset flow; the app has no password reset of its own. */
-export const FORGOT_PASSWORD_URL =
-  'https://ask.hbqnexus.win/auth/forgot-password'
+/**
+ * Ask's web reset flow on the server the app talks to; the app has no
+ * password reset of its own.
+ */
+export function forgotPasswordUrl(apiBaseUrl: string): string {
+  return `${apiBaseUrl.replace(/\/+$/, '')}/auth/forgot-password`
+}
 
 // 16px text keeps iOS from zooming into a focused field.
 const FIELD =
   'h-12 w-full rounded-xl border border-foreground/15 bg-foreground/5 px-4 text-base text-foreground outline-none placeholder:text-foreground/40 focus:border-mark-blue'
 
 /** Email and password sign-in, the only way into the app. */
-export function SignInScreen() {
+export function SignInScreen({ apiBaseUrl }: { apiBaseUrl: string }) {
   const { signIn, error } = useAuth()
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [submitting, setSubmitting] = useState(false)
   const [browserFailed, setBrowserFailed] = useState(false)
+
+  const resetUrl = forgotPasswordUrl(apiBaseUrl)
+  // Shown when the browser cannot open: the same page, without the scheme.
+  const resetHint = resetUrl.replace(/^[a-z]+:\/\//i, '')
 
   const trimmedEmail = email.trim()
   const canSubmit = trimmedEmail !== '' && password !== '' && !submitting
@@ -37,9 +45,7 @@ export function SignInScreen() {
     event.preventDefault()
     setBrowserFailed(false)
     // If the browser cannot open, say where to go instead.
-    Browser.open({ url: FORGOT_PASSWORD_URL }).catch(() =>
-      setBrowserFailed(true)
-    )
+    Browser.open({ url: resetUrl }).catch(() => setBrowserFailed(true))
   }
 
   return (
@@ -56,7 +62,9 @@ export function SignInScreen() {
           noValidate
         >
           <label className="flex flex-col gap-1.5">
-            <span className="text-sm font-medium text-foreground/70">Email</span>
+            <span className="text-sm font-medium text-foreground/70">
+              Email
+            </span>
             <input
               type="email"
               name="email"
@@ -105,7 +113,7 @@ export function SignInScreen() {
         </form>
 
         <a
-          href={FORGOT_PASSWORD_URL}
+          href={resetUrl}
           onClick={openForgotPassword}
           className="mt-4 flex min-h-11 items-center px-3 text-sm font-medium text-mark-blue active:opacity-50"
         >
@@ -113,8 +121,7 @@ export function SignInScreen() {
         </a>
         {browserFailed && (
           <p role="status" className="text-center text-sm text-foreground/60">
-            Couldn't open the browser. Visit
-            ask.hbqnexus.win/auth/forgot-password
+            Couldn't open the browser. Visit {resetHint}
           </p>
         )}
       </div>

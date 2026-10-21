@@ -5,10 +5,10 @@ import { ErrorBoundary } from '@/app/ErrorBoundary'
 import { useHideSplash } from '@/app/splash'
 import { AuthProvider } from '@/core/auth/AuthProvider'
 import { createSupabase } from '@/core/auth/supabase'
-import { getConfig } from '@/core/config'
+import { getConfig, type AppConfig } from '@/core/config'
 import { ThemeProvider, useTheme } from '@/core/ThemeProvider'
 
-type Startup = { client: SupabaseClient } | { error: string }
+type Startup = { client: SupabaseClient; config: AppConfig } | { error: string }
 
 // One Supabase client for the life of the app, made on first render (not at
 // import, so importing App never throws). A build without Supabase values
@@ -17,7 +17,8 @@ let startup: Startup | undefined
 
 function start(): Startup {
   try {
-    return { client: createSupabase(getConfig()) }
+    const config = getConfig()
+    return { client: createSupabase(config), config }
   } catch (err) {
     return { error: err instanceof Error ? err.message : String(err) }
   }
@@ -47,7 +48,7 @@ export default function App() {
         >
           {'client' in startup ? (
             <AuthProvider client={startup.client}>
-              <AppShell />
+              <AppShell apiBaseUrl={startup.config.apiBaseUrl} />
             </AuthProvider>
           ) : (
             <ConfigError message={startup.error} />

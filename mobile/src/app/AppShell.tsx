@@ -3,11 +3,7 @@ import type { ReactNode } from 'react'
 import { useHideSplash } from '@/app/splash'
 import { Tabs, type TabSpec } from '@/app/Tabs'
 import { useAuth } from '@/core/auth/AuthProvider'
-import {
-  StackProvider,
-  StackView,
-  type ScreenEntry
-} from '@/core/nav/stack'
+import { StackProvider, StackView, type ScreenEntry } from '@/core/nav/stack'
 import { useTheme } from '@/core/ThemeProvider'
 import { OrbitMark } from '@/core/ui/OrbitMark'
 import { SignInScreen } from '@/features/auth/SignInScreen'
@@ -114,13 +110,13 @@ function LaunchView() {
  * when signed in. The native splash stays up until the theme and the
  * session are both known.
  */
-export function AppShell() {
+export function AppShell({ apiBaseUrl }: { apiBaseUrl: string }) {
   const { status } = useAuth()
   const { loaded } = useTheme()
   useHideSplash(loaded && status !== 'loading')
 
   if (status === 'loading') return <LaunchView />
-  if (status === 'signedOut') return <SignInScreen />
+  if (status === 'signedOut') return <SignInScreen apiBaseUrl={apiBaseUrl} />
   return (
     <StackProvider root={TABS_SCREEN}>
       <StackView />

@@ -4,10 +4,7 @@ import userEvent from '@testing-library/user-event'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { useAuth, type Auth } from '@/core/auth/AuthProvider'
-import {
-  FORGOT_PASSWORD_URL,
-  SignInScreen
-} from '@/features/auth/SignInScreen'
+import { forgotPasswordUrl, SignInScreen } from '@/features/auth/SignInScreen'
 
 vi.mock('@capacitor/browser', () => ({
   Browser: { open: vi.fn(async () => {}) }
@@ -18,6 +15,9 @@ vi.mock('@/core/auth/AuthProvider', () => ({ useAuth: vi.fn() }))
 // Fake values only.
 const EMAIL = 'user@example.test'
 const PASSWORD = 'fake-password'
+// A documentation-range server, so nothing points at a real Ask.
+const API = 'http://192.0.2.10:3742'
+const RESET = 'http://192.0.2.10:3742/auth/forgot-password'
 
 function fakeAuth(overrides: Partial<Auth> = {}): Auth {
   const auth: Auth = {
@@ -44,7 +44,7 @@ describe('SignInScreen', () => {
 
   it('shows the mark, the fields and the button', () => {
     fakeAuth()
-    render(<SignInScreen />)
+    render(<SignInScreen apiBaseUrl={API} />)
     expect(screen.getByTestId('orbit-mark')).toBeInTheDocument()
     expect(emailField()).toHaveAttribute('autocomplete', 'username')
     expect(emailField()).toHaveAttribute('type', 'email')
@@ -59,7 +59,7 @@ describe('SignInScreen', () => {
   it('keeps Sign in disabled until both fields are filled', async () => {
     fakeAuth()
     const user = userEvent.setup()
-    render(<SignInScreen />)
+    render(<SignInScreen apiBaseUrl={API} />)
     expect(signInButton()).toBeDisabled()
 
     await user.type(emailField(), EMAIL)
@@ -76,7 +76,7 @@ describe('SignInScreen', () => {
   it('submitting calls signIn with the email and password', async () => {
     const auth = fakeAuth()
     const user = userEvent.setup()
-    render(<SignInScreen />)
+    render(<SignInScreen apiBaseUrl={API} />)
 
     await user.type(emailField(), ` ${EMAIL} `)
     await user.type(passwordField(), PASSWORD)
@@ -88,7 +88,7 @@ describe('SignInScreen', () => {
   it('Enter in the password field submits', async () => {
     const auth = fakeAuth()
     const user = userEvent.setup()
-    render(<SignInScreen />)
+    render(<SignInScreen apiBaseUrl={API} />)
 
     await user.type(emailField(), EMAIL)
     await user.type(passwordField(), `${PASSWORD}{Enter}`)
@@ -107,7 +107,7 @@ describe('SignInScreen', () => {
       )
     })
     const user = userEvent.setup()
-    render(<SignInScreen />)
+    render(<SignInScreen apiBaseUrl={API} />)
 
     await user.type(emailField(), EMAIL)
     await user.type(passwordField(), PASSWORD)
@@ -125,14 +125,14 @@ describe('SignInScreen', () => {
 
   it('does not submit an empty form', () => {
     const auth = fakeAuth()
-    render(<SignInScreen />)
+    render(<SignInScreen apiBaseUrl={API} />)
     fireEvent.submit(signInButton().closest('form')!)
     expect(auth.signIn).not.toHaveBeenCalled()
   })
 
   it('shows the sign-in error', () => {
     fakeAuth({ error: 'Invalid email or password' })
-    render(<SignInScreen />)
+    render(<SignInScreen apiBaseUrl={API} />)
     expect(screen.getByRole('alert')).toHaveTextContent(
       'Invalid email or password'
     )
@@ -140,36 +140,42 @@ describe('SignInScreen', () => {
 
   it('shows no error box without an error', () => {
     fakeAuth()
-    render(<SignInScreen />)
+    render(<SignInScreen apiBaseUrl={API} />)
     expect(screen.queryByRole('alert')).not.toBeInTheDocument()
   })
 
   it('Forgot password? opens the reset page in the browser', async () => {
     fakeAuth()
     const user = userEvent.setup()
-    render(<SignInScreen />)
+    render(<SignInScreen apiBaseUrl={API} />)
 
     const link = screen.getByRole('link', { name: 'Forgot password?' })
-    expect(link).toHaveAttribute('href', FORGOT_PASSWORD_URL)
+    expect(link).toHaveAttribute('href', RESET)
     await user.click(link)
 
-    expect(FORGOT_PASSWORD_URL).toBe(
-      'https://ask.hbqnexus.win/auth/forgot-password'
+    expect(Browser.open).toHaveBeenCalledWith({ url: RESET })
+  })
+
+  it('builds the reset URL from the configured server', () => {
+    expect(forgotPasswordUrl('https://ask.example.test')).toBe(
+      'https://ask.example.test/auth/forgot-password'
     )
-    expect(Browser.open).toHaveBeenCalledWith({ url: FORGOT_PASSWORD_URL })
+    expect(forgotPasswordUrl('https://ask.example.test/')).toBe(
+      'https://ask.example.test/auth/forgot-password'
+    )
   })
 
   it('says where to go when the browser cannot open', async () => {
     fakeAuth()
     vi.mocked(Browser.open).mockRejectedValueOnce(new Error('no browser'))
     const user = userEvent.setup()
-    render(<SignInScreen />)
+    render(<SignInScreen apiBaseUrl={API} />)
     const link = screen.getByRole('link', { name: 'Forgot password?' })
 
     await user.click(link)
     expect(Browser.open).toHaveBeenCalledTimes(1)
     expect(await screen.findByRole('status')).toHaveTextContent(
-      "Couldn't open the browser. Visit ask.hbqnexus.win/auth/forgot-password"
+      "Couldn't open the browser. Visit 192.0.2.10:3742/auth/forgot-password"
     )
 
     // A later tap that works clears the message.

@@ -74,7 +74,7 @@ function renderShell(
   return render(
     <ThemeProvider storage={themeStorage}>
       <AuthProvider client={client} storage={authStorage}>
-        <AppShell />
+        <AppShell apiBaseUrl="https://ask.test.invalid" />
       </AuthProvider>
     </ThemeProvider>
   )
