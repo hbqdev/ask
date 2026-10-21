@@ -24,7 +24,11 @@ import { TextPromptSheet } from '@/core/ui/TextPromptSheet'
 import { usePullToRefresh } from '@/core/ui/usePullToRefresh'
 import { ChatRowItem } from '@/features/library/ChatRowItem'
 import { groupByDate } from '@/features/library/group-by-date'
-import type { ChatRow, ChatSort } from '@/features/library/library-api'
+import {
+  CHAT_TITLE_MAX_LENGTH,
+  type ChatRow,
+  type ChatSort
+} from '@/features/library/library-api'
 import { LIBRARY_SORTS, useLibrarySort } from '@/features/library/library-sort'
 import {
   useChatSearch,
@@ -33,9 +37,6 @@ import {
   type Library
 } from '@/features/library/useLibrary'
 import { openThread } from '@/features/thread/ThreadScreen'
-
-/** The longest title the server keeps (CHAT_TITLE_MAX_LENGTH). */
-const TITLE_MAX_LENGTH = 255
 
 /** How far below the visible list the next page starts loading. */
 const PRELOAD_MARGIN = '0px 0px 600px 0px'
@@ -136,7 +137,7 @@ function LibraryList({
         open={renaming !== null}
         title="Rename chat"
         initialValue={renaming?.title ?? ''}
-        maxLength={TITLE_MAX_LENGTH}
+        maxLength={CHAT_TITLE_MAX_LENGTH}
         confirmLabel="Rename"
         onSubmit={title => void library.rename(renaming!.id, title)}
         onClose={() => setRenaming(null)}

@@ -84,6 +84,7 @@ beforeEach(() => {
     status: 'ready',
     error: undefined,
     loading: false,
+    saved: false,
     send,
     stop: vi.fn(async () => {}),
     retry: vi.fn(),

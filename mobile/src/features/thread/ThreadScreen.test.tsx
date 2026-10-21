@@ -10,6 +10,7 @@ import { useAuth, type Auth } from '@/core/auth/AuthProvider'
 import { StackProvider, StackView, useStack } from '@/core/nav/stack'
 import { SEARCH_SETTINGS_KEY } from '@/features/compose/search-settings'
 import { SearchSettingsProvider } from '@/features/compose/SearchSettingsProvider'
+import { deleteChat, renameChat } from '@/features/library/library-api'
 import type { ChatErrorView } from '@/features/thread/model/chat-errors'
 import { openThread, ThreadScreen } from '@/features/thread/ThreadScreen'
 import { useThread, type ThreadSession } from '@/features/thread/useThread'
@@ -20,6 +21,11 @@ vi.mock('@/features/thread/useThread', () => ({ useThread: vi.fn() }))
 vi.mock('@/core/auth/AuthProvider', () => ({ useAuth: vi.fn() }))
 vi.mock('@/core/api/ApiProvider', () => ({ useApi: vi.fn() }))
 vi.mock('@/core/ids', () => ({ newId: vi.fn(() => 'new-chat-id') }))
+vi.mock('@/features/library/library-api', async importOriginal => ({
+  ...(await importOriginal<typeof import('@/features/library/library-api')>()),
+  renameChat: vi.fn(),
+  deleteChat: vi.fn()
+}))
 // A plain function, not vi.fn: a mock records each promise it returns, which
 // would mark a rejection as handled and hide the bug the test looks for.
 const preload = vi.hoisted(() => ({
@@ -116,6 +122,7 @@ function session(over: Partial<ThreadSession> = {}): ThreadSession {
     error: undefined,
     title: undefined,
     loading: false,
+    saved: false,
     send: vi.fn(),
     stop: vi.fn(async () => {}),
     retry: vi.fn(),
@@ -233,6 +240,22 @@ describe('openThread', () => {
       expect.objectContaining({ chatId: 'saved-1', isNew: false })
     )
     expect(thread.send).not.toHaveBeenCalled()
+  })
+
+  it('leaves a chat deleted from its menu', async () => {
+    vi.mocked(deleteChat).mockResolvedValue()
+    vi.mocked(useThread).mockReturnValue(
+      session({ messages: TURN, saved: true })
+    )
+    renderStack({ chatId: 'saved-1' })
+    await act(async () => screen.getByRole('button', { name: 'Open' }).click())
+
+    await userEvent.click(screen.getByRole('button', { name: 'Chat options' }))
+    await userEvent.click(screen.getByRole('button', { name: 'Delete chat' }))
+    await userEvent.click(screen.getByRole('button', { name: 'Delete' }))
+
+    expect(deleteChat).toHaveBeenCalledWith(undefined, 'saved-1')
+    expect(screen.getByTestId('keys')).toHaveTextContent(/^home$/)
   })
 
   it('goes back with the back button', async () => {
@@ -423,6 +446,50 @@ describe('ThreadScreen', () => {
     expect(
       screen.getByRole('heading', { level: 1, name: 'Chat' })
     ).toBeInTheDocument()
+  })
+
+  describe('chat menu', () => {
+    const menuButton = () =>
+      screen.queryByRole('button', { name: 'Chat options' })
+
+    it('is offered for a saved chat', () => {
+      renderScreen(session({ messages: TURN, saved: true }))
+      expect(menuButton()).toBeInTheDocument()
+    })
+
+    it('is hidden for a new chat until it exists on the server', () => {
+      const { update } = renderScreen(
+        session({ messages: [user('u1', 'Q')], status: 'submitted' }),
+        { isNew: true }
+      )
+      expect(menuButton()).not.toBeInTheDocument()
+
+      update(session({ messages: TURN, title: 'Streamed', saved: true }))
+      expect(menuButton()).toBeInTheDocument()
+    })
+
+    it('heads the screen with the new title after a rename, over the streamed one', async () => {
+      vi.mocked(renameChat).mockResolvedValue('Renamed')
+      const { update } = renderScreen(
+        session({ messages: TURN, title: 'Streamed', saved: true })
+      )
+
+      await userEvent.click(menuButton()!)
+      await userEvent.click(screen.getByRole('button', { name: 'Rename' }))
+      const field = screen.getByRole('textbox', { name: 'Rename chat' })
+      expect(field).toHaveValue('Streamed')
+      await userEvent.clear(field)
+      await userEvent.type(field, 'Renamed{Enter}')
+
+      expect(
+        await screen.findByRole('heading', { level: 1, name: 'Renamed' })
+      ).toBeInTheDocument()
+      // A later turn still carries the old streamed title.
+      update(session({ messages: TURN, title: 'Streamed', saved: true }))
+      expect(
+        screen.getByRole('heading', { level: 1, name: 'Renamed' })
+      ).toBeInTheDocument()
+    })
   })
 
   it('lists the latest answer’s sources from the header', async () => {

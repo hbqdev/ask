@@ -2,14 +2,18 @@
 // transport with a bearer token, plus Ask's lifecycle routes (code map §1, §5).
 // Mirrors the web's components/chat.tsx: stop tells the server too, retry
 // regenerates an answer, and a turn cut off by backgrounding the app is
-// resumed (or reloaded once saved) when the app comes back.
+// resumed (or reloaded once saved) when the app comes back. Opening a saved
+// chat marks it viewed, and each finished turn tells the chat list
+// (chats-changed) so the Library stays current.
 import { useChat } from '@ai-sdk/react'
 import { App } from '@capacitor/app'
 import type { ChatStatus, UIMessage } from 'ai'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
 import { useApi } from '@/core/api/ApiProvider'
+import { emitChatsChanged } from '@/core/chats-events'
 import { newId } from '@/core/ids'
+import { touchChat } from '@/features/library/library-api'
 import { buildChatBody, type SearchSettings } from '@/features/thread/chat-body'
 import {
   describeChatError,
@@ -46,6 +50,11 @@ export type ThreadSession = {
   retryLast(): void
   /** True while an existing chat's saved messages load. */
   loading: boolean
+  /**
+   * The chat exists on the server: a saved chat, or a new one whose first
+   * turn finished or was stopped.
+   */
+  saved: boolean
 }
 
 /** Tries at the saved copy after a resume finds nothing live, 1 s apart. */
@@ -121,6 +130,22 @@ export function useThread({
   // finishing or being stopped; set by useChat's onFinish.
   const turnErroredRef = useRef(false)
 
+  // A new chat exists on the server once a turn of it ends there; the first
+  // such turn creates it in the chat list, later ones update it.
+  const savedRef = useRef(!isNew)
+  const [saved, setSaved] = useState(!isNew)
+  const turnSaved = useCallback(
+    (reason?: 'updated') => {
+      emitChatsChanged(
+        reason ?? (savedRef.current ? 'updated' : 'created'),
+        chatId
+      )
+      savedRef.current = true
+      setSaved(true)
+    },
+    [chatId]
+  )
+
   const {
     messages,
     status,
@@ -136,8 +161,10 @@ export function useThread({
     generateId: newId,
     experimental_throttle: 100,
     transport,
-    onFinish: ({ isError }) => {
+    onFinish: ({ isError, isAbort }) => {
       turnErroredRef.current = isError
+      // A stop is told by stop(); leaving mid-turn tells nothing.
+      if (!isError && !isAbort) turnSaved()
     }
   })
 
@@ -206,6 +233,15 @@ export function useThread({
     [chatId]
   )
 
+  // Opening a saved chat marks it viewed, once per screen (not again on
+  // StrictMode's re-mount).
+  const touched = useRef<string>(undefined)
+  useEffect(() => {
+    if (isNew || touched.current === chatId) return
+    touched.current = chatId
+    void touchChat(client, chatId)
+  }, [chatId, isNew, client])
+
   // An existing chat: show its saved messages (again on each reload).
   const [loadRequest, setLoadRequest] = useState(0)
   useEffect(() => {
@@ -251,9 +287,9 @@ export function useThread({
         await new Promise(resolve => setTimeout(resolve, RELOAD_DELAY_MS))
         if (gone()) return
       }
-      let saved: UIMessage[] | undefined
+      let savedMessages: UIMessage[] | undefined
       try {
-        saved = (
+        savedMessages = (
           await client.json<MessagesResponse>(`/api/chat/${chatId}/messages`)
         ).messages
       } catch (err) {
@@ -261,17 +297,19 @@ export function useThread({
         return giveUp()
       }
       if (gone()) return
-      if (!saved?.length) return giveUp()
+      if (!savedMessages?.length) return giveUp()
       // The stream can report done a moment before the answer is saved.
-      if (saved[saved.length - 1].role !== 'assistant') continue
+      if (savedMessages[savedMessages.length - 1].role !== 'assistant') continue
       // The user started something new meanwhile: keep what is on screen.
       if (inFlight()) return
-      setMessages(saved)
+      setMessages(savedMessages)
       clearError()
+      // The turn finished on the server while the app was away.
+      turnSaved()
       return
     }
     giveUp()
-  }, [client, chatId, inFlight, setMessages, clearError])
+  }, [client, chatId, inFlight, setMessages, clearError, turnSaved])
 
   useEffect(() => {
     hooks.current = {
@@ -335,7 +373,9 @@ export function useThread({
       console.warn('[thread] stop request failed', err)
     }
     await stopLocal()
-  }, [client, chatId, stopLocal])
+    // The server saves what was answered so far.
+    turnSaved('updated')
+  }, [client, chatId, stopLocal, turnSaved])
 
   const retry = useCallback(
     (assistantMessageId: string) => {
@@ -387,6 +427,7 @@ export function useThread({
     retry,
     reload,
     retryLast,
-    loading
+    loading,
+    saved
   }
 }

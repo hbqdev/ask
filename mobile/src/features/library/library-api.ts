@@ -6,6 +6,9 @@ import type { ApiClient } from '@/core/api/client'
 
 export type ChatSort = 'recent' | 'newest' | 'oldest' | 'title'
 
+/** The longest title the server keeps (CHAT_TITLE_MAX_LENGTH). */
+export const CHAT_TITLE_MAX_LENGTH = 255
+
 /** One history row. `searchMode` and `fileCount` come from the page badges. */
 export type ChatRow = {
   id: string

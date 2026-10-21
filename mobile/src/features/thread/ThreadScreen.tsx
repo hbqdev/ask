@@ -1,6 +1,7 @@
-// One chat: a header (back, title, sources), the turns, and a composer for
-// follow-ups. The list follows the answer as it streams unless the user has
-// scrolled up to read, when "Jump to latest" brings them back.
+// One chat: a header (back, title, sources, and the chat menu once the chat
+// is saved), the turns, and a composer for follow-ups. The list follows the
+// answer as it streams unless the user has scrolled up to read, when "Jump to
+// latest" brings them back.
 
 import type { UIMessage } from 'ai'
 import {
@@ -26,6 +27,7 @@ import {
 import { SourcesSheet } from '@/features/thread/components/SourcesSheet'
 import type { ChatErrorView } from '@/features/thread/model/chat-errors'
 import { listSources } from '@/features/thread/model/citations'
+import { ThreadMenu } from '@/features/thread/ThreadMenu'
 import { useThread } from '@/features/thread/useThread'
 import { isTurnStreaming } from '@/lib/render/message-parts'
 
@@ -263,8 +265,11 @@ export function ThreadScreen({
   }
 
   // --- Header -----------------------------------------------------------------
+  // A rename here wins over the streamed title, which later turns don't renew.
+  const [renamedTitle, setRenamedTitle] = useState<string>()
   const firstQuestion = messages.find(m => m.role === 'user')
   const title =
+    renamedTitle ||
     thread.title ||
     initialTitle ||
     (firstQuestion ? textOf(firstQuestion) : initialQuestion) ||
@@ -279,7 +284,7 @@ export function ThreadScreen({
 
   return (
     <div className="flex min-h-0 flex-1 flex-col">
-      <header className="flex items-center gap-1 border-b border-foreground/10 px-1 py-1">
+      <header className="relative flex items-center gap-1 border-b border-foreground/10 px-1 py-1">
         <HeaderButton label="Back" onClick={pop} d={BACK_ICON} />
         <h1 className="min-w-0 flex-1 truncate text-center text-base font-semibold">
           {title}
@@ -290,6 +295,14 @@ export function ThreadScreen({
           disabled={sources.length === 0}
           d={SOURCES_ICON}
         />
+        {thread.saved && (
+          <ThreadMenu
+            chatId={chatId}
+            title={title}
+            onRenamed={setRenamedTitle}
+            onDeleted={pop}
+          />
+        )}
       </header>
 
       <div className="relative flex min-h-0 flex-1 flex-col">

@@ -5,6 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { ApiProvider } from '@/core/api/ApiProvider'
 import { useAuth, type Auth } from '@/core/auth/AuthProvider'
+import { onChatsChanged } from '@/core/chats-events'
 import type { SearchSettings } from '@/features/thread/chat-body'
 import { useThread } from '@/features/thread/useThread'
 
@@ -108,7 +109,7 @@ const json = (body: unknown, status = 200) =>
 
 type Handler = (init: RequestInit) => Response | Promise<Response>
 type Routes = Partial<
-  Record<'chat' | 'stop' | 'stream' | 'messages', Handler[]>
+  Record<'chat' | 'stop' | 'stream' | 'messages' | 'touch', Handler[]>
 >
 
 const fetchMock = vi.fn<typeof fetch>()
@@ -127,8 +128,17 @@ function serve(routes: Routes) {
             ? 'stream'
             : method === 'GET' && url === `${BASE}/api/chat/${CHAT_ID}/messages`
               ? 'messages'
-              : null
-    const handler = key ? routes[key]?.shift() : undefined
+              : method === 'POST' &&
+                  url === `${BASE}/api/chats/${CHAT_ID}/touch`
+                ? 'touch'
+                : null
+    // Opening a saved chat touches it; the server's answer doesn't matter.
+    const handler =
+      key === 'touch'
+        ? (routes.touch?.shift() ?? (() => new Response(null, { status: 204 })))
+        : key
+          ? routes[key]?.shift()
+          : undefined
     if (!handler) throw new Error(`unexpected request: ${method} ${url}`)
     return handler(init)
   })
@@ -189,6 +199,10 @@ function setAppActive(isActive: boolean) {
   })
 }
 
+/** Every chats-changed event, as (reason, chatId). */
+const changed = vi.fn()
+let unsubscribe: () => void
+
 // --- Tests ------------------------------------------------------------------
 
 describe('useThread', () => {
@@ -198,9 +212,11 @@ describe('useThread', () => {
     getAccessToken.mockResolvedValue('fake-token')
     vi.mocked(useAuth).mockReturnValue({ getAccessToken } as unknown as Auth)
     vi.stubGlobal('fetch', fetchMock)
+    unsubscribe = onChatsChanged(changed)
   })
 
   afterEach(() => {
+    unsubscribe()
     vi.useRealTimers()
     vi.unstubAllGlobals()
   })
@@ -963,6 +979,9 @@ describe('useThread', () => {
       expect(requests('GET', `/api/chat/${CHAT_ID}/messages`)).toHaveLength(2)
       expect(result.current.status).toBe('ready')
       expect(result.current.error).toBeUndefined()
+      // The turn finished on the server while the app was away.
+      expect(changed).toHaveBeenCalledExactlyOnceWith('created', CHAT_ID)
+      expect(result.current.saved).toBe(true)
     })
 
     const COULD_NOT_LOAD = {
@@ -1366,6 +1385,129 @@ describe('useThread', () => {
       unmount()
 
       await waitFor(() => expect(app.remove).toHaveBeenCalledTimes(1))
+    })
+  })
+
+  describe('the chat history', () => {
+    const touches = () => requests('POST', `/api/chats/${CHAT_ID}/touch`)
+
+    it('touches a saved chat once when it opens, even mounted twice', async () => {
+      serve({ messages: [() => json({ messages: [] })] })
+      const { result } = renderHook(
+        () => useThread({ chatId: CHAT_ID, isNew: false, settings }),
+        {
+          wrapper: ({ children }) => (
+            <StrictMode>
+              <ApiProvider baseUrl={BASE}>{children}</ApiProvider>
+            </StrictMode>
+          )
+        }
+      )
+      await waitFor(() => expect(result.current.loading).toBe(false))
+
+      expect(touches()).toHaveLength(1)
+      expect(authOf(touches()[0])).toBe('Bearer fake-token')
+    })
+
+    it('never touches a new chat', async () => {
+      serve({ chat: [() => sse(answerChunks('a1', 'A', 'T'))] })
+      const { result } = renderThread()
+      act(() => result.current.send('Q'))
+      await waitFor(() => expect(result.current.title).toBe('T'))
+
+      expect(touches()).toHaveLength(0)
+    })
+
+    it('a saved chat exists on the server from the start', () => {
+      serve({ messages: [() => hang()] })
+      const { result } = renderThread(false)
+      expect(result.current.saved).toBe(true)
+    })
+
+    it('a new chat is created by its first answer, then updated by the next', async () => {
+      serve({
+        chat: [
+          () => sse(answerChunks('a1', 'One', 'Title')),
+          () => sse(answerChunks('a2', 'Two'))
+        ]
+      })
+      const { result } = renderThread()
+      expect(result.current.saved).toBe(false)
+
+      act(() => result.current.send('first'))
+      await waitFor(() => expect(result.current.saved).toBe(true))
+      expect(changed).toHaveBeenCalledExactlyOnceWith('created', CHAT_ID)
+      await waitFor(() => expect(result.current.status).toBe('ready'))
+
+      act(() => result.current.send('second'))
+      await waitFor(() => expect(changed).toHaveBeenCalledTimes(2))
+      expect(changed).toHaveBeenLastCalledWith('updated', CHAT_ID)
+    })
+
+    it('a saved chat is updated by each answer', async () => {
+      serve({
+        messages: [
+          () => json({ messages: [user('u1', 'Q'), assistant('a1', 'A')] })
+        ],
+        chat: [() => sse(answerChunks('a2', 'More'))]
+      })
+      const { result } = renderThread(false)
+      await waitFor(() => expect(result.current.loading).toBe(false))
+
+      act(() => result.current.send('follow-up'))
+
+      await waitFor(() =>
+        expect(changed).toHaveBeenCalledExactlyOnceWith('updated', CHAT_ID)
+      )
+    })
+
+    it('a failed turn changes nothing', async () => {
+      serve({
+        chat: [() => json({ error: 'Internal error', retryable: true }, 500)]
+      })
+      const { result } = renderThread()
+
+      act(() => result.current.send('Q'))
+      await waitFor(() => expect(result.current.status).toBe('error'))
+
+      expect(changed).not.toHaveBeenCalled()
+      expect(result.current.saved).toBe(false)
+    })
+
+    it('a stopped turn updates the chat, which then exists', async () => {
+      serve({
+        chat: [init => hang(init)],
+        stop: [() => new Response(null, { status: 204 })]
+      })
+      const { result } = renderThread()
+      act(() => result.current.send('long question'))
+      await waitFor(() => expect(result.current.status).toBe('submitted'))
+
+      await act(() => result.current.stop())
+
+      expect(changed).toHaveBeenCalledExactlyOnceWith('updated', CHAT_ID)
+      expect(result.current.saved).toBe(true)
+    })
+
+    it('leaving mid-turn emits nothing', async () => {
+      let chatSignal: AbortSignal | undefined
+      serve({
+        chat: [
+          init => {
+            chatSignal = init.signal ?? undefined
+            return hang(init)
+          }
+        ]
+      })
+      const { result, unmount } = renderThread()
+      act(() => result.current.send('long question'))
+      await waitFor(() => expect(chatSignal).toBeDefined())
+
+      unmount()
+      await waitFor(() => expect(chatSignal?.aborted).toBe(true))
+      await act(async () => {})
+
+      expect(changed).not.toHaveBeenCalled()
     })
   })
 })
