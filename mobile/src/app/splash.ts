@@ -9,6 +9,8 @@ import { Capacitor } from '@capacitor/core'
 import { SplashScreen } from '@capacitor/splash-screen'
 import { useEffect } from 'react'
 
+import { markFirstRender } from '@/app/launchMark'
+
 /** Hide the splash after this long even if the app never becomes ready. */
 export const SPLASH_FALLBACK_MS = 2500
 
@@ -32,10 +34,15 @@ export function armSplashFailsafe(ms: number = SPLASH_FALLBACK_MS): void {
   setTimeout(hideSplash, ms)
 }
 
-/** Hides the native splash once `ready`, or after the fallback timeout. */
+/**
+ * Hides the native splash once `ready`, or after the fallback timeout. Being
+ * ready also logs the launch-timing mark (src/app/launchMark.ts); the
+ * fallback does not, since nothing real is on screen then.
+ */
 export function useHideSplash(ready: boolean): void {
   useEffect(() => {
     if (ready) {
+      markFirstRender()
       hideSplash()
       return
     }

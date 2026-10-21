@@ -3,6 +3,7 @@ import { SplashScreen } from '@capacitor/splash-screen'
 import { act, renderHook } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
+import { markFirstRender } from '@/app/launchMark'
 import {
   armSplashFailsafe,
   hideSplash,
@@ -19,11 +20,14 @@ vi.mock('@capacitor/splash-screen', () => ({
   SplashScreen: { hide: vi.fn(async () => {}) }
 }))
 
+vi.mock('@/app/launchMark', () => ({ markFirstRender: vi.fn() }))
+
 beforeEach(() => {
   vi.useFakeTimers()
   resetSplashForTests()
   vi.mocked(Capacitor.isNativePlatform).mockReturnValue(true)
   vi.mocked(SplashScreen.hide).mockReset().mockResolvedValue(undefined)
+  vi.mocked(markFirstRender).mockReset()
 })
 
 afterEach(() => {
@@ -90,6 +94,23 @@ describe('useHideSplash', () => {
     rerender({ ready: true })
     act(() => vi.advanceTimersByTime(SPLASH_FALLBACK_MS))
     expect(SplashScreen.hide).toHaveBeenCalledTimes(1)
+  })
+
+  it('logs the first-render launch mark when the app is ready', () => {
+    const { rerender } = renderHook(({ ready }) => useHideSplash(ready), {
+      initialProps: { ready: false }
+    })
+    expect(markFirstRender).not.toHaveBeenCalled()
+
+    rerender({ ready: true })
+    expect(markFirstRender).toHaveBeenCalledTimes(1)
+  })
+
+  it('does not log the launch mark when only the fallback hid the splash', () => {
+    renderHook(() => useHideSplash(false))
+    act(() => vi.advanceTimersByTime(SPLASH_FALLBACK_MS))
+    expect(SplashScreen.hide).toHaveBeenCalledTimes(1)
+    expect(markFirstRender).not.toHaveBeenCalled()
   })
 
   it('hides at once when ready from the start', () => {
