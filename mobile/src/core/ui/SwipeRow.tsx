@@ -1,7 +1,8 @@
 // A list row with iOS swipe actions. Dragging the row left reveals its action
 // buttons; released past OPEN_AT it snaps open, short of it it snaps back. A
 // full swipe past FULL_SWIPE of the row's width runs the first action. Only
-// one row is open at a time, and a tap anywhere else closes it.
+// one row is open at a time, and a tap anywhere else closes it and does
+// nothing more (as in iOS Mail: that tap is swallowed).
 //
 // The row moves with a transform only. It sets `touch-action: pan-y`, so a
 // vertical drag stays a native scroll (the browser cancels the pointer), and
@@ -45,7 +46,28 @@ type OpenRow = { el: HTMLElement; close(): void }
 let openRow: OpenRow | null = null
 
 function closeOnOutsidePress(e: Event) {
-  if (openRow && !openRow.el.contains(e.target as Node)) openRow.close()
+  if (!openRow || openRow.el.contains(e.target as Node)) return
+  openRow.close()
+  swallowNextClick()
+}
+
+// The click that ends the closing press is stopped (in the capture phase on
+// the document, before it reaches anything), so it presses nothing. Should
+// that press make no click (it became a scroll), the next press disarms it.
+function swallowNextClick() {
+  document.addEventListener('click', swallow, true)
+  document.addEventListener('pointerdown', disarm, true)
+}
+
+function swallow(e: Event) {
+  e.stopPropagation()
+  e.preventDefault()
+  disarm()
+}
+
+function disarm() {
+  document.removeEventListener('click', swallow, true)
+  document.removeEventListener('pointerdown', disarm, true)
 }
 
 /** Makes `row` the open row, closing any other. */

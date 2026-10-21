@@ -231,6 +231,66 @@ describe('SwipeRow', () => {
     expect(content.style.transform).toBe(OPEN)
   })
 
+  it('a tap that closes an open row is swallowed', () => {
+    const pressA = vi.fn()
+    const pressB = vi.fn()
+    const { actions } = makeActions()
+    render(
+      <>
+        <SwipeRow actions={actions} onPress={pressA}>
+          <span>Chat A</span>
+        </SwipeRow>
+        <SwipeRow actions={actions} onPress={pressB}>
+          <span>Chat B</span>
+        </SwipeRow>
+      </>
+    )
+    drag(content('Chat A'), [{ x: 300 }, { x: 200 }])
+    tap(content('Chat B'))
+    expect(isOpen('Chat A')).toBe(false)
+    expect(pressB).not.toHaveBeenCalled()
+    tap(content('Chat B'))
+    expect(pressB).toHaveBeenCalledTimes(1)
+    expect(pressA).not.toHaveBeenCalled()
+  })
+
+  it('swallows the closing tap on anything else too (a header button)', () => {
+    const onHeader = vi.fn()
+    const { content } = setup()
+    render(
+      <button type="button" onClick={onHeader}>
+        Edit
+      </button>
+    )
+    const header = screen.getByRole('button', { name: 'Edit' })
+    drag(content, [{ x: 300 }, { x: 200 }])
+    fireEvent.pointerDown(header)
+    fireEvent.pointerUp(header)
+    expect(fireEvent.click(header)).toBe(false)
+    expect(onHeader).not.toHaveBeenCalled()
+    expect(isOpen('Chat A')).toBe(false)
+    fireEvent.pointerDown(header)
+    fireEvent.click(header)
+    expect(onHeader).toHaveBeenCalledTimes(1)
+  })
+
+  it('swallows nothing later when the closing press made no click (a scroll)', () => {
+    const { content, onPress } = setup()
+    drag(content, [{ x: 300 }, { x: 200 }])
+    fireEvent.pointerDown(document.body)
+    fireEvent.pointerCancel(document.body)
+    expect(isOpen('Chat A')).toBe(false)
+    tap(content)
+    expect(onPress).toHaveBeenCalledTimes(1)
+  })
+
+  it('swallows nothing when no row was open', () => {
+    const { content, onPress } = setup()
+    fireEvent.pointerDown(document.body)
+    tap(content)
+    expect(onPress).toHaveBeenCalledTimes(1)
+  })
+
   it('closes on a tap elsewhere, but not on a press inside itself', () => {
     const { content } = setup()
     drag(content, [{ x: 300 }, { x: 200 }])
