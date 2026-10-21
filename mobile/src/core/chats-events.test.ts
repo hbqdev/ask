@@ -23,10 +23,16 @@ describe('chats-changed events', () => {
     expect(b).toHaveBeenCalledWith('created', 'c1')
   })
 
+  it('delivers a rename with the new title', () => {
+    const a = listen()
+    emitChatsChanged('renamed', 'c1', { title: 'New name' })
+    expect(a).toHaveBeenCalledWith('renamed', 'c1', { title: 'New name' })
+  })
+
   it('delivers a reason without a chat id', () => {
     const a = listen()
     emitChatsChanged('cleared')
-    expect(a).toHaveBeenCalledWith('cleared', undefined)
+    expect(a).toHaveBeenCalledWith('cleared')
   })
 
   it('stops delivering after unsubscribe', () => {

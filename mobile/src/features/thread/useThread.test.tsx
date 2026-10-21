@@ -1570,7 +1570,7 @@ describe('useThread', () => {
       expect(result.current.saved).toBe(false)
     })
 
-    it('a stopped turn updates the chat, which then exists', async () => {
+    it('a stopped first turn creates the chat, which then exists', async () => {
       serve({
         chat: [init => hang(init)],
         stop: [() => new Response(null, { status: 204 })]
@@ -1581,8 +1581,27 @@ describe('useThread', () => {
 
       await act(() => result.current.stop())
 
-      expect(changed).toHaveBeenCalledExactlyOnceWith('updated', CHAT_ID)
+      // The Library reloads for a created chat; an update to a chat it has
+      // not loaded would change nothing there.
+      expect(changed).toHaveBeenCalledExactlyOnceWith('created', CHAT_ID)
       expect(result.current.saved).toBe(true)
+    })
+
+    it('a stopped turn of a saved chat updates it', async () => {
+      serve({
+        messages: [() => json({ messages: [user('u1', 'Q')] })],
+        chat: [init => hang(init)],
+        stop: [() => new Response(null, { status: 204 })]
+      })
+      const { result } = renderThread(false)
+      await waitFor(() => expect(result.current.loading).toBe(false))
+      await waitFor(() => expect(changed).toHaveBeenCalledOnce())
+      act(() => result.current.send('long question'))
+      await waitFor(() => expect(result.current.status).toBe('submitted'))
+
+      await act(() => result.current.stop())
+
+      expect(changed).toHaveBeenLastCalledWith('updated', CHAT_ID)
     })
 
     it('leaving mid-turn emits nothing', async () => {

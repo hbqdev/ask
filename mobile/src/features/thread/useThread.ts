@@ -139,21 +139,16 @@ export function useThread({
   // finishing or being stopped; set by useChat's onFinish.
   const turnErroredRef = useRef(false)
 
-  // A new chat exists on the server once a turn of it ends there; the first
-  // such turn creates it in the chat list, later ones update it.
+  // A new chat exists on the server once a turn of it ends there (finished
+  // or stopped); the first such turn creates it in the chat list, later ones
+  // update it.
   const savedRef = useRef(!isNew)
   const [saved, setSaved] = useState(!isNew)
-  const turnSaved = useCallback(
-    (reason?: 'updated') => {
-      emitChatsChanged(
-        reason ?? (savedRef.current ? 'updated' : 'created'),
-        chatId
-      )
-      savedRef.current = true
-      setSaved(true)
-    },
-    [chatId]
-  )
+  const turnSaved = useCallback(() => {
+    emitChatsChanged(savedRef.current ? 'updated' : 'created', chatId)
+    savedRef.current = true
+    setSaved(true)
+  }, [chatId])
 
   const {
     messages,
@@ -390,7 +385,7 @@ export function useThread({
     }
     await stopLocal()
     // The server saves what was answered so far.
-    turnSaved('updated')
+    turnSaved()
   }, [client, chatId, stopLocal, turnSaved])
 
   const retry = useCallback(

@@ -88,7 +88,9 @@ describe('ThreadMenu', () => {
         'New title'
       )
       expect(onRenamed).toHaveBeenCalledExactlyOnceWith('Saved title')
-      expect(changed).toHaveBeenCalledExactlyOnceWith('updated', 'c1')
+      expect(changed).toHaveBeenCalledExactlyOnceWith('renamed', 'c1', {
+        title: 'Saved title'
+      })
       expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
       expect(screen.queryByRole('alert')).not.toBeInTheDocument()
     })
@@ -146,7 +148,7 @@ describe('ThreadMenu', () => {
       expect(deleteChat).toHaveBeenCalledExactlyOnceWith(client, 'c1')
       expect(changed).toHaveBeenCalledExactlyOnceWith('deleted', 'c1')
       expect(onDeleted).toHaveBeenCalledOnce()
-      // Told before leaving, so the Library is already reloading.
+      // Told before leaving, so the Library has already dropped the row.
       expect(changed.mock.invocationCallOrder[0]).toBeLessThan(
         onDeleted.mock.invocationCallOrder[0]
       )

@@ -425,7 +425,7 @@ describe('DataSection', () => {
 
     await act(async () => answer(json({ ok: true })))
     expect(prefs.has(LIBRARY_CACHE_KEY)).toBe(false)
-    expect(changed).toHaveBeenCalledWith('cleared', undefined)
+    expect(changed).toHaveBeenCalledWith('cleared')
     expect(screen.getByText('All chats deleted.')).toBeInTheDocument()
     expect(
       screen.getByRole('button', { name: 'Delete all chats' })
@@ -464,7 +464,7 @@ describe('DataSection', () => {
     render(<DataSection />)
     deleteAll()
     await act(async () => fireEvent.click(confirm()))
-    expect(changed).toHaveBeenCalledWith('cleared', undefined)
+    expect(changed).toHaveBeenCalledWith('cleared')
     expect(screen.getByText('All chats deleted.')).toBeInTheDocument()
   })
 })

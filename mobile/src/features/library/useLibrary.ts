@@ -167,10 +167,13 @@ export function useLibrary({ sort }: { sort: ChatSort }): Library {
     })
   }, [key, userId, sort, loadFirstPage])
 
-  // A chat opened elsewhere changes only its view time: update the loaded row
-  // in place (to the top in `recent`, as the server now orders it), with no
-  // page-0 reload that would drop the loaded pages. An unloaded row is left
-  // to the next load. Every other change reloads page 0.
+  // Changes made on another screen. Only a created or cleared list reloads
+  // page 0; the rest change the loaded rows in place, as a page-0 reload
+  // would drop the loaded pages (and the scroll). A change to a row that is
+  // not loaded is left to the next load.
+
+  // A chat opened or answered elsewhere: its view time is now, which moves it
+  // to the top in `recent`, as the server now orders it.
   const markViewed = useCallback(
     (id: string) => {
       setState(s => {
@@ -190,13 +193,44 @@ export function useLibrary({ sort }: { sort: ChatSort }): Library {
     [sort]
   )
 
+  const retitleLoaded = useCallback((id: string, title: string) => {
+    setState(s =>
+      s.chats.some(c => c.id === id)
+        ? {
+            ...s,
+            chats: s.chats.map(c => (c.id === id ? { ...c, title } : c))
+          }
+        : s
+    )
+  }, [])
+
+  // Already deleted on the server: the same bookkeeping as a remove here
+  // that succeeded, so the next page neither skips nor repeats a row.
+  const dropDeleted = useCallback((id: string) => {
+    if (!stateRef.current.chats.some(c => c.id === id)) return
+    removed.current.add(id)
+    removals.current += 1
+    setState(s => ({
+      ...s,
+      chats: s.chats.filter(c => c.id !== id),
+      total: addTo(s.total, -1),
+      nextOffset: s.nextOffset === null ? null : s.nextOffset - 1
+    }))
+  }, [])
+
   useEffect(
     () =>
-      onChatsChanged((reason, chatId) => {
-        if (reason !== 'viewed') return void loadFirstPage()
-        if (chatId) markViewed(chatId)
+      onChatsChanged((reason, chatId, detail) => {
+        if (reason === 'created' || reason === 'cleared') {
+          return void loadFirstPage()
+        }
+        if (!chatId) return
+        if (reason === 'renamed') {
+          if (detail?.title) retitleLoaded(chatId, detail.title)
+        } else if (reason === 'deleted') dropDeleted(chatId)
+        else markViewed(chatId)
       }),
-    [loadFirstPage, markViewed]
+    [loadFirstPage, markViewed, retitleLoaded, dropDeleted]
   )
 
   // Server-confirmed rows (status ready) go to the signed-in user's cache.

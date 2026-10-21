@@ -58,7 +58,7 @@ export function ThreadMenu({
   const rename = async (next: string) => {
     try {
       const saved = await renameChat(client, chatId, next)
-      emitChatsChanged('updated', chatId)
+      emitChatsChanged('renamed', chatId, { title: saved })
       onRenamed(saved)
     } catch (error) {
       setFailure(`Couldn’t rename the chat. ${reasonOf(error)}`)

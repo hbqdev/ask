@@ -919,13 +919,184 @@ describe('useLibrary', () => {
     })
   })
 
+  it('a cleared event re-fetches page 0', async () => {
+    useServer(fakeServer(95))
+    const { result } = renderLibrary()
+    await waitFor(() => expect(result.current.status).toBe('ready'))
+    await act(() => result.current.loadMore())
+    server.chats.splice(0)
+
+    act(() => emitChatsChanged('cleared'))
+
+    await waitFor(() => expect(result.current.chats).toEqual([]))
+    expect(result.current.total).toBe(0)
+    expect(result.current.hasMore).toBe(false)
+    expect(server.pageRequests().at(-1)).toMatchObject({ offset: '0' })
+  })
+
   it('stops listening for changes once unmounted', async () => {
     useServer(fakeServer(2))
     const { result, unmount } = renderLibrary()
     await waitFor(() => expect(result.current.status).toBe('ready'))
     unmount()
-    emitChatsChanged('updated', 'c0')
+    emitChatsChanged('created', 'c0')
     expect(server.pageRequests()).toHaveLength(1)
+  })
+
+  describe('a chat changed in its thread', () => {
+    const NOW = new Date(Date.UTC(2026, 9, 21, 12))
+
+    beforeEach(() => {
+      vi.useFakeTimers({ toFake: ['Date'] })
+      vi.setSystemTime(NOW)
+    })
+
+    /** Three pages loaded (90 of 95 rows), more to come. */
+    async function threePages(sort: ChatSort = 'recent') {
+      useServer(fakeServer(95))
+      const hook = renderLibrary(sort)
+      await waitFor(() => expect(hook.result.current.status).toBe('ready'))
+      await act(() => hook.result.current.loadMore())
+      await act(() => hook.result.current.loadMore())
+      expect(hook.result.current.chats).toHaveLength(90)
+      expect(hook.result.current.hasMore).toBe(true)
+      return hook
+    }
+
+    it('a follow-up from page 3 keeps loaded pages', async () => {
+      const { result } = await threePages()
+      const before = ids(result.current.chats)
+
+      act(() => emitChatsChanged('updated', 'c75'))
+
+      expect(ids(result.current.chats)).toEqual([
+        'c75',
+        ...before.filter(id => id !== 'c75')
+      ])
+      expect(result.current.chats[0].lastViewedAt).toBe(NOW.toISOString())
+      expect(result.current.status).toBe('ready')
+      expect(result.current.hasMore).toBe(true)
+      await act(async () => {})
+      // No page 0 again: the loaded pages (and the scroll) stay.
+      expect(server.pageRequests()).toHaveLength(3)
+    })
+
+    it('a follow-up in title sort only updates lastViewedAt', async () => {
+      const { result } = await threePages('title')
+      const before = ids(result.current.chats)
+
+      act(() => emitChatsChanged('updated', 'c75'))
+
+      expect(ids(result.current.chats)).toEqual(before)
+      expect(result.current.chats.find(c => c.id === 'c75')!.lastViewedAt).toBe(
+        NOW.toISOString()
+      )
+      await act(async () => {})
+      expect(server.pageRequests()).toHaveLength(3)
+    })
+
+    it('a follow-up in a chat that is not loaded fetches nothing', async () => {
+      useServer(fakeServer(95))
+      const { result } = renderLibrary()
+      await waitFor(() => expect(result.current.status).toBe('ready'))
+      const shown = result.current.chats
+
+      act(() => emitChatsChanged('updated', 'c80'))
+      act(() => emitChatsChanged('updated'))
+
+      expect(result.current.chats).toBe(shown)
+      await act(async () => {})
+      expect(server.pageRequests()).toHaveLength(1)
+    })
+
+    it('a rename shows the new title in place, keeping loaded pages', async () => {
+      const { result } = await threePages()
+      const before = ids(result.current.chats)
+
+      act(() => emitChatsChanged('renamed', 'c45', { title: 'New name' }))
+
+      expect(ids(result.current.chats)).toEqual(before)
+      expect(result.current.chats.find(c => c.id === 'c45')!.title).toBe(
+        'New name'
+      )
+      await act(async () => {})
+      expect(server.pageRequests()).toHaveLength(3)
+      await waitFor(() =>
+        expect(
+          JSON.parse(prefsData.get(LIBRARY_CACHE_KEY)!).chats.find(
+            (c: ChatRow) => c.id === 'c45'
+          ).title
+        ).toBe('New name')
+      )
+    })
+
+    it('a rename of a chat that is not loaded, or without a title, fetches nothing', async () => {
+      useServer(fakeServer(95))
+      const { result } = renderLibrary()
+      await waitFor(() => expect(result.current.status).toBe('ready'))
+      const shown = result.current.chats
+
+      act(() => emitChatsChanged('renamed', 'c80', { title: 'New name' }))
+      act(() => emitChatsChanged('renamed', 'c1'))
+      act(() => emitChatsChanged('renamed', undefined, { title: 'x' }))
+
+      expect(result.current.chats).toBe(shown)
+      await act(async () => {})
+      expect(server.pageRequests()).toHaveLength(1)
+    })
+
+    it('a delete removes a loaded chat in place, and the next page neither skips nor repeats', async () => {
+      const { result } = await threePages()
+      // Deleted on the server by the thread's menu, then told.
+      server.chats.splice(
+        server.chats.findIndex(c => c.id === 'c40'),
+        1
+      )
+
+      act(() => emitChatsChanged('deleted', 'c40'))
+
+      expect(ids(result.current.chats)).not.toContain('c40')
+      expect(result.current.chats).toHaveLength(89)
+      expect(result.current.total).toBe(94)
+      await act(async () => {})
+      expect(server.pageRequests()).toHaveLength(3)
+
+      await act(() => result.current.loadMore())
+      expect(server.pageRequests().at(-1)).toMatchObject({ offset: '89' })
+      const loaded = ids(result.current.chats)
+      expect(new Set(loaded).size).toBe(loaded.length)
+      expect(loaded).toEqual(ids(server.chats))
+      expect(result.current.hasMore).toBe(false)
+    })
+
+    it('a delete of a chat that is not loaded fetches nothing', async () => {
+      useServer(fakeServer(95))
+      const { result } = renderLibrary()
+      await waitFor(() => expect(result.current.status).toBe('ready'))
+      const shown = result.current.chats
+
+      act(() => emitChatsChanged('deleted', 'c80'))
+      act(() => emitChatsChanged('deleted'))
+
+      expect(result.current.chats).toBe(shown)
+      expect(result.current.total).toBe(95)
+      await act(async () => {})
+      expect(server.pageRequests()).toHaveLength(1)
+    })
+
+    it('a deleted chat stays out of a refresh that raced the delete', async () => {
+      const { result } = await threePages()
+      // The refresh read page 0 before the delete landed on the server.
+      const stale = server.chats.slice(0, 30)
+      server.on('GET', /^\/api\/chats$/, () =>
+        json({ chats: stale, nextOffset: 30, badges: {}, total: 95 })
+      )
+
+      act(() => emitChatsChanged('deleted', 'c3'))
+      await act(() => result.current.refresh())
+
+      expect(ids(result.current.chats)).not.toContain('c3')
+    })
   })
 
   describe('a chat viewed elsewhere', () => {
