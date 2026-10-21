@@ -284,25 +284,32 @@ export function ThreadScreen({
 
   return (
     <div className="flex min-h-0 flex-1 flex-col">
-      <header className="relative flex items-center gap-1 border-b border-foreground/10 px-1 py-1">
-        <HeaderButton label="Back" onClick={pop} d={BACK_ICON} />
-        <h1 className="min-w-0 flex-1 truncate text-center text-base font-semibold">
+      {/* Like an iOS navigation bar: the side columns are one width (room
+          for two buttons), so the title sits on the screen's centre line
+          however many buttons each side has, and truncates between them. */}
+      <header className="relative grid grid-cols-[5.5rem_minmax(0,1fr)_5.5rem] items-center gap-1 border-b border-foreground/10 px-1 py-1">
+        <div className="flex justify-start">
+          <HeaderButton label="Back" onClick={pop} d={BACK_ICON} />
+        </div>
+        <h1 className="min-w-0 truncate text-center text-base font-semibold">
           {title}
         </h1>
-        <HeaderButton
-          label="Sources"
-          onClick={() => setSourcesOpen(true)}
-          disabled={sources.length === 0}
-          d={SOURCES_ICON}
-        />
-        {thread.saved && (
-          <ThreadMenu
-            chatId={chatId}
-            title={title}
-            onRenamed={setRenamedTitle}
-            onDeleted={pop}
+        <div className="flex justify-end">
+          <HeaderButton
+            label="Sources"
+            onClick={() => setSourcesOpen(true)}
+            disabled={sources.length === 0}
+            d={SOURCES_ICON}
           />
-        )}
+          {thread.saved && (
+            <ThreadMenu
+              chatId={chatId}
+              title={title}
+              onRenamed={setRenamedTitle}
+              onDeleted={pop}
+            />
+          )}
+        </div>
       </header>
 
       <div className="relative flex min-h-0 flex-1 flex-col">

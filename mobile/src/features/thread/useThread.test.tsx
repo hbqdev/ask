@@ -1391,8 +1391,12 @@ describe('useThread', () => {
   describe('the chat history', () => {
     const touches = () => requests('POST', `/api/chats/${CHAT_ID}/touch`)
 
-    it('touches a saved chat once when it opens, even mounted twice', async () => {
-      serve({ messages: [() => json({ messages: [] })] })
+    it('touches a saved chat once when it opens, even mounted twice, then tells the list', async () => {
+      let answerTouch!: (response: Response) => void
+      serve({
+        messages: [() => json({ messages: [] })],
+        touch: [() => new Promise<Response>(resolve => (answerTouch = resolve))]
+      })
       const { result } = renderHook(
         () => useThread({ chatId: CHAT_ID, isNew: false, settings }),
         {
@@ -1407,6 +1411,24 @@ describe('useThread', () => {
 
       expect(touches()).toHaveLength(1)
       expect(authOf(touches()[0])).toBe('Bearer fake-token')
+      // The list is told only once the view is recorded (for "recent").
+      expect(changed).not.toHaveBeenCalled()
+
+      await act(async () => answerTouch(new Response(null, { status: 204 })))
+
+      expect(changed).toHaveBeenCalledExactlyOnceWith('updated', CHAT_ID)
+    })
+
+    it('tells the list even when the touch fails', async () => {
+      serve({
+        messages: [() => json({ messages: [] })],
+        touch: [() => Promise.reject(new TypeError('Load failed'))]
+      })
+      renderThread(false)
+
+      await waitFor(() =>
+        expect(changed).toHaveBeenCalledExactlyOnceWith('updated', CHAT_ID)
+      )
     })
 
     it('never touches a new chat', async () => {
@@ -1453,12 +1475,16 @@ describe('useThread', () => {
       })
       const { result } = renderThread(false)
       await waitFor(() => expect(result.current.loading).toBe(false))
+      // Opening it (the touch) is the first update.
+      await waitFor(() => expect(changed).toHaveBeenCalledOnce())
 
       act(() => result.current.send('follow-up'))
 
-      await waitFor(() =>
-        expect(changed).toHaveBeenCalledExactlyOnceWith('updated', CHAT_ID)
-      )
+      await waitFor(() => expect(changed).toHaveBeenCalledTimes(2))
+      expect(changed.mock.calls).toEqual([
+        ['updated', CHAT_ID],
+        ['updated', CHAT_ID]
+      ])
     })
 
     it('a failed turn changes nothing', async () => {

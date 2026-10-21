@@ -448,6 +448,25 @@ describe('ThreadScreen', () => {
     ).toBeInTheDocument()
   })
 
+  it('centres the title on the screen between equal side columns, however many buttons each side has', () => {
+    renderScreen(session({ messages: TURN, title: 'A title', saved: true }))
+    const title = screen.getByRole('heading', { level: 1, name: 'A title' })
+    const header = title.closest('header')!
+    const [start, middle, end] = Array.from(header.children)
+
+    // A three-column grid whose side columns are one fixed width, so the
+    // middle column (and the title in it) sits on the screen's centre line.
+    expect(header).toHaveClass('grid')
+    expect(header.className).toMatch(/grid-cols-\[(\S+)_minmax\(0,1fr\)_\1\]/)
+    expect(middle).toBe(title)
+    expect(title).toHaveClass('min-w-0', 'truncate', 'text-center')
+    // One button on the left, two on the right.
+    expect(within(start as HTMLElement).getAllByRole('button')).toHaveLength(1)
+    expect(within(end as HTMLElement).getAllByRole('button')).toHaveLength(2)
+    expect(start).toHaveClass('justify-start')
+    expect(end).toHaveClass('justify-end')
+  })
+
   describe('chat menu', () => {
     const menuButton = () =>
       screen.queryByRole('button', { name: 'Chat options' })
