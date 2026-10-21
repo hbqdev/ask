@@ -1,5 +1,5 @@
 import type { SupabaseClient } from '@supabase/supabase-js'
-import { act, render, screen } from '@testing-library/react'
+import { act, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import type { AppConfig } from '@/core/config'
@@ -85,7 +85,9 @@ describe('App', () => {
     expect(
       await screen.findByRole('button', { name: 'Sign in' })
     ).toBeInTheDocument()
-    expect(mocks.hideSplash).toHaveBeenCalledTimes(1)
+    // Sign-in can show before the stored theme is read; the splash hides once
+    // both are known, so wait for it rather than assume the same tick.
+    await waitFor(() => expect(mocks.hideSplash).toHaveBeenCalledTimes(1))
   })
 
   it('points Forgot password? at the configured server', async () => {
