@@ -53,3 +53,13 @@ scripts/eval/results/
 
 # Local AI planning docs (kept on disk, not published)
 docs/superpowers/
+
+# Native iOS shell (Capacitor) build outputs
+mobile/node_modules/
+mobile/ios/App/build/
+mobile/ios/DerivedData/
+mobile/ios/App/App/public/
+mobile/ios/App/App/capacitor.config.json
+mobile/ios/App/App/config.xml
+mobile/ios/App/CapApp-SPM/.build/
+mobile/ios/**/xcuserdata/

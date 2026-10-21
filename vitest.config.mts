@@ -40,7 +40,9 @@ export default defineConfig({
       '**/.claude/**',
       '**/selfhosted/model-manager/**',
       // Standalone VitePress docs site (own deps, no app tests).
-      '**/docs-site/**'
+      '**/docs-site/**',
+      // Native iOS shell (Capacitor); no app tests, own deps on the Mac.
+      '**/mobile/**'
     ]
   }
 })

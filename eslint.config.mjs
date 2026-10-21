@@ -44,6 +44,8 @@ export default defineConfig([
     // Separate standalone app; it lints under its own config.
     'selfhosted/model-manager/**',
     // Standalone VitePress docs site; not part of the app.
-    'docs-site/**'
+    'docs-site/**',
+    // Native iOS shell (Capacitor); built on the Mac with its own deps.
+    'mobile/**'
   ])
 ])
