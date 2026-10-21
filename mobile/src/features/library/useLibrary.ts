@@ -15,7 +15,6 @@ import { ApiError } from '@/core/api/errors'
 import { useAuth } from '@/core/auth/AuthProvider'
 import { onChatsChanged } from '@/core/chats-events'
 import {
-  clearAllChats,
   deleteChat,
   fetchChatsPage,
   renameChat,
@@ -43,7 +42,6 @@ export type Library = {
   remove(id: string): Promise<boolean>
   /** Optimistic; reverts the title and sets `error` on failure. */
   rename(id: string, title: string): Promise<boolean>
-  clearAll(): Promise<boolean>
 }
 
 /** The list for one user and sort; rows never outlive that pair. */
@@ -367,27 +365,6 @@ export function useLibrary({ sort }: { sort: ChatSort }): Library {
     [client]
   )
 
-  const clearAll = useCallback(async () => {
-    try {
-      await clearAllChats(client)
-    } catch (error) {
-      setState(s => ({ ...s, error: errorMessage(error) }))
-      return false
-    }
-    // A page wanted before this is run by the effect below, as a no-op on the
-    // empty list.
-    const mine = ++generation.current
-    setState({
-      key,
-      gen: mine,
-      chats: [],
-      total: 0,
-      nextOffset: null,
-      status: 'ready'
-    })
-    return true
-  }, [client, key])
-
   // A wanted loadMore runs once the current generation's list is committed.
   useEffect(() => {
     if (!moreWanted.current || state.gen !== generation.current) return
@@ -407,8 +384,7 @@ export function useLibrary({ sort }: { sort: ChatSort }): Library {
     loadMore,
     refresh: loadFirstPage,
     remove,
-    rename,
-    clearAll
+    rename
   }
 }
 

@@ -90,7 +90,6 @@ function library(over: Partial<Library> = {}): Library {
     refresh: vi.fn(async () => {}),
     remove: vi.fn(async () => true),
     rename: vi.fn(async () => true),
-    clearAll: vi.fn(async () => true),
     ...over
   }
 }

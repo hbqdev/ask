@@ -633,30 +633,6 @@ describe('useLibrary', () => {
     expect(ids(result.current.chats)).toEqual(['c0'])
   })
 
-  it('a loadMore wanted during a refresh is dropped by clearAll', async () => {
-    useServer(fakeServer(95))
-    const { result } = renderLibrary()
-    await waitFor(() => expect(result.current.status).toBe('ready'))
-    const first = deferred<Response>()
-    server.on('GET', /^\/api\/chats$/, () => first.promise)
-    act(() => {
-      void result.current.refresh()
-    })
-    await act(() => result.current.loadMore())
-    await act(async () => {
-      await result.current.clearAll()
-    })
-    const requests = server.pageRequests().length
-    server.on('GET', /^\/api\/chats$/, () =>
-      json({ chats: [row(0)], nextOffset: 30, badges: {}, total: 95 })
-    )
-    // A change event loads the new page 0; no wanted page follows it.
-    act(() => emitChatsChanged('created', 'c0'))
-    await waitFor(() => expect(ids(result.current.chats)).toEqual(['c0']))
-    await act(async () => {})
-    expect(server.pageRequests()).toHaveLength(requests + 1)
-  })
-
   it('a loadMore asked for during a refresh that fails is not run', async () => {
     useServer(fakeServer(95))
     const { result } = renderLibrary()
@@ -683,35 +659,6 @@ describe('useLibrary', () => {
     await act(() => result.current.refresh())
     await act(async () => {})
     expect(server.pageRequests()).toHaveLength(3)
-  })
-
-  it('clearAll during a refresh does not leave loadMore blocked', async () => {
-    useServer(fakeServer(95))
-    const { result } = renderLibrary()
-    await waitFor(() => expect(result.current.status).toBe('ready'))
-    const page0 = deferred<Response>()
-    server.on('GET', /^\/api\/chats$/, () => page0.promise)
-    act(() => {
-      void result.current.refresh()
-    })
-    await act(async () => {
-      await result.current.clearAll()
-    })
-    expect(result.current.chats).toEqual([])
-    // A list loaded after the clear can page again.
-    server.chats.push(...Array.from({ length: 45 }, (_, i) => row(200 + i)))
-    server.on('GET', /^\/api\/chats$/, url => {
-      const offset = Number(url.searchParams.get('offset'))
-      const rows = server.chats.slice(offset, offset + 30)
-      return json({
-        chats: rows,
-        nextOffset: rows.length === 30 ? offset + 30 : null,
-        badges: {}
-      })
-    })
-    await act(() => result.current.refresh())
-    await act(() => result.current.loadMore())
-    expect(result.current.chats).toHaveLength(45)
   })
 
   it('a page dropped by a refresh does not block the next loadMore', async () => {
@@ -1253,39 +1200,6 @@ describe('useLibrary', () => {
       await more
     })
     expect(ids(result.current.chats)).toEqual(['c0'])
-  })
-
-  it('clearAll empties the list and the count', async () => {
-    useServer(fakeServer(3))
-    const { result } = renderLibrary()
-    await waitFor(() => expect(result.current.status).toBe('ready'))
-    let ok!: boolean
-    await act(async () => {
-      ok = await result.current.clearAll()
-    })
-    expect(ok).toBe(true)
-    expect(result.current.chats).toEqual([])
-    expect(result.current.total).toBe(0)
-    expect(result.current.hasMore).toBe(false)
-    await waitFor(() =>
-      expect(JSON.parse(prefsData.get(LIBRARY_CACHE_KEY)!).chats).toEqual([])
-    )
-  })
-
-  it('a failed clearAll keeps the rows and sets the error', async () => {
-    useServer(fakeServer(3))
-    const { result } = renderLibrary()
-    await waitFor(() => expect(result.current.status).toBe('ready'))
-    server.on('DELETE', /^\/api\/chats$/, () =>
-      json({ error: 'Failed to clear chats', retryable: true }, 500)
-    )
-    let ok!: boolean
-    await act(async () => {
-      ok = await result.current.clearAll()
-    })
-    expect(ok).toBe(false)
-    expect(result.current.chats).toHaveLength(3)
-    expect(result.current.error).toBe('Failed to clear chats')
   })
 
   it('refresh clears an earlier error', async () => {
