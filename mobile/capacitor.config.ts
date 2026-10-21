@@ -4,20 +4,21 @@ import type { CapacitorConfig } from '@capacitor/cli'
 // inside the app. It talks to Ask's backend over fetch with a bearer token,
 // so there is no server.url, no cookie store and no in-app OAuth web view.
 
-// Ask's dark --background (oklch(0.1 0.022 289)), used behind the safe areas
-// so the status-bar and home-indicator strips match the app.
-const BACKGROUND = '#0c0a14'
+// No backgroundColor anywhere: Capacitor would paint the web view, and the
+// SplashScreen plugin the launch storyboard's view, with that one colour in
+// BOTH appearances. Unset, the web view keeps systemBackground and the splash
+// keeps its adaptive LaunchBackground + Splash image (light #fcfcfc, dark
+// #030309, the page background), and MainViewController colours the
+// safe-area strips the same way (src/launch-colours.test.ts checks them all).
 
 const config: CapacitorConfig = {
   appId: 'win.hbqnexus.ask',
   appName: 'Ask',
   webDir: 'dist',
-  backgroundColor: BACKGROUND,
   ios: {
     // The native view controller pins the web view to the safe area, so the
     // page itself must not add its own insets on top of that.
     contentInset: 'never',
-    backgroundColor: BACKGROUND,
     scrollEnabled: true,
     allowsLinkPreview: false
   },
@@ -30,7 +31,6 @@ const config: CapacitorConfig = {
       launchShowDuration: 600,
       launchAutoHide: false,
       launchFadeOutDuration: 200,
-      backgroundColor: BACKGROUND,
       showSpinner: false
     }
   }

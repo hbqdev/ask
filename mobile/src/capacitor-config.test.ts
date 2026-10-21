@@ -8,7 +8,6 @@ describe('capacitor.config', () => {
     // session are known, so launch never shows a blank or wrong-theme frame.
     expect(config.plugins?.SplashScreen).toMatchObject({
       launchAutoHide: false,
-      backgroundColor: '#0c0a14',
       showSpinner: false
     })
   })

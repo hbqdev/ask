@@ -108,6 +108,22 @@ Mac, and enable Developer Mode under Settings → Privacy & Security).
   (swipe-back is the app's own, in `src/core/nav/stack.tsx`; the web view's
   back/forward gestures stay off).
 - `ios/App/App/Info.plist`: permission prompts, background audio.
-- `assets/icon.svg`, `assets/splash.svg`: sources for the icon and launch
-  images in `ios/App/App/Assets.xcassets` (rendered on the Mac with `sips`;
-  use hex colours, `sips` misreads `hsl()`).
+- `assets/icon.svg`: source for the app icon in
+  `ios/App/App/Assets.xcassets`.
+- `assets/splash-light.svg` / `assets/splash.svg` (dark): sources for the
+  launch image's light and dark variants (`Splash.imageset`, 2732x2732). Their
+  backgrounds are the page's own: light `#fcfcfc` (`oklch(0.99 0 0)`), dark
+  `#030309` (`oklch(0.1 0.022 289)`); the same pair is the `LaunchBackground`
+  colour set (behind the launch image), `MainViewController`'s first colour
+  and `--splash` in `src/styles.css`, and `src/launch-colours.test.ts` checks
+  they agree. Render on the Mac with `sips` (hex colours only; `sips` misreads
+  `hsl()`), then flatten the alpha channel with a JPEG round trip:
+
+  ```bash
+  sips -s format png splash-light.svg --out raw.png
+  sips -s format jpeg -s formatOptions best raw.png --out flat.jpg
+  sips -s format png flat.jpg --out splash-2732x2732-light.png
+  ```
+
+  The JPEG step can move a channel by one step (dark renders `#040309`),
+  which is not visible.

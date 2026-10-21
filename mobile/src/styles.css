@@ -12,8 +12,10 @@
   --mark-blue: #3694f2;
   --mark-violet: #944fee;
   --mark-orange: #f4882a;
-  /* The native launch screen's colour (capacitor.config.ts), in both themes. */
-  --splash: #0c0a14;
+  /* The native launch screen's colour per theme (LaunchBackground and the
+     Splash image in ios/App/App/Assets.xcassets): the page background, in
+     hex so it matches the PNG exactly. */
+  --splash: #fcfcfc;
   color-scheme: light dark;
 }
 
@@ -22,12 +24,14 @@
 :root.dark {
   --background: oklch(0.1 0.022 289);
   --foreground: oklch(0.95 0.012 281);
+  --splash: #030309;
 }
 
 @media (prefers-color-scheme: dark) {
   :root:not(.light) {
     --background: oklch(0.1 0.022 289);
     --foreground: oklch(0.95 0.012 281);
+    --splash: #030309;
   }
 }
 

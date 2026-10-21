@@ -11,12 +11,22 @@ import WebKit
 /// to the safe area. The container's colour follows the page background
 /// (light or dark theme), so the strips above and below look like the page.
 final class MainViewController: UIViewController {
+    /// The page background per appearance until the page reports its own:
+    /// light oklch(0.99 0 0) = #fcfcfc, dark oklch(0.1 0.022 289) = #030309,
+    /// the same as the launch screen (LaunchBackground, Splash).
+    private static let launchBackground = UIColor { traits in
+        traits.userInterfaceStyle == .dark
+            ? UIColor(red: 0x03 / 255, green: 0x03 / 255, blue: 0x09 / 255, alpha: 1)
+            : UIColor(red: 0xFC / 255, green: 0xFC / 255, blue: 0xFC / 255, alpha: 1)
+    }
+
     let bridgeController = AskBridgeViewController()
     private var pageIsDark = true
 
     override func viewDidLoad() {
         super.viewDidLoad()
-        view.backgroundColor = UIColor(red: 0x0C / 255, green: 0x0A / 255, blue: 0x14 / 255, alpha: 1)
+        view.backgroundColor = Self.launchBackground
+        pageIsDark = traitCollection.userInterfaceStyle == .dark
         bridgeController.onPageBackground = { [weak self] color in self?.apply(color) }
 
         addChild(bridgeController)
@@ -59,12 +69,14 @@ final class AskBridgeViewController: CAPBridgeViewController, WKScriptMessageHan
     override func capacitorDidLoad() {
         super.capacitorDidLoad()
         guard let web = webView else { return }
-        // Swipe from the left edge to go back, like Safari and native apps.
-        web.allowsBackForwardNavigationGestures = true
+        // No WKWebView back/forward swipes: the app's own navigation stack
+        // (src/core/nav/stack.tsx) owns the edge swipe-back, and a native
+        // history swipe on top of it would animate twice and desync the stack.
+        web.allowsBackForwardNavigationGestures = false
 
         // Report the page background whenever the theme can have changed:
-        // on load, when the <html> class flips (next-themes), and when the
-        // system appearance changes.
+        // on load, when the <html> class flips (ThemeProvider sets `light` or
+        // `dark`), and when the system appearance changes.
         let controller = web.configuration.userContentController
         controller.add(self, name: Self.themeMessage)
         controller.addUserScript(WKUserScript(
