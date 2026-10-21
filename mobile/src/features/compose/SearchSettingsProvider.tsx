@@ -11,7 +11,12 @@ import {
 import { useSearchSettings } from '@/features/compose/search-settings'
 import type { SearchSettings } from '@/features/thread/chat-body'
 
-type SharedSearchSettings = [SearchSettings, (settings: SearchSettings) => void]
+/** The settings, their setter, and whether the stored ones have loaded. */
+type SharedSearchSettings = [
+  SearchSettings,
+  (settings: SearchSettings) => void,
+  boolean
+]
 
 const SearchSettingsContext = createContext<SharedSearchSettings | null>(null)
 
@@ -23,10 +28,10 @@ export function SearchSettingsProvider({
   storage?: AuthStorage
   children: ReactNode
 }) {
-  const [settings, setSettings] = useSearchSettings(storage)
+  const [settings, setSettings, loaded] = useSearchSettings(storage)
   const value = useMemo<SharedSearchSettings>(
-    () => [settings, setSettings],
-    [settings, setSettings]
+    () => [settings, setSettings, loaded],
+    [settings, setSettings, loaded]
   )
   return (
     <SearchSettingsContext.Provider value={value}>

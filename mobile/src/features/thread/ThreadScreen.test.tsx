@@ -233,7 +233,7 @@ describe('openThread', () => {
 // --- ThreadScreen ------------------------------------------------------------
 
 describe('ThreadScreen', () => {
-  it('sends the initial question exactly once, even when mounted twice', () => {
+  it('sends the initial question exactly once, even when mounted twice', async () => {
     const thread = session()
     vi.mocked(useThread).mockReturnValue(thread)
     render(
@@ -243,7 +243,43 @@ describe('ThreadScreen', () => {
         </Shell>
       </StrictMode>
     )
+    // Once the stored settings have loaded.
+    await act(async () => {})
     expect(thread.send).toHaveBeenCalledExactlyOnceWith('First?')
+  })
+
+  it('holds the opening question until the stored settings load', async () => {
+    const thread = session()
+    vi.mocked(useThread).mockReturnValue(thread)
+    let finishLoad: (value: string | null) => void = () => {}
+    const storage = memoryStorage()
+    storage.getItem.mockImplementation(
+      () => new Promise(resolve => (finishLoad = resolve))
+    )
+    render(
+      <SearchSettingsProvider storage={storage}>
+        <StackProvider root={HOME}>
+          <ThreadScreen chatId="c1" isNew initialQuestion="Cold start?" />
+        </StackProvider>
+      </SearchSettingsProvider>
+    )
+    await act(async () => {})
+    expect(thread.send).not.toHaveBeenCalled()
+
+    await act(async () =>
+      finishLoad(JSON.stringify({ searchMode: 'quality', sources: ['web'] }))
+    )
+    expect(thread.send).toHaveBeenCalledExactlyOnceWith('Cold start?')
+    // Sent with the stored settings, not the defaults.
+    const sendOrder = vi.mocked(thread.send).mock.invocationCallOrder[0]
+    const renders = vi.mocked(useThread).mock
+    const lastBeforeSend = renders.calls.filter(
+      (_, i) => renders.invocationCallOrder[i] < sendOrder
+    )
+    expect(lastBeforeSend.at(-1)?.[0].settings).toEqual({
+      searchMode: 'quality',
+      sources: ['web']
+    })
   })
 
   it('reads the settings the app shares', async () => {

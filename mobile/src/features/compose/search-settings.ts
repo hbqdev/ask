@@ -56,14 +56,17 @@ export async function saveSearchSettings(
 }
 
 /**
- * The settings and a setter. It starts on the defaults and moves to the
+ * The settings, a setter, and whether they are loaded: settled to what a
+ * turn should send (the stored settings, the defaults when storage cannot be
+ * read, or the user's own choice). It starts on the defaults and moves to the
  * stored settings once they load; a change shows at once and is saved in the
  * background (a failed save only costs the change at the next launch).
  */
 export function useSearchSettings(
   storage: AuthStorage = preferencesStorage
-): [SearchSettings, (settings: SearchSettings) => void] {
+): [SearchSettings, (settings: SearchSettings) => void, boolean] {
   const [settings, setSettings] = useState(DEFAULT_SEARCH_SETTINGS)
+  const [loaded, setLoaded] = useState(false)
   // Set once the user changes something, so a slow load cannot undo it.
   const changed = useRef(false)
 
@@ -74,12 +77,14 @@ export function useSearchSettings(
       })
       // Unreadable storage leaves the defaults.
       .catch(() => {})
+      .finally(() => setLoaded(true))
   }, [storage])
 
   const update = useCallback(
     (next: SearchSettings) => {
       changed.current = true
       setSettings(next)
+      setLoaded(true)
       saveSearchSettings(next, storage).catch(error => {
         console.warn('Could not save the search settings', error)
       })
@@ -87,5 +92,5 @@ export function useSearchSettings(
     [storage]
   )
 
-  return [settings, update]
+  return [settings, update, loaded]
 }

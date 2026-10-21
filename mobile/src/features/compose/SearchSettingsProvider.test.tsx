@@ -86,6 +86,24 @@ describe('SearchSettingsProvider', () => {
     expect(storage.getItem).toHaveBeenCalledTimes(1)
   })
 
+  it('shares whether the stored settings have loaded', async () => {
+    let finishLoad: (value: string | null) => void = () => {}
+    const storage = memoryStorage()
+    storage.getItem.mockImplementation(
+      () => new Promise(resolve => (finishLoad = resolve))
+    )
+    const wrapper = ({ children }: { children: ReactNode }) => (
+      <SearchSettingsProvider storage={storage}>
+        {children}
+      </SearchSettingsProvider>
+    )
+    const { result } = renderHook(() => useSharedSearchSettings(), { wrapper })
+    expect(result.current[2]).toBe(false)
+
+    await act(async () => finishLoad(null))
+    expect(result.current[2]).toBe(true)
+  })
+
   it('keeps the settings in Capacitor Preferences by default', async () => {
     const wrapper = ({ children }: { children: ReactNode }) => (
       <SearchSettingsProvider>{children}</SearchSettingsProvider>

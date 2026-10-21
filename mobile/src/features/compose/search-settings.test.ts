@@ -132,6 +132,36 @@ describe('useSearchSettings', () => {
     await waitFor(() => expect(result.current[0]).toEqual(QUALITY))
   })
 
+  it('is loaded once the stored settings are read', async () => {
+    let finishLoad: (value: string | null) => void = () => {}
+    const storage = memoryStorage()
+    storage.getItem.mockImplementation(
+      () => new Promise(resolve => (finishLoad = resolve))
+    )
+    const { result } = renderHook(() => useSearchSettings(storage))
+    expect(result.current[2]).toBe(false)
+
+    await act(async () => finishLoad(JSON.stringify(QUALITY)))
+    expect(result.current[0]).toEqual(QUALITY)
+    expect(result.current[2]).toBe(true)
+  })
+
+  it('is loaded when storage cannot be read (on the defaults)', async () => {
+    const storage = memoryStorage()
+    storage.getItem.mockRejectedValue(new Error('unreadable'))
+    const { result } = renderHook(() => useSearchSettings(storage))
+    await waitFor(() => expect(result.current[2]).toBe(true))
+    expect(result.current[0]).toEqual(DEFAULT_SEARCH_SETTINGS)
+  })
+
+  it('is loaded once the user picks settings, even before the read', () => {
+    const storage = memoryStorage()
+    storage.getItem.mockImplementation(() => new Promise(() => {}))
+    const { result } = renderHook(() => useSearchSettings(storage))
+    act(() => result.current[1](QUALITY))
+    expect(result.current[2]).toBe(true)
+  })
+
   it('updates at once and persists', async () => {
     const storage = memoryStorage()
     const { result } = renderHook(() => useSearchSettings(storage))

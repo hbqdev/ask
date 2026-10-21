@@ -171,7 +171,7 @@ export function ThreadScreen({
   const { pop } = useStack()
   const { signOut } = useAuth()
   const { baseUrl } = useApi()
-  const [settings, setSettings] = useSharedSearchSettings()
+  const [settings, setSettings, settingsLoaded] = useSharedSearchSettings()
   const thread = useThread({ chatId, isNew, settings })
   const { messages, status, send } = thread
   const busy = status === 'submitted' || status === 'streaming'
@@ -183,13 +183,15 @@ export function ThreadScreen({
     preloadAnswerRenderer().catch(() => {})
   }, [])
 
-  // The opening question, sent once (a double mount must not ask it twice).
+  // The opening question, sent once (a double mount must not ask it twice),
+  // and only with the stored search settings: on a cold start they are still
+  // loading when this screen opens.
   const asked = useRef(false)
   useEffect(() => {
-    if (asked.current || !initialQuestion) return
+    if (asked.current || !initialQuestion || !settingsLoaded) return
     asked.current = true
     send(initialQuestion)
-  }, [initialQuestion, send])
+  }, [initialQuestion, send, settingsLoaded])
 
   // --- Following the bottom ---------------------------------------------------
   // The answer renderer commits its blocks after React's update (and the
