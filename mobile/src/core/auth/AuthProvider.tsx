@@ -106,11 +106,16 @@ export function AuthProvider({
     setView({ status: 'signedIn', session })
   }, [])
 
+  // However the session ended (signOut here, or supabase-js dropping it: a
+  // revoked or expired refresh, a sign-out elsewhere), the cached Library
+  // rows of that account go too. Not awaited: a failure to clear never keeps
+  // the app signed in.
   const showSignedOut = useCallback(() => {
     accountId.current = null
     resetModelChoice()
+    clearLibraryCache(storage).catch(() => {})
     setView({ status: 'signedOut', session: null })
-  }, [])
+  }, [storage])
 
   useEffect(() => {
     // Only SIGNED_OUT (supabase-js emits it whenever it drops the session)
@@ -176,13 +181,13 @@ export function AuthProvider({
       () => false
     )
     const authKeys = cleared ? [] : ['', '-code-verifier', '-user']
-    // The cached Library rows belong to this account; device preferences
-    // (search settings, Library sort, custom instructions) stay.
-    await Promise.allSettled([
-      ...authKeys.map(suffix => storage.removeItem(AUTH_STORAGE_KEY + suffix)),
-      clearLibraryCache(storage)
-    ])
+    await Promise.allSettled(
+      authKeys.map(suffix => storage.removeItem(AUTH_STORAGE_KEY + suffix))
+    )
     setError(null)
+    // Also clears the cached Library rows, which belong to this account;
+    // device preferences (search settings, Library sort, custom instructions)
+    // stay.
     showSignedOut()
   }, [client, storage, showSignedOut])
 

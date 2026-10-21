@@ -181,6 +181,22 @@ describe('AuthProvider: session restore', () => {
     expect(result.current.session).toBeNull()
   })
 
+  it('SIGNED_OUT clears the library cache', async () => {
+    const { emit, result, storage } = await signedInAuth()
+    storage.data.set(LIBRARY_CACHE_KEY, '{"userId":"user-1"}')
+    emit('SIGNED_OUT', null)
+    await waitFor(() => expect(storage.data.has(LIBRARY_CACHE_KEY)).toBe(false))
+    expect(result.current.status).toBe('signedOut')
+  })
+
+  it('SIGNED_OUT still signs out when clearing the library cache fails', async () => {
+    const { emit, result, storage } = await signedInAuth()
+    storage.removeItem.mockRejectedValue(new Error('storage unavailable'))
+    emit('SIGNED_OUT', null)
+    await waitFor(() => expect(storage.removeItem).toHaveBeenCalled())
+    expect(result.current.status).toBe('signedOut')
+  })
+
   it('a SIGNED_OUT that arrives before the stored read is not undone by it', async () => {
     const fake = fakeClient()
     fake.auth.getSession.mockImplementation(never)
