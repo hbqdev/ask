@@ -1,0 +1,105 @@
+import type { UIMessage } from 'ai'
+import { describe, expect, it } from 'vitest'
+
+import { buildChatBody, type SearchSettings } from '@/features/thread/chat-body'
+
+const settings: SearchSettings = {
+  searchMode: 'quality',
+  sources: ['web', 'academic']
+}
+
+const user = (id: string, text: string): UIMessage => ({
+  id,
+  role: 'user',
+  parts: [{ type: 'text', text }]
+})
+
+const assistant = (id: string, text: string): UIMessage => ({
+  id,
+  role: 'assistant',
+  parts: [{ type: 'text', text }]
+})
+
+describe('buildChatBody', () => {
+  it('sends the last message with the search settings on a new chat submit', () => {
+    const question = user('u1', 'What is new?')
+    const body = buildChatBody({
+      trigger: 'submit-message',
+      chatId: 'c1',
+      messages: [question],
+      isNewChat: true,
+      settings
+    })
+
+    expect(body).toEqual({
+      trigger: 'submit-message',
+      chatId: 'c1',
+      messageId: undefined,
+      message: question,
+      isNewChat: true,
+      searchMode: 'quality',
+      sources: ['web', 'academic']
+    })
+    expect(body).not.toHaveProperty('messages')
+    expect(body).not.toHaveProperty('model')
+    expect(body).not.toHaveProperty('analyticsId')
+  })
+
+  it('is not a new chat once the conversation has more than one message', () => {
+    const body = buildChatBody({
+      trigger: 'submit-message',
+      chatId: 'c1',
+      messages: [user('u1', 'a'), assistant('a1', 'b'), user('u2', 'c')],
+      isNewChat: true,
+      settings
+    })
+
+    expect(body.isNewChat).toBe(false)
+    expect(body.message).toEqual(user('u2', 'c'))
+  })
+
+  it('is not a new chat for an existing chat', () => {
+    const body = buildChatBody({
+      trigger: 'submit-message',
+      chatId: 'c1',
+      messages: [user('u1', 'a')],
+      isNewChat: false,
+      settings
+    })
+
+    expect(body.isNewChat).toBe(false)
+  })
+
+  it('regenerating an assistant message sends its id and no message', () => {
+    // The SDK has already cut the conversation before that assistant message.
+    const body = buildChatBody({
+      trigger: 'regenerate-message',
+      chatId: 'c1',
+      messageId: 'a1',
+      messages: [user('u1', 'a')],
+      isNewChat: true,
+      settings
+    })
+
+    expect(body).toMatchObject({
+      trigger: 'regenerate-message',
+      messageId: 'a1',
+      message: undefined,
+      isNewChat: false
+    })
+  })
+
+  it('regenerating from a user message sends that message', () => {
+    const question = user('u1', 'a')
+    const body = buildChatBody({
+      trigger: 'regenerate-message',
+      chatId: 'c1',
+      messageId: 'u1',
+      messages: [question],
+      isNewChat: false,
+      settings
+    })
+
+    expect(body).toMatchObject({ messageId: 'u1', message: question })
+  })
+})

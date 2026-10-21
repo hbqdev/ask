@@ -10,6 +10,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { AppShell } from '@/app/AppShell'
 import { resetSplashForTests } from '@/app/splash'
+import { ApiProvider } from '@/core/api/ApiProvider'
 import { AuthProvider } from '@/core/auth/AuthProvider'
 import type { AuthStorage } from '@/core/auth/preferences-storage'
 import { ThemeProvider } from '@/core/ThemeProvider'
@@ -26,6 +27,11 @@ vi.mock('@capacitor/splash-screen', () => ({
 vi.mock('@capacitor/browser', () => ({
   Browser: { open: vi.fn(async () => {}) }
 }))
+
+vi.mock('@/core/api/ApiProvider', async importOriginal => {
+  const actual = await importOriginal<typeof import('@/core/api/ApiProvider')>()
+  return { ...actual, ApiProvider: vi.fn(actual.ApiProvider) }
+})
 
 // Fake values only: no real tokens or accounts.
 const session = {
@@ -148,6 +154,27 @@ describe('AppShell', () => {
     expect(
       screen.getByRole('heading', { name: 'Ask anything' })
     ).toBeInTheDocument()
+  })
+
+  it('gives the signed-in app an API client on the configured server', async () => {
+    const { client } = fakeClient(async () => ({
+      data: { session },
+      error: null
+    }))
+    renderShell(client)
+
+    await screen.findAllByRole('tab')
+    expect(vi.mocked(ApiProvider).mock.calls.at(-1)?.[0]).toMatchObject({
+      baseUrl: 'https://ask.test.invalid'
+    })
+  })
+
+  it('has no API client while signed out', async () => {
+    const { client } = fakeClient()
+    renderShell(client)
+
+    await signInButton()
+    expect(ApiProvider).not.toHaveBeenCalled()
   })
 
   it('shows the Library placeholder and the Settings screen', async () => {

@@ -2,6 +2,7 @@ import type { ReactNode } from 'react'
 
 import { useHideSplash } from '@/app/splash'
 import { Tabs, type TabSpec } from '@/app/Tabs'
+import { ApiProvider } from '@/core/api/ApiProvider'
 import { useAuth } from '@/core/auth/AuthProvider'
 import { StackProvider, StackView, type ScreenEntry } from '@/core/nav/stack'
 import { useTheme } from '@/core/ThemeProvider'
@@ -108,7 +109,7 @@ function LaunchView() {
  * The app's top level: the launch view while the stored session is read,
  * sign-in when signed out, and the tab shell (inside a navigation stack)
  * when signed in. The native splash stays up until the theme and the
- * session are both known.
+ * session are both known. Signed-in screens reach Ask's API through useApi.
  */
 export function AppShell({ apiBaseUrl }: { apiBaseUrl: string }) {
   const { status } = useAuth()
@@ -118,8 +119,10 @@ export function AppShell({ apiBaseUrl }: { apiBaseUrl: string }) {
   if (status === 'loading') return <LaunchView />
   if (status === 'signedOut') return <SignInScreen apiBaseUrl={apiBaseUrl} />
   return (
-    <StackProvider root={TABS_SCREEN}>
-      <StackView />
-    </StackProvider>
+    <ApiProvider baseUrl={apiBaseUrl}>
+      <StackProvider root={TABS_SCREEN}>
+        <StackView />
+      </StackProvider>
+    </ApiProvider>
   )
 }
