@@ -1,11 +1,11 @@
 import react from '@vitejs/plugin-react'
 import { defineConfig } from 'vitest/config'
 
-import { alias } from './vite.config'
+import { alias, dedupe } from './vite.config'
 
 export default defineConfig({
   plugins: [react()],
-  resolve: { alias },
+  resolve: { alias, dedupe },
   test: {
     environment: 'jsdom',
     setupFiles: ['./src/test/setup.ts'],

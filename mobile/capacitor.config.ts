@@ -32,6 +32,12 @@ const config: CapacitorConfig = {
       launchAutoHide: false,
       launchFadeOutDuration: 200,
       showSpinner: false
+    },
+    Keyboard: {
+      // The web view shrinks above the keyboard, so the thread's composer is
+      // never covered by it.
+      resize: 'native',
+      resizeOnFullScreen: true
     }
   }
 }

@@ -11,4 +11,13 @@ describe('capacitor.config', () => {
       showSpinner: false
     })
   })
+
+  it('resizes the native web view for the keyboard, also in full screen', () => {
+    // The composer sits at the bottom of the thread: with a native resize the
+    // web view shrinks above the keyboard instead of being covered by it.
+    expect(config.plugins?.Keyboard).toEqual({
+      resize: 'native',
+      resizeOnFullScreen: true
+    })
+  })
 })
