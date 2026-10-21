@@ -44,7 +44,9 @@ describe('preferencesStorage', () => {
 
   it('removeItem removes the key from Preferences', async () => {
     prefs.remove.mockResolvedValue(undefined)
-    await expect(preferencesStorage.removeItem('sb-auth')).resolves.toBeUndefined()
+    await expect(
+      preferencesStorage.removeItem('sb-auth')
+    ).resolves.toBeUndefined()
     expect(prefs.remove).toHaveBeenCalledWith({ key: 'sb-auth' })
   })
 })

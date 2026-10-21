@@ -39,7 +39,9 @@ describe('session restore with the real Supabase client', () => {
   })
 
   it('restores a stored session offline and returns its token', async () => {
-    const fetchMock = vi.fn(() => Promise.reject(new TypeError('Failed to fetch')))
+    const fetchMock = vi.fn(() =>
+      Promise.reject(new TypeError('Failed to fetch'))
+    )
     vi.stubGlobal('fetch', fetchMock)
     const storage = memoryStorage({ [AUTH_STORAGE_KEY]: storedSession() })
     client = createSupabase(config, storage)

@@ -97,7 +97,7 @@ describe('AuthProvider: session restore', () => {
     const fake = fakeClient()
     let resolve: (value: unknown) => void = () => {}
     fake.auth.getSession.mockReturnValue(
-      new Promise((r) => {
+      new Promise(r => {
         resolve = r
       })
     )
@@ -175,7 +175,7 @@ describe('AuthProvider: session restore', () => {
     let release: (value: string) => void = () => {}
     const storage = memoryStorage()
     storage.getItem.mockReturnValue(
-      new Promise<string>((r) => {
+      new Promise<string>(r => {
         release = r
       })
     )

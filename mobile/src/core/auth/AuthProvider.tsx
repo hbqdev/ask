@@ -62,7 +62,9 @@ function signInErrorMessage(err: unknown): string {
  * start shows it without waiting for the network. Anything unreadable or
  * without a refresh token counts as nothing stored.
  */
-async function readStoredSession(storage: AuthStorage): Promise<Session | null> {
+async function readStoredSession(
+  storage: AuthStorage
+): Promise<Session | null> {
   try {
     const raw = await storage.getItem(AUTH_STORAGE_KEY)
     const parsed = raw ? (JSON.parse(raw) as Partial<Session> | null) : null
@@ -109,7 +111,7 @@ export function AuthProvider({
       const stored = await readStoredSession(storage)
       if (stored && !signedOutHere.current) {
         // Optimistic: only if nothing (e.g. a SIGNED_OUT) has settled it yet.
-        setView((prev) =>
+        setView(prev =>
           prev.status === 'loading'
             ? { status: 'signedIn', session: stored }
             : prev
@@ -132,8 +134,9 @@ export function AuthProvider({
     async (email: string, password: string) => {
       setError(null)
       try {
-        const { data, error: authError } =
-          await client.auth.signInWithPassword({ email, password })
+        const { data, error: authError } = await client.auth.signInWithPassword(
+          { email, password }
+        )
         if (authError) throw authError
         signedOutHere.current = false
         showSession(data.session)
@@ -156,7 +159,7 @@ export function AuthProvider({
     )
     if (!cleared) {
       await Promise.allSettled(
-        ['', '-code-verifier', '-user'].map((suffix) =>
+        ['', '-code-verifier', '-user'].map(suffix =>
           storage.removeItem(AUTH_STORAGE_KEY + suffix)
         )
       )
