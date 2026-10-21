@@ -2,6 +2,8 @@
 // default) and its file count. A tap opens it; a swipe offers Delete and
 // Rename.
 
+import { memo } from 'react'
+
 import { SwipeRow } from '@/core/ui/SwipeRow'
 import { SEARCH_MODE_LABELS } from '@/features/compose/OptionsSheet'
 import type { ChatRow } from '@/features/library/library-api'
@@ -47,7 +49,12 @@ function Paperclip() {
   )
 }
 
-export function ChatRowItem({
+/**
+ * Memoized: a row renders again only when its own props change, so a long
+ * list costs nothing to keep while the screen around it updates. Pass stable
+ * callbacks and a `now` that changes once a day.
+ */
+export const ChatRowItem = memo(function ChatRowItem({
   chat,
   time,
   now,
@@ -98,4 +105,4 @@ export function ChatRowItem({
       </SwipeRow>
     </li>
   )
-}
+})

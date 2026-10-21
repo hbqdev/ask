@@ -12,9 +12,11 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { useSelectTab } from '@/app/Tabs'
 import { StackProvider } from '@/core/nav/stack'
+import { groupByDate } from '@/features/library/group-by-date'
 import type { ChatRow, SearchHit } from '@/features/library/library-api'
 import { LIBRARY_SORT_KEY } from '@/features/library/library-sort'
 import { LibraryScreen } from '@/features/library/LibraryScreen'
+import { relativeTime } from '@/features/library/relative-time'
 import {
   useChatSearch,
   useLibrary,
@@ -30,6 +32,18 @@ vi.mock('@/features/library/useLibrary', () => ({
 }))
 vi.mock('@/features/thread/ThreadScreen', () => ({ openThread: vi.fn() }))
 vi.mock('@/app/Tabs', () => ({ useSelectTab: vi.fn() }))
+// Spies over the real functions: each row render calls relativeTime once,
+// and each list render (outside the title sort) calls groupByDate once.
+vi.mock('@/features/library/relative-time', async importOriginal => {
+  const real =
+    await importOriginal<typeof import('@/features/library/relative-time')>()
+  return { relativeTime: vi.fn(real.relativeTime) }
+})
+vi.mock('@/features/library/group-by-date', async importOriginal => {
+  const real =
+    await importOriginal<typeof import('@/features/library/group-by-date')>()
+  return { groupByDate: vi.fn(real.groupByDate) }
+})
 
 const prefsData = vi.hoisted(() => new Map<string, string>())
 vi.mock('@capacitor/preferences', () => ({
@@ -311,6 +325,17 @@ describe('LibraryScreen list', () => {
     expect(first).toBe(after)
   })
 
+  it('keeps loading when every loaded row is deleted but more remain', async () => {
+    const lib = library({ chats: [], total: 40, hasMore: true })
+    await renderScreen(lib)
+    expect(screen.queryByText('No chats yet')).toBeNull()
+    expect(
+      screen.getByRole('status', { name: 'Loading chats' })
+    ).toBeInTheDocument()
+    act(() => intersect(screen.getByTestId('library-more')))
+    expect(lib.loadMore).toHaveBeenCalledOnce()
+  })
+
   it('has no end to watch when there is nothing more', async () => {
     await renderScreen(library({ hasMore: false }))
     expect(screen.queryByTestId('library-more')).toBeNull()
@@ -563,5 +588,60 @@ describe('LibraryScreen states', () => {
     await renderScreen(library({ status: 'ready', error: 'Not allowed' }))
     expect(screen.getByRole('alert')).toHaveTextContent('Not allowed')
     expect(screen.getAllByRole('listitem')).toHaveLength(3)
+  })
+})
+
+// --- Rendering cost ---------------------------------------------------------------
+
+describe('LibraryScreen rendering', () => {
+  const touch = (y: number) => ({ identifier: 0, clientX: 100, clientY: y })
+
+  it('does not re-render the list or its rows while the list is pulled', async () => {
+    await renderScreen()
+    const scroller = screen.getByTestId('library-scroll')
+    vi.mocked(relativeTime).mockClear()
+    vi.mocked(groupByDate).mockClear()
+
+    fireEvent.touchStart(scroller, {
+      touches: [touch(100)],
+      changedTouches: [touch(100)]
+    })
+    for (const y of [130, 180, 240, 300]) {
+      fireEvent.touchMove(scroller, {
+        touches: [touch(y)],
+        changedTouches: [touch(y)]
+      })
+    }
+    expect(screen.getByTestId('library-content').style.transform).not.toBe('')
+    expect(relativeTime).not.toHaveBeenCalled()
+    expect(groupByDate).not.toHaveBeenCalled()
+  })
+
+  it('does not re-render the list for a sheet or a blank query', async () => {
+    const lib = library()
+    const { update } = await renderScreen(lib)
+    vi.mocked(relativeTime).mockClear()
+    vi.mocked(groupByDate).mockClear()
+
+    swipeAction('Chat b', 'Delete')
+    fireEvent.click(screen.getByRole('button', { name: 'Cancel' }))
+    update({ search: chatSearch({ query: ' ' }) })
+    update({ search: chatSearch({ query: '   ' }) })
+
+    expect(groupByDate).not.toHaveBeenCalled()
+    expect(relativeTime).not.toHaveBeenCalled()
+  })
+
+  it('re-renders only the row that changed', async () => {
+    const lib = library()
+    const { update } = await renderScreen(lib)
+    vi.mocked(relativeTime).mockClear()
+
+    const renamed = { ...ROWS[1], title: 'Renamed' }
+    update({ lib: { ...lib, chats: [ROWS[0], renamed, ROWS[2]] } })
+
+    expect(rowButton('Renamed')).toBeInTheDocument()
+    expect(relativeTime).toHaveBeenCalledOnce()
+    expect(vi.mocked(relativeTime).mock.calls[0][0]).toBe(renamed.lastViewedAt)
   })
 })

@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import { relativeTime } from '@/features/library/relative-time'
 
@@ -8,7 +8,37 @@ const at = (y: number, m: number, d: number, h = 12, min = 0) =>
   new Date(y, m, d, h, min).toISOString()
 const daysAgo = (n: number, h = 12) => at(2026, 9, 21 - n, h)
 
+afterEach(() => {
+  vi.restoreAllMocks()
+})
+
 describe('relativeTime', () => {
+  it('builds its formatters once per locale, not per call', () => {
+    // Spies that still build the real formatters (with `new`).
+    const RealDates = Intl.DateTimeFormat
+    const RealWords = Intl.RelativeTimeFormat
+    const dates = vi.spyOn(Intl, 'DateTimeFormat').mockImplementation(function (
+      ...args: ConstructorParameters<typeof RealDates>
+    ) {
+      return new RealDates(...args)
+    } as never)
+    const words = vi
+      .spyOn(Intl, 'RelativeTimeFormat')
+      .mockImplementation(function (
+        ...args: ConstructorParameters<typeof RealWords>
+      ) {
+        return new RealWords(...args)
+      } as never)
+    // A locale no other test uses, so nothing is cached for it yet.
+    for (const iso of [at(2026, 9, 21, 9), daysAgo(1), daysAgo(3)]) {
+      relativeTime(iso, NOW, 'de-DE')
+      relativeTime(iso, NOW, 'de-DE')
+    }
+    expect(dates).toHaveBeenCalledOnce()
+    expect(words).toHaveBeenCalledOnce()
+    expect(relativeTime(daysAgo(3), NOW, 'de-DE')).toBe('vor 3 Tagen')
+  })
+
   it('shows the time of day for today', () => {
     expect(relativeTime(at(2026, 9, 21, 14, 5), NOW, 'en-US')).toMatch(
       /^2:05\sPM$/

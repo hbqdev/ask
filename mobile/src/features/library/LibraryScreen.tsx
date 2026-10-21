@@ -4,12 +4,15 @@
 // the list revalidates; a failed load keeps them and says so.
 
 import {
+  memo,
   useCallback,
   useEffect,
   useId,
+  useMemo,
   useRef,
   useState,
   type FormEvent,
+  type ReactNode,
   type RefObject
 } from 'react'
 
@@ -71,9 +74,7 @@ function LibraryList({
   const { push } = useStack()
   const searching = search.query.trim() !== ''
 
-  // Mounted for the screen's whole life: the pull hook binds to it once.
   const scroller = useRef<HTMLDivElement>(null)
-  const { pull, refreshing } = usePullToRefresh(scroller, library.refresh)
 
   const [deleting, setDeleting] = useState<ChatRow | null>(null)
   const [renaming, setRenaming] = useState<ChatRow | null>(null)
@@ -92,10 +93,6 @@ function LibraryList({
     onSort(next)
   }
 
-  // Back at rest (or held while refreshing), the list settles with a
-  // transition; under the finger it follows without one.
-  const settling = pull === 0 || refreshing
-
   return (
     <main className="flex min-h-0 flex-1 flex-col">
       <LibraryHeader
@@ -104,33 +101,27 @@ function LibraryList({
         onSort={changeSort}
         search={search}
       />
-      <div
-        ref={scroller}
-        data-testid="library-scroll"
-        className="relative min-h-0 flex-1 overflow-y-auto overscroll-contain"
-      >
-        <PullIndicator pull={pull} refreshing={refreshing} />
-        <div
-          data-testid="library-content"
-          className={`relative bg-background pb-6 ${settling ? 'pull-settle' : ''}`}
-          style={
-            pull ? { transform: `translate3d(0, ${pull}px, 0)` } : undefined
-          }
-        >
-          {searching ? (
-            <SearchResults search={search} onOpen={open} />
-          ) : (
-            <ChatList
-              library={library}
-              sort={sort}
-              scroller={scroller}
-              onOpen={openRow}
-              onDelete={setDeleting}
-              onRename={setRenaming}
-            />
-          )}
-        </div>
-      </div>
+      <PullScroller scroller={scroller} onRefresh={library.refresh}>
+        {searching ? (
+          <SearchResults search={search} onOpen={open} />
+        ) : (
+          // Memoized on these fields (all stable between changes), so the
+          // list does not render again for a sheet, a keystroke or a pull.
+          <ChatList
+            chats={library.chats}
+            status={library.status}
+            error={library.error}
+            hasMore={library.hasMore}
+            loadMore={library.loadMore}
+            refresh={library.refresh}
+            sort={sort}
+            scroller={scroller}
+            onOpen={openRow}
+            onDelete={setDeleting}
+            onRename={setRenaming}
+          />
+        )}
+      </PullScroller>
 
       <ConfirmSheet
         open={deleting !== null}
@@ -280,6 +271,43 @@ function LibraryHeader({
 
 // --- Pull to refresh ------------------------------------------------------------
 
+/**
+ * The scroller, with pull to refresh. The pull is state here, not in the
+ * screen: each touchmove renders only this wrapper and the indicator, while
+ * `children` (the same element as before) is not rendered again. The scroller
+ * stays mounted for the screen's whole life, as the pull hook binds to it once.
+ */
+function PullScroller({
+  scroller,
+  onRefresh,
+  children
+}: {
+  scroller: RefObject<HTMLDivElement | null>
+  onRefresh: () => Promise<void>
+  children: ReactNode
+}) {
+  const { pull, refreshing } = usePullToRefresh(scroller, onRefresh)
+  // Back at rest (or held while refreshing), the list settles with a
+  // transition; under the finger it follows without one.
+  const settling = pull === 0 || refreshing
+  return (
+    <div
+      ref={scroller}
+      data-testid="library-scroll"
+      className="relative min-h-0 flex-1 overflow-y-auto overscroll-contain"
+    >
+      <PullIndicator pull={pull} refreshing={refreshing} />
+      <div
+        data-testid="library-content"
+        className={`relative bg-background pb-6 ${settling ? 'pull-settle' : ''}`}
+        style={pull ? { transform: `translate3d(0, ${pull}px, 0)` } : undefined}
+      >
+        {children}
+      </div>
+    </div>
+  )
+}
+
 function PullIndicator({
   pull,
   refreshing
@@ -307,22 +335,36 @@ function PullIndicator({
 
 // --- The list -------------------------------------------------------------------
 
-function ChatList({
-  library,
-  sort,
-  scroller,
-  onOpen,
-  onDelete,
-  onRename
-}: {
-  library: Library
+/** Today's local midnight (ms): it changes once a day. */
+function startOfToday() {
+  const now = new Date()
+  return new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime()
+}
+
+type ChatListProps = Pick<
+  Library,
+  'chats' | 'status' | 'error' | 'hasMore' | 'loadMore' | 'refresh'
+> & {
   sort: ChatSort
   scroller: RefObject<HTMLDivElement | null>
   onOpen: (chat: ChatRow) => void
   onDelete: (chat: ChatRow) => void
   onRename: (chat: ChatRow) => void
-}) {
-  const { chats, status, error, hasMore, loadMore, refresh } = library
+}
+
+const ChatList = memo(function ChatList({
+  chats,
+  status,
+  error,
+  hasMore,
+  loadMore,
+  refresh,
+  sort,
+  scroller,
+  onOpen,
+  onDelete,
+  onRename
+}: ChatListProps) {
   const selectTab = useSelectTab()
   const idPrefix = useId()
 
@@ -342,6 +384,26 @@ function ChatList({
     observer.observe(el)
     return () => observer.disconnect()
   }, [hasMore, loadMore, rowCount, scroller])
+
+  // Rows' times and the sections depend on the day only, so `now` (and every
+  // memoized row) stays the same until midnight.
+  const today = startOfToday()
+  const now = useMemo(() => new Date(today), [today])
+  const key = sort === 'recent' ? 'lastViewedAt' : 'createdAt'
+  const groups = useMemo(
+    () => (sort === 'title' ? null : groupByDate(chats, now, key)),
+    [chats, now, key, sort]
+  )
+
+  const more = hasMore && (
+    <div
+      ref={sentinel}
+      data-testid="library-more"
+      className="flex h-16 items-center justify-center"
+    >
+      <span className="size-5 animate-spin rounded-full border-2 border-foreground/20 border-t-foreground/60" />
+    </div>
+  )
 
   if (rowCount === 0) {
     if (status === 'loading' || status === 'refreshing') return <Skeleton />
@@ -363,6 +425,15 @@ function ChatList({
         </div>
       )
     }
+    // Every loaded row was deleted, but the server has more: load them.
+    if (hasMore) {
+      return (
+        <>
+          <Skeleton />
+          {more}
+        </>
+      )
+    }
     return (
       <div className="flex flex-col items-center gap-3 px-8 pt-16 text-center">
         <p className="text-lg font-semibold">No chats yet</p>
@@ -380,8 +451,6 @@ function ChatList({
     )
   }
 
-  const now = new Date()
-  const key = sort === 'recent' ? 'lastViewedAt' : 'createdAt'
   const timeOf = (chat: ChatRow) => chat[key] ?? chat.createdAt
   const rows = (list: ChatRow[]) =>
     list.map(chat => (
@@ -413,10 +482,10 @@ function ChatList({
           </button>
         </div>
       )}
-      {sort === 'title' ? (
+      {groups === null ? (
         <ul>{rows(chats)}</ul>
       ) : (
-        groupByDate(chats, now, key).map((group, i) => {
+        groups.map((group, i) => {
           const headingId = `${idPrefix}-section-${i}`
           return (
             <section key={group.label} aria-labelledby={headingId}>
@@ -431,18 +500,10 @@ function ChatList({
           )
         })
       )}
-      {hasMore && (
-        <div
-          ref={sentinel}
-          data-testid="library-more"
-          className="flex h-16 items-center justify-center"
-        >
-          <span className="size-5 animate-spin rounded-full border-2 border-foreground/20 border-t-foreground/60" />
-        </div>
-      )}
+      {more}
     </>
   )
-}
+})
 
 function Skeleton() {
   return (
