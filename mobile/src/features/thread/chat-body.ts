@@ -1,6 +1,6 @@
-// The /api/chat request body, built exactly as the web builds it
-// (components/chat.tsx prepareSendMessagesRequest; code map §1) plus the
-// mobile's search settings. Never the conversation (the server loads it), a
+// The /api/chat request body, built as the web builds it (components/chat.tsx
+// prepareSendMessagesRequest; code map §1) plus the mobile's search settings,
+// except that isNewChat survives a first submit that failed (see below). Never the conversation (the server loads it), a
 // model (signed-in users get their saved preference) or an analytics id.
 import type { UIMessage } from 'ai'
 
@@ -46,9 +46,14 @@ export function buildChatBody({
         : trigger === 'submit-message'
           ? messages[messages.length - 1]
           : undefined,
-    // Only a brand-new chat's first submit creates the chat.
+    // A brand-new chat is created by its first submit that gets through, so
+    // it stays new until an answer has arrived. The server tolerates a chat
+    // that already exists (persist-stream-results.ts duplicate-key fallback)
+    // but refuses a non-new turn on a chat that doesn't (403).
     isNewChat:
-      isNewChat && trigger === 'submit-message' && messages.length === 1,
+      isNewChat &&
+      trigger === 'submit-message' &&
+      !messages.some(m => m.role === 'assistant'),
     searchMode: settings.searchMode,
     sources: settings.sources
   }

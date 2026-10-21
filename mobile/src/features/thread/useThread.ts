@@ -39,6 +39,11 @@ export type ThreadSession = {
   retry(assistantMessageId: string): void
   /** Loads an existing chat's saved messages again (after a failed load). */
   reload(): void
+  /**
+   * The error banner's Retry: reloads after a failed load, regenerates the
+   * last answer, or resends a question that got no answer. No-op mid-turn.
+   */
+  retryLast(): void
   /** True while an existing chat's saved messages load. */
   loading: boolean
 }
@@ -46,6 +51,9 @@ export type ThreadSession = {
 /** Tries at the saved copy after a resume finds nothing live, 1 s apart. */
 const RELOAD_ATTEMPTS = 3
 const RELOAD_DELAY_MS = 1000
+
+const textOf = (message: UIMessage) =>
+  message.parts.map(p => (p.type === 'text' ? p.text : '')).join('')
 
 const isBusy = (status: ChatStatus) =>
   status === 'submitted' || status === 'streaming'
@@ -272,6 +280,20 @@ export function useThread({
     [inFlight, runTurn, regenerate]
   )
 
+  const retryLast = useCallback(() => {
+    if (inFlight()) return
+    if (loadError) return reload()
+    const last = messagesRef.current.at(-1)
+    if (!last) return
+    if (last.role === 'assistant') return retry(last.id)
+    // The turn failed before any answer: resend the question as a new submit
+    // (a fresh message id), dropping the failed copy so it isn't shown twice.
+    const text = textOf(last)
+    if (!text.trim()) return
+    setMessages(current => current.filter(m => m.id !== last.id))
+    send(text)
+  }, [inFlight, loadError, reload, retry, setMessages, send])
+
   const errorView = useMemo(() => {
     const shown = error ?? loadError
     return shown ? describeChatError(shown) : undefined
@@ -291,6 +313,7 @@ export function useThread({
     stop,
     retry,
     reload,
+    retryLast,
     loading
   }
 }

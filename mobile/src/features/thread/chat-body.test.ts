@@ -45,7 +45,7 @@ describe('buildChatBody', () => {
     expect(body).not.toHaveProperty('analyticsId')
   })
 
-  it('is not a new chat once the conversation has more than one message', () => {
+  it('is not a new chat once an answer has arrived', () => {
     const body = buildChatBody({
       trigger: 'submit-message',
       chatId: 'c1',
@@ -56,6 +56,21 @@ describe('buildChatBody', () => {
 
     expect(body.isNewChat).toBe(false)
     expect(body.message).toEqual(user('u2', 'c'))
+  })
+
+  it('is still a new chat when the first question got no answer', () => {
+    // The first submit failed before the server could create the chat, so
+    // the next submit must still create it (isNewChat=false would 403).
+    const body = buildChatBody({
+      trigger: 'submit-message',
+      chatId: 'c1',
+      messages: [user('u1', 'failed'), user('u2', 'again')],
+      isNewChat: true,
+      settings
+    })
+
+    expect(body.isNewChat).toBe(true)
+    expect(body.message).toEqual(user('u2', 'again'))
   })
 
   it('is not a new chat for an existing chat', () => {

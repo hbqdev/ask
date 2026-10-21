@@ -524,6 +524,147 @@ describe('useThread', () => {
     ])
   })
 
+  describe('retryLast', () => {
+    it('reloads after a failed load', async () => {
+      serve({
+        messages: [
+          () => new Response('Internal error', { status: 500 }),
+          () => json({ messages: [user('u1', 'Q'), assistant('a1', 'A')] })
+        ]
+      })
+      const { result } = renderThread(false)
+      await waitFor(() => expect(result.current.error).toBeDefined())
+
+      act(() => result.current.retryLast())
+
+      await waitFor(() => expect(result.current.messages).toHaveLength(2))
+      expect(requests('GET', `/api/chat/${CHAT_ID}/messages`)).toHaveLength(2)
+      expect(requests('POST', '/api/chat')).toHaveLength(0)
+      expect(result.current.error).toBeUndefined()
+    })
+
+    it('regenerates the last answer', async () => {
+      serve({
+        messages: [
+          () => json({ messages: [user('u1', 'Q'), assistant('a1', 'Old')] })
+        ],
+        chat: [() => sse(answerChunks('a2', 'New'))]
+      })
+      const { result } = renderThread(false)
+      await waitFor(() => expect(result.current.messages).toHaveLength(2))
+
+      act(() => result.current.retryLast())
+
+      await waitFor(() =>
+        expect(transcript(result.current.messages)).toEqual([
+          { role: 'user', texts: ['Q'] },
+          { role: 'assistant', texts: ['New'] }
+        ])
+      )
+      expect(chatBodies()).toEqual([
+        expect.objectContaining({
+          trigger: 'regenerate-message',
+          messageId: 'a1'
+        })
+      ])
+    })
+
+    it('retryLast after a failed first submit resends the question', async () => {
+      serve({
+        chat: [
+          () => new Response('No enabled model is available', { status: 503 }),
+          () => sse(answerChunks('a1', 'Answer'))
+        ]
+      })
+      const { result } = renderThread()
+      act(() => result.current.send('First question'))
+      await waitFor(() => expect(result.current.status).toBe('error'))
+      expect(result.current.error?.message).toBe(
+        'No enabled model is available'
+      )
+      const failedId = result.current.messages[0].id
+
+      act(() => result.current.retryLast())
+
+      await waitFor(() =>
+        expect(transcript(result.current.messages)).toEqual([
+          { role: 'user', texts: ['First question'] },
+          { role: 'assistant', texts: ['Answer'] }
+        ])
+      )
+      await waitFor(() => expect(result.current.status).toBe('ready'))
+      expect(result.current.error).toBeUndefined()
+      const [, resend] = chatBodies()
+      const question = result.current.messages[0]
+      expect(question.id).not.toBe(failedId)
+      expect(resend).toEqual({
+        trigger: 'submit-message',
+        chatId: CHAT_ID,
+        message: question,
+        isNewChat: true,
+        searchMode: 'quality',
+        sources: ['web']
+      })
+    })
+
+    it('resends a later question as part of the existing chat', async () => {
+      serve({
+        messages: [
+          () => json({ messages: [user('u1', 'Q'), assistant('a1', 'A')] })
+        ],
+        chat: [
+          () => Promise.reject(new TypeError('Load failed')),
+          () => sse(answerChunks('a2', 'B'))
+        ]
+      })
+      const { result } = renderThread(false)
+      await waitFor(() => expect(result.current.messages).toHaveLength(2))
+      act(() => result.current.send('Follow-up'))
+      await waitFor(() => expect(result.current.status).toBe('error'))
+
+      act(() => result.current.retryLast())
+
+      await waitFor(() =>
+        expect(transcript(result.current.messages)).toEqual([
+          { role: 'user', texts: ['Q'] },
+          { role: 'assistant', texts: ['A'] },
+          { role: 'user', texts: ['Follow-up'] },
+          { role: 'assistant', texts: ['B'] }
+        ])
+      )
+      expect(chatBodies().map(b => [b.trigger, b.isNewChat])).toEqual([
+        ['submit-message', false],
+        ['submit-message', false]
+      ])
+    })
+
+    it('does nothing while a turn is in flight', async () => {
+      serve({ chat: [hang] })
+      const { result } = renderThread()
+      act(() => result.current.send('Q'))
+      await waitFor(() => expect(result.current.status).toBe('submitted'))
+
+      act(() => result.current.retryLast())
+
+      // Past the 100 ms message throttle, so a change would show.
+      await act(() => new Promise(resolve => setTimeout(resolve, 150)))
+      expect(requests('POST', '/api/chat')).toHaveLength(1)
+      expect(transcript(result.current.messages)).toEqual([
+        { role: 'user', texts: ['Q'] }
+      ])
+    })
+
+    it('does nothing for an empty thread', async () => {
+      serve({})
+      const { result } = renderThread()
+
+      act(() => result.current.retryLast())
+
+      await act(async () => {})
+      expect(fetchMock).not.toHaveBeenCalled()
+    })
+  })
+
   describe('background resume', () => {
     /**
      * Sends a question whose answer streams on `live`, then leaves the app
