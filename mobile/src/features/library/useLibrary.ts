@@ -167,12 +167,36 @@ export function useLibrary({ sort }: { sort: ChatSort }): Library {
     })
   }, [key, userId, sort, loadFirstPage])
 
+  // A chat opened elsewhere changes only its view time: update the loaded row
+  // in place (to the top in `recent`, as the server now orders it), with no
+  // page-0 reload that would drop the loaded pages. An unloaded row is left
+  // to the next load. Every other change reloads page 0.
+  const markViewed = useCallback(
+    (id: string) => {
+      setState(s => {
+        const index = s.chats.findIndex(c => c.id === id)
+        if (index < 0) return s
+        const viewed = {
+          ...s.chats[index],
+          lastViewedAt: new Date().toISOString()
+        }
+        const chats =
+          sort === 'recent'
+            ? [viewed, ...s.chats.filter(c => c.id !== id)]
+            : s.chats.map(c => (c.id === id ? viewed : c))
+        return { ...s, chats }
+      })
+    },
+    [sort]
+  )
+
   useEffect(
     () =>
-      onChatsChanged(() => {
-        void loadFirstPage()
+      onChatsChanged((reason, chatId) => {
+        if (reason !== 'viewed') return void loadFirstPage()
+        if (chatId) markViewed(chatId)
       }),
-    [loadFirstPage]
+    [loadFirstPage, markViewed]
   )
 
   // Server-confirmed rows (status ready) go to the signed-in user's cache.

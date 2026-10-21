@@ -2,7 +2,7 @@
 // tells the chat list (chats-changed), so the Library shows it; a failure is
 // said in a line under the header that the user can dismiss.
 
-import { useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 
 import { useApi } from '@/core/api/ApiProvider'
 import { ApiError } from '@/core/api/errors'
@@ -45,6 +45,16 @@ export function ThreadMenu({
   const [failure, setFailure] = useState<string>()
   const close = () => setOpen(null)
 
+  // Whether this screen is still up: a delete that lands after the user left
+  // must not pop whatever screen is now on top.
+  const mounted = useRef(true)
+  useEffect(() => {
+    mounted.current = true
+    return () => {
+      mounted.current = false
+    }
+  }, [])
+
   const rename = async (next: string) => {
     try {
       const saved = await renameChat(client, chatId, next)
@@ -66,7 +76,7 @@ export function ThreadMenu({
       }
     }
     emitChatsChanged('deleted', chatId)
-    onDeleted()
+    if (mounted.current) onDeleted()
   }
 
   return (

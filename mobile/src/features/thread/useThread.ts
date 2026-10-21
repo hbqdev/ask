@@ -234,14 +234,14 @@ export function useThread({
   )
 
   // Opening a saved chat marks it viewed, once per screen (not again on
-  // StrictMode's re-mount); then the list is told, so its "recent" order
-  // shows the view. touchChat never rejects.
+  // StrictMode's re-mount); then the list is told it was viewed, so its
+  // "recent" order shows the view. touchChat never rejects.
   const touched = useRef<string>(undefined)
   useEffect(() => {
     if (isNew || touched.current === chatId) return
     touched.current = chatId
     void touchChat(client, chatId).then(() =>
-      emitChatsChanged('updated', chatId)
+      emitChatsChanged('viewed', chatId)
     )
   }, [chatId, isNew, client])
 

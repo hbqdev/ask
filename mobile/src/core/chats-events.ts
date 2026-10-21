@@ -1,8 +1,15 @@
 // A tiny in-memory bus that says "the user's chat list changed", so a screen
 // showing the list (the Library) can reload it after another screen created,
-// updated, deleted or cleared chats. Nothing is persisted.
+// updated, deleted or cleared chats, or update it in place after a chat was
+// only viewed. Nothing is persisted.
 
-export type ChatsChangedReason = 'created' | 'updated' | 'deleted' | 'cleared'
+/** 'viewed': a chat was opened (its lastViewedAt is now); nothing else changed. */
+export type ChatsChangedReason =
+  | 'created'
+  | 'updated'
+  | 'deleted'
+  | 'cleared'
+  | 'viewed'
 
 export type ChatsChangedListener = (
   reason: ChatsChangedReason,

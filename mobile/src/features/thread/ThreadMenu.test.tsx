@@ -176,6 +176,38 @@ describe('ThreadMenu', () => {
       expect(changed).not.toHaveBeenCalled()
     })
 
+    it('delete resolving after leaving does not pop', async () => {
+      let finish!: () => void
+      vi.mocked(deleteChat).mockReturnValue(
+        new Promise<void>(resolve => (finish = resolve))
+      )
+      const { unmount } = renderMenu()
+      await confirmDelete()
+      // The user goes back while the delete is on its way.
+      unmount()
+
+      await act(async () => finish())
+
+      // The list is still told; the screen now on top is left alone.
+      expect(changed).toHaveBeenCalledExactlyOnceWith('deleted', 'c1')
+      expect(onDeleted).not.toHaveBeenCalled()
+    })
+
+    it('a failed delete after leaving says nothing', async () => {
+      let fail!: (error: Error) => void
+      vi.mocked(deleteChat).mockReturnValue(
+        new Promise<void>((_, reject) => (fail = reject))
+      )
+      const { unmount } = renderMenu()
+      await confirmDelete()
+      unmount()
+
+      await act(async () => fail(new Error('Server error')))
+
+      expect(changed).not.toHaveBeenCalled()
+      expect(onDeleted).not.toHaveBeenCalled()
+    })
+
     it('does nothing on Cancel', async () => {
       renderMenu()
       await userEvent.click(

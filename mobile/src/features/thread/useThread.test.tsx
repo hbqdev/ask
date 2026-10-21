@@ -1416,7 +1416,7 @@ describe('useThread', () => {
 
       await act(async () => answerTouch(new Response(null, { status: 204 })))
 
-      expect(changed).toHaveBeenCalledExactlyOnceWith('updated', CHAT_ID)
+      expect(changed).toHaveBeenCalledExactlyOnceWith('viewed', CHAT_ID)
     })
 
     it('tells the list even when the touch fails', async () => {
@@ -1427,7 +1427,7 @@ describe('useThread', () => {
       renderThread(false)
 
       await waitFor(() =>
-        expect(changed).toHaveBeenCalledExactlyOnceWith('updated', CHAT_ID)
+        expect(changed).toHaveBeenCalledExactlyOnceWith('viewed', CHAT_ID)
       )
     })
 
@@ -1475,14 +1475,14 @@ describe('useThread', () => {
       })
       const { result } = renderThread(false)
       await waitFor(() => expect(result.current.loading).toBe(false))
-      // Opening it (the touch) is the first update.
+      // Opening it (the touch) says it was viewed.
       await waitFor(() => expect(changed).toHaveBeenCalledOnce())
 
       act(() => result.current.send('follow-up'))
 
       await waitFor(() => expect(changed).toHaveBeenCalledTimes(2))
       expect(changed.mock.calls).toEqual([
-        ['updated', CHAT_ID],
+        ['viewed', CHAT_ID],
         ['updated', CHAT_ID]
       ])
     })

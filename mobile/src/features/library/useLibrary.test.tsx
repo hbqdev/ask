@@ -928,6 +928,76 @@ describe('useLibrary', () => {
     expect(server.pageRequests()).toHaveLength(1)
   })
 
+  describe('a chat viewed elsewhere', () => {
+    const NOW = new Date(Date.UTC(2026, 9, 21, 12))
+
+    beforeEach(() => {
+      vi.useFakeTimers({ toFake: ['Date'] })
+      vi.setSystemTime(NOW)
+    })
+
+    it('viewing a chat moves it to the top in recent sort without refetching', async () => {
+      useServer(fakeServer(95))
+      const { result } = renderLibrary('recent')
+      await waitFor(() => expect(result.current.status).toBe('ready'))
+      await act(() => result.current.loadMore())
+      expect(result.current.chats).toHaveLength(60)
+      const before = ids(result.current.chats)
+
+      act(() => emitChatsChanged('viewed', 'c40'))
+
+      expect(ids(result.current.chats)).toEqual([
+        'c40',
+        ...before.filter(id => id !== 'c40')
+      ])
+      expect(result.current.chats[0].lastViewedAt).toBe(NOW.toISOString())
+      expect(result.current.status).toBe('ready')
+      expect(result.current.hasMore).toBe(true)
+      await act(async () => {})
+      // No page 0 again: the loaded pages (and the scroll) stay.
+      expect(server.pageRequests()).toHaveLength(2)
+      // The cache holds the new order.
+      await waitFor(() =>
+        expect(
+          JSON.parse(prefsData.get(LIBRARY_CACHE_KEY)!).chats[0]
+        ).toMatchObject({ id: 'c40', lastViewedAt: NOW.toISOString() })
+      )
+    })
+
+    it('viewing in title sort only updates lastViewedAt', async () => {
+      useServer(fakeServer(3))
+      const { result } = renderLibrary('title')
+      await waitFor(() => expect(result.current.status).toBe('ready'))
+      const before = ids(result.current.chats)
+
+      act(() => emitChatsChanged('viewed', 'c1'))
+
+      expect(ids(result.current.chats)).toEqual(before)
+      expect(result.current.chats.find(c => c.id === 'c1')!.lastViewedAt).toBe(
+        NOW.toISOString()
+      )
+      expect(
+        result.current.chats.filter(c => c.id !== 'c1').map(c => c.lastViewedAt)
+      ).toEqual([null, null])
+      await act(async () => {})
+      expect(server.pageRequests()).toHaveLength(1)
+    })
+
+    it('an unloaded chat viewed does nothing', async () => {
+      useServer(fakeServer(95))
+      const { result } = renderLibrary('recent')
+      await waitFor(() => expect(result.current.status).toBe('ready'))
+      const shown = result.current.chats
+
+      act(() => emitChatsChanged('viewed', 'c80'))
+      act(() => emitChatsChanged('viewed'))
+
+      expect(result.current.chats).toBe(shown)
+      await act(async () => {})
+      expect(server.pageRequests()).toHaveLength(1)
+    })
+  })
+
   it('the error status keeps the rows', async () => {
     useServer(fakeServer(2))
     const { result } = renderLibrary()
