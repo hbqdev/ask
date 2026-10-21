@@ -43,6 +43,8 @@ export function ThreadMenu({
   const { client } = useApi()
   const [open, setOpen] = useState<Open>(null)
   const [failure, setFailure] = useState<string>()
+  // A delete on its way: the menu can't be opened again until it ends.
+  const [deleting, setDeleting] = useState(false)
   const close = () => setOpen(null)
 
   // Whether this screen is still up: a delete that lands after the user left
@@ -66,11 +68,13 @@ export function ThreadMenu({
   }
 
   const remove = async () => {
+    setDeleting(true)
     try {
       await deleteChat(client, chatId)
     } catch (error) {
       // Already gone on the server: that is what the user wanted.
       if (!(error instanceof ApiError && error.status === 404)) {
+        setDeleting(false)
         setFailure(`Couldn’t delete the chat. ${reasonOf(error)}`)
         return
       }
@@ -84,23 +88,37 @@ export function ThreadMenu({
       <button
         type="button"
         aria-label="Chat options"
+        aria-busy={deleting || undefined}
+        disabled={deleting}
         onClick={() => {
           setFailure(undefined)
           setOpen('menu')
         }}
         className="flex size-11 shrink-0 touch-manipulation items-center justify-center rounded-full text-foreground/70 active:opacity-50"
       >
-        <svg
-          aria-hidden="true"
-          viewBox="0 0 24 24"
-          className="size-6"
-          fill="currentColor"
-        >
-          <circle cx="5" cy="12" r="1.8" />
-          <circle cx="12" cy="12" r="1.8" />
-          <circle cx="19" cy="12" r="1.8" />
-        </svg>
+        {deleting ? (
+          <span
+            aria-hidden="true"
+            className="size-5 animate-spin rounded-full border-2 border-foreground/20 border-t-foreground/70"
+          />
+        ) : (
+          <svg
+            aria-hidden="true"
+            viewBox="0 0 24 24"
+            className="size-6"
+            fill="currentColor"
+          >
+            <circle cx="5" cy="12" r="1.8" />
+            <circle cx="12" cy="12" r="1.8" />
+            <circle cx="19" cy="12" r="1.8" />
+          </svg>
+        )}
       </button>
+      {deleting && (
+        <span role="status" className="sr-only">
+          Deleting chat…
+        </span>
+      )}
 
       {failure && (
         <div

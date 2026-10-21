@@ -154,6 +154,25 @@ describe('ThreadMenu', () => {
       )
     })
 
+    it('shows that it is deleting, and cannot be opened again, until the delete ends', async () => {
+      let fail!: (error: Error) => void
+      vi.mocked(deleteChat).mockReturnValue(
+        new Promise<void>((_, reject) => (fail = reject))
+      )
+      renderMenu()
+
+      await confirmDelete()
+
+      expect(screen.getByRole('status')).toHaveTextContent('Deleting chat…')
+      expect(menuButton()).toBeDisabled()
+      expect(menuButton()).toHaveAttribute('aria-busy', 'true')
+
+      await act(async () => fail(new Error('Server error')))
+      expect(screen.queryByRole('status')).not.toBeInTheDocument()
+      expect(menuButton()).toBeEnabled()
+      expect(menuButton()).not.toHaveAttribute('aria-busy')
+    })
+
     it('treats a chat already gone on the server as deleted', async () => {
       vi.mocked(deleteChat).mockRejectedValue(new ApiError(404, 'Not found'))
       renderMenu()
