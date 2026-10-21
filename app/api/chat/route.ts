@@ -19,12 +19,12 @@ import {
 import { registerGeneration } from '@/lib/streaming/active-generations'
 import { createChatStreamResponse } from '@/lib/streaming/create-chat-stream-response'
 import { createEphemeralChatStreamResponse } from '@/lib/streaming/create-ephemeral-chat-stream-response'
-import { SearchMode, SearchSources } from '@/lib/types/search'
 import { getTextFromParts } from '@/lib/utils/message-utils'
 import { selectModel } from '@/lib/utils/model-selection'
 import { perfLog, perfTime } from '@/lib/utils/perf-logging'
 import { resetAllCounters } from '@/lib/utils/perf-tracking'
 import { isProviderEnabled } from '@/lib/utils/registry'
+import { resolveSearchSettings } from '@/lib/utils/request-search-settings'
 
 // Only takes effect on Vercel's serverless runtime; this deployment runs as
 // a long-lived Node/Docker server, where Next.js ignores it entirely. Kept
@@ -66,6 +66,10 @@ export async function POST(req: Request) {
       systemInstructions
     } = body
     const analyticsId: unknown = body.analyticsId
+    // Optional search settings (the mobile app has no cookies). Validated in
+    // resolveSearchSettings; invalid values fall back to the cookie rules.
+    const bodySearchMode: unknown = body.searchMode
+    const bodySources: unknown = body.sources
     // Voice "read-aloud" turn flag. Normalized to a strict boolean here so a
     // missing/garbage value can never accidentally enable the voice path.
     const voice = body.voice === true
@@ -131,34 +135,12 @@ export async function POST(req: Request) {
 
     const cookieStore = await cookies()
 
-    // Get search mode from cookie
-    const searchModeCookie = cookieStore.get('searchMode')?.value
-    // Backward compat: map old values to new ones
-    const normalizedCookie =
-      searchModeCookie === 'quick'
-        ? 'speed'
-        : searchModeCookie === 'adaptive'
-          ? 'balanced'
-          : searchModeCookie
-    const searchMode: SearchMode =
-      normalizedCookie &&
-      ['speed', 'balanced', 'quality'].includes(normalizedCookie)
-        ? (normalizedCookie as SearchMode)
-        : 'balanced'
-
-    // Get sources from cookie
-    const sourcesCookie = cookieStore.get('sources')?.value
-    let sources: SearchSources = ['web']
-    if (sourcesCookie) {
-      try {
-        const parsed = JSON.parse(sourcesCookie)
-        if (Array.isArray(parsed) && parsed.length > 0) {
-          sources = parsed as SearchSources
-        }
-      } catch {
-        // ignore parse errors, fall back to default
-      }
-    }
+    const { searchMode, sources } = resolveSearchSettings({
+      bodySearchMode,
+      bodySources,
+      cookieSearchMode: cookieStore.get('searchMode')?.value,
+      cookieSources: cookieStore.get('sources')?.value
+    })
 
     // Adaptive mode is gated to authenticated users on cloud deployments.
     // Check before model/provider selection so guests always get the
