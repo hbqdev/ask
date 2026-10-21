@@ -88,16 +88,28 @@ export function listSources(message: UIMessage): Source[] {
   return [...sources.filter(s => s.cited), ...sources.filter(s => !s.cited)]
 }
 
+/** A URL as the WHATWG parser writes it back, or the text itself if it is not one. */
+function normalizeUrl(url: string): string {
+  try {
+    return new URL(url).href
+  } catch {
+    return url
+  }
+}
+
 /**
  * The source a rendered link points at, or undefined for an ordinary link.
- * processCitations writes the href as encodeURI(url), so both forms match.
+ * processCitations writes the href as encodeURI(url), and the markdown
+ * renderer (rehype-harden) rewrites that to new URL(href).href: a bare origin
+ * gains a `/`, the host is lowercased (punycode for IDN) and a default port
+ * drops. So the hrefs are compared in that normalized form.
  */
 export function sourceForHref(
   href: string,
   sources: Source[]
 ): Source | undefined {
-  return (
-    sources.find(s => s.url === href) ??
-    sources.find(s => encodeURI(s.url) === href)
-  )
+  const exact = sources.find(s => s.url === href)
+  if (exact) return exact
+  const target = normalizeUrl(href)
+  return sources.find(s => normalizeUrl(encodeURI(s.url)) === target)
 }

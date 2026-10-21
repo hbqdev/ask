@@ -67,6 +67,14 @@ describe('describeChatError', () => {
     })
   })
 
+  it('treats a JSON "Authentication required" body as sign-in', () => {
+    expect(view('{"error":"Authentication required"}')).toEqual<ChatErrorView>({
+      message: 'Authentication required',
+      retryable: false,
+      authRequired: true
+    })
+  })
+
   it('treats an auth_required code as sign-in, not retryable', () => {
     expect(
       view('{"error":"Sign in","code":"auth_required","retryable":true}')

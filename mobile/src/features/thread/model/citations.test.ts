@@ -190,4 +190,27 @@ describe('sourceForHref', () => {
   it('returns undefined for an unrelated link', () => {
     expect(sourceForHref('https://elsewhere.test/', sources)).toBeUndefined()
   })
+
+  it('returns undefined for an href that is not a URL', () => {
+    expect(sourceForHref('not a url', sources)).toBeUndefined()
+  })
+
+  // The markdown renderer (rehype-harden) rewrites the href processCitations
+  // emits, encodeURI(url), to new URL(href).href before the link renders.
+  const rendered = (url: string) => new URL(encodeURI(url)).href
+
+  it.each([
+    ['a bare origin', 'https://example.com'],
+    ['an uppercase host', 'https://EXAMPLE.org/Page'],
+    ['an explicit :443 port', 'https://port.test:443/x'],
+    ['an IDN host', 'https://bücher.de/x'],
+    ['a path with spaces', 'https://example.com/a b'],
+    ['a unicode path', 'https://example.com/café']
+  ])('matches the rendered href of %s', (_case, url) => {
+    const only = listSources(
+      message([searchPart('call_a', [{ title: 'T', url, content: '' }])])
+    )
+    expect(rendered(url)).not.toBe(url)
+    expect(sourceForHref(rendered(url), only)?.url).toBe(url)
+  })
 })
