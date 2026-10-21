@@ -20,10 +20,12 @@ import { signUploadUrl } from '@/lib/storage/upload-url-signing'
 
 const MAX_FILE_SIZE = 2 * 1024 * 1024 * 1024 // 2GB
 const UPLOADS_DIR = process.env.UPLOADS_DIR || '/app/uploads'
-// Files at or under this size get RAG-indexed inline (fast path) instead of
-// waiting on the async ingestion worker — most uploads are small enough
+// Text files at or under this size get RAG-indexed inline (fast path) instead
+// of waiting on the async ingestion worker — most uploads are small enough
 // that the extra round trip through the job queue would only add latency.
-const FAST_PATH_MAX_BYTES = 20 * 1024 * 1024 // 20MB
+// Inline indexing shares this server's event loop, so the cap stays small:
+// larger text files go to the out-of-process worker like every other type.
+const FAST_PATH_MAX_BYTES = 2 * 1024 * 1024 // 2MB
 
 function sanitizeFilename(filename: string) {
   return filename.replace(/[^a-z0-9.\-_]/gi, '_').toLowerCase()

@@ -5,6 +5,7 @@
 import { execFile } from 'node:child_process'
 import { promises as fs } from 'node:fs'
 import path from 'node:path'
+import { setImmediate as yieldToEventLoop } from 'node:timers/promises'
 import { promisify } from 'node:util'
 
 import {
@@ -12,7 +13,7 @@ import {
   isCrossEncoderConfigured
 } from '../utils/cross-encoder'
 
-import { splitText } from './split-text'
+import { splitText, splitTextAsync } from './split-text'
 import {
   cosineSimilarity,
   type EmbeddingModelId,
@@ -90,8 +91,15 @@ export function isTextFamily(mediaType: string, filename: string): boolean {
 
 const MIN_MEANINGFUL_CHARS = 200
 
+// Chunks embedded per embedTexts call on the fast path. Between batches the
+// event loop gets a turn, as it does while splitting and serialising.
+const EMBED_BATCH = 64
+
 // Local fast-path ingestion. Returns true iff a chunks file was written —
 // the upload route uses that to mark the file `ready` without the worker.
+// It runs on the web server's own event loop, so every stage works in slices
+// with a yield between them: a 2 MB file (the route's inline cap) must never
+// hold up other requests for more than a moment.
 export async function processFileForRAG(
   filePath: string,
   mediaType: string,
@@ -115,18 +123,38 @@ export async function processFileForRAG(
   if (trimmed.length <= MIN_MEANINGFUL_CHARS) return false
 
   const model = getConfiguredModel()
-  const chunks = splitText(trimmed, 512, 128)
+  const chunks = await splitTextAsync(trimmed, 512, 128)
   if (chunks.length === 0) return false
 
-  const embeddings = await embedTexts(chunks, model)
-
-  const stored: ChunksFile = {
-    model,
-    filename,
-    chunks: chunks.map((content, i) => ({ content, embedding: embeddings[i] }))
+  // Same JSON as JSON.stringify(ChunksFile), written one batch at a time (a
+  // 2 MB file can make 100+ MB of it) to a partial file that replaces the
+  // chunks file only once complete, so a reader never sees half of one.
+  const target = chunksFilePath(filePath)
+  const partial = `${target}.partial`
+  const out = await fs.open(partial, 'w')
+  try {
+    await out.write(
+      `{"model":${JSON.stringify(model)},"filename":${JSON.stringify(filename)},"chunks":[`
+    )
+    for (let i = 0; i < chunks.length; i += EMBED_BATCH) {
+      const batch = chunks.slice(i, i + EMBED_BATCH)
+      const embeddings = await embedTexts(batch, model)
+      const json = batch
+        .map((content, j) =>
+          JSON.stringify({ content, embedding: embeddings[j] })
+        )
+        .join(',')
+      await out.write(i === 0 ? json : `,${json}`)
+      await yieldToEventLoop()
+    }
+    await out.write(']}')
+  } catch (error) {
+    await out.close()
+    await fs.rm(partial, { force: true })
+    throw error
   }
-
-  await fs.writeFile(chunksFilePath(filePath), JSON.stringify(stored))
+  await out.close()
+  await fs.rename(partial, target)
   return true
 }
 

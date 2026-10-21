@@ -254,6 +254,38 @@ describe('POST /api/upload', () => {
     err.mockRestore()
   })
 
+  // Inline indexing runs on the web server's event loop, so only small text
+  // files take it; anything larger waits for the out-of-process worker.
+  it('indexes a text file of exactly 2 MB inline (fast path)', async () => {
+    const req = makeRequest('a'.repeat(2 * 1024 * 1024), {
+      'content-type': 'text/plain',
+      'x-filename': encodeURIComponent('notes.txt'),
+      'x-chat-id': 'c1'
+    })
+    const res = await POST(req)
+    const json = await res.json()
+
+    expect(json.file.status).toBe('processing')
+    await vi.waitFor(() => expect(processFileForRAG).toHaveBeenCalledTimes(1))
+  })
+
+  it('hands a text file one byte over 2 MB to the worker as pending', async () => {
+    const req = makeRequest('a'.repeat(2 * 1024 * 1024 + 1), {
+      'content-type': 'text/plain',
+      'x-filename': encodeURIComponent('notes.txt'),
+      'x-chat-id': 'c1'
+    })
+    const res = await POST(req)
+    const json = await res.json()
+
+    expect(json.file.status).toBe('pending')
+    expect(createFileRecord).toHaveBeenCalledWith(
+      expect.objectContaining({ status: 'pending' })
+    )
+    await new Promise(resolve => setTimeout(resolve, 10))
+    expect(processFileForRAG).not.toHaveBeenCalled()
+  })
+
   it('does not run the fast path for an mp3 (and falls back to a "none" chat id when absent)', async () => {
     const req = makeRequest('id3-ish bytes', {
       'content-type': 'audio/mpeg',
