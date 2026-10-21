@@ -2,6 +2,10 @@
 # Build the Ask iOS app and install it on a paired device. Runs ON THE MAC
 # (sync-mac.sh copies it to ~/dev/ask-mobile).
 #
+# dist/ is built on NightFuryX (it needs Ask's lib/ and root node_modules) and
+# arrives with the sync, so this script never builds the web bundle: it only
+# installs the Capacitor packages, runs `cap sync ios` and builds the app.
+#
 #   ~/dev/ask-mobile/build-install.sh              # Tin's iPhone 15 Pro Max
 #   DEVICE=<udid> ~/dev/ask-mobile/build-install.sh
 #   xcrun devicectl list devices                    # find a device's UDID
@@ -17,6 +21,11 @@ cd "$(dirname "$0")"
 TEAM=${TEAM:-P7G23CKH62}
 DEVICE=${DEVICE:-00008130-00120DAA3420001C}
 KEYCHAIN="$HOME/Library/Keychains/login.keychain-db"
+
+if [ ! -f dist/index.html ]; then
+  echo "No dist/: run ./sync-mac.sh on NightFuryX first (it builds dist/ there)." >&2
+  exit 1
+fi
 
 if ! security show-keychain-info "$KEYCHAIN" >/dev/null 2>&1; then
   echo "Unlocking the login keychain for code signing (Mac password):"

@@ -9,41 +9,85 @@ lasts a year.
 
 UI changes need an app rebuild; backend changes reach the app with no rebuild.
 
+## Where things build
+
+The app reuses Ask's own `lib/` modules, so `dist/` is built **on NightFuryX**
+in this repo, and the MacBook (`tintran@nightfurym3max.local`,
+`~/dev/ask-mobile`, Node 26, Xcode 27) only does the native part:
+
+| Step | Where | Why |
+| --- | --- | --- |
+| `npm test`, `coverage`, `typecheck`, `npm run build` -> `dist/` | NightFuryX | they resolve `@/lib/` and `@ask/` to Ask's `../lib/`, whose imports need Ask's root `node_modules` |
+| `npm install` (Capacitor packages), `npx cap sync ios`, `xcodebuild` | Mac | the plugins' Swift packages live in `node_modules/@capacitor/*`; the Capacitor CLI needs Node >= 22 (never run `cap` on NightFuryX) |
+
+`sync-mac.sh` does the whole hand-off: it builds `dist/` here (writing
+`.env.local` first if it is missing), copies the folder to the Mac without
+`src/`, `node_modules/`, `coverage/` or any `.env*` file (the values are
+already baked into `dist/`), then runs `npm install` and `cap sync ios` there.
+
+### Prerequisites on NightFuryX
+
+- Ask's root `node_modules` installed (the repo's own `bun install`).
+- This folder's packages: `npx npm@10 install` (npm 9.2 hits an `edgesOut`
+  install bug).
+- `.env.local`: `scripts/env-from-ask.sh [api-url]` writes it (git-ignored)
+  from Ask's root `.env`; `sync-mac.sh` runs it when the file is missing
+  (`ASK_URL` overrides the default `https://ask.hbqnexus.win`).
+
 ## Develop and test
 
 Use npm in this folder (it has its own `package-lock.json`; Ask's root
-typecheck, lint and tests exclude `mobile/`). npm 9.2 hits an `edgesOut`
-install bug, so on the dev box use `npx npm@10 install`.
+typecheck, lint and tests exclude `mobile/`).
 
 ```bash
-scripts/env-from-ask.sh [api-url]  # writes .env.local (git-ignored) from Ask's .env
 npm run dev          # Vite dev server
 npm test             # Vitest (jsdom + Testing Library)
 npm run coverage     # fails below functions 100 / lines 95 / branches 90 / statements 95
 npm run typecheck
 npm run build        # tsc -b && vite build -> dist/
-npm run cap:sync     # build, then `cap sync ios`
 ```
 
-`@/` resolves to `src/`; `@ask/` resolves to Ask's pure modules in `../lib/`
-(set in both `vite.config.ts` and `tsconfig.json`).
+### Path aliases
+
+Set in both `vite.config.ts` and `tsconfig.json` (keep them in step):
+
+- `@ask/` -> Ask's pure modules in the repo's `../lib/` (reused, not copied).
+- `@/lib/` -> also `../lib/`. Ask's lib modules import each other as
+  `@/lib/...`, so this prefix must reach Ask's lib here too; it is listed
+  before `@/` because the first matching alias wins.
+- `@/` -> this app's own `src/`.
+
+So **never create `mobile/src/lib/`**: `@/lib/...` would still resolve to
+Ask's `lib/`, and the folder would be silently unreachable.
 
 ## Build and install
 
-The source of truth is this folder in the Ask repo. The MacBook
-(`tintran@nightfurym3max.local`, `~/dev/ask-mobile`) only builds.
+The source of truth is this folder in the Ask repo. Run these on NightFuryX:
 
 ```bash
-./sync-mac.sh            # copy to the Mac, then build + install on the iPhone
-./sync-mac.sh sync       # copy + `cap sync` only (e.g. to open it in Xcode)
+./sync-mac.sh            # build dist/, sync, then device build + install on the iPhone
+./sync-mac.sh sync       # build dist/, sync, `cap sync ios` (e.g. to open it in Xcode)
+./sync-mac.sh sim <dir>  # sync, simulator build, launch, light + dark screenshots into <dir>
+./sync-mac.sh launch-times [n]  # n cold launches of the simulator build, timed
+./sync-mac.sh pull-ios   # copy the Mac's ios/ back (commit Package.swift changes)
 ./sync-mac.sh devices    # list devices the Mac can see
 DEVICE=<udid> ./sync-mac.sh   # install on another paired device
 ```
 
-Code signing needs the Mac's login keychain. Over SSH it is locked, so the
-build step asks for the Mac password. Alternatively, in Terminal on the Mac run
-`~/dev/ask-mobile/build-install.sh`, or open `ios/App/App.xcodeproj` in Xcode
-and press Run.
+The simulator path is unsigned (`CODE_SIGNING_ALLOWED=NO`) and uses a booted
+iPhone (preferring "iPhone 17"), else boots "iPhone 17"; `SIM_UDID` picks
+another. `launch-times` times each launch from `simctl launch` to the
+`ASK_FIRST_RENDER` line the app logs when its first screen is ready
+(`src/app/launchMark.ts`; Capacitor forwards `console.log` in Debug builds).
+
+`cap sync ios` regenerates `ios/App/CapApp-SPM/Package.swift` from the
+installed plugins; after adding a plugin, `pull-ios` and commit it.
+
+Code signing (device builds) needs the Mac's login keychain. Over SSH it is
+locked, so the build step asks for the Mac password. Alternatively, after a
+`./sync-mac.sh sync`, run `~/dev/ask-mobile/build-install.sh` in Terminal on
+the Mac (it never builds `dist/`; that comes from the sync), or open
+`ios/App/App.xcodeproj` in Xcode and press Run.
 
 A new device must be paired with the Mac once (connect it by cable, trust the
 Mac, and enable Developer Mode under Settings → Privacy & Security).
@@ -54,6 +98,8 @@ Mac, and enable Developer Mode under Settings → Privacy & Security).
   view settings, splash.
 - `src/`: the app (`main.tsx` entry, `App.tsx`, `styles.css` theme).
 - `scripts/env-from-ask.sh`: writes `.env.local` (prints variable names only).
+- `sync-mac.sh` (runs here) and `build-install.sh` (runs on the Mac): see
+  above.
 - `ios/App/App/MainViewController.swift`: safe-area container, theme colour,
   swipe-back.
 - `ios/App/App/Info.plist`: permission prompts, background audio.

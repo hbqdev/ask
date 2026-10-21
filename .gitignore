@@ -59,6 +59,7 @@ mobile/node_modules/
 mobile/dist/
 mobile/coverage/
 mobile/.env.local
+mobile/.env.local.*
 mobile/.env.e2e
 mobile/ios/App/build/
 mobile/ios/DerivedData/

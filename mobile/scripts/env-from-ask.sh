@@ -41,6 +41,9 @@ publishable_key="$(read_var NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY)"
 
 umask 077
 tmp="$(mktemp "${out}.XXXXXX")"
+# Never leave the temp copy behind (it holds the key) if a write fails; after
+# the mv it no longer exists and rm -f is a no-op.
+trap 'rm -f "$tmp"' EXIT
 {
   printf 'VITE_SUPABASE_URL=%s\n' "$supabase_url"
   printf 'VITE_SUPABASE_PUBLISHABLE_KEY=%s\n' "$publishable_key"
