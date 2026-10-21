@@ -5,7 +5,7 @@ import { fireEvent, render, screen } from '@testing-library/react'
 import { useState } from 'react'
 import { describe, expect, it, vi } from 'vitest'
 
-import { Tabs, type TabSpec } from '@/app/Tabs'
+import { Tabs, useSelectTab, type TabSpec } from '@/app/Tabs'
 
 // Vitest does not process CSS, so read the stylesheet as text.
 const css = readFileSync(resolve(__dirname, '../styles.css'), 'utf8')
@@ -118,5 +118,35 @@ describe('navigation styles', () => {
   it('drops the slides when the user asks for reduced motion', () => {
     expect(css).toMatch(/@media \(prefers-reduced-motion: reduce\)/)
     expect(css).toMatch(/@media \(prefers-reduced-motion: no-preference\)/)
+  })
+})
+
+describe('useSelectTab', () => {
+  function GoToSettings() {
+    const selectTab = useSelectTab()
+    return (
+      <button type="button" onClick={() => selectTab?.('settings')}>
+        Go to settings
+      </button>
+    )
+  }
+
+  it('lets a tab’s content switch tabs', () => {
+    const tabs = makeTabs(() => <GoToSettings />)
+    render(<Tabs tabs={tabs} initial="library" />)
+
+    fireEvent.click(screen.getByRole('button', { name: 'Go to settings' }))
+    expect(tab('Settings')).toHaveAttribute('aria-selected', 'true')
+    expect(screen.getByText('Settings page')).toBeVisible()
+  })
+
+  it('is undefined outside the tab shell', () => {
+    let selectTab: unknown = 'unset'
+    function Probe() {
+      selectTab = useSelectTab()
+      return null
+    }
+    render(<Probe />)
+    expect(selectTab).toBeUndefined()
   })
 })

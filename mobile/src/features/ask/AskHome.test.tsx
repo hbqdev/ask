@@ -1,6 +1,8 @@
 import { act, render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+
+import { Tabs } from '@/app/Tabs'
 
 import { useApi, type Api } from '@/core/api/ApiProvider'
 import { useAuth, type Auth } from '@/core/auth/AuthProvider'
@@ -30,6 +32,22 @@ vi.mock('@capacitor/app', () => ({
   }
 }))
 
+const prefs = vi.hoisted(() => ({ data: new Map<string, string>() }))
+
+vi.mock('@capacitor/preferences', () => ({
+  Preferences: {
+    get: vi.fn(async ({ key }: { key: string }) => ({
+      value: prefs.data.get(key) ?? null
+    })),
+    set: vi.fn(async ({ key, value }: { key: string; value: string }) => {
+      prefs.data.set(key, value)
+    }),
+    remove: vi.fn(async ({ key }: { key: string }) => {
+      prefs.data.delete(key)
+    })
+  }
+}))
+
 const send = vi.fn()
 
 function Keys() {
@@ -48,9 +66,19 @@ function renderHome() {
   )
 }
 
+const openLink = (url: string) =>
+  act(() => app.listeners.forEach(l => l({ url })))
+
+const homeBox = () => screen.getByRole('textbox', { name: 'Ask a question' })
+
+afterEach(() => {
+  vi.unstubAllEnvs()
+})
+
 beforeEach(() => {
   vi.clearAllMocks()
   app.listeners.length = 0
+  prefs.data.clear()
   vi.mocked(useThread).mockReturnValue({
     messages: [],
     status: 'ready',
@@ -100,16 +128,130 @@ describe('AskHome', () => {
     expect(send).toHaveBeenCalledExactlyOnceWith('Why is the sky blue?')
   })
 
-  it('opens a new thread for an ask:// link', async () => {
-    renderHome()
-    await act(async () => {})
+  describe('an ask:// link', () => {
+    it('puts the question in the box, focused, and sends nothing', async () => {
+      renderHome()
+      await act(async () => {})
 
-    act(() =>
-      app.listeners.forEach(l => l({ url: 'ask://ask?q=from%20a%20link' }))
-    )
-    expect(screen.getByTestId('keys')).toHaveTextContent(
-      'tabs,thread:new-chat-id'
-    )
-    expect(send).toHaveBeenCalledExactlyOnceWith('from a link')
+      openLink('ask://ask?q=from%20a%20link')
+
+      expect(homeBox()).toHaveValue('from a link')
+      expect(homeBox()).toHaveFocus()
+      expect(screen.getByTestId('keys')).toHaveTextContent(/^tabs$/)
+      expect(send).not.toHaveBeenCalled()
+    })
+
+    it('is sent only when the user taps Send', async () => {
+      const user = userEvent.setup()
+      renderHome()
+      await act(async () => {})
+      openLink('ask://ask?q=from%20a%20link')
+
+      await user.click(screen.getByRole('button', { name: 'Send' }))
+      expect(screen.getByTestId('keys')).toHaveTextContent(
+        'tabs,thread:new-chat-id'
+      )
+      expect(send).toHaveBeenCalledExactlyOnceWith('from a link')
+    })
+
+    it('goes back to the Ask home from an open thread', async () => {
+      const user = userEvent.setup()
+      renderHome()
+      await user.type(homeBox(), 'First{Enter}')
+      expect(screen.getByTestId('keys')).toHaveTextContent(
+        'tabs,thread:new-chat-id'
+      )
+      send.mockClear()
+
+      openLink('ask://ask?q=second')
+
+      expect(screen.getByTestId('keys')).toHaveTextContent(/^tabs$/)
+      expect(homeBox()).toHaveValue('second')
+      expect(send).not.toHaveBeenCalled()
+    })
+
+    it('switches to the Ask tab', async () => {
+      render(
+        <SearchSettingsProvider storage={memoryStorage()}>
+          <StackProvider
+            root={{
+              key: 'tabs',
+              render: () => (
+                <Tabs
+                  tabs={[
+                    {
+                      id: 'ask',
+                      label: 'Ask',
+                      icon: <svg />,
+                      render: () => <AskHome />
+                    },
+                    {
+                      id: 'library',
+                      label: 'Library',
+                      icon: <svg />,
+                      render: () => <p>Library</p>
+                    }
+                  ]}
+                />
+              )
+            }}
+          >
+            <StackView />
+          </StackProvider>
+        </SearchSettingsProvider>
+      )
+      await act(async () => {})
+      act(() => screen.getByRole('tab', { name: 'Library' }).click())
+
+      openLink('ask://ask?q=from%20a%20link')
+
+      expect(screen.getByRole('tab', { name: 'Ask' })).toHaveAttribute(
+        'aria-selected',
+        'true'
+      )
+      expect(homeBox()).toHaveValue('from a link')
+      expect(send).not.toHaveBeenCalled()
+    })
+
+    it('opens and sends at once in a simulator E2E build', async () => {
+      vi.stubEnv('VITE_E2E_AUTOSEND', 'true')
+      renderHome()
+      await act(async () => {})
+
+      openLink('ask://ask?q=from%20a%20link')
+      await act(async () => {})
+
+      expect(screen.getByTestId('keys')).toHaveTextContent(
+        'tabs,thread:new-chat-id'
+      )
+      expect(send).toHaveBeenCalledExactlyOnceWith('from a link')
+    })
+  })
+
+  describe('the E2E seeded question', () => {
+    it('is asked once at start in an E2E build', async () => {
+      vi.stubEnv('VITE_E2E_AUTOSEND', 'true')
+      prefs.data.set('e2e-ask', 'Seeded question?')
+      renderHome()
+      await act(async () => {})
+      await act(async () => {})
+
+      expect(prefs.data.has('e2e-ask')).toBe(false)
+      expect(screen.getByTestId('keys')).toHaveTextContent(
+        'tabs,thread:new-chat-id'
+      )
+      expect(send).toHaveBeenCalledExactlyOnceWith('Seeded question?')
+    })
+
+    it('is never read in a normal build', async () => {
+      const { Preferences } = await import('@capacitor/preferences')
+      prefs.data.set('e2e-ask', 'Planted?')
+      renderHome()
+      await act(async () => {})
+
+      expect(Preferences.get).not.toHaveBeenCalledWith({ key: 'e2e-ask' })
+      expect(prefs.data.get('e2e-ask')).toBe('Planted?')
+      expect(send).not.toHaveBeenCalled()
+    })
   })
 })

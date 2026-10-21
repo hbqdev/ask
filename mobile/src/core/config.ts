@@ -26,3 +26,15 @@ export function getConfig(
   )
   return { apiBaseUrl, supabaseUrl, supabaseKey }
 }
+
+/**
+ * A simulator E2E build (sync-mac.sh sim sets VITE_E2E_AUTOSEND=true): an
+ * ask:// link sends at once and a question seeded in Preferences is asked at
+ * launch. Never on in a default or device build, where a link only fills the
+ * box: a turn can write a lasting memory, so no outside app may send one.
+ */
+export function isE2eAutoSend(
+  env: Record<string, string | undefined> = import.meta.env
+): boolean {
+  return env.VITE_E2E_AUTOSEND === 'true'
+}

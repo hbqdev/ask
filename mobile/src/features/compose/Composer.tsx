@@ -5,6 +5,7 @@
 // bottom; `.composer` (styles.css) clears the home indicator.
 
 import {
+  useEffect,
   useLayoutEffect,
   useRef,
   useState,
@@ -41,6 +42,11 @@ export type ComposerProps = {
   autoFocus?: boolean
   /** Nothing can be sent yet (the chat is loading); typing still works. */
   disabled?: boolean
+  /**
+   * Text to put in the box, focused, for the user to send (an ask:// link).
+   * Each new object fills the box again, even with the same text.
+   */
+  draft?: { text: string }
 }
 
 function ArrowUp() {
@@ -76,11 +82,18 @@ export function Composer({
   settings,
   onSettings,
   autoFocus,
-  disabled = false
+  disabled = false,
+  draft
 }: ComposerProps) {
   const [text, setText] = useState('')
   const [optionsOpen, setOptionsOpen] = useState(false)
   const field = useRef<HTMLTextAreaElement>(null)
+
+  useEffect(() => {
+    if (!draft) return
+    setText(draft.text)
+    field.current!.focus()
+  }, [draft])
 
   // Fit the field to its text, up to six lines.
   useLayoutEffect(() => {

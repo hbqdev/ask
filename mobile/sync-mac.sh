@@ -10,7 +10,8 @@
 #   ./sync-mac.sh                 # sync + device build + install on the iPhone
 #   ./sync-mac.sh sync            # build dist/, copy to the Mac, `cap sync ios`
 #   ./sync-mac.sh sim <dir>       # sync + simulator build, launch, screenshots
-#                                 # (light and dark) saved to <dir> here
+#                                 # (light and dark) saved to <dir> here; the
+#                                 # bundle is an E2E build (see build_local)
 #   ./sync-mac.sh launch-times [n]  # n cold launches (default 3) of the
 #                                 # simulator build, timed to first render
 #   ./sync-mac.sh pull-ios        # copy the Mac's ios/ project back here
@@ -42,15 +43,23 @@ remote() { ssh -o BatchMode=yes "$MAC" "export PATH=/opt/homebrew/bin:\$PATH; cd
 # is rewritten before EVERY build, so a build never reuses a server left over
 # from an earlier one: production by default, ASK_URL to point a build
 # elsewhere (e.g. staging). The API origin is printed first (it is not secret).
+#
+# build_local e2e makes the simulator E2E bundle (VITE_E2E_AUTOSEND=true): an
+# ask:// link sends at once and a question seeded in Preferences (e2e-ask) is
+# asked at launch. Every other build sets it false explicitly, so a value in
+# the caller's environment can never leak into a device build, where a link
+# from any app must only fill the box (a turn can write a lasting memory).
 build_local() {
-  local api="${ASK_URL:-https://ask.hbqnexus.win}"
-  echo "Building for API: $api"
+  local api="${ASK_URL:-https://ask.hbqnexus.win}" autosend=false
+  if [ "${1:-}" = e2e ]; then autosend=true; fi
+  echo "Building for API: $api (E2E auto-send: $autosend)"
   "$HERE/scripts/env-from-ask.sh" "$api"
-  (cd "$HERE" && npm run build)
+  (cd "$HERE" && VITE_E2E_AUTOSEND="$autosend" npm run build)
 }
 
+# sync_up [e2e]: build (an E2E build when asked) and sync to the Mac.
 sync_up() {
-  build_local
+  build_local "${1:-}"
   ssh -o BatchMode=yes "$MAC" "mkdir -p ~/$REMOTE"
   # dist/ is synced; sources, env files and build outputs are not. Excluded
   # paths are also kept on the Mac (no --delete-excluded), e.g. node_modules.
@@ -103,7 +112,7 @@ sim_build() {
 sim() {
   local shots="${1:?usage: $0 sim <local-screenshot-dir>}" appearance shot
   mkdir -p "$shots"
-  sync_up
+  sync_up e2e
   sim_build
   SIM_DEVICE=$(sim_udid)
   echo "Simulator: $SIM_DEVICE"

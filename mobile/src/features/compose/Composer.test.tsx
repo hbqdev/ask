@@ -187,6 +187,30 @@ describe('Composer', () => {
     ).toBeInTheDocument()
   })
 
+  it('puts a draft in the box, focused, without sending it', () => {
+    const { input, onSend, rerender } = setup()
+    const props = {
+      placeholder: 'Ask anything',
+      busy: false,
+      onSend,
+      settings: BALANCED,
+      onSettings: vi.fn()
+    }
+    rerender(<Composer {...props} draft={{ text: 'From a link' }} />)
+
+    expect(input).toHaveValue('From a link')
+    expect(input).toHaveFocus()
+    expect(sendButton()).toBeEnabled()
+    expect(onSend).not.toHaveBeenCalled()
+
+    // The same question again (a new draft) fills the box again.
+    fireEvent.change(input, { target: { value: '' } })
+    input.blur()
+    rerender(<Composer {...props} draft={{ text: 'From a link' }} />)
+    expect(input).toHaveValue('From a link')
+    expect(input).toHaveFocus()
+  })
+
   it('grows with its text', () => {
     Object.defineProperty(HTMLTextAreaElement.prototype, 'scrollHeight', {
       configurable: true,

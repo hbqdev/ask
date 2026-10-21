@@ -1,5 +1,6 @@
-// The app's URL scheme: ask://ask?q=<question> opens a new chat that asks it
-// (a Shortcut, a widget or another app can hand Ask a question). iOS delivers
+// The app's URL scheme: ask://ask?q=<question> hands Ask a question (from a
+// Shortcut, a widget or another app). The Ask home puts it in the box for the
+// user to send; it never sends by itself (AskHome). iOS delivers
 // the URL through the App plugin's appUrlOpen event, which it holds until a
 // listener is added, so a link that launched the app still arrives.
 import { App } from '@capacitor/app'

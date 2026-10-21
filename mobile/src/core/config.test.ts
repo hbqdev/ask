@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
-import { getConfig } from '@/core/config'
+import { getConfig, isE2eAutoSend } from '@/core/config'
 
 // Fake values only: these never reach a real Supabase project.
 const supabase = {
@@ -68,5 +68,24 @@ describe('getConfig', () => {
       supabaseUrl: 'https://supabase.test.invalid',
       supabaseKey: 'sb_publishable_fake'
     })
+  })
+})
+
+describe('isE2eAutoSend', () => {
+  afterEach(() => {
+    vi.unstubAllEnvs()
+  })
+
+  it('is off unless the build sets VITE_E2E_AUTOSEND=true', () => {
+    expect(isE2eAutoSend({})).toBe(false)
+    expect(isE2eAutoSend({ VITE_E2E_AUTOSEND: 'false' })).toBe(false)
+    expect(isE2eAutoSend({ VITE_E2E_AUTOSEND: '1' })).toBe(false)
+    expect(isE2eAutoSend({ VITE_E2E_AUTOSEND: 'true' })).toBe(true)
+  })
+
+  it('reads import.meta.env by default', () => {
+    expect(isE2eAutoSend()).toBe(false)
+    vi.stubEnv('VITE_E2E_AUTOSEND', 'true')
+    expect(isE2eAutoSend()).toBe(true)
   })
 })
