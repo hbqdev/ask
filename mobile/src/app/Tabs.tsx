@@ -78,7 +78,8 @@ export function Tabs({ tabs, initial }: TabsProps) {
                 id={panelId(tab.id)}
                 role="tabpanel"
                 aria-labelledby={tabId(tab.id)}
-                className="absolute inset-0 flex flex-col"
+                // isolate: the panel's sticky or fixed layers stay inside it.
+                className="absolute inset-0 isolate flex flex-col"
                 // visibility, not display: the panel keeps its layout and scroll
                 // position while hidden.
                 style={isActive ? undefined : { visibility: 'hidden' }}

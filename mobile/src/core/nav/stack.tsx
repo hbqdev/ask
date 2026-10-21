@@ -219,6 +219,9 @@ export function StackView() {
             ref={isTop ? topRef : undefined}
             data-stack-key={entry.key}
             className={className}
+            // Deeper screens paint above shallower ones (a leaving screen is
+            // the deepest until it has slid out).
+            style={{ zIndex: i + 1 }}
             inert={!isTop}
             aria-hidden={isTop ? undefined : true}
             onTransitionEnd={isLeaving ? onLeaveEnd : undefined}

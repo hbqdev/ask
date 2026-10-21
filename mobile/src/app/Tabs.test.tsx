@@ -98,6 +98,14 @@ describe('Tabs', () => {
     expect(tab('Ask')).toHaveAttribute('aria-selected', 'true')
   })
 
+  it("isolates each panel, so a tab's sticky or fixed layers stay inside it", () => {
+    render(<Tabs tabs={makeTabs()} />)
+    fireEvent.click(tab('Library'))
+    for (const panel of screen.getAllByRole('tabpanel', { hidden: true })) {
+      expect(panel).toHaveClass('isolate')
+    }
+  })
+
   it('pads the tab bar for the safe area', () => {
     render(<Tabs tabs={makeTabs()} />)
     expect(screen.getByRole('tablist')).toHaveClass('tab-bar')
@@ -113,6 +121,12 @@ describe('navigation styles', () => {
     expect(css).toContain('--nav-ease: cubic-bezier(0.32, 0.72, 0, 1)')
     expect(css).toMatch(/@keyframes stack-in/)
     expect(css).toMatch(/\.stack-leave/)
+  })
+
+  it('makes every stack layer an opaque stacking context of its own', () => {
+    const rule = css.match(/\n\.stack-layer\s*{([^}]*)}/)?.[1] ?? ''
+    expect(rule).toMatch(/isolation:\s*isolate/)
+    expect(rule).toMatch(/background-color:\s*var\(--background\)/)
   })
 
   it('drops the slides when the user asks for reduced motion', () => {

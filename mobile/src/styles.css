@@ -111,7 +111,11 @@ body {
   inset: 0;
   display: flex;
   flex-direction: column;
+  /* Opaque, and a stacking context of its own (its z-index, by depth, is set
+     inline): nothing inside a lower screen, such as a sticky header's
+     z-index, can paint over the screen above it. */
   background-color: var(--background);
+  isolation: isolate;
   /* Vertical scrolling stays native; horizontal moves reach the swipe. */
   touch-action: pan-y;
 }

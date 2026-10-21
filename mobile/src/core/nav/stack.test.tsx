@@ -252,6 +252,21 @@ describe('StackView', () => {
     expect(layer('home')).not.toHaveAttribute('inert')
   })
 
+  it('stacks each screen above the ones below it, by depth', () => {
+    setupView()
+    act(() => stack.push(entry('thread')))
+    act(() => stack.push(entry('source')))
+    const z = ['home', 'thread', 'source'].map(k =>
+      Number(layer(k).style.zIndex)
+    )
+    expect(z).toEqual([1, 2, 3])
+
+    // A popped screen keeps the top layer while it slides out.
+    act(() => stack.pop())
+    expect(Number(layer('source').style.zIndex)).toBe(3)
+    expect(Number(layer('thread').style.zIndex)).toBe(2)
+  })
+
   it('slides a popped screen out, then removes it', () => {
     setupView()
     act(() => stack.push(entry('thread')))
