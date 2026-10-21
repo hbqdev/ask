@@ -51,7 +51,8 @@ vi.mock('@capacitor/preferences', () => ({
 type AppStateListener = (state: { isActive: boolean }) => void
 const app = vi.hoisted(() => ({
   listeners: [] as Array<(state: { isActive: boolean }) => void>,
-  remove: vi.fn(async () => {})
+  remove: vi.fn(async () => {}),
+  getInfo: vi.fn<() => Promise<{ version: string; build: string }>>()
 }))
 vi.mock('@capacitor/app', () => ({
   App: {
@@ -63,7 +64,8 @@ vi.mock('@capacitor/app', () => ({
           await app.remove()
         }
       }
-    })
+    }),
+    getInfo: app.getInfo
   }
 }))
 
@@ -141,6 +143,8 @@ beforeEach(() => {
   resetModelChoice()
   prefs.clear()
   app.listeners.length = 0
+  // As on the web: the native app info is not there.
+  app.getInfo.mockRejectedValue(new Error('Not implemented on web.'))
 })
 
 // --- Account ----------------------------------------------------------------
@@ -502,10 +506,20 @@ describe('DataSection', () => {
 // --- About ------------------------------------------------------------------
 
 describe('AboutSection', () => {
-  it('shows the app version and the server host', () => {
+  it('shows the installed app’s version and the server host', async () => {
+    app.getInfo.mockResolvedValue({ version: '1.4.0', build: '12' })
     serve()
     render(<AboutSection />)
-    expect(screen.getByText('0.0.0-test')).toBeInTheDocument()
+    expect(await screen.findByText('1.4.0')).toBeInTheDocument()
+    expect(screen.queryByText('0.0.0-test')).toBeNull()
     expect(screen.getByText('ask.test.invalid')).toBeInTheDocument()
+  })
+
+  it('shows the bundled version where the app info is not available (the web)', async () => {
+    serve()
+    render(<AboutSection />)
+    await flush()
+    expect(app.getInfo).toHaveBeenCalled()
+    expect(screen.getByText('0.0.0-test')).toBeInTheDocument()
   })
 })

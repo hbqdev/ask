@@ -305,11 +305,31 @@ export function DataSection() {
 
 // --- About ------------------------------------------------------------------
 
-/** The app version and the Ask server it talks to. */
+/**
+ * The app version and the Ask server it talks to. The version is the
+ * installed app's (its bundle version); where that is not available (the
+ * web), the version this code was built with.
+ */
 export function AboutSection() {
   const { baseUrl } = useApi()
+  const [version, setVersion] = useState(__APP_VERSION__)
+  useEffect(() => {
+    let current = true
+    // Also when getInfo is missing altogether (a test or web shim).
+    Promise.resolve()
+      .then(() => App.getInfo())
+      .then(
+        info => {
+          if (current) setVersion(info.version)
+        },
+        () => {}
+      )
+    return () => {
+      current = false
+    }
+  }, [])
   const rows = [
-    { label: 'Version', value: __APP_VERSION__ },
+    { label: 'Version', value: version },
     { label: 'Server', value: new URL(baseUrl).host }
   ]
   return (
