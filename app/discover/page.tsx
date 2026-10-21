@@ -6,6 +6,7 @@ import { IconArrowUp, IconWorld } from '@tabler/icons-react'
 import { toast } from 'sonner'
 
 import { SUMMARIZE_LABEL } from '@/lib/constants'
+import { thumbUrl } from '@/lib/discover/thumb-url'
 import { cn } from '@/lib/utils'
 import { sanitizeHttpUrl } from '@/lib/utils/safe-url'
 
@@ -27,20 +28,6 @@ const topics: { key: string; display: string }[] = [
   { display: 'Entertainment', key: 'entertainment' },
   { display: 'Health', key: 'health' }
 ]
-
-function thumbUrl(raw: string) {
-  try {
-    const u = new URL(raw)
-    // Bing News thumbnails use ?id= as the only meaningful param — strip the rest
-    if (u.hostname.includes('bing.com') && u.searchParams.has('id')) {
-      return `${u.origin}${u.pathname}?id=${u.searchParams.get('id')}`
-    }
-    // Google News and all other engines: use URL as-is
-    return raw
-  } catch {
-    return raw
-  }
-}
 
 function SmallNewsCard({ item }: { item: Discover }) {
   // Block javascript:/data: hrefs from the provider-supplied article URL.

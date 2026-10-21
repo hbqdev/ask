@@ -1,4 +1,5 @@
 import { getCurrentUserId } from '@/lib/auth/get-current-user'
+import { appPreflight, withAppCors } from '@/lib/http/with-app-cors'
 import { isVoiceEnabled } from '@/lib/voice/config'
 import { transcribeAudio } from '@/lib/voice/stt-client'
 
@@ -6,7 +7,18 @@ import { transcribeAudio } from '@/lib/voice/stt-client'
 // over a minute of Opus — far more than a push-to-talk clip needs.
 const MAX_BYTES = 25 * 1024 * 1024
 
+// This route is outside the proxy matcher (proxy.ts) so its multipart body is
+// never cut at Next's 10 MB proxy limit; it therefore answers the app's CORS
+// itself.
+export function OPTIONS(req: Request): Response {
+  return appPreflight(req)
+}
+
 export async function POST(req: Request): Promise<Response> {
+  return withAppCors(await transcribe(req), req.headers.get('origin'))
+}
+
+async function transcribe(req: Request): Promise<Response> {
   // Feature-gated: when off, the endpoint does not exist.
   if (!isVoiceEnabled()) return new Response('Not found', { status: 404 })
 

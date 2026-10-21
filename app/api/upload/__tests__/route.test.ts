@@ -1,10 +1,18 @@
 import { NextRequest } from 'next/server'
 
-import { mkdtemp, readFile, realpath, rm } from 'node:fs/promises'
+import {
+  mkdtemp,
+  readdir,
+  readFile,
+  realpath,
+  rm,
+  stat
+} from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import {
   afterAll,
+  afterEach,
   beforeAll,
   beforeEach,
   describe,
@@ -32,12 +40,13 @@ import { isTextFamily, processFileForRAG } from '@/lib/embeddings/upload-rag'
 // dynamic import inside beforeAll.
 let uploadsDir: string
 let POST: typeof import('../route').POST
+let OPTIONS: typeof import('../route').OPTIONS
 
 beforeAll(async () => {
   uploadsDir = await mkdtemp(path.join(tmpdir(), 'ask-upload-test-'))
   process.env.UPLOADS_DIR = uploadsDir
   vi.resetModules()
-  ;({ POST } = await import('../route'))
+  ;({ POST, OPTIONS } = await import('../route'))
 })
 
 afterAll(async () => {
@@ -323,5 +332,152 @@ describe('POST /api/upload', () => {
 
     const written = await readFile(absPath, 'utf-8')
     expect(written).toBe(content)
+  })
+
+  it('rejects a body shorter than content-length and removes the partial file', async () => {
+    const req = makeRequest('a'.repeat(60), {
+      'content-type': 'text/plain',
+      'x-filename': encodeURIComponent('notes.txt'),
+      'x-chat-id': 'short-body',
+      'content-length': '100'
+    })
+
+    const res = await POST(req)
+    const json = await res.json()
+
+    expect(res.status).toBe(400)
+    expect(json).toEqual({ error: 'Upload incomplete' })
+    expect(createFileRecord).not.toHaveBeenCalled()
+    // The directory is created before streaming; the partial file must not
+    // be left in it.
+    expect(await readdir(path.join(uploadsDir, 'u1/chats/short-body'))).toEqual(
+      []
+    )
+  })
+
+  it('accepts a body whose length matches content-length', async () => {
+    const req = makeRequest('a'.repeat(100), {
+      'content-type': 'text/plain',
+      'x-filename': encodeURIComponent('notes.txt'),
+      'x-chat-id': 'c1',
+      'content-length': '100'
+    })
+
+    const res = await POST(req)
+
+    expect(res.status).toBe(200)
+    expect(createFileRecord).toHaveBeenCalledWith(
+      expect.objectContaining({ size: 100 })
+    )
+  })
+
+  // Next's proxy used to cut every /api/upload body at 10 MB and the route
+  // answered 200 with the truncated file. The proxy no longer runs for this
+  // path (see __tests__/proxy-matcher.test.ts); this proves the handler
+  // itself streams a body past that limit to disk whole.
+  it('streams a 12 MB body to disk whole', async () => {
+    const size = 12 * 1024 * 1024
+    const chunk = new Uint8Array(64 * 1024).fill(7)
+    let sent = 0
+    const body = new ReadableStream<Uint8Array>({
+      pull(controller) {
+        if (sent >= size) return controller.close()
+        controller.enqueue(chunk)
+        sent += chunk.length
+      }
+    })
+    const req = new NextRequest('http://localhost:3000/api/upload', {
+      method: 'POST',
+      headers: {
+        'content-type': 'video/mp4',
+        'x-filename': encodeURIComponent('clip.mp4'),
+        'x-chat-id': 'c1',
+        'content-length': String(size)
+      },
+      body,
+      duplex: 'half'
+    } as any)
+
+    const res = await POST(req)
+    const json = await res.json()
+
+    expect(res.status).toBe(200)
+    expect(createFileRecord).toHaveBeenCalledWith(
+      expect.objectContaining({ size })
+    )
+    expect((await stat(path.join(uploadsDir, json.file.objectKey))).size).toBe(
+      size
+    )
+  })
+})
+
+describe('/api/upload CORS for the app origin', () => {
+  const APP = 'capacitor://localhost'
+
+  beforeEach(() => vi.stubEnv('APP_CORS_ORIGINS', ''))
+  afterEach(() => vi.unstubAllEnvs())
+
+  const preflight = (origin: string) =>
+    new Request('http://localhost:3000/api/upload', {
+      method: 'OPTIONS',
+      headers: {
+        Origin: origin,
+        'Access-Control-Request-Method': 'POST',
+        'Access-Control-Request-Headers': 'authorization, x-filename'
+      }
+    })
+
+  it('answers an allowed-origin preflight with 204 and CORS headers', async () => {
+    const res = await OPTIONS(preflight(APP))
+    expect(res.status).toBe(204)
+    expect(res.headers.get('access-control-allow-origin')).toBe(APP)
+    expect(res.headers.get('access-control-allow-headers')).toContain(
+      'x-filename'
+    )
+  })
+
+  it('answers a foreign-origin preflight with 204 and no CORS headers', async () => {
+    const res = await OPTIONS(preflight('https://evil.example'))
+    expect(res.status).toBe(204)
+    expect(res.headers.get('access-control-allow-origin')).toBeNull()
+  })
+
+  it('adds CORS headers to a successful upload from the app', async () => {
+    const res = await POST(
+      makeRequest('hello world', {
+        origin: APP,
+        'content-type': 'text/plain',
+        'x-filename': encodeURIComponent('notes.txt'),
+        'x-chat-id': 'c1'
+      })
+    )
+    expect(res.status).toBe(200)
+    expect(res.headers.get('access-control-allow-origin')).toBe(APP)
+    expect((await res.json()).success).toBe(true)
+  })
+
+  it('adds CORS headers to an error response from the app', async () => {
+    vi.mocked(getCurrentUserId).mockResolvedValue(undefined as any)
+    const res = await POST(
+      makeRequest('x', {
+        origin: APP,
+        'content-type': 'text/plain',
+        'x-filename': encodeURIComponent('notes.txt')
+      })
+    )
+    expect(res.status).toBe(401)
+    expect(res.headers.get('access-control-allow-origin')).toBe(APP)
+  })
+
+  it('adds no CORS headers for a same-origin web upload', async () => {
+    const res = await POST(
+      makeRequest('hello world', {
+        'content-type': 'text/plain',
+        'x-filename': encodeURIComponent('notes.txt'),
+        'x-chat-id': 'c1'
+      })
+    )
+    expect(res.status).toBe(200)
+    expect(res.headers.get('access-control-allow-origin')).toBeNull()
   })
 })
