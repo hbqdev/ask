@@ -5,11 +5,14 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 // Auto-mocked; each test configures the resolved values it needs.
 vi.mock('@/lib/actions/chat')
 vi.mock('@/lib/db/actions')
+vi.mock('@/lib/auth/get-current-user')
 
-import { deleteChat } from '@/lib/actions/chat'
-import { touchChat } from '@/lib/db/actions'
+import { deleteChat, renameChat } from '@/lib/actions/chat'
+import { getCurrentUserId } from '@/lib/auth/get-current-user'
+import { touchChat, updateChatTitle } from '@/lib/db/actions'
+import { CHAT_TITLE_MAX_LENGTH } from '@/lib/db/schema'
 
-import { DELETE } from '../[chatId]/route'
+import { DELETE, PATCH } from '../[chatId]/route'
 import { POST } from '../[chatId]/touch/route'
 
 beforeEach(() => {
@@ -23,6 +26,14 @@ function context(chatId: string) {
 
 function makeRequest(path: string, method: string): NextRequest {
   return new NextRequest(`http://localhost:3000/api/chats/${path}`, { method })
+}
+
+function patchRequest(body: string): NextRequest {
+  return new NextRequest('http://localhost:3000/api/chats/c1', {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body
+  })
 }
 
 describe('DELETE /api/chats/[chatId]', () => {
@@ -98,5 +109,118 @@ describe('POST /api/chats/[chatId]/touch', () => {
     expect(touchChat).toHaveBeenCalledWith('c1')
     expect(res.status).toBe(204)
     expect(await res.text()).toBe('')
+  })
+})
+
+describe('PATCH /api/chats/[chatId]', () => {
+  it('returns 200 {ok:true, title} with the trimmed title', async () => {
+    vi.mocked(renameChat).mockResolvedValue({ ok: true, title: 'Trip plan' })
+
+    const res = await PATCH(
+      patchRequest(JSON.stringify({ title: '  Trip plan  ' })),
+      context('c1')
+    )
+
+    expect(renameChat).toHaveBeenCalledWith('c1', '  Trip plan  ')
+    expect(res.status).toBe(200)
+    expect(await res.json()).toEqual({ ok: true, title: 'Trip plan' })
+  })
+
+  it('saves a 300-char title capped at CHAT_TITLE_MAX_LENGTH', async () => {
+    // Real renameChat over the mocked DB layer: the cap is applied before the
+    // write, and the response carries the title that was actually saved.
+    const actual =
+      await vi.importActual<typeof import('@/lib/actions/chat')>(
+        '@/lib/actions/chat'
+      )
+    vi.mocked(renameChat).mockImplementation(actual.renameChat)
+    vi.mocked(getCurrentUserId).mockResolvedValue('user-1')
+    const capped = 'x'.repeat(CHAT_TITLE_MAX_LENGTH)
+    vi.mocked(updateChatTitle).mockResolvedValue({
+      id: 'c1',
+      title: capped,
+      userId: 'user-1',
+      visibility: 'private',
+      createdAt: new Date(),
+      lastViewedAt: null
+    })
+
+    const res = await PATCH(
+      patchRequest(JSON.stringify({ title: 'x'.repeat(300) })),
+      context('c1')
+    )
+
+    expect(updateChatTitle).toHaveBeenCalledWith('c1', capped, 'user-1')
+    expect(res.status).toBe(200)
+    expect(await res.json()).toEqual({ ok: true, title: capped })
+  })
+
+  it.each([
+    ['an empty title', JSON.stringify({ title: '' })],
+    ['a whitespace title', JSON.stringify({ title: '   ' })]
+  ])('returns 400 for %s', async (_label, body) => {
+    vi.mocked(renameChat).mockResolvedValue({ error: 'Empty title' })
+
+    const res = await PATCH(patchRequest(body), context('c1'))
+
+    expect(res.status).toBe(400)
+    expect(await res.json()).toEqual({ error: 'Title is required' })
+  })
+
+  it.each([
+    ['a non-string title', JSON.stringify({ title: 42 })],
+    ['a missing title', JSON.stringify({})],
+    ['a non-object body', JSON.stringify('Trip plan')],
+    ['a null body', 'null'],
+    ['malformed JSON', '{not json']
+  ])('returns 400 without renaming for %s', async (_label, body) => {
+    const res = await PATCH(patchRequest(body), context('c1'))
+
+    expect(renameChat).not.toHaveBeenCalled()
+    expect(res.status).toBe(400)
+    expect(await res.json()).toEqual({ error: 'Title is required' })
+  })
+
+  it('returns 401 when renameChat reports no authenticated user', async () => {
+    vi.mocked(renameChat).mockResolvedValue({
+      error: 'User not authenticated'
+    })
+
+    const res = await PATCH(
+      patchRequest(JSON.stringify({ title: 'Trip plan' })),
+      context('c1')
+    )
+
+    expect(res.status).toBe(401)
+    expect(await res.json()).toEqual({ error: 'Unauthorized' })
+  })
+
+  it('returns 404 when the chat is missing or not owned', async () => {
+    vi.mocked(renameChat).mockResolvedValue({ error: 'Not found' })
+
+    const res = await PATCH(
+      patchRequest(JSON.stringify({ title: 'Trip plan' })),
+      context('c1')
+    )
+
+    expect(res.status).toBe(404)
+    expect(await res.json()).toEqual({ error: 'Not found' })
+  })
+
+  it('returns a retryable 500 when renameChat throws', async () => {
+    const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {})
+    vi.mocked(renameChat).mockRejectedValue(new Error('db down'))
+
+    const res = await PATCH(
+      patchRequest(JSON.stringify({ title: 'Trip plan' })),
+      context('c1')
+    )
+
+    expect(res.status).toBe(500)
+    expect(await res.json()).toEqual({
+      error: 'Failed to rename chat',
+      retryable: true
+    })
+    consoleError.mockRestore()
   })
 })
