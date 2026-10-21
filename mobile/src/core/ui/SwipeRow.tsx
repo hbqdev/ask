@@ -53,10 +53,18 @@ function closeOnOutsidePress(e: Event) {
 
 // The click that ends the closing press is stopped (in the capture phase on
 // the document, before it reaches anything), so it presses nothing. Should
-// that press make no click (it became a scroll), the next press disarms it.
+// that press make no click (it became a scroll), the next press, any key or
+// SWALLOW_MS disarms it: a screen reader or keyboard activates with a click
+// and no press, and that click must not be eaten.
+const SWALLOW_MS = 600
+let disarmTimer: ReturnType<typeof setTimeout> | undefined
+
 function swallowNextClick() {
   document.addEventListener('click', swallow, true)
   document.addEventListener('pointerdown', disarm, true)
+  document.addEventListener('keydown', disarm, true)
+  clearTimeout(disarmTimer)
+  disarmTimer = setTimeout(disarm, SWALLOW_MS)
 }
 
 function swallow(e: Event) {
@@ -66,8 +74,10 @@ function swallow(e: Event) {
 }
 
 function disarm() {
+  clearTimeout(disarmTimer)
   document.removeEventListener('click', swallow, true)
   document.removeEventListener('pointerdown', disarm, true)
+  document.removeEventListener('keydown', disarm, true)
 }
 
 /** Makes `row` the open row, closing any other. */

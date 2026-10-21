@@ -284,6 +284,48 @@ describe('SwipeRow', () => {
     expect(onPress).toHaveBeenCalledTimes(1)
   })
 
+  it('swallows the closing click for 600 ms only (a later VoiceOver activation presses)', () => {
+    vi.useFakeTimers()
+    try {
+      const { content, onPress } = setup()
+      /** Opens the row, with the click that ends the swipe (dropped). */
+      const open = () => {
+        drag(content, [{ x: 300 }, { x: 200 }])
+        fireEvent.click(content)
+      }
+      open()
+      // Closed by a press that became a scroll: no click, no other press.
+      fireEvent.pointerDown(document.body)
+      vi.advanceTimersByTime(599)
+      expect(fireEvent.click(document.body)).toBe(false)
+
+      open()
+      fireEvent.pointerDown(document.body)
+      vi.advanceTimersByTime(600)
+      // A screen reader activates with a click and no press.
+      fireEvent.click(content)
+      expect(onPress).toHaveBeenCalledTimes(1)
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('swallows nothing after a key is pressed (a keyboard activation)', () => {
+    const onHeader = vi.fn()
+    const { content } = setup()
+    render(
+      <button type="button" onClick={onHeader}>
+        Edit
+      </button>
+    )
+    const header = screen.getByRole('button', { name: 'Edit' })
+    drag(content, [{ x: 300 }, { x: 200 }])
+    fireEvent.pointerDown(document.body)
+    fireEvent.keyDown(header, { key: 'Enter' })
+    fireEvent.click(header)
+    expect(onHeader).toHaveBeenCalledTimes(1)
+  })
+
   it('swallows nothing when no row was open', () => {
     const { content, onPress } = setup()
     fireEvent.pointerDown(document.body)
