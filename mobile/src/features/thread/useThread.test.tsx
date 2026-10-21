@@ -1152,6 +1152,36 @@ describe('useThread', () => {
       expect(requests('GET', `/api/chat/${CHAT_ID}/messages`)).toHaveLength(1)
     })
 
+    it('does not show a failed reload in the next chat', async () => {
+      const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+      const live = liveSse()
+      let failReload: (res: Response) => void = () => {}
+      serveWithLiveChat(live, {
+        stream: [() => new Response(null, { status: 204 })],
+        messages: [
+          () =>
+            new Promise<Response>(resolve => {
+              failReload = resolve
+            })
+        ]
+      })
+      const { result, rerender } = await backgroundMidAnswerHook(live)
+
+      setAppActive(true)
+      await waitFor(() =>
+        expect(requests('GET', `/api/chat/${CHAT_ID}/messages`)).toHaveLength(1)
+      )
+      rerender({ chatId: 'chat-2' })
+      await act(async () => {
+        failReload(new Response('Internal error', { status: 500 }))
+      })
+      await act(async () => {})
+
+      expect(warn).toHaveBeenCalled()
+      expect(result.current.error).toBeUndefined()
+      warn.mockRestore()
+    })
+
     it('does not put a saved copy into the next chat', async () => {
       const live = liveSse()
       let answerReload: (res: Response) => void = () => {}

@@ -645,6 +645,18 @@ describe('ThreadScreen', () => {
       expect(jump()).toBeInTheDocument()
     })
 
+    it('follows again when the user scrolls back to the bottom', () => {
+      const { view, m } = pinned()
+      m.scrollTo(300)
+      expect(jump()).toBeInTheDocument()
+
+      m.scrollTo(480)
+      expect(jump()).not.toBeInTheDocument()
+      m.grow(1400)
+      view.update(more(2))
+      expect(m.top()).toBe(900)
+    })
+
     it('keeps following when scrolled up by no more than 80 px', () => {
       const { view, m } = pinned()
       m.scrollTo(420)
