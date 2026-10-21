@@ -1,5 +1,10 @@
 import { type NextRequest, NextResponse } from 'next/server'
 
+import {
+  allowedAppOrigins,
+  appCorsHeaders,
+  isCorsPreflight
+} from '@/lib/http/app-cors'
 import { hasSupabasePublicConfig } from '@/lib/supabase/keys'
 import { updateSession } from '@/lib/supabase/middleware'
 
@@ -14,6 +19,17 @@ export async function proxy(request: NextRequest) {
 
   // Construct the base URL - ensure protocol has :// format
   const baseUrl = `${protocol}${protocol.endsWith(':') ? '//' : '://'}${host}`
+
+  // CORS for the mobile app origin on /api/*. Preflights are answered here,
+  // before the Supabase session refresh, and never reach a route handler.
+  const isApi = request.nextUrl.pathname.startsWith('/api/')
+  const origin = request.headers.get('origin')
+  if (isApi && isCorsPreflight(request.method, request.headers)) {
+    return new NextResponse(null, {
+      status: 204,
+      headers: appCorsHeaders(origin, allowedAppOrigins()) ?? {}
+    })
+  }
 
   // Create a response
   let response: NextResponse
@@ -32,6 +48,14 @@ export async function proxy(request: NextRequest) {
   response.headers.set('x-host', host)
   response.headers.set('x-protocol', protocol)
   response.headers.set('x-base-url', baseUrl)
+
+  if (isApi) {
+    const cors = appCorsHeaders(origin, allowedAppOrigins())
+    for (const [name, value] of Object.entries(cors ?? {})) {
+      if (name === 'Vary') response.headers.append(name, value)
+      else response.headers.set(name, value)
+    }
+  }
 
   return response
 }
