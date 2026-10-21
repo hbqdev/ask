@@ -567,6 +567,42 @@ describe('useThread', () => {
     expect(authOf(load)).toBe('Bearer fake-token')
   })
 
+  it('reads a saved chat’s title from the server, which a rename changed after it was streamed', async () => {
+    const streamed: UIMessage = {
+      id: 'a1',
+      role: 'assistant',
+      parts: [
+        { type: 'text', text: 'A' },
+        { type: 'data-title', data: { title: 'Streamed title' } }
+      ]
+    }
+    serve({
+      messages: [
+        () =>
+          json({
+            messages: [user('u1', 'Q'), streamed],
+            title: 'Renamed title'
+          })
+      ]
+    })
+    const { result } = renderThread(false)
+    expect(result.current.savedTitle).toBeUndefined()
+
+    await waitFor(() => expect(result.current.loading).toBe(false))
+    expect(result.current.savedTitle).toBe('Renamed title')
+    expect(result.current.title).toBe('Streamed title')
+  })
+
+  it('has no saved title for a new chat, or when the server sends none', async () => {
+    serve({ messages: [() => json({ messages: [user('u1', 'Q')] })] })
+    const { result } = renderThread(false)
+    await waitFor(() => expect(result.current.loading).toBe(false))
+    expect(result.current.savedTitle).toBeUndefined()
+
+    const fresh = renderThread(true)
+    expect(fresh.result.current.savedTitle).toBeUndefined()
+  })
+
   it('shows a failed load as the error', async () => {
     serve({ messages: [() => new Response('Chat not found', { status: 404 })] })
     const { result } = renderThread(false)
@@ -719,14 +755,17 @@ describe('useThread', () => {
     )
     await act(async () =>
       pending[`${BASE}/api/chat/chat-a/messages`](
-        json({ messages: [user('a', 'Chat A')] })
+        json({ messages: [user('a', 'Chat A')], title: 'Title A' })
       )
     )
     await waitFor(() => expect(result.current.loading).toBe(false))
+    expect(result.current.savedTitle).toBe('Title A')
 
     rerender({ chatId: 'chat-b' })
 
     expect(result.current.loading).toBe(true)
+    // Chat A's title never heads chat B.
+    expect(result.current.savedTitle).toBeUndefined()
     await waitFor(() =>
       expect(pending[`${BASE}/api/chat/chat-b/messages`]).toBeDefined()
     )

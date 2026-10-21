@@ -39,6 +39,11 @@ export type ThreadSession = {
   error: ChatErrorView | undefined
   /** The title the server streamed for this chat, once it has. */
   title?: string
+  /**
+   * A saved chat's title as the server has it now (renamed or not), once its
+   * messages load. The streamed title in those messages is never renamed.
+   */
+  savedTitle?: string
   send(text: string): void
   stop(): Promise<void>
   retry(assistantMessageId: string): void
@@ -71,7 +76,7 @@ const textOf = (message: UIMessage) =>
 const isBusy = (status: ChatStatus) =>
   status === 'submitted' || status === 'streaming'
 
-type MessagesResponse = { messages?: UIMessage[] }
+type MessagesResponse = { messages?: UIMessage[]; title?: string }
 
 export function useThread({
   chatId,
@@ -251,17 +256,21 @@ export function useThread({
 
   // An existing chat: show its saved messages (again on each reload).
   const [loadRequest, setLoadRequest] = useState(0)
+  const [savedTitle, setSavedTitle] = useState<string>()
   useEffect(() => {
     setLoadError(undefined)
     setLoading(!isNew)
+    setSavedTitle(undefined)
     if (isNew) return
     let cancelled = false
     client
       .json<MessagesResponse>(`/api/chat/${chatId}/messages`)
       .then(
         data => {
+          if (cancelled) return
+          setSavedTitle(data.title || undefined)
           // A question sent while loading wins over the saved copy.
-          if (!cancelled && !inFlight()) setMessages(data.messages ?? [])
+          if (!inFlight()) setMessages(data.messages ?? [])
         },
         (err: Error) => {
           if (!cancelled) setLoadError(err)
@@ -429,6 +438,7 @@ export function useThread({
     status,
     error: errorView,
     title,
+    savedTitle,
     send,
     stop,
     retry,

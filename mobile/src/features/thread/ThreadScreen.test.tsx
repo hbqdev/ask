@@ -441,6 +441,20 @@ describe('ThreadScreen', () => {
     ).toBeInTheDocument()
   })
 
+  it('heads a saved chat with its title on the server, over the one streamed before a rename', () => {
+    renderScreen(
+      session({
+        messages: TURN,
+        title: 'Streamed title',
+        savedTitle: 'Renamed in the Library'
+      }),
+      { initialTitle: 'From the Library' }
+    )
+    expect(
+      screen.getByRole('heading', { level: 1, name: 'Renamed in the Library' })
+    ).toBeInTheDocument()
+  })
+
   it('heads a chat with nothing loaded yet "Chat"', () => {
     renderScreen(session({ loading: true }))
     expect(

@@ -265,11 +265,14 @@ export function ThreadScreen({
   }
 
   // --- Header -----------------------------------------------------------------
-  // A rename here wins over the streamed title, which later turns don't renew.
+  // A rename here wins; then the saved chat's title on the server (renamed
+  // elsewhere or not), then the streamed one, which names a new chat but is
+  // never renewed by a rename or a later turn.
   const [renamedTitle, setRenamedTitle] = useState<string>()
   const firstQuestion = messages.find(m => m.role === 'user')
   const title =
     renamedTitle ||
+    thread.savedTitle ||
     thread.title ||
     initialTitle ||
     (firstQuestion ? textOf(firstQuestion) : initialQuestion) ||
