@@ -48,6 +48,29 @@ vi.mock('@/features/library/group-by-date', async importOriginal => {
   return { groupByDate: vi.fn(real.groupByDate) }
 })
 
+type AppStateListener = (state: { isActive: boolean }) => void
+const app = vi.hoisted(() => ({
+  listeners: [] as Array<(state: { isActive: boolean }) => void>
+}))
+vi.mock('@capacitor/app', () => ({
+  App: {
+    addListener: vi.fn(async (_event: string, listener: AppStateListener) => {
+      app.listeners.push(listener)
+      return {
+        remove: async () => {
+          app.listeners.splice(app.listeners.indexOf(listener), 1)
+        }
+      }
+    })
+  }
+}))
+
+/** The app comes back to the foreground. */
+const resumeApp = () =>
+  act(() => {
+    for (const listener of [...app.listeners]) listener({ isActive: true })
+  })
+
 const prefsData = vi.hoisted(() => new Map<string, string>())
 vi.mock('@capacitor/preferences', () => ({
   Preferences: {
@@ -138,6 +161,37 @@ async function renderScreen(
   }
 }
 
+/** The screen in the tab shell, beside a Settings tab to switch to. */
+async function renderInTabs(lib: Library) {
+  vi.mocked(useLibrary).mockReturnValue(lib)
+  vi.mocked(useChatSearch).mockReturnValue(chatSearch())
+  render(
+    <StackProvider root={HOME}>
+      <Tabs
+        tabs={[
+          {
+            id: 'library',
+            label: 'Library',
+            icon: null,
+            render: () => <LibraryScreen />
+          },
+          {
+            id: 'settings',
+            label: 'Settings',
+            icon: null,
+            render: () => <p>Settings</p>
+          }
+        ]}
+      />
+    </StackProvider>
+  )
+  await screen.findByRole('heading', { level: 1, name: 'Library' })
+  const user = userEvent.setup()
+  return {
+    showTab: (name: string) => user.click(screen.getByRole('tab', { name }))
+  }
+}
+
 const rowButton = (title: string) =>
   screen.getByRole('button', { name: new RegExp(`^${title}`) })
 
@@ -178,6 +232,7 @@ const selectTab = vi.fn()
 
 beforeEach(() => {
   prefsData.clear()
+  app.listeners.length = 0
   vi.clearAllMocks()
   vi.useFakeTimers({ toFake: ['Date'] })
   vi.setSystemTime(NOW)
@@ -279,6 +334,38 @@ describe('LibraryScreen list', () => {
     ).toBeInTheDocument()
   })
 
+  it('moves the rows to the next day’s sections when the app comes back after midnight', async () => {
+    await renderScreen()
+    expect(sectionNames()).toEqual(['Today', 'Yesterday', 'Previous 7 days'])
+
+    vi.setSystemTime(new Date(2026, 9, 22, 8, 0))
+    // Backgrounding alone changes nothing.
+    act(() => {
+      for (const listener of [...app.listeners]) listener({ isActive: false })
+    })
+    expect(sectionNames()).toEqual(['Today', 'Yesterday', 'Previous 7 days'])
+    resumeApp()
+
+    expect(sectionNames()).toEqual(['Yesterday', 'Previous 7 days'])
+  })
+
+  it('moves the rows to the next day’s sections when the tab is shown after midnight', async () => {
+    const { showTab } = await renderInTabs(library())
+    await showTab('Settings')
+    vi.setSystemTime(new Date(2026, 9, 22, 8, 0))
+
+    await showTab('Library')
+
+    expect(sectionNames()).toEqual(['Yesterday', 'Previous 7 days'])
+  })
+
+  it('stops listening for the app coming back once gone', async () => {
+    const { unmount } = await renderScreen()
+    await waitFor(() => expect(app.listeners).toHaveLength(1))
+    unmount()
+    await waitFor(() => expect(app.listeners).toHaveLength(0))
+  })
+
   it('sections by creation date for the newest and oldest sorts', async () => {
     prefsData.set(LIBRARY_SORT_KEY, 'newest')
     await renderScreen(library({ chats: [ROWS[1], ROWS[0], ROWS[2]] }))
@@ -343,38 +430,16 @@ describe('LibraryScreen list', () => {
 
   it('does not page while the Library tab is hidden, and watches again when shown', async () => {
     const lib = library({ hasMore: true })
-    vi.mocked(useLibrary).mockReturnValue(lib)
-    vi.mocked(useChatSearch).mockReturnValue(chatSearch())
-    const user = userEvent.setup()
-    render(
-      <StackProvider root={HOME}>
-        <Tabs
-          tabs={[
-            {
-              id: 'library',
-              label: 'Library',
-              icon: null,
-              render: () => <LibraryScreen />
-            },
-            {
-              id: 'settings',
-              label: 'Settings',
-              icon: null,
-              render: () => <p>Settings</p>
-            }
-          ]}
-        />
-      </StackProvider>
-    )
+    const { showTab } = await renderInTabs(lib)
     const sentinel = await screen.findByTestId('library-more')
     expect(isObserved(sentinel)).toBe(true)
 
-    await user.click(screen.getByRole('tab', { name: 'Settings' }))
+    await showTab('Settings')
     expect(isObserved(sentinel)).toBe(false)
     act(() => intersect(sentinel))
     expect(lib.loadMore).not.toHaveBeenCalled()
 
-    await user.click(screen.getByRole('tab', { name: 'Library' }))
+    await showTab('Library')
     expect(isObserved(sentinel)).toBe(true)
     act(() => intersect(sentinel))
     expect(lib.loadMore).toHaveBeenCalledOnce()

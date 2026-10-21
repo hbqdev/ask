@@ -3,6 +3,7 @@
 // swipe to delete or rename. Rows show from the offline cache at once while
 // the list revalidates; a failed load keeps them and says so.
 
+import { App } from '@capacitor/app'
 import {
   memo,
   useCallback,
@@ -388,7 +389,18 @@ const ChatList = memo(function ChatList({
   }, [active, hasMore, loadMore, chats, scroller])
 
   // Rows' times and the sections depend on the day only, so `now` (and every
-  // memoized row) stays the same until midnight.
+  // memoized row) stays the same until midnight. A render takes up a new
+  // day: showing the tab renders the list again (`active` changed), and so
+  // does the app coming back on another day than it last rendered.
+  const [, setDay] = useState(startOfToday)
+  useEffect(() => {
+    const handle = App.addListener('appStateChange', ({ isActive }) => {
+      if (isActive) setDay(startOfToday())
+    })
+    return () => {
+      void handle.then(h => h.remove())
+    }
+  }, [])
   const today = startOfToday()
   const now = useMemo(() => new Date(today), [today])
   const key = sort === 'recent' ? 'lastViewedAt' : 'createdAt'
