@@ -31,8 +31,9 @@ already baked into `dist/`), then runs `npm install` and `cap sync ios` there.
 - This folder's packages: `npx npm@10 install` (npm 9.2 hits an `edgesOut`
   install bug).
 - `.env.local`: `scripts/env-from-ask.sh [api-url]` writes it (git-ignored)
-  from Ask's root `.env`; `sync-mac.sh` runs it when the file is missing
-  (`ASK_URL` overrides the default `https://ask.hbqnexus.win`).
+  from Ask's root `.env`; `sync-mac.sh` runs it when the file is missing,
+  and whenever `ASK_URL` is set (e.g. `ASK_URL=<staging-url> ./sync-mac.sh
+  sim <dir>`; the default is `https://ask.hbqnexus.win`).
 
 ## Develop and test
 

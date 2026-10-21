@@ -1,8 +1,9 @@
 // A launch-timing mark: one console line when the app's first real screen
 // (sign-in or the tab shell) is ready and the native splash is about to hide.
 // Capacitor forwards console.log to the app's stdout in Debug builds, so
-// `xcrun simctl launch --stdout=<file>` can time cold launches against it
-// (sync-mac.sh `launch-times`). The line carries no user data.
+// `xcrun simctl launch --console-pty` (a terminal keeps that stdout
+// line-buffered) can time cold launches against it (sync-mac.sh
+// `launch-times`). The line carries no user data.
 
 /** The token the launch-timing script looks for. */
 export const FIRST_RENDER_MARK = 'ASK_FIRST_RENDER'

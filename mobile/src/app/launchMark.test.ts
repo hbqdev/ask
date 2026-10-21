@@ -12,7 +12,7 @@ beforeEach(() => {
 })
 
 afterEach(() => {
-  vi.mocked(console.log).mockRestore()
+  vi.restoreAllMocks()
 })
 
 describe('markFirstRender', () => {
@@ -37,7 +37,5 @@ describe('markFirstRender', () => {
     vi.spyOn(Date, 'now').mockReturnValue(7)
     markFirstRender()
     expect(console.log).toHaveBeenCalledWith(`${FIRST_RENDER_MARK} 42.0 7`)
-    vi.mocked(performance.now).mockRestore()
-    vi.mocked(Date.now).mockRestore()
   })
 })
