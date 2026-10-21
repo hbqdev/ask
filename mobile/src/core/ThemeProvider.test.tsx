@@ -239,6 +239,40 @@ describe('ThemeProvider', () => {
     expect(root.classList.contains('dark')).toBe(true)
   })
 
+  it('is not loaded until the stored choice has been read', async () => {
+    fakeSystem(false)
+    let release: (value: string | null) => void = () => {}
+    const storage = {
+      ...memoryStorage(),
+      getItem: vi.fn(
+        () =>
+          new Promise<string | null>(resolve => {
+            release = resolve
+          })
+      )
+    }
+    const { result } = setup(storage)
+    expect(result.current.loaded).toBe(false)
+
+    await act(async () => release('dark'))
+    expect(result.current.loaded).toBe(true)
+    expect(result.current.pref).toBe('dark')
+  })
+
+  it('is loaded when the stored choice cannot be read', async () => {
+    fakeSystem(false)
+    const storage = {
+      ...memoryStorage(),
+      getItem: vi.fn(async () => {
+        throw new Error('storage unavailable')
+      })
+    }
+    const { result } = setup(storage)
+
+    await waitFor(() => expect(result.current.loaded).toBe(true))
+    expect(result.current.pref).toBe('system')
+  })
+
   it('stops listening to the device on unmount', async () => {
     const system = fakeSystem(false)
     const { unmount } = setup(memoryStorage())

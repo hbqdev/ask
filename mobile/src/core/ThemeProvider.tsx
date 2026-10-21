@@ -29,6 +29,8 @@ export type Theme = {
   pref: ThemePref
   /** What is on screen: the choice, with System resolved. */
   resolved: ResolvedTheme
+  /** Whether the stored choice has been read (or failed to read). */
+  loaded: boolean
   setPref(pref: ThemePref): void
 }
 
@@ -49,6 +51,7 @@ export function ThemeProvider({
   children: ReactNode
 }) {
   const [pref, setPrefState] = useState<ThemePref>('system')
+  const [loaded, setLoaded] = useState(false)
   const [systemDark, setSystemDark] = useState(systemIsDark)
   // Set once the user picks a theme, so a slow load cannot undo their pick.
   const chosen = useRef(false)
@@ -61,6 +64,7 @@ export function ThemeProvider({
       })
       // Unreadable storage leaves the app on System.
       .catch(() => {})
+      .finally(() => setLoaded(true))
   }, [storage])
 
   // Only System listens to the device; an explicit choice ignores it.
@@ -93,8 +97,8 @@ export function ThemeProvider({
   )
 
   const theme = useMemo(
-    () => ({ pref, resolved, setPref }),
-    [pref, resolved, setPref]
+    () => ({ pref, resolved, loaded, setPref }),
+    [pref, resolved, loaded, setPref]
   )
 
   return <ThemeContext.Provider value={theme}>{children}</ThemeContext.Provider>

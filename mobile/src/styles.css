@@ -12,6 +12,8 @@
   --mark-blue: #3694f2;
   --mark-violet: #944fee;
   --mark-orange: #f4882a;
+  /* The native launch screen's colour (capacitor.config.ts), in both themes. */
+  --splash: #0c0a14;
   color-scheme: light dark;
 }
 
@@ -35,6 +37,7 @@
   --color-mark-blue: var(--mark-blue);
   --color-mark-violet: var(--mark-violet);
   --color-mark-orange: var(--mark-orange);
+  --color-splash: var(--splash);
   /* System UI stack only: no web fonts, so launch never waits on a download. */
   --font-sans:
     system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto,

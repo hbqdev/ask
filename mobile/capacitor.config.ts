@@ -23,8 +23,13 @@ const config: CapacitorConfig = {
   },
   plugins: {
     SplashScreen: {
+      // The app hides the splash itself (src/app/splash.ts) once the theme
+      // and the session are known, with a 2.5 s fallback, so launch never
+      // shows a blank frame or the wrong theme. The duration only applies if
+      // auto-hide is ever turned back on.
       launchShowDuration: 600,
-      launchAutoHide: true,
+      launchAutoHide: false,
+      launchFadeOutDuration: 200,
       backgroundColor: BACKGROUND,
       showSpinner: false
     }
