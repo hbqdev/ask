@@ -1,0 +1,126 @@
+// A bottom sheet: a modal panel that rises from the bottom edge over a dimmed
+// backdrop. A backdrop tap, Escape, or dragging the handle down past
+// CLOSE_DRAG closes it. The drag moves the panel with a transform only, so it
+// never lays the page out again mid-gesture.
+
+import {
+  useEffect,
+  useId,
+  useRef,
+  type PointerEvent,
+  type ReactNode
+} from 'react'
+import { createPortal } from 'react-dom'
+
+/** How far, in px, the handle must be dragged down to close the sheet. */
+export const CLOSE_DRAG = 80
+
+export type SheetProps = {
+  open: boolean
+  onClose: () => void
+  title: string
+  children: ReactNode
+}
+
+export function Sheet({ open, onClose, title, children }: SheetProps) {
+  if (!open) return null
+  return (
+    <SheetPanel onClose={onClose} title={title}>
+      {children}
+    </SheetPanel>
+  )
+}
+
+type Drag = { id: number; y: number; dy: number }
+
+function SheetPanel({ onClose, title, children }: Omit<SheetProps, 'open'>) {
+  const titleId = useId()
+  const panel = useRef<HTMLDivElement>(null)
+  const drag = useRef<Drag | null>(null)
+  // The latest onClose, so the key listener isn't re-added on each render.
+  const close = useRef(onClose)
+  close.current = onClose
+
+  useEffect(() => {
+    panel.current?.focus()
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') close.current()
+    }
+    document.addEventListener('keydown', onKey)
+    return () => document.removeEventListener('keydown', onKey)
+  }, [])
+
+  const current = (e: PointerEvent<Element>) => {
+    const d = drag.current
+    return d && d.id === e.pointerId ? d : null
+  }
+
+  // Inline styles drive the drag; clearing them hands the panel back to its
+  // stylesheet, whose transition settles it.
+  const settle = () => {
+    drag.current = null
+    const el = panel.current!
+    el.style.transform = ''
+    el.style.transition = ''
+  }
+
+  const handlers = {
+    onPointerDown(e: PointerEvent<HTMLDivElement>) {
+      drag.current = { id: e.pointerId, y: e.clientY, dy: 0 }
+      e.currentTarget.setPointerCapture?.(e.pointerId)
+      panel.current!.style.transition = 'none'
+    },
+    onPointerMove(e: PointerEvent<HTMLDivElement>) {
+      const d = current(e)
+      if (!d) return
+      d.dy = Math.max(0, e.clientY - d.y)
+      panel.current!.style.transform = `translate3d(0, ${d.dy}px, 0)`
+    },
+    onPointerUp(e: PointerEvent<HTMLDivElement>) {
+      const d = current(e)
+      if (!d) return
+      settle()
+      if (d.dy >= CLOSE_DRAG) onClose()
+    },
+    onPointerCancel(e: PointerEvent<HTMLDivElement>) {
+      if (current(e)) settle()
+    }
+  }
+
+  return createPortal(
+    <div className="fixed inset-0 z-50 flex flex-col justify-end">
+      <div
+        data-testid="sheet-backdrop"
+        aria-hidden="true"
+        className="sheet-backdrop absolute inset-0 bg-black/40"
+        onClick={onClose}
+      />
+      <div
+        ref={panel}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby={titleId}
+        tabIndex={-1}
+        className="sheet-panel relative flex max-h-[85vh] flex-col rounded-t-3xl bg-background text-foreground shadow-2xl outline-none"
+      >
+        <div
+          data-testid="sheet-handle"
+          className="flex shrink-0 touch-none justify-center pt-2 pb-1"
+          {...handlers}
+        >
+          <div className="h-1.5 w-10 rounded-full bg-foreground/20" />
+        </div>
+        <h2
+          id={titleId}
+          className="shrink-0 px-6 pb-3 text-lg font-semibold tracking-tight"
+        >
+          {title}
+        </h2>
+        <div className="min-h-0 overflow-y-auto overscroll-contain px-4">
+          {children}
+        </div>
+      </div>
+    </div>,
+    document.body
+  )
+}

@@ -13,6 +13,7 @@ import {
   processCitations,
   stripIncompleteCitationTail
 } from '@/lib/utils/citation'
+import { resolveSearchSettings } from '@/lib/utils/request-search-settings'
 
 // The thread screen reuses these pure modules from Ask's lib/ instead of
 // copying them. Importing them here proves each one (and everything it pulls
@@ -28,7 +29,8 @@ describe('shared Ask modules', () => {
     ['parseSpecBlock', parseSpecBlock],
     ['toPublicErrorPayload', toPublicErrorPayload],
     ['ResumableChatTransport', ResumableChatTransport],
-    ['narrationCleanView', narrationCleanView]
+    ['narrationCleanView', narrationCleanView],
+    ['resolveSearchSettings', resolveSearchSettings]
   ])('loads %s', (_name, value) => {
     expect(typeof value).toBe('function')
   })
