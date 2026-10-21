@@ -52,6 +52,9 @@ export type ThreadSession = {
 const RELOAD_ATTEMPTS = 3
 const RELOAD_DELAY_MS = 1000
 
+/** What the banner says when a cut-off answer could not be brought back. */
+const COULD_NOT_LOAD_ANSWER = "Couldn't load the answer"
+
 const textOf = (message: UIMessage) =>
   message.parts.map(p => (p.type === 'text' ? p.text : '')).join('')
 
@@ -68,6 +71,9 @@ export function useThread({
   const { client, baseUrl, getToken } = useApi()
   const [loading, setLoading] = useState(!isNew)
   const [loadError, setLoadError] = useState<Error>()
+  // Set when a turn cut off by backgrounding could be neither resumed nor
+  // reloaded from the saved copy.
+  const [resumeError, setResumeError] = useState<Error>()
 
   // The transport is built once; it reads live values through these refs.
   const live = useRef({ isNew, settings, getToken })
@@ -111,6 +117,10 @@ export function useThread({
       )
   )
 
+  // Whether the last turn ended in an error (a dropped connection) rather than
+  // finishing or being stopped; set by useChat's onFinish.
+  const turnErroredRef = useRef(false)
+
   const {
     messages,
     status,
@@ -125,8 +135,29 @@ export function useThread({
     id: chatId,
     generateId: newId,
     experimental_throttle: 100,
-    transport
+    transport,
+    onFinish: ({ isError }) => {
+      turnErroredRef.current = isError
+    }
   })
+
+  // The answer is read locally only while its screen is up: going back stops
+  // the read but not the server (a signed-in turn finishes and is saved
+  // there). Deferred a tick, so StrictMode's dev re-mount (cleanup then setup
+  // at once) cancels it instead of aborting the opening send.
+  const stopLocalRef = useRef(stopLocal)
+  useEffect(() => {
+    stopLocalRef.current = stopLocal
+  }, [stopLocal])
+  const pendingLocalStop = useRef<ReturnType<typeof setTimeout>>(undefined)
+  useEffect(() => {
+    clearTimeout(pendingLocalStop.current)
+    return () => {
+      pendingLocalStop.current = setTimeout(() => {
+        void stopLocalRef.current()
+      }, 0)
+    }
+  }, [])
 
   // A turn this hook started and the SDK has not finished. Set synchronously,
   // so a second tap in the same tick is refused before the status catches up.
@@ -152,13 +183,15 @@ export function useThread({
 
   const runTurn = useCallback((turn: () => Promise<void>) => {
     turnRef.current = true
+    turnErroredRef.current = false
     setLoadError(undefined)
+    setResumeError(undefined)
     void turn().finally(() => {
       turnRef.current = false
-      if (resumeWhenSettledRef.current) {
-        resumeWhenSettledRef.current = false
-        runTurn(() => resumeStreamRef.current())
-      }
+      if (!resumeWhenSettledRef.current) return
+      resumeWhenSettledRef.current = false
+      // Only a dropped turn is resumed; one that simply finished is whole.
+      if (turnErroredRef.current) runTurn(() => resumeStreamRef.current())
     })
   }, [])
 
@@ -207,6 +240,12 @@ export function useThread({
   const reloadSaved = useCallback(async () => {
     const started = generation.current
     const gone = () => generation.current !== started
+    // Keeps what is on screen and says so, so the banner offers Retry.
+    const giveUp = () => {
+      if (gone() || inFlight()) return
+      clearError()
+      setResumeError(new Error(COULD_NOT_LOAD_ANSWER))
+    }
     for (let attempt = 0; attempt < RELOAD_ATTEMPTS; attempt++) {
       if (attempt > 0) {
         await new Promise(resolve => setTimeout(resolve, RELOAD_DELAY_MS))
@@ -219,9 +258,10 @@ export function useThread({
         ).messages
       } catch (err) {
         console.warn('[thread] reload after resume failed', err)
-        return
+        return giveUp()
       }
-      if (gone() || !saved?.length) return
+      if (gone()) return
+      if (!saved?.length) return giveUp()
       // The stream can report done a moment before the answer is saved.
       if (saved[saved.length - 1].role !== 'assistant') continue
       // The user started something new meanwhile: keep what is on screen.
@@ -230,6 +270,7 @@ export function useThread({
       clearError()
       return
     }
+    giveUp()
   }, [client, chatId, inFlight, setMessages, clearError])
 
   useEffect(() => {
@@ -320,13 +361,20 @@ export function useThread({
   }, [inFlight, loadError, reload, retry, setMessages, send])
 
   const errorView = useMemo(() => {
-    const shown = error ?? loadError
+    const shown = error ?? loadError ?? resumeError
     return shown ? describeChatError(shown) : undefined
-  }, [error, loadError])
+  }, [error, loadError, resumeError])
 
+  // The server streams the title with the first answer only, so the newest
+  // answer that carries one names the chat.
   const title = useMemo(() => {
-    const lastAnswer = messages.findLast(m => m.role === 'assistant')
-    return lastAnswer ? titleOf(lastAnswer) : undefined
+    for (let i = messages.length - 1; i >= 0; i--) {
+      const message = messages[i]
+      if (message.role !== 'assistant') continue
+      const found = titleOf(message)
+      if (found) return found
+    }
+    return undefined
   }, [messages])
 
   return {

@@ -1,6 +1,6 @@
 import { act, renderHook, waitFor } from '@testing-library/react'
 import type { UIMessage } from 'ai'
-import type { ReactNode } from 'react'
+import { StrictMode, useEffect, useRef, type ReactNode } from 'react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { ApiProvider } from '@/core/api/ApiProvider'
@@ -83,7 +83,11 @@ function liveSse() {
   return {
     response: new Response(body, SSE_INIT),
     push: (chunk: object) => controller.enqueue(frame(chunk)),
-    fail: (error: Error) => controller.error(error)
+    fail: (error: Error) => controller.error(error),
+    close: () => {
+      controller.enqueue(DONE)
+      controller.close()
+    }
   }
 }
 
@@ -230,6 +234,102 @@ describe('useThread', () => {
       searchMode: 'quality',
       sources: ['web']
     })
+  })
+
+  it('keeps the chat title from an earlier turn when a later one has none', async () => {
+    serve({
+      chat: [
+        () => sse(answerChunks('a1', 'One', 'First title')),
+        () => sse(answerChunks('a2', 'Two'))
+      ]
+    })
+    const { result } = renderThread()
+
+    act(() => result.current.send('first'))
+    await waitFor(() => expect(result.current.title).toBe('First title'))
+    await waitFor(() => expect(result.current.status).toBe('ready'))
+    act(() => result.current.send('second'))
+    await waitFor(() => expect(result.current.messages).toHaveLength(4))
+    await waitFor(() => expect(result.current.status).toBe('ready'))
+
+    expect(result.current.title).toBe('First title')
+  })
+
+  it('takes the newest title the server streamed', async () => {
+    serve({
+      chat: [
+        () => sse(answerChunks('a1', 'One', 'Old title')),
+        () => sse(answerChunks('a2', 'Two', 'New title'))
+      ]
+    })
+    const { result } = renderThread()
+
+    act(() => result.current.send('first'))
+    await waitFor(() => expect(result.current.title).toBe('Old title'))
+    await waitFor(() => expect(result.current.status).toBe('ready'))
+    act(() => result.current.send('second'))
+
+    await waitFor(() => expect(result.current.title).toBe('New title'))
+  })
+
+  it('stops reading the answer locally when the thread goes away', async () => {
+    let chatSignal: AbortSignal | undefined
+    serve({
+      chat: [
+        init => {
+          chatSignal = init.signal ?? undefined
+          return hang(init)
+        }
+      ]
+    })
+    const { result, unmount } = renderThread()
+    act(() => result.current.send('long question'))
+    await waitFor(() => expect(chatSignal).toBeDefined())
+
+    unmount()
+
+    await waitFor(() => expect(chatSignal?.aborted).toBe(true))
+    // Only the local read: a signed-in turn finishes and saves on the server.
+    expect(requests('POST', `/api/chat/${CHAT_ID}/stop`)).toHaveLength(0)
+  })
+
+  it('does not abort the opening send on a StrictMode re-mount', async () => {
+    let chatSignal: AbortSignal | undefined
+    serve({
+      chat: [
+        init => {
+          chatSignal = init.signal ?? undefined
+          return hang(init)
+        }
+      ]
+    })
+    // Like ThreadScreen: the opening question is sent from an effect, so
+    // StrictMode's cleanup-and-setup runs after the send has started.
+    const { result } = renderHook(
+      () => {
+        const thread = useThread({ chatId: CHAT_ID, isNew: true, settings })
+        const asked = useRef(false)
+        const { send } = thread
+        useEffect(() => {
+          if (asked.current) return
+          asked.current = true
+          send('opening question')
+        }, [send])
+        return thread
+      },
+      {
+        wrapper: ({ children }) => (
+          <StrictMode>
+            <ApiProvider baseUrl={BASE}>{children}</ApiProvider>
+          </StrictMode>
+        )
+      }
+    )
+    await waitFor(() => expect(chatSignal).toBeDefined())
+    await act(() => new Promise(resolve => setTimeout(resolve, 20)))
+
+    expect(chatSignal?.aborted).toBe(false)
+    expect(result.current.status).toBe('submitted')
   })
 
   it('asks for a fresh token on every request and fails visibly when signed out', async () => {
@@ -789,7 +889,8 @@ describe('useThread', () => {
         )
         return live.response
       }
-      serve({ chat: [chat], ...routes })
+      // Later chat requests (a retry) take the routes' own handlers.
+      serve({ ...routes, chat: [chat, ...(routes.chat ?? [])] })
     }
 
     it('resumes on foreground when a turn was in flight', async () => {
@@ -864,12 +965,19 @@ describe('useThread', () => {
       expect(result.current.error).toBeUndefined()
     })
 
-    it('gives up on the saved copy after three tries', async () => {
+    const COULD_NOT_LOAD = {
+      message: "Couldn't load the answer",
+      retryable: true,
+      authRequired: false
+    }
+
+    it('gives up on the saved copy after three tries, offering Retry', async () => {
       const live = liveSse()
       const unsaved = () => json({ messages: [user('u1', 'Q')] })
       serveWithLiveChat(live, {
         stream: [() => new Response(null, { status: 204 })],
-        messages: [unsaved, unsaved, unsaved]
+        messages: [unsaved, unsaved, unsaved],
+        chat: [() => sse(answerChunks('a2', 'Hello'))]
       })
       const result = await backgroundMidAnswer(live)
       vi.useFakeTimers({ shouldAdvanceTime: true })
@@ -881,6 +989,70 @@ describe('useThread', () => {
       expect(transcript(result.current.messages)).toEqual([
         { role: 'user', texts: ['Q'] },
         { role: 'assistant', texts: ['Hel'] }
+      ])
+      await waitFor(() => expect(result.current.error).toEqual(COULD_NOT_LOAD))
+
+      // Retry regenerates the cut-off answer, and the banner goes.
+      act(() => result.current.retryLast())
+      await waitFor(() =>
+        expect(transcript(result.current.messages)).toEqual([
+          { role: 'user', texts: ['Q'] },
+          { role: 'assistant', texts: ['Hello'] }
+        ])
+      )
+      expect(chatBodies().at(-1)).toEqual(
+        expect.objectContaining({
+          trigger: 'regenerate-message',
+          messageId: 'a1'
+        })
+      )
+      expect(result.current.error).toBeUndefined()
+    })
+
+    it('offers Retry when the saved copy is not found', async () => {
+      const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+      const live = liveSse()
+      serveWithLiveChat(live, {
+        stream: [() => new Response(null, { status: 204 })],
+        messages: [() => new Response('Chat not found', { status: 404 })]
+      })
+      const result = await backgroundMidAnswer(live)
+
+      setAppActive(true)
+
+      await waitFor(() => expect(result.current.error).toEqual(COULD_NOT_LOAD))
+      expect(transcript(result.current.messages)).toEqual([
+        { role: 'user', texts: ['Q'] },
+        { role: 'assistant', texts: ['Hel'] }
+      ])
+      warn.mockRestore()
+    })
+
+    it('does not resume a turn that finished normally after foregrounding', async () => {
+      const live = liveSse()
+      serveWithLiveChat(live, {})
+      const { result } = renderThread()
+      await waitFor(() => expect(app.listeners).toHaveLength(1))
+      act(() => result.current.send('Q'))
+      live.push({ type: 'start', messageId: 'a1' })
+      live.push({ type: 'text-start', id: 't1' })
+      live.push({ type: 'text-delta', id: 't1', delta: 'Hello' })
+      await waitFor(() => expect(result.current.status).toBe('streaming'))
+      // Away and back while the request still looks alive.
+      setAppActive(false)
+      setAppActive(true)
+
+      // The connection survived: the answer simply ends.
+      live.push({ type: 'text-end', id: 't1' })
+      live.push({ type: 'finish' })
+      live.close()
+      await waitFor(() => expect(result.current.status).toBe('ready'))
+      await act(() => new Promise(resolve => setTimeout(resolve, 50)))
+
+      expect(requests('GET', `/api/chat/${CHAT_ID}/stream`)).toHaveLength(0)
+      expect(transcript(result.current.messages)).toEqual([
+        { role: 'user', texts: ['Q'] },
+        { role: 'assistant', texts: ['Hello'] }
       ])
     })
 
@@ -956,6 +1128,7 @@ describe('useThread', () => {
         { role: 'user', texts: ['Q'] },
         { role: 'assistant', texts: ['Hel'] }
       ])
+      expect(result.current.error).toEqual(COULD_NOT_LOAD)
     })
 
     it('stops the saved-copy retries when the thread goes away', async () => {
@@ -1115,7 +1288,8 @@ describe('useThread', () => {
       expect(requests('GET', `/api/chat/${CHAT_ID}/stream`)).toHaveLength(0)
     })
 
-    it('keeps what is on screen when the reload fails', async () => {
+    it('keeps what is on screen when the reload fails, offering Retry', async () => {
+      const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
       const live = liveSse()
       serveWithLiveChat(live, {
         stream: [() => new Response(null, { status: 204 })],
@@ -1127,11 +1301,16 @@ describe('useThread', () => {
       await waitFor(() =>
         expect(requests('GET', `/api/chat/${CHAT_ID}/messages`)).toHaveLength(1)
       )
-      await act(async () => {})
+      await waitFor(() => expect(result.current.error).toEqual(COULD_NOT_LOAD))
       expect(transcript(result.current.messages)).toEqual([
         { role: 'user', texts: ['Q'] },
         { role: 'assistant', texts: ['Hel'] }
       ])
+      expect(warn).toHaveBeenCalledWith(
+        '[thread] reload after resume failed',
+        expect.any(Error)
+      )
+      warn.mockRestore()
     })
 
     it('does not resume when no turn was in flight', async () => {
