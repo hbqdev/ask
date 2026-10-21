@@ -1,4 +1,10 @@
 @import 'tailwindcss';
+/* Math in answers (KaTeX, as the web loads it in components/message.tsx). */
+@import 'katex/dist/katex.min.css';
+
+/* Streamdown renders the answer with Tailwind classes from its own bundle,
+   which Tailwind does not scan by default (node_modules). */
+@source '../node_modules/streamdown/dist/*.js';
 
 /* `dark:` utilities follow the theme the user picked (System, Light or Dark),
    which ThemeProvider puts on <html> as the `dark` class. */
@@ -16,6 +22,14 @@
      Splash image in ios/App/App/Assets.xcassets): the page background, in
      hex so it matches the PNG exactly. */
   --splash: #fcfcfc;
+  /* The web's surface tokens, which the answer renderer (Streamdown) styles
+     code blocks, tables and quotes with. */
+  --muted: oklch(0.97 0 0);
+  --muted-foreground: oklch(0.44 0 0);
+  --border: oklch(0.92 0 0);
+  --sidebar: oklch(0.97 0 0);
+  --primary: oklch(0 0 0);
+  --primary-foreground: oklch(1 0 0);
   color-scheme: light dark;
 }
 
@@ -25,6 +39,12 @@
   --background: oklch(0.1 0.022 289);
   --foreground: oklch(0.95 0.012 281);
   --splash: #030309;
+  --muted: oklch(0.21 0.02 289);
+  --muted-foreground: oklch(0.7 0.04 285);
+  --border: oklch(0.25 0.018 289);
+  --sidebar: oklch(0.13 0.02 289);
+  --primary: oklch(0.96 0.013 286);
+  --primary-foreground: oklch(0.13 0.02 289);
 }
 
 @media (prefers-color-scheme: dark) {
@@ -32,6 +52,12 @@
     --background: oklch(0.1 0.022 289);
     --foreground: oklch(0.95 0.012 281);
     --splash: #030309;
+    --muted: oklch(0.21 0.02 289);
+    --muted-foreground: oklch(0.7 0.04 285);
+    --border: oklch(0.25 0.018 289);
+    --sidebar: oklch(0.13 0.02 289);
+    --primary: oklch(0.96 0.013 286);
+    --primary-foreground: oklch(0.13 0.02 289);
   }
 }
 
@@ -42,6 +68,12 @@
   --color-mark-violet: var(--mark-violet);
   --color-mark-orange: var(--mark-orange);
   --color-splash: var(--splash);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-border: var(--border);
+  --color-sidebar: var(--sidebar);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
   /* System UI stack only: no web fonts, so launch never waits on a download. */
   --font-sans:
     system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto,
@@ -182,4 +214,42 @@ body {
   .sheet-backdrop {
     animation: stack-fade-in 200ms linear;
   }
+}
+
+/* --- Answer -----------------------------------------------------------------
+   The answer's markdown. Streamdown spaces the blocks and styles headings,
+   lists, quotes, code and tables itself (its classes, with the surface tokens
+   above); these set the type and the links. */
+.answer-prose {
+  font-size: 1rem;
+  line-height: 1.65;
+  overflow-wrap: anywhere;
+}
+
+.answer-prose li + li {
+  margin-top: 0.3em;
+}
+
+.answer-prose :is(h1, h2, h3, h4) {
+  line-height: 1.3;
+  letter-spacing: -0.01em;
+}
+
+.answer-prose .answer-link {
+  color: var(--mark-blue);
+  text-decoration: underline;
+  text-decoration-color: color-mix(in oklch, var(--mark-blue) 40%, transparent);
+  text-underline-offset: 2px;
+}
+
+/* Wide math scrolls on its own instead of widening the page. */
+.answer-prose .katex-display {
+  overflow-x: auto;
+  overflow-y: hidden;
+  padding-block: 0.25em;
+}
+
+/* A citation chip sits on the text's line without stretching it. */
+.citation-chip {
+  vertical-align: 0.1em;
 }
