@@ -1,4 +1,5 @@
 import type { CapacitorConfig } from '@capacitor/cli'
+import { KeyboardResize } from '@capacitor/keyboard'
 
 // The app is bundled: Vite builds src/ into dist/, and Capacitor ships dist/
 // inside the app. It talks to Ask's backend over fetch with a bearer token,
@@ -36,7 +37,7 @@ const config: CapacitorConfig = {
     Keyboard: {
       // The web view shrinks above the keyboard, so the thread's composer is
       // never covered by it.
-      resize: 'native',
+      resize: KeyboardResize.Native,
       resizeOnFullScreen: true
     }
   }
