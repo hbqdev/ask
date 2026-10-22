@@ -1,8 +1,8 @@
 // A bottom sheet: a modal panel that rises from the bottom edge over a dimmed
 // backdrop. A backdrop tap, Escape, or dragging the handle down past
 // CLOSE_DRAG closes it. The drag moves the panel with a transform only, so it
-// never lays the page out again mid-gesture. Once closed, focus goes back to
-// what had it when the sheet opened.
+// never lays the page out again mid-gesture. Tab stays within the sheet, and
+// once closed, focus goes back to what had it when the sheet opened.
 
 import {
   useEffect,
@@ -13,7 +13,7 @@ import {
 } from 'react'
 import { createPortal } from 'react-dom'
 
-import { useReturnFocus } from '@/core/ui/focus'
+import { trapTab, useReturnFocus } from '@/core/ui/focus'
 
 /** How far, in px, the handle must be dragged down to close the sheet. */
 export const CLOSE_DRAG = 80
@@ -109,6 +109,13 @@ function SheetPanel({ onClose, title, children }: Omit<SheetProps, 'open'>) {
         aria-modal="true"
         aria-labelledby={titleId}
         tabIndex={-1}
+        onKeyDown={e => {
+          // React bubbles a key from a sheet opened over this one (another
+          // portal) through here too: that sheet keeps its own Tab.
+          if (panel.current!.contains(e.target as Node)) {
+            trapTab(e.nativeEvent, panel.current!)
+          }
+        }}
         className="sheet-panel relative flex max-h-[85vh] flex-col rounded-t-3xl bg-background text-foreground shadow-2xl outline-none"
       >
         <div

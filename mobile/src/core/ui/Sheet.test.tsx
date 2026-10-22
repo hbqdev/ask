@@ -60,6 +60,46 @@ describe('Sheet', () => {
     expect(screen.getByRole('textbox', { name: 'Name' })).toHaveFocus()
   })
 
+  it('keeps Tab within the sheet, wrapping at either end', () => {
+    render(
+      <>
+        <button type="button">Behind</button>
+        <Sheet open onClose={vi.fn()} title="Pick">
+          <button type="button">First</button>
+          <button type="button">Last</button>
+        </Sheet>
+      </>
+    )
+    const first = screen.getByRole('button', { name: 'First' })
+    const last = screen.getByRole('button', { name: 'Last' })
+    // From the panel itself, Tab enters at the first control.
+    expect(fireEvent.keyDown(panel(), { key: 'Tab' })).toBe(false)
+    expect(first).toHaveFocus()
+    fireEvent.keyDown(first, { key: 'Tab', shiftKey: true })
+    expect(last).toHaveFocus()
+    fireEvent.keyDown(last, { key: 'Tab' })
+    expect(first).toHaveFocus()
+    // Other keys pass through.
+    expect(fireEvent.keyDown(first, { key: 'a' })).toBe(true)
+  })
+
+  it('leaves Tab to a sheet opened over it', () => {
+    render(
+      <Sheet open onClose={vi.fn()} title="Outer">
+        <button type="button">Outer button</button>
+        <Sheet open onClose={vi.fn()} title="Inner">
+          <button type="button">Inner one</button>
+          <button type="button">Inner two</button>
+        </Sheet>
+      </Sheet>
+    )
+    const one = screen.getByRole('button', { name: 'Inner one' })
+    const two = screen.getByRole('button', { name: 'Inner two' })
+    one.focus()
+    fireEvent.keyDown(one, { key: 'Tab' })
+    expect(two).toHaveFocus()
+  })
+
   it('gives focus back to what opened it once closed', () => {
     const opener = document.createElement('button')
     document.body.append(opener)
