@@ -3,10 +3,9 @@
 
 import { useApi } from '@/core/api/ApiProvider'
 import { useStack, type Stack } from '@/core/nav/stack'
+import { BackHeader } from '@/core/ui/BackHeader'
 import { READABLE } from '@/core/ui/classes'
 import { privacySections } from '@/features/settings/privacy-copy'
-
-const BACK_ICON = 'M15 5l-7 7 7 7'
 
 /** Opens the Privacy screen over the current one. */
 export function openPrivacy(push: Stack['push']) {
@@ -21,30 +20,7 @@ export function PrivacyScreen() {
 
   return (
     <div className="flex min-h-0 flex-1 flex-col">
-      <header className="grid grid-cols-[48px_minmax(0,1fr)_48px] items-center border-b border-foreground/10 px-1 py-1">
-        <button
-          type="button"
-          aria-label="Back"
-          onClick={pop}
-          className="flex size-11 touch-manipulation items-center justify-center rounded-full text-foreground/70 active:opacity-50"
-        >
-          <svg
-            aria-hidden="true"
-            viewBox="0 0 24 24"
-            className="size-6"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth={1.8}
-            strokeLinecap="round"
-            strokeLinejoin="round"
-          >
-            <path d={BACK_ICON} />
-          </svg>
-        </button>
-        <h1 className="truncate text-center text-base font-semibold">
-          Privacy
-        </h1>
-      </header>
+      <BackHeader title="Privacy" onBack={pop} />
       {/* A pushed screen covers the tab bar, so its content clears the home
           indicator; a status-bar tap scrolls it to the top. On an iPad the
           text sits in the readable column. */}

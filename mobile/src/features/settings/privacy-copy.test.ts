@@ -40,10 +40,10 @@ describe('privacySections', () => {
     expect(allText('ask.other.test')).not.toContain('{host}')
   })
 
-  it('says where search terms go, including Ask’s own search servers (ruling P6-R2)', () => {
+  it('says where search terms and weather places go (rulings P6-R20, P6-R21)', () => {
     const web = privacySections(HOST)[3]
     expect(web.paragraphs).toEqual([
-      'To answer, Ask searches the web. Your search terms, without your account, go to Ollama’s web search, Tavily, Brave Search and LangSearch, and to Ask’s own search servers (SearXNG, which reaches public search engines through a VPN, and degoog).',
+      'To answer, Ask searches the web. A place you ask the weather for goes to Open-Meteo. Your search terms, without your account, go to Ollama’s web search, Tavily, Brave Search and LangSearch, and to Ask’s own SearXNG, which reaches public search engines through a VPN.',
       'Ask then reads the pages it found, mostly with its own crawler. A page it can’t read directly may be fetched through Tavily or Firecrawl.'
     ])
   })
@@ -63,10 +63,10 @@ describe('privacySections', () => {
       'Dictation sends your recording to Ask’s own speech-to-text server (Whisper), which turns it into text; the recording isn’t kept. Read-aloud sends the answer’s text to Ask’s own voice server (Kokoro).'
     ])
     expect(s[6].paragraphs).toEqual([
-      'When Memory is on, Ask saves short facts it learns from your chats; when “Use past chats” is on, it looks through your earlier chats for anything relevant. Both are worked out on Ask’s own computers, and what’s relevant is included in what goes to the answering model. You can turn both off, delete memories and clear the past-chat index in Settings → Memory.'
+      'When Memory is on, Ask saves short facts it learns from your chats; when “Use past chats” is on, it looks through your earlier chats for anything relevant. Picking out and indexing facts, and indexing and ranking past chats, happen on Ask’s own computers. The answering model (on Ollama’s cloud service by default) can also save a fact itself and write the search of your past chats, and what’s relevant is included in what goes to it. You can turn both off, delete memories and clear the past-chat index in Settings → Memory.'
     ])
     expect(s[7].paragraphs).toEqual([
-      'Source icons load from Google’s favicon service, so Google sees the names of the sites an answer cites, not your question. Pictures in Discover and in answers load straight from the sites that publish them.'
+      'Source icons, and the icons of links you paste, load from Google’s favicon service, so Google sees the names of those sites, not the rest of your question. Discover pictures load from Bing’s image servers, and pictures in answers load straight from where they’re hosted.'
     ])
     expect(s[8].paragraphs).toEqual([
       'The app has no ads, no tracking and no analytics, and nothing about you is sold or shared for advertising.'
@@ -75,7 +75,7 @@ describe('privacySections', () => {
       'The app keeps your sign-in, your settings and a copy of your chat list on this device so it opens quickly. Signing out removes this account’s copies; your settings stay.'
     ])
     expect(s[10].paragraphs).toEqual([
-      'Settings → Account → Delete account removes your chats, notes, memories, attached files, settings and the account itself from the Ask server. It can’t be undone. The services named above handle what they received under their own privacy policies.'
+      'Settings → Account → Delete account removes your chats, notes, memories, attached files, settings and the account itself from the Ask server. It can’t be undone. Settings kept on this device, like your custom instructions, stay there until you change them or remove the app. The services named above handle what they received under their own privacy policies.'
     ])
   })
 
@@ -84,7 +84,6 @@ describe('privacySections', () => {
     'Ollama',
     'ollama.com',
     'SearXNG',
-    'degoog',
     'Tavily',
     'Brave Search',
     'LangSearch',
@@ -92,9 +91,15 @@ describe('privacySections', () => {
     'Replicate',
     'Whisper',
     'Kokoro',
-    'Google’s favicon service'
+    'Google’s favicon service',
+    'Open-Meteo',
+    'Bing'
   ])('names %s', name => {
     expect(allText()).toContain(name)
+  })
+
+  it('does not name degoog, which is off in every deployment (P6-R20)', () => {
+    expect(allText()).not.toMatch(/degoog/i)
   })
 
   it('uses curly apostrophes and quotes only', () => {

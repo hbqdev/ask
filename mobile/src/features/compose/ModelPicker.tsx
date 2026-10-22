@@ -44,6 +44,8 @@ export function ModelPicker({
   const [loadFailed, setLoadFailed] = useState(false)
   // Bumped by Retry, to run the load again.
   const [attempt, setAttempt] = useState(0)
+  // A Retry is on its way: the failure row stays, saying so.
+  const [retrying, setRetrying] = useState(false)
   const group = useRef<HTMLDivElement>(null)
   const scrolled = useRef(false)
   const { selected, saveFailed } = useSyncExternalStore(
@@ -62,9 +64,12 @@ export function ModelPicker({
         modelListLoaded(result.selectedModelKey, mark)
         setData(result)
         setLoadFailed(false)
+        setRetrying(false)
       },
       () => {
-        if (live) setLoadFailed(true)
+        if (!live) return
+        setLoadFailed(true)
+        setRetrying(false)
       }
     )
     return () => {
@@ -86,16 +91,22 @@ export function ModelPicker({
     if (!loadFailed) {
       return <p className="px-4 text-sm text-foreground/60">Loading models…</p>
     }
+    // The row and its button stay while a Retry loads, so focus and
+    // VoiceOver keep their place; the changed line is announced.
     return (
       <div role="alert" className="flex items-center gap-3 px-4">
-        <p className="flex-1 text-sm text-foreground/60">{MODEL_LOAD_ERROR}</p>
+        <p className="flex-1 text-sm text-foreground/60">
+          {retrying ? 'Loading models…' : MODEL_LOAD_ERROR}
+        </p>
         <button
           type="button"
+          aria-disabled={retrying}
           onClick={() => {
-            setLoadFailed(false)
+            if (retrying) return
+            setRetrying(true)
             setAttempt(a => a + 1)
           }}
-          className="min-h-11 touch-manipulation px-2 text-sm font-semibold text-accent active:opacity-50"
+          className="min-h-11 touch-manipulation px-2 text-sm font-semibold text-accent active:opacity-50 aria-disabled:opacity-50"
         >
           Retry
         </button>

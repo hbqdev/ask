@@ -321,10 +321,19 @@ describe('ModelPicker', () => {
 
     const reload = deferred()
     models.mockReturnValueOnce(reload.promise)
+    retry.focus()
     fireEvent.click(retry)
-    // The tap shows at once: the loading line, and no second Retry.
-    expect(screen.getByText('Loading models…')).toBeInTheDocument()
-    expect(screen.queryByRole('button', { name: 'Retry' })).toBeNull()
+    // The tap shows at once: the line says it is loading, and the same
+    // button stays (so VoiceOver and focus keep their place), unavailable.
+    expect(alert).toHaveTextContent('Loading models…')
+    expect(screen.getByRole('button', { name: 'Retry' })).toBe(retry)
+    expect(retry).toHaveAttribute('aria-disabled', 'true')
+    expect(document.activeElement).toBe(retry)
+    // A second tap meanwhile sends nothing.
+    fireEvent.click(retry)
+    await act(async () => {})
+    expect(models).toHaveBeenCalledTimes(2)
+
     await act(async () => reload.resolve(json(DATA)))
     expect(models).toHaveBeenCalledTimes(2)
     expect(fetchImpl).toHaveBeenCalledTimes(2)
@@ -332,12 +341,19 @@ describe('ModelPicker', () => {
     expect(screen.queryByText(MODEL_LOAD_ERROR)).toBeNull()
   })
 
-  it('a Retry that fails shows the error and Retry again', async () => {
-    serve({ models: async () => json({ error: 'boom' }, 500) })
+  it('a Retry that fails says so again, in the same place, and can be tapped again', async () => {
+    const models = vi.fn<Route>(async () => json({ error: 'boom' }, 500))
+    serve({ models })
     setup()
-    fireEvent.click(await screen.findByRole('button', { name: 'Retry' }))
-    expect(await screen.findByRole('alert')).toHaveTextContent(MODEL_LOAD_ERROR)
-    expect(screen.getByRole('button', { name: 'Retry' })).toBeInTheDocument()
+    const retry = await screen.findByRole('button', { name: 'Retry' })
+    fireEvent.click(retry)
+    await act(async () => {})
+    expect(screen.getByRole('alert')).toHaveTextContent(MODEL_LOAD_ERROR)
+    expect(screen.getByRole('button', { name: 'Retry' })).toBe(retry)
+    expect(retry).toHaveAttribute('aria-disabled', 'false')
+    fireEvent.click(retry)
+    await act(async () => {})
+    expect(models).toHaveBeenCalledTimes(3)
   })
 
   describe('scrolling the pick into view', () => {

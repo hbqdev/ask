@@ -15,6 +15,7 @@ import { useApi } from '@/core/api/ApiProvider'
 import { ApiError } from '@/core/api/errors'
 import { haptic } from '@/core/haptics'
 import { useScreenActive, useStack, type Stack } from '@/core/nav/stack'
+import { BackHeader } from '@/core/ui/BackHeader'
 import { GROUP, READABLE, SECTION_TITLE, SEPARATOR } from '@/core/ui/classes'
 import { ConfirmSheet } from '@/core/ui/ConfirmSheet'
 import { Sheet } from '@/core/ui/Sheet'
@@ -65,8 +66,6 @@ type Confirm =
   | { kind: 'clearAll' }
   | { kind: 'delete'; memory: Memory }
   | null
-
-const BACK_ICON = 'M15 5l-7 7 7 7'
 
 /**
  * The abort reason of a rebuild paused by the app going to the background or
@@ -370,30 +369,7 @@ export function MemoryScreen() {
 
   const shown = memories.filter(m => !removed.has(m.id))
 
-  const header = (
-    <header className="grid grid-cols-[48px_minmax(0,1fr)_48px] items-center border-b border-foreground/10 px-1 py-1">
-      <button
-        type="button"
-        aria-label="Back"
-        onClick={pop}
-        className="flex size-11 touch-manipulation items-center justify-center rounded-full text-foreground/70 active:opacity-50"
-      >
-        <svg
-          aria-hidden="true"
-          viewBox="0 0 24 24"
-          className="size-6"
-          fill="none"
-          stroke="currentColor"
-          strokeWidth={1.8}
-          strokeLinecap="round"
-          strokeLinejoin="round"
-        >
-          <path d={BACK_ICON} />
-        </svg>
-      </button>
-      <h1 className="truncate text-center text-base font-semibold">Memory</h1>
-    </header>
-  )
+  const header = <BackHeader title="Memory" onBack={pop} />
 
   let body
   if (load.kind === 'loading') {
