@@ -412,6 +412,35 @@ describe('LibraryScreen list', () => {
     expect(screen.getAllByRole('listitem')).toHaveLength(3)
   })
 
+  /** The row draws its inset hairline (ChatRowItem's separator). */
+  const separated = (title: string) =>
+    rowButton(title).firstElementChild!.className.includes('after:h-px')
+
+  it('separates every row but the last of the flat title list', async () => {
+    prefsData.set(LIBRARY_SORT_KEY, 'title')
+    await renderScreen()
+    expect(['Chat a', 'Chat b', 'Chat c'].map(separated)).toEqual([
+      true,
+      true,
+      false
+    ])
+  })
+
+  it('separates every row but the last of each date section', async () => {
+    const today = [
+      row('a', { lastViewedAt: daysAgo(0) }),
+      row('b', { lastViewedAt: daysAgo(0) }),
+      row('c', { lastViewedAt: daysAgo(1) })
+    ]
+    await renderScreen(library({ chats: today }))
+    expect(sectionNames()).toEqual(['Today', 'Yesterday'])
+    expect(['Chat a', 'Chat b', 'Chat c'].map(separated)).toEqual([
+      true,
+      false,
+      false
+    ])
+  })
+
   it('opens a chat on a tap with its id and title', async () => {
     await renderScreen()
     fireEvent.click(rowButton('Chat b'))
@@ -829,6 +858,18 @@ describe('LibraryScreen segments', () => {
     expect(panel('Notes')).not.toHaveAttribute('inert')
     expect(panel('Chats')).toHaveAttribute('inert')
     expect(panel('Chats')).toHaveStyle({ visibility: 'hidden' })
+  })
+
+  it('is a segmented control: the shown segment is the thumb on a muted track', async () => {
+    await renderScreen()
+    expect(
+      screen.getByRole('tablist', { name: 'Library sections' })
+    ).toHaveClass('bg-muted', 'p-1')
+    expect(segment('Chats')).toHaveClass('bg-thumb')
+    expect(segment('Notes')).not.toHaveClass('bg-thumb')
+    fireEvent.click(segment('Notes'))
+    expect(segment('Notes')).toHaveClass('bg-thumb')
+    expect(segment('Chats')).not.toHaveClass('bg-thumb')
   })
 
   it('a tap on the shown segment does nothing', async () => {

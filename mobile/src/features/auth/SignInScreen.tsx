@@ -190,7 +190,7 @@ export function SignInScreen({ apiBaseUrl }: { apiBaseUrl: string }) {
         <a
           href={resetUrl}
           onClick={openForgotPassword}
-          className="mt-4 flex min-h-11 items-center px-3 text-sm font-medium text-mark-blue active:opacity-50"
+          className="mt-4 flex min-h-11 items-center px-3 text-sm font-medium text-accent active:opacity-50"
         >
           Forgot password?
         </a>

@@ -167,7 +167,7 @@ function DeleteAccountPanel({ onClose }: { onClose: () => void }) {
           className="min-h-12 w-full rounded-xl bg-muted px-4 text-base text-foreground outline-none"
         />
         {error && (
-          <p role="alert" className="px-2 text-sm text-red-500">
+          <p role="alert" className="px-2 text-sm text-destructive">
             {error}
           </p>
         )}

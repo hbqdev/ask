@@ -114,7 +114,7 @@ function Chip({
           <p
             role={failed ? 'alert' : undefined}
             className={`truncate text-xs ${
-              failed ? 'text-red-500' : 'text-foreground/50'
+              failed ? 'text-destructive' : 'text-foreground/50'
             }`}
           >
             {failed && <span className="sr-only">{item.name}: </span>}

@@ -16,6 +16,7 @@ import {
 
 import { useTabActive } from '@/app/Tabs'
 import { useStack } from '@/core/nav/stack'
+import { SEPARATOR } from '@/core/ui/classes'
 import { ConfirmSheet } from '@/core/ui/ConfirmSheet'
 import { PullScroller } from '@/core/ui/PullScroller'
 import { SwipeRow } from '@/core/ui/SwipeRow'
@@ -197,7 +198,7 @@ const NoteRows = memo(function NoteRows({
       {error && (
         <div
           role="alert"
-          className="mx-4 mb-2 flex items-center gap-3 rounded-2xl bg-red-500/10 px-4 py-1 text-sm text-red-600 dark:text-red-400"
+          className="mx-4 mb-2 flex items-center gap-3 rounded-2xl bg-red-500/10 px-4 py-1 text-sm text-destructive"
         >
           <p className="min-w-0 flex-1">{error}</p>
           <button
@@ -220,11 +221,12 @@ const NoteRows = memo(function NoteRows({
               {group.label}
             </h2>
             <ul>
-              {group.rows.map(note => (
+              {group.rows.map((note, i) => (
                 <NoteRowItem
                   key={note.id}
                   note={note}
                   now={now}
+                  separator={i < group.rows.length - 1}
                   onOpen={onOpen}
                   onDelete={onDelete}
                 />
@@ -242,17 +244,20 @@ const NoteRows = memo(function NoteRows({
 const NoteRowItem = memo(function NoteRowItem({
   note,
   now,
+  separator,
   onOpen,
   onDelete
 }: {
   note: Note
   now: Date
+  /** Draws an inset hairline under the row (all but a group's last row). */
+  separator: boolean
   onOpen: (note: Note) => void
   onDelete: (note: Note) => void
 }) {
   const preview = useMemo(() => notePreview(note.content), [note.content])
   return (
-    <li style={ROW_STYLE} className="border-b border-border last:border-b-0">
+    <li style={ROW_STYLE}>
       <SwipeRow
         actions={[
           {
@@ -263,7 +268,11 @@ const NoteRowItem = memo(function NoteRowItem({
         ]}
         onPress={() => onOpen(note)}
       >
-        <div className="flex min-h-[88px] flex-col justify-center gap-1 px-4 py-3">
+        <div
+          className={`relative flex min-h-[88px] flex-col justify-center gap-1 px-4 py-3 ${
+            separator ? SEPARATOR : ''
+          }`}
+        >
           <span className="line-clamp-1 text-base leading-snug font-medium">
             {note.title || 'Untitled'}
           </span>
@@ -289,7 +298,7 @@ function Skeleton() {
     <div
       role="status"
       aria-label="Loading notes"
-      className="flex animate-pulse flex-col"
+      className="flex motion-safe:animate-pulse flex-col"
     >
       {Array.from({ length: SKELETON_ROWS }, (_, i) => (
         <div key={i} className="flex flex-col gap-2 px-4 py-4">

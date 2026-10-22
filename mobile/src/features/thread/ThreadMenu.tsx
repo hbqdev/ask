@@ -203,7 +203,7 @@ export function ThreadMenu({
           role="alert"
           className="absolute inset-x-3 top-full z-10 mt-2 overflow-hidden rounded-2xl bg-background shadow-lg"
         >
-          <div className="flex items-center gap-3 bg-red-500/10 px-4 py-1 text-sm text-red-600 dark:text-red-400">
+          <div className="flex items-center gap-3 bg-red-500/10 px-4 py-1 text-sm text-destructive">
             <p className="min-w-0 flex-1">{failure}</p>
             <button
               type="button"
@@ -259,15 +259,12 @@ export function ThreadMenu({
             type="button"
             disabled={newLink.making}
             onClick={() => setOpen('delete')}
-            className={`${MENU_ITEM} text-red-600 disabled:opacity-50 dark:text-red-400`}
+            className={`${MENU_ITEM} text-destructive disabled:opacity-50`}
           >
             Delete chat
           </button>
           {(newLink.error ?? copyFailure) && (
-            <p
-              role="alert"
-              className="px-4 pt-1 text-sm text-red-600 dark:text-red-400"
-            >
+            <p role="alert" className="px-4 pt-1 text-sm text-destructive">
               {newLink.error ?? copyFailure}
             </p>
           )}

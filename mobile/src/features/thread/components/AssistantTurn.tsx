@@ -105,9 +105,9 @@ export function preloadAnswerRenderer(): Promise<void> {
 export function Thinking() {
   return (
     <div role="status" aria-label="Thinking" className="flex gap-1.5 py-2">
-      <span className="size-2 animate-pulse rounded-full bg-mark-blue" />
-      <span className="size-2 animate-pulse rounded-full bg-mark-violet [animation-delay:150ms]" />
-      <span className="size-2 animate-pulse rounded-full bg-mark-orange [animation-delay:300ms]" />
+      <span className="size-2 motion-safe:animate-pulse rounded-full bg-mark-blue" />
+      <span className="size-2 motion-safe:animate-pulse rounded-full bg-mark-violet [animation-delay:150ms]" />
+      <span className="size-2 motion-safe:animate-pulse rounded-full bg-mark-orange [animation-delay:300ms]" />
     </div>
   )
 }

@@ -332,7 +332,7 @@ export function MessageActions({
         )}
       </div>
       {(error ?? readAloud.error) && (
-        <p role="alert" className="pt-1 text-sm text-red-500">
+        <p role="alert" className="pt-1 text-sm text-destructive">
           {error ?? readAloud.error}
         </p>
       )}
@@ -356,10 +356,7 @@ export function MessageActions({
             {link.making ? 'Creating link…' : 'Share link to chat'}
           </button>
           {link.error && (
-            <p
-              role="alert"
-              className="px-4 pt-1 text-sm text-red-600 dark:text-red-400"
-            >
+            <p role="alert" className="px-4 pt-1 text-sm text-destructive">
               {link.error}
             </p>
           )}

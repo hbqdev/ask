@@ -133,6 +133,16 @@ describe('Tabs', () => {
     }
   })
 
+  it('labels the shown tab in the accent, and the others in 55% foreground', () => {
+    render(<Tabs tabs={makeTabs()} />)
+    expect(tab('Ask')).toHaveClass('text-accent')
+    expect(tab('Library')).not.toHaveClass('text-accent')
+    expect(tab('Library')).toHaveClass('text-foreground/55')
+    fireEvent.click(tab('Library'))
+    expect(tab('Library')).toHaveClass('text-accent')
+    expect(tab('Ask')).not.toHaveClass('text-accent')
+  })
+
   it('pads the tab bar for the safe area', () => {
     render(<Tabs tabs={makeTabs()} />)
     expect(screen.getByRole('tablist')).toHaveClass('tab-bar')

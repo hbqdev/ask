@@ -22,7 +22,7 @@ export type ResearchSectionProps = {
 function StepIndicator({ done }: { done: boolean }) {
   if (done) {
     return (
-      <span className="mt-0.5 flex size-4 shrink-0 items-center justify-center text-mark-blue">
+      <span className="mt-0.5 flex size-4 shrink-0 items-center justify-center text-accent">
         <svg
           aria-hidden="true"
           viewBox="0 0 24 24"
@@ -43,7 +43,7 @@ function StepIndicator({ done }: { done: boolean }) {
     <span className="mt-0.5 flex size-4 shrink-0 items-center justify-center">
       <span
         aria-hidden="true"
-        className="size-2 animate-pulse rounded-full bg-mark-violet"
+        className="size-2 motion-safe:animate-pulse rounded-full bg-mark-violet"
       />
       <span className="sr-only">In progress</span>
     </span>

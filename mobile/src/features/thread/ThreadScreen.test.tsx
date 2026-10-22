@@ -833,6 +833,15 @@ describe('ThreadScreen', () => {
     expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
   })
 
+  it('draws Sources as two stacked pages, apart from the Library tab’s three lines', () => {
+    renderScreen(session({ messages: TURN }))
+    const icon = screen
+      .getByRole('button', { name: 'Sources' })
+      .querySelector('path')!
+    expect(icon).toHaveAttribute('d', 'M8 3h8l4 4v11M4 7h9l3 3v10H4zM13 7v3h3')
+    expect(icon).not.toHaveAttribute('d', 'M4 6h16M4 12h16M4 18h10')
+  })
+
   it('disables the header’s Sources button while there are none', () => {
     renderScreen(session({ messages: [user('u1', 'Hi')] }))
     expect(screen.getByRole('button', { name: 'Sources' })).toBeDisabled()

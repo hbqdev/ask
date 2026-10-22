@@ -199,6 +199,13 @@ describe('AccountSection', () => {
     expect(auth.signOut).not.toHaveBeenCalled()
   })
 
+  it('Sign out is a destructive row', () => {
+    fakeAuth()
+    serve()
+    render(<AccountSection />)
+    expect(signOutRow()).toHaveClass('text-destructive')
+  })
+
   it('ends with a destructive Delete account row that opens its sheet', () => {
     fakeAuth()
     serve()
@@ -206,7 +213,7 @@ describe('AccountSection', () => {
     const rows = screen.getAllByRole('button')
     const row = screen.getByRole('button', { name: 'Delete account' })
     expect(rows.at(-1)).toBe(row)
-    expect(row).toHaveClass('text-red-500')
+    expect(row).toHaveClass('text-destructive')
 
     fireEvent.click(row)
     const dialog = screen.getByRole('dialog', { name: 'Delete account?' })
@@ -516,9 +523,37 @@ describe('VoiceSection', () => {
     ).toHaveAttribute('aria-checked', 'true')
   })
 
+  it('calls the voice picker Narrator, under the Voice section', async () => {
+    await renderVoice()
+    expect(
+      screen.getByRole('heading', { level: 3, name: 'Narrator' })
+    ).toBeInTheDocument()
+    expect(
+      screen.queryByRole('heading', { level: 3, name: 'Voice' })
+    ).toBeNull()
+    expect(
+      screen.getByRole('radiogroup', { name: 'Narrator' })
+    ).toBeInTheDocument()
+  })
+
+  it('the speed is a segmented control: the chosen speed is the thumb', async () => {
+    await renderVoice()
+    const speeds = screen.getByRole('radiogroup', { name: 'Speed' })
+    expect(speeds).toHaveClass('bg-muted')
+    for (const radio of within(speeds).getAllByRole('radio')) {
+      const checked = radio.getAttribute('aria-checked') === 'true'
+      expect(radio.classList.contains('bg-thumb'), radio.textContent!).toBe(
+        checked
+      )
+    }
+    expect(
+      screen.getByRole('radio', { name: 'A bit faster (1.2×)' })
+    ).toHaveClass('bg-thumb')
+  })
+
   it('lists every voice and speed', async () => {
     await renderVoice()
-    const voices = within(screen.getByRole('radiogroup', { name: 'Voice' }))
+    const voices = within(screen.getByRole('radiogroup', { name: 'Narrator' }))
     expect(voices.getAllByRole('radio').map(r => r.textContent)).toEqual(
       TTS_VOICES.map(v => v.label)
     )
@@ -673,6 +708,14 @@ describe('DataSection', () => {
     within(screen.getByRole('dialog')).getByRole('button', {
       name: 'Delete all'
     })
+
+  it('Delete all chats is a destructive row', () => {
+    serve()
+    render(<DataSection />)
+    expect(
+      screen.getByRole('button', { name: 'Delete all chats' })
+    ).toHaveClass('text-destructive')
+  })
 
   it('asks first, then deletes every chat, clears the cache and tells the Library', async () => {
     let answer: (res: Response) => void = () => {}

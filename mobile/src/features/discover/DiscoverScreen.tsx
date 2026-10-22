@@ -14,6 +14,7 @@ import {
 
 import { useTabActive } from '@/app/Tabs'
 import { haptic } from '@/core/haptics'
+import { chipClass } from '@/core/ui/classes'
 import { useStack } from '@/core/nav/stack'
 import { PullScroller } from '@/core/ui/PullScroller'
 import { TOPICS, type Topic } from '@/features/discover/discover-api'
@@ -145,11 +146,7 @@ function TopicChips({
             role="radio"
             aria-checked={checked}
             onClick={() => onTopic(t.key)}
-            className={`${PILL} whitespace-nowrap ${
-              checked
-                ? 'bg-foreground text-background'
-                : 'bg-muted text-foreground'
-            }`}
+            className={`${PILL} whitespace-nowrap ${chipClass(checked)}`}
           >
             {t.label}
           </button>
@@ -265,7 +262,7 @@ const Feed = memo(function Feed({
       {status === 'error' && (
         <div
           role="alert"
-          className="mx-4 mb-2 flex items-center gap-3 rounded-2xl bg-red-500/10 px-4 py-1 text-sm text-red-600 dark:text-red-400"
+          className="mx-4 mb-2 flex items-center gap-3 rounded-2xl bg-red-500/10 px-4 py-1 text-sm text-destructive"
         >
           <p className="min-w-0 flex-1">{error}</p>
           <button
@@ -300,7 +297,7 @@ function Skeleton() {
     <div
       role="status"
       aria-label="Loading stories"
-      className="flex animate-pulse flex-col"
+      className="flex motion-safe:animate-pulse flex-col"
     >
       <div className="mx-4 mb-2 overflow-hidden rounded-2xl bg-muted">
         <div className="aspect-video w-full bg-foreground/8" />

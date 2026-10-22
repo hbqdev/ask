@@ -29,17 +29,20 @@ function selectors(list: string): string[] {
 
 /** Every rule's declarations for exactly this selector (media rules too). */
 function declarations(selector: string): Record<string, string>[] {
-  return [...css.matchAll(/([^{}]+)\{([^{}]*)\}/g)]
-    .filter(m => selectors(m[1]).includes(selector))
-    .map(m =>
-      Object.fromEntries(
-        m[2]
-          .split(';')
-          .map(d => d.split(':'))
-          .filter(parts => parts.length > 1)
-          .map(([prop, ...value]) => [prop.trim(), value.join(':').trim()])
+  return (
+    [...css.matchAll(/([^{}]+)\{([^{}]*)\}/g)]
+      // The prelude starts after any statement before it (an @import).
+      .filter(m => selectors(m[1].split(';').at(-1)!).includes(selector))
+      .map(m =>
+        Object.fromEntries(
+          m[2]
+            .split(';')
+            .map(d => d.split(':'))
+            .filter(parts => parts.length > 1)
+            .map(([prop, ...value]) => [prop.trim(), value.join(':').trim()])
+        )
       )
-    )
+  )
 }
 
 /** The one rule for this selector. */
@@ -47,6 +50,26 @@ function rule(selector: string): Record<string, string> {
   const rules = declarations(selector)
   expect(rules, selector).toHaveLength(1)
   return rules[0]
+}
+
+/** Every app source file (not tests) under src/. */
+function sources(dir: string): string[] {
+  return readdirSync(dir, { withFileTypes: true }).flatMap(entry => {
+    const path = join(dir, entry.name)
+    if (entry.isDirectory()) return sources(path)
+    return /\.(tsx?|css)$/.test(entry.name) && !/\.test\./.test(entry.name)
+      ? [path]
+      : []
+  })
+}
+
+/** Every match of `pattern` in the app's sources, as "file: match". */
+function sourceMatches(pattern: RegExp): string[] {
+  return sources(__dirname).flatMap(path =>
+    [...readFileSync(path, 'utf8').matchAll(pattern)].map(
+      m => `${path.slice(__dirname.length + 1)}: ${m[0]}`
+    )
+  )
 }
 
 describe('safe areas', () => {
@@ -122,25 +145,80 @@ describe('Dynamic Type', () => {
 })
 
 describe('Dynamic Type: line heights', () => {
-  /** Every app source file (not tests) under src/. */
-  function sources(dir: string): string[] {
-    return readdirSync(dir, { withFileTypes: true }).flatMap(entry => {
-      const path = join(dir, entry.name)
-      if (entry.isDirectory()) return sources(path)
-      return /\.(tsx?|css)$/.test(entry.name) && !/\.test\./.test(entry.name)
-        ? [path]
-        : []
-    })
-  }
-
   it('no leading-<n> class: with a 4px spacing step it is a fixed px line height under scaling text', () => {
     // leading-N compiles to calc(var(--spacing) * N). Use the text size's own
     // line height, leading-none/tight/snug/normal/relaxed, or a rem value.
-    const offenders = sources(__dirname).flatMap(path =>
-      [
-        ...readFileSync(path, 'utf8').matchAll(/\bleading-\d+(?:\.\d+)?\b/g)
-      ].map(m => `${path.slice(__dirname.length + 1)}: ${m[0]}`)
+    expect(sourceMatches(/\bleading-\d+(?:\.\d+)?\b/g)).toEqual([])
+  })
+})
+
+describe('colour tokens', () => {
+  /** Every declaration of the rules for this selector, merged. */
+  const merged = (selector: string) =>
+    Object.assign({}, ...declarations(selector))
+
+  // [token, light, dark]
+  const TOKENS = [
+    // 4.81:1 on the light page (#fcfcfc): AA for text, where the mark's
+    // #3694f2 is 3.06:1. Dark keeps the mark's blue (6.55:1).
+    ['--accent', '#1f6fd1', 'var(--mark-blue)'],
+    ['--destructive', '#c10007', '#ff6467'],
+    // The chosen segment of a segmented control.
+    ['--thumb', 'oklch(1 0 0)', 'oklch(0.3 0.02 289)'],
+    // Sheets: the page in light, a raised surface in dark.
+    ['--elevated', 'var(--background)', 'oklch(0.18 0.02 289)']
+  ] as const
+
+  it.each(TOKENS)('%s is %s in light', (token, light) => {
+    expect(merged(':root')[token]).toBe(light)
+  })
+
+  it.each(TOKENS)(
+    '%s is the dark value in both dark blocks (the class and the device setting)',
+    (token, _light, dark) => {
+      expect(rule(':root.dark')[token]).toBe(dark)
+      expect(rule(':root:not(.light)')[token]).toBe(dark)
+    }
+  )
+
+  it('the card tint is 5% foreground over the page, in every theme', () => {
+    expect(merged(':root')['--card']).toBe(
+      'color-mix(in oklch, var(--foreground) 5%, var(--background))'
     )
-    expect(offenders).toEqual([])
+  })
+
+  it('a card in a sheet tints the sheet’s own surface', () => {
+    expect(declarations('.sheet-panel')).toContainEqual({
+      '--card': 'color-mix(in oklch, var(--foreground) 5%, var(--elevated))'
+    })
+  })
+
+  it.each(['accent', 'destructive', 'thumb', 'elevated', 'card'])(
+    '@theme inline maps --color-%s to its token',
+    name => {
+      expect(rule('@theme inline')[`--color-${name}`]).toBe(`var(--${name})`)
+    }
+  )
+
+  it('links in an answer use the accent', () => {
+    const link = rule('.answer-prose .answer-link')
+    expect(link.color).toBe('var(--accent)')
+    expect(link['text-decoration-color']).toBe(
+      'color-mix(in oklch, var(--accent) 40%, transparent)'
+    )
+  })
+})
+
+describe('one colour system in the sources', () => {
+  it('no text-red-500/600 or text-mark-blue text classes remain', () => {
+    // Text uses the AA tokens: text-destructive and text-accent. Fills
+    // (bg-red-500, bg-mark-blue, fill-mark-*) stay.
+    expect(sourceMatches(/\btext-red-\d+\b/g)).toEqual([])
+    expect(sourceMatches(/\btext-mark-blue\b/g)).toEqual([])
+  })
+
+  it('no bare animate-pulse remains', () => {
+    // Pulses honour reduced motion: motion-safe:animate-pulse.
+    expect(sourceMatches(/(?<!motion-safe:)\banimate-pulse\b/g)).toEqual([])
   })
 })

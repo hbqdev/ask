@@ -30,6 +30,17 @@
   --sidebar: oklch(0.97 0 0);
   --primary: oklch(0 0 0);
   --primary-foreground: oklch(1 0 0);
+  /* Text in colour, at WCAG AA on the page: the accent (links, the shown
+     tab, a chosen option; #1f6fd1 is 4.81:1 on #fcfcfc, where the mark's
+     #3694f2 is 3.06:1) and destructive (6.24:1). */
+  --accent: #1f6fd1;
+  --destructive: #c10007;
+  /* The chosen segment of a segmented control, raised on its track. */
+  --thumb: oklch(1 0 0);
+  /* A sheet's surface: the page in light, raised above it in dark. */
+  --elevated: var(--background);
+  /* A grouped card: 5% foreground over the page. */
+  --card: color-mix(in oklch, var(--foreground) 5%, var(--background));
   color-scheme: light dark;
 }
 
@@ -45,6 +56,10 @@
   --sidebar: oklch(0.13 0.02 289);
   --primary: oklch(0.96 0.013 286);
   --primary-foreground: oklch(0.13 0.02 289);
+  --accent: var(--mark-blue);
+  --destructive: #ff6467;
+  --thumb: oklch(0.3 0.02 289);
+  --elevated: oklch(0.18 0.02 289);
 }
 
 @media (prefers-color-scheme: dark) {
@@ -58,6 +73,10 @@
     --sidebar: oklch(0.13 0.02 289);
     --primary: oklch(0.96 0.013 286);
     --primary-foreground: oklch(0.13 0.02 289);
+    --accent: var(--mark-blue);
+    --destructive: #ff6467;
+    --thumb: oklch(0.3 0.02 289);
+    --elevated: oklch(0.18 0.02 289);
   }
 }
 
@@ -74,6 +93,11 @@
   --color-sidebar: var(--sidebar);
   --color-primary: var(--primary);
   --color-primary-foreground: var(--primary-foreground);
+  --color-accent: var(--accent);
+  --color-destructive: var(--destructive);
+  --color-thumb: var(--thumb);
+  --color-elevated: var(--elevated);
+  --color-card: var(--card);
   /* System UI stack only: no web fonts, so launch never waits on a download. */
   --font-sans:
     system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto,
@@ -243,6 +267,12 @@ body {
   padding-bottom: max(16px, env(safe-area-inset-bottom));
 }
 
+/* A card in a sheet tints the sheet's own surface (raised in dark), not the
+   page below it. */
+.sheet-panel {
+  --card: color-mix(in oklch, var(--foreground) 5%, var(--elevated));
+}
+
 @keyframes sheet-in {
   from {
     transform: translate3d(0, 100%, 0);
@@ -328,9 +358,9 @@ body {
 }
 
 .answer-prose .answer-link {
-  color: var(--mark-blue);
+  color: var(--accent);
   text-decoration: underline;
-  text-decoration-color: color-mix(in oklch, var(--mark-blue) 40%, transparent);
+  text-decoration-color: color-mix(in oklch, var(--accent) 40%, transparent);
   text-underline-offset: 2px;
 }
 

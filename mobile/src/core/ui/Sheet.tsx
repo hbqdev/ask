@@ -2,7 +2,8 @@
 // backdrop. A backdrop tap, Escape, or dragging the handle down past
 // CLOSE_DRAG closes it. The drag moves the panel with a transform only, so it
 // never lays the page out again mid-gesture. Tab stays within the sheet, and
-// once closed, focus goes back to what had it when the sheet opened.
+// once closed, focus goes back to what had it when the sheet opened. In dark
+// the panel is a raised surface with a hairline top edge, over a deeper dim.
 
 import {
   useEffect,
@@ -106,7 +107,7 @@ function SheetPanel({
       <div
         data-testid="sheet-backdrop"
         aria-hidden="true"
-        className="sheet-backdrop absolute inset-0 bg-black/40"
+        className="sheet-backdrop absolute inset-0 bg-black/40 dark:bg-black/60"
         onClick={onClose}
       />
       <div
@@ -123,7 +124,7 @@ function SheetPanel({
             trapTab(e.nativeEvent, panel.current!)
           }
         }}
-        className="sheet-panel relative flex max-h-[85vh] flex-col rounded-t-3xl bg-background text-foreground shadow-2xl outline-none"
+        className="sheet-panel relative flex max-h-[85vh] flex-col rounded-t-3xl bg-elevated text-foreground shadow-2xl outline-none dark:border-t dark:border-foreground/10"
       >
         <div
           data-testid="sheet-handle"

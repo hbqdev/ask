@@ -15,7 +15,7 @@ const chat = (over: Partial<ChatRow> = {}): ChatRow => ({
   ...over
 })
 
-function setup(row: ChatRow = chat(), time = row.createdAt) {
+function setup(row: ChatRow = chat(), time = row.createdAt, separator = false) {
   const onOpen = vi.fn()
   const onDelete = vi.fn()
   const onRename = vi.fn()
@@ -25,6 +25,7 @@ function setup(row: ChatRow = chat(), time = row.createdAt) {
         chat={row}
         time={time}
         now={NOW}
+        separator={separator}
         onOpen={onOpen}
         onDelete={onDelete}
         onRename={onRename}
@@ -60,6 +61,26 @@ afterEach(() => {
 })
 
 describe('ChatRowItem', () => {
+  it('draws an inset hairline under the row when it has a separator', () => {
+    const { item, content } = setup(chat(), undefined, true)
+    expect(item.className).not.toContain('border-b')
+    const body = content.firstElementChild!
+    expect(body).toHaveClass(
+      'after:absolute',
+      'after:bottom-0',
+      'after:left-4',
+      'after:right-0',
+      'after:h-px',
+      'after:bg-border'
+    )
+  })
+
+  it('draws none without one (the last row of a group)', () => {
+    const { item, content } = setup()
+    expect(item.className).not.toContain('border-b')
+    expect(content.firstElementChild!.className).not.toContain('after:')
+  })
+
   it('shows the title and how long ago', () => {
     const { content } = setup()
     expect(content).toHaveTextContent('Why is the sky blue?')

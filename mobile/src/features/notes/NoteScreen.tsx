@@ -214,7 +214,7 @@ export function NoteScreen({ noteId }: { noteId: string }) {
       >
         <div className="safe-bottom">
           {error && (
-            <p role="alert" className="pb-3 text-sm text-red-500">
+            <p role="alert" className="pb-3 text-sm text-destructive">
               {error}
             </p>
           )}
@@ -276,7 +276,7 @@ export function NoteScreen({ noteId }: { noteId: string }) {
             <div
               role="status"
               aria-label="Loading note"
-              className="flex animate-pulse flex-col gap-3"
+              className="flex motion-safe:animate-pulse flex-col gap-3"
             >
               <div className="h-7 w-2/3 rounded bg-foreground/8" />
               <div className="h-4 w-full rounded bg-foreground/8" />

@@ -106,6 +106,23 @@ describe('NotesList', () => {
     expect(row).not.toHaveTextContent('**')
   })
 
+  it('separates every row but the last of its date group with an inset hairline', () => {
+    renderList(
+      notes({
+        notes: [note(0), note(0, { id: 'n9', title: 'Note 9' }), note(40)]
+      })
+    )
+    const separated = (title: string) =>
+      rowButton(title).firstElementChild!.className.includes('after:h-px')
+    // Today: two rows; September: one.
+    expect(separated('Note 0')).toBe(true)
+    expect(separated('Note 9')).toBe(false)
+    expect(separated('Note 40')).toBe(false)
+    for (const item of screen.getAllByRole('listitem')) {
+      expect(item.className).not.toContain('border-b')
+    }
+  })
+
   it('opens a note on a tap', () => {
     renderList()
     fireEvent.click(rowButton('Note 1'))

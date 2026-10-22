@@ -44,7 +44,7 @@ export function GeneratedImage({ part, baseUrl }: GeneratedImageProps) {
         aria-label="Generating image"
         className="max-w-md rounded-2xl bg-foreground/5 p-3"
       >
-        <div className="aspect-square w-full animate-pulse rounded-xl bg-foreground/10" />
+        <div className="aspect-square w-full motion-safe:animate-pulse rounded-xl bg-foreground/10" />
         {input?.prompt && (
           <p className="mt-2 truncate text-xs text-foreground/50">
             {input.prompt}

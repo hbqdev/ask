@@ -781,6 +781,24 @@ describe('MemoryScreen: memories', () => {
     )
   })
 
+  it('the rows sit on the list’s card tint, with no action colour at rest', async () => {
+    await renderScreen()
+    const list = screen.getByRole('list', { name: 'What Ask remembers' })
+    expect(list).toHaveClass('bg-card')
+    const row = rowButton('Prefers metric units')
+    expect(row).toHaveClass('bg-card')
+    // Nothing red behind the content: no red at the rounded corners.
+    expect(row.parentElement!.className).not.toContain('bg-red-500')
+  })
+
+  it('its destructive actions read as destructive', async () => {
+    await renderScreen()
+    expect(clearIndexButton()).toHaveClass('text-destructive')
+    expect(
+      screen.getByRole('button', { name: 'Clear all memories' })
+    ).toHaveClass('text-destructive')
+  })
+
   it('says when there are none, and offers no Clear all', async () => {
     serve(overview({ memories: [] }))
     await renderScreen()

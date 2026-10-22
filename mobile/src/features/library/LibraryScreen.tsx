@@ -22,6 +22,7 @@ import {
 import { ActiveWithin, useSelectTab, useTabActive } from '@/app/Tabs'
 import { haptic } from '@/core/haptics'
 import { useStack } from '@/core/nav/stack'
+import { SEGMENT_TRACK, segmentClass } from '@/core/ui/classes'
 import { ConfirmSheet } from '@/core/ui/ConfirmSheet'
 import { PullScroller } from '@/core/ui/PullScroller'
 import { Sheet } from '@/core/ui/Sheet'
@@ -100,7 +101,7 @@ export function LibraryScreen() {
         <div
           role="tablist"
           aria-label="Library sections"
-          className="flex rounded-xl bg-muted p-0.5"
+          className={SEGMENT_TRACK}
         >
           {SEGMENTS.map(({ id, label }) => {
             const selected = id === segment
@@ -113,11 +114,9 @@ export function LibraryScreen() {
                 aria-selected={selected}
                 aria-controls={mounted(id) ? panelId(id) : undefined}
                 onClick={() => select(id)}
-                className={`min-h-11 flex-1 touch-manipulation rounded-[10px] text-sm font-semibold active:opacity-50 ${
+                className={`min-h-11 flex-1 touch-manipulation rounded-lg text-sm font-semibold ${segmentClass(
                   selected
-                    ? 'bg-background text-foreground shadow-sm'
-                    : 'text-muted-foreground'
-                }`}
+                )}`}
               >
                 {label}
               </button>
@@ -351,7 +350,7 @@ function LibraryHeader({
                   onSort(option.value)
                 }}
                 className={`min-h-12 touch-manipulation rounded-xl px-4 text-left text-base active:bg-muted ${
-                  checked ? 'font-semibold text-mark-blue' : 'text-foreground'
+                  checked ? 'font-semibold text-accent' : 'text-foreground'
                 }`}
               >
                 {option.label}
@@ -479,13 +478,15 @@ const ChatList = memo(function ChatList({
   }
 
   const timeOf = (chat: ChatRow) => chat[key] ?? chat.createdAt
+  // Each row but the last of its list draws a hairline under it.
   const rows = (list: ChatRow[]) =>
-    list.map(chat => (
+    list.map((chat, i) => (
       <ChatRowItem
         key={chat.id}
         chat={chat}
         time={timeOf(chat)}
         now={now}
+        separator={i < list.length - 1}
         onOpen={onOpen}
         onDelete={onDelete}
         onRename={onRename}
@@ -497,7 +498,7 @@ const ChatList = memo(function ChatList({
       {error && (
         <div
           role="alert"
-          className="mx-4 mb-2 flex items-center gap-3 rounded-2xl bg-red-500/10 px-4 py-1 text-sm text-red-600 dark:text-red-400"
+          className="mx-4 mb-2 flex items-center gap-3 rounded-2xl bg-red-500/10 px-4 py-1 text-sm text-destructive"
         >
           <p className="min-w-0 flex-1">{error}</p>
           <button
@@ -537,7 +538,7 @@ function Skeleton() {
     <div
       role="status"
       aria-label="Loading chats"
-      className="flex animate-pulse flex-col"
+      className="flex motion-safe:animate-pulse flex-col"
     >
       {Array.from({ length: SKELETON_ROWS }, (_, i) => (
         <div key={i} className="flex flex-col gap-2 px-4 py-4">

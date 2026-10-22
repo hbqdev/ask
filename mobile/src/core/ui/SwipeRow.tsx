@@ -8,6 +8,12 @@
 // vertical drag stays a native scroll (the browser cancels the pointer), and
 // it leaves drags that start in the stack's back-swipe edge zone alone.
 //
+// Colour: the first action's colour fills the row behind its content (so a
+// full swipe, past the buttons, shows it) only while the row is exposed: from
+// the start of a swipe until it has settled closed, its slide back included.
+// At rest nothing is painted there and the buttons are hidden, so no colour
+// bleeds at a rounded corner.
+//
 // Haptics: a selection tick each time a drag crosses OPEN_AT (once going
 // past it, once more coming back, never on every move), and a light tap when
 // an action runs, by a full swipe or its button. Even Delete taps light: the
@@ -19,7 +25,8 @@ import {
   useState,
   type KeyboardEvent,
   type PointerEvent,
-  type ReactNode
+  type ReactNode,
+  type TransitionEvent
 } from 'react'
 
 import { haptic } from '@/core/haptics'
@@ -35,6 +42,11 @@ export type SwipeRowProps = {
   children: ReactNode
   actions: SwipeAction[]
   onPress(): void
+  /**
+   * What the row sits on, which its content is painted with: the page
+   * (default), or a grouped card's tint.
+   */
+  surface?: 'page' | 'card'
 }
 
 /** The width, in px, of each action button. */
@@ -117,13 +129,24 @@ type Drag = {
 
 const pastOpen = (pos: number) => -pos > OPEN_AT
 
+const SURFACES = { page: 'bg-background', card: 'bg-card' }
+
+/** Whether the stylesheet animates this element's settling (motion allowed). */
+const slides = (el: HTMLElement) =>
+  parseFloat(getComputedStyle(el).transitionDuration) > 0
+
 /** Runs a swipe action, with its haptic. */
 function run(action: SwipeAction) {
   haptic('light')
   action.onAction()
 }
 
-export function SwipeRow({ children, actions, onPress }: SwipeRowProps) {
+export function SwipeRow({
+  children,
+  actions,
+  onPress,
+  surface = 'page'
+}: SwipeRowProps) {
   const root = useRef<HTMLDivElement>(null)
   const content = useRef<HTMLDivElement>(null)
   const drag = useRef<Drag | null>(null)
@@ -131,6 +154,10 @@ export function SwipeRow({ children, actions, onPress }: SwipeRowProps) {
   // Set when a press turned into a swipe, so its trailing click is dropped.
   const swiped = useRef(false)
   const [open, setOpen] = useState(false)
+  // The row is swiping, open, or sliding closed: its colour shows.
+  const [exposed, setExposed] = useState(false)
+  // Where the content was last put (0 = closed), to know if a settle moves it.
+  const at = useRef(0)
   const openWidth = actions.length * ACTION_WIDTH
 
   // This row in the registry, created once: the registry compares by identity.
@@ -149,9 +176,17 @@ export function SwipeRow({ children, actions, onPress }: SwipeRowProps) {
     const el = content.current!
     el.style.transition = ''
     el.style.transform = pos ? `translate3d(${pos}px, 0, 0)` : ''
+    const moved = at.current !== pos
+    at.current = pos
     setOpen(pos !== 0)
-    if (pos) claimOpen(handle)
-    else releaseOpen(handle)
+    if (pos) {
+      claimOpen(handle)
+    } else {
+      releaseOpen(handle)
+      // Closed where it already was, or without a slide: covered at once.
+      // Otherwise the colour stays until the slide ends (onTransitionEnd).
+      if (!moved || !slides(el)) setExposed(false)
+    }
   }
 
   useEffect(() => () => releaseOpen(handle), [handle])
@@ -191,11 +226,13 @@ export function SwipeRow({ children, actions, onPress }: SwipeRowProps) {
         swiped.current = true
         e.currentTarget.setPointerCapture?.(e.pointerId)
         claimOpen(handle)
+        setExposed(true)
         content.current!.style.transition = 'none'
       }
       const width = root.current!.clientWidth
       d.pos = Math.min(0, d.from + dx)
       if (width > 0) d.pos = Math.max(-width, d.pos)
+      at.current = d.pos
       content.current!.style.transform = `translate3d(${d.pos}px, 0, 0)`
       if (pastOpen(d.pos) !== d.past) {
         d.past = !d.past
@@ -242,19 +279,28 @@ export function SwipeRow({ children, actions, onPress }: SwipeRowProps) {
     activate()
   }
 
+  // The content's own slide closed has ended (or was cut short, as by the
+  // screen going away): nothing shows behind it now. A new drag that cuts it
+  // short has moved the content off 0 and exposed the row again.
+  const onTransitionEnd = (e: TransitionEvent<HTMLDivElement>) => {
+    if (e.target === e.currentTarget && at.current === 0) setExposed(false)
+  }
+
   const first = actions[0]
   return (
     <div
       ref={root}
       className={`swipe-row relative overflow-hidden ${
         // Past the buttons, a full swipe shows the first action's colour.
-        first ? ACTION_COLOURS[first.tone ?? 'plain'] : ''
+        exposed && first ? ACTION_COLOURS[first.tone ?? 'plain'] : ''
       }`}
     >
       <div
         data-swipe-actions=""
         inert={!open}
-        className="absolute inset-y-0 right-0 flex"
+        // Hidden at rest too, so a rounded card's corner shows none of the
+        // buttons' colour at its anti-aliased edge.
+        className={`absolute inset-y-0 right-0 flex ${exposed ? '' : 'invisible'}`}
       >
         {actions.map(action => (
           <button
@@ -279,7 +325,9 @@ export function SwipeRow({ children, actions, onPress }: SwipeRowProps) {
         tabIndex={0}
         onClick={onClick}
         onKeyDown={onKeyDown}
-        className="swipe-row-content relative bg-background text-foreground active:bg-muted"
+        onTransitionEnd={onTransitionEnd}
+        onTransitionCancel={onTransitionEnd}
+        className={`swipe-row-content relative ${SURFACES[surface]} text-foreground active:bg-muted`}
         {...handlers}
       >
         {children}

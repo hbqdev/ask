@@ -9,6 +9,7 @@ import { useEffect, useId, useState, useSyncExternalStore } from 'react'
 import { useTabActive } from '@/app/Tabs'
 import { useApi } from '@/core/api/ApiProvider'
 import { haptic } from '@/core/haptics'
+import { SECTION_TITLE } from '@/core/ui/classes'
 import {
   getModelChoice,
   modelListLoaded,
@@ -22,9 +23,7 @@ import type { ModelSelectorData } from '@/lib/types/model-selector'
 export const MODEL_LOAD_ERROR = 'Couldn’t load the models.'
 export const MODEL_SAVE_ERROR = 'Couldn’t change the model. Try again.'
 
-const SECTION_TITLE =
-  'px-4 pb-2 text-xs font-medium uppercase tracking-wide text-foreground/50'
-const GROUP = 'rounded-2xl bg-foreground/5'
+const GROUP = 'rounded-2xl bg-card'
 
 /**
  * The model picker. It loads the list when it mounts and again each time its
@@ -82,7 +81,7 @@ export function ModelPicker() {
         Model
       </h3>
       {saveFailed && (
-        <p role="alert" className="px-4 pb-2 text-sm text-red-500">
+        <p role="alert" className="px-4 pb-2 text-sm text-destructive">
           {MODEL_SAVE_ERROR}
         </p>
       )}
@@ -117,7 +116,7 @@ export function ModelPicker() {
                       <svg
                         aria-hidden="true"
                         viewBox="0 0 24 24"
-                        className="size-5 shrink-0 text-mark-blue"
+                        className="size-5 shrink-0 text-accent"
                         fill="none"
                         stroke="currentColor"
                         strokeWidth={2.5}

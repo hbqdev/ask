@@ -4,6 +4,12 @@
 import { useId } from 'react'
 
 import { haptic } from '@/core/haptics'
+import {
+  chipClass,
+  SECTION_TITLE,
+  SEGMENT_TRACK,
+  segmentClass
+} from '@/core/ui/classes'
 import type { SearchSettings } from '@/features/thread/chat-body'
 import type { SearchMode, SourceMode } from '@/lib/types/search'
 
@@ -23,10 +29,6 @@ const SOURCES: { value: SourceMode; label: string }[] = [
   { value: 'academic', label: 'Academic' },
   { value: 'social', label: 'Social' }
 ]
-
-const SECTION_TITLE =
-  'px-4 pb-2 text-xs font-medium uppercase tracking-wide text-foreground/50'
-const GROUP = 'rounded-2xl bg-foreground/5'
 
 export type SearchOptionFieldProps = {
   settings: SearchSettings
@@ -53,7 +55,7 @@ export function SearchModeField({
       <div
         role="radiogroup"
         aria-labelledby={modeLabel}
-        className={`${GROUP} flex gap-1 p-1`}
+        className={SEGMENT_TRACK}
       >
         {SEARCH_MODES.map(mode => {
           const checked = mode.value === settings.searchMode
@@ -64,11 +66,9 @@ export function SearchModeField({
               role="radio"
               aria-checked={checked}
               onClick={() => setMode(mode.value)}
-              className={`min-h-11 flex-1 touch-manipulation rounded-xl text-sm font-medium ${
+              className={`min-h-11 flex-1 touch-manipulation rounded-lg text-sm font-medium ${segmentClass(
                 checked
-                  ? 'bg-background text-foreground shadow-sm'
-                  : 'text-foreground/60 active:opacity-50'
-              }`}
+              )}`}
             >
               {mode.label}
             </button>
@@ -79,7 +79,28 @@ export function SearchModeField({
   )
 }
 
-/** The sources as toggles; the last one on cannot be turned off. */
+/** A source's check, leading its label while it is on. */
+function Check() {
+  return (
+    <svg
+      aria-hidden="true"
+      viewBox="0 0 24 24"
+      className="size-4 shrink-0"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth={2.5}
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    >
+      <path d="M5 12.5l4.5 4.5L19 7.5" />
+    </svg>
+  )
+}
+
+/**
+ * The sources as toggle chips that wrap; the last one on cannot be turned
+ * off.
+ */
 export function SourcesField({ settings, onSettings }: SearchOptionFieldProps) {
   const toggleSource = (source: SourceMode) => {
     const on = settings.sources.includes(source)
@@ -95,7 +116,7 @@ export function SourcesField({ settings, onSettings }: SearchOptionFieldProps) {
   return (
     <section>
       <h3 className={SECTION_TITLE}>Sources</h3>
-      <div className="flex gap-2">
+      <div className="flex flex-wrap gap-2">
         {SOURCES.map(source => {
           const on = settings.sources.includes(source.value)
           const locked = on && settings.sources.length === 1
@@ -106,12 +127,11 @@ export function SourcesField({ settings, onSettings }: SearchOptionFieldProps) {
               aria-pressed={on}
               aria-disabled={locked || undefined}
               onClick={() => toggleSource(source.value)}
-              className={`min-h-11 flex-1 touch-manipulation rounded-xl text-sm font-medium ${
+              className={`inline-flex min-h-11 touch-manipulation items-center gap-1.5 rounded-full px-4 text-sm font-medium ${chipClass(
                 on
-                  ? 'bg-foreground text-background'
-                  : 'bg-foreground/5 text-foreground/60'
-              } ${locked ? '' : 'active:opacity-50'}`}
+              )} ${locked ? '' : 'active:opacity-50'}`}
             >
+              {on && <Check />}
               {source.label}
             </button>
           )

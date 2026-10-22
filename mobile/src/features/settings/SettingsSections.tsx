@@ -12,6 +12,7 @@ import { haptic } from '@/core/haptics'
 import { useStack } from '@/core/nav/stack'
 import type { ThemePref } from '@/core/theme'
 import { useTheme } from '@/core/ThemeProvider'
+import { SECTION_TITLE, SEGMENT_TRACK, segmentClass } from '@/core/ui/classes'
 import { ConfirmSheet } from '@/core/ui/ConfirmSheet'
 import { ModelPicker } from '@/features/compose/ModelPicker'
 import {
@@ -39,9 +40,7 @@ import { TTS_SPEEDS, TTS_VOICES } from '@/lib/voice/voices'
 export const INSTRUCTIONS_SAVE_ERROR = 'Couldn’t save. Try again.'
 export const DELETE_ALL_ERROR = 'Couldn’t delete your chats. Try again.'
 
-const SECTION_TITLE =
-  'px-4 pb-2 text-xs font-medium uppercase tracking-wide text-foreground/50'
-const GROUP = 'rounded-2xl bg-foreground/5'
+const GROUP = 'rounded-2xl bg-card'
 const ROW_BUTTON = `${GROUP} min-h-12 w-full touch-manipulation px-4 text-base font-medium active:opacity-60`
 const NOTE = 'px-4 pt-2 text-sm'
 
@@ -76,7 +75,7 @@ export function AccountSection() {
         type="button"
         disabled={signingOut}
         onClick={() => setConfirming(true)}
-        className={`${ROW_BUTTON} text-red-500 disabled:opacity-50`}
+        className={`${ROW_BUTTON} text-destructive disabled:opacity-50`}
       >
         {signingOut ? 'Signing out…' : 'Sign out'}
       </button>
@@ -91,7 +90,7 @@ export function AccountSection() {
       <button
         type="button"
         onClick={() => setDeletingAccount(true)}
-        className={`${ROW_BUTTON} text-red-500`}
+        className={`${ROW_BUTTON} text-destructive`}
       >
         Delete account
       </button>
@@ -143,7 +142,7 @@ function Check() {
     <svg
       aria-hidden="true"
       viewBox="0 0 24 24"
-      className="size-5 shrink-0 text-mark-blue"
+      className="size-5 shrink-0 text-accent"
       fill="none"
       stroke="currentColor"
       strokeWidth={2.5}
@@ -220,7 +219,7 @@ export function VoiceSection() {
 
       <div>
         <h3 id={voiceLabel} className={SECTION_TITLE}>
-          Voice
+          Narrator
         </h3>
         <div
           role="radiogroup"
@@ -253,7 +252,7 @@ export function VoiceSection() {
         <div
           role="radiogroup"
           aria-labelledby={speedLabel}
-          className={`${GROUP} flex gap-1 p-1`}
+          className={SEGMENT_TRACK}
         >
           {TTS_SPEEDS.map(speed => {
             const value = Number(speed.value)
@@ -266,11 +265,9 @@ export function VoiceSection() {
                 aria-checked={checked}
                 aria-label={speed.label}
                 onClick={() => pickSpeed(value)}
-                className={`min-h-11 flex-1 touch-manipulation rounded-xl text-sm font-medium tabular-nums ${
+                className={`min-h-11 flex-1 touch-manipulation rounded-lg text-sm font-medium tabular-nums ${segmentClass(
                   checked
-                    ? 'bg-background text-foreground shadow-sm'
-                    : 'text-foreground/60 active:opacity-50'
-                }`}
+                )}`}
               >
                 {speed.value}×
               </button>
@@ -289,7 +286,7 @@ export function VoiceSection() {
           {SAMPLE_LABELS[sample.state]}
         </button>
         {sample.error && (
-          <p role="alert" className={`${NOTE} text-red-500`}>
+          <p role="alert" className={`${NOTE} text-destructive`}>
             {sample.error}
           </p>
         )}
@@ -393,7 +390,7 @@ export function PersonalizationSection() {
         </p>
       </div>
       {status === 'failed' && (
-        <p role="alert" className={`${NOTE} text-red-500`}>
+        <p role="alert" className={`${NOTE} text-destructive`}>
           {INSTRUCTIONS_SAVE_ERROR}
         </p>
       )}
@@ -455,7 +452,7 @@ export function AppearanceSection() {
       <div
         role="radiogroup"
         aria-labelledby={themeLabel}
-        className={`${GROUP} flex gap-1 p-1`}
+        className={SEGMENT_TRACK}
       >
         {THEME_OPTIONS.map(option => {
           const checked = option.value === pref
@@ -466,11 +463,9 @@ export function AppearanceSection() {
               role="radio"
               aria-checked={checked}
               onClick={() => setPref(option.value)}
-              className={`min-h-11 flex-1 touch-manipulation rounded-xl text-sm font-medium ${
+              className={`min-h-11 flex-1 touch-manipulation rounded-lg text-sm font-medium ${segmentClass(
                 checked
-                  ? 'bg-background text-foreground shadow-sm'
-                  : 'text-foreground/60 active:opacity-50'
-              }`}
+              )}`}
             >
               {option.label}
             </button>
@@ -512,7 +507,7 @@ export function DataSection() {
         type="button"
         disabled={status === 'deleting'}
         onClick={() => setConfirming(true)}
-        className={`${ROW_BUTTON} text-red-500 disabled:opacity-50`}
+        className={`${ROW_BUTTON} text-destructive disabled:opacity-50`}
       >
         {status === 'deleting' ? 'Deleting…' : 'Delete all chats'}
       </button>
@@ -522,7 +517,7 @@ export function DataSection() {
         </p>
       )}
       {status === 'failed' && (
-        <p role="alert" className={`${NOTE} text-red-500`}>
+        <p role="alert" className={`${NOTE} text-destructive`}>
           {DELETE_ALL_ERROR}
         </p>
       )}

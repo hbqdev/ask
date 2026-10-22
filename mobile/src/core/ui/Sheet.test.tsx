@@ -30,6 +30,17 @@ function drag(points: Point[]) {
 const panel = () => screen.getByRole('dialog')
 
 describe('Sheet', () => {
+  it('rises on the elevated surface, edged in dark, over a deeper dim in dark', () => {
+    setup()
+    expect(panel()).toHaveClass('bg-elevated', 'dark:border-t')
+    expect(panel()).toHaveClass('dark:border-foreground/10')
+    expect(panel()).not.toHaveClass('bg-background')
+    expect(screen.getByTestId('sheet-backdrop')).toHaveClass(
+      'bg-black/40',
+      'dark:bg-black/60'
+    )
+  })
+
   it('renders nothing when closed', () => {
     setup(false)
     expect(screen.queryByRole('dialog')).toBeNull()

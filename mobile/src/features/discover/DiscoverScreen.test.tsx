@@ -231,6 +231,13 @@ describe('DiscoverScreen topics', () => {
     expect(screen.getByText('tech story 1')).toBeInTheDocument()
   })
 
+  it('the chosen topic is an inverted chip; the others are muted', async () => {
+    await renderScreen()
+    expect(chip('Tech')).toHaveClass('bg-foreground', 'text-background')
+    expect(chip('Gaming')).toHaveClass('bg-muted', 'text-foreground')
+    expect(chip('Gaming')).not.toHaveClass('bg-foreground')
+  })
+
   it('opens on the stored topic, falling back to tech for an invalid one', async () => {
     prefsData.set(DISCOVER_TOPIC_KEY, 'gaming')
     const { unmount } = await renderScreen()

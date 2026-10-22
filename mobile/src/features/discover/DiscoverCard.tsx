@@ -117,7 +117,7 @@ export const DiscoverLeadCard = memo(function DiscoverLeadCard({
           type="button"
           aria-label={`Summarize ${item.title}`}
           onClick={() => onSummarize(item.url)}
-          className="inline-flex min-h-11 touch-manipulation items-center gap-1.5 rounded-full px-3 text-sm font-semibold text-mark-blue active:opacity-50"
+          className="inline-flex min-h-11 touch-manipulation items-center gap-1.5 rounded-full px-3 text-sm font-semibold text-accent active:opacity-50"
         >
           <SparkleIcon />
           Summarize
@@ -149,7 +149,7 @@ export const DiscoverRow = memo(function DiscoverRow({
         type="button"
         aria-label={`Summarize ${item.title}`}
         onClick={() => onSummarize(item.url)}
-        className="mr-2 flex size-11 shrink-0 touch-manipulation items-center justify-center rounded-full text-mark-blue active:bg-muted"
+        className="mr-2 flex size-11 shrink-0 touch-manipulation items-center justify-center rounded-full text-accent active:bg-muted"
       >
         <SparkleIcon />
       </button>

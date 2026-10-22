@@ -153,8 +153,14 @@ describe('SettingsScreen', () => {
     expect(option('Light')).toHaveAttribute('aria-checked', 'true')
     expect(option('System')).toHaveAttribute('aria-checked', 'false')
 
+    // A segmented control: the chosen theme is the thumb.
+    expect(option('Light')).toHaveClass('bg-thumb')
+    expect(option('System')).not.toHaveClass('bg-thumb')
+
     await user.click(option('Dark'))
     expect(option('Dark')).toHaveAttribute('aria-checked', 'true')
+    expect(option('Dark')).toHaveClass('bg-thumb')
+    expect(option('Light')).not.toHaveClass('bg-thumb')
     expect(option('Light')).toHaveAttribute('aria-checked', 'false')
     expect(root.classList.contains('dark')).toBe(true)
     expect(storage.data.get(THEME_STORAGE_KEY)).toBe('dark')

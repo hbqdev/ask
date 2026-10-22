@@ -15,6 +15,7 @@ import { useApi } from '@/core/api/ApiProvider'
 import { ApiError } from '@/core/api/errors'
 import { haptic } from '@/core/haptics'
 import { useScreenActive, useStack, type Stack } from '@/core/nav/stack'
+import { SECTION_TITLE } from '@/core/ui/classes'
 import { ConfirmSheet } from '@/core/ui/ConfirmSheet'
 import { Sheet } from '@/core/ui/Sheet'
 import { SwipeRow } from '@/core/ui/SwipeRow'
@@ -73,9 +74,7 @@ const BACK_ICON = 'M15 5l-7 7 7 7'
  */
 const PAUSED = Symbol('paused')
 
-const SECTION_TITLE =
-  'px-4 pb-2 text-xs font-medium uppercase tracking-wide text-foreground/50'
-const GROUP = 'rounded-2xl bg-foreground/5'
+const GROUP = 'rounded-2xl bg-card'
 const NOTE = 'px-4 pt-2 text-sm'
 const PILL =
   'min-h-11 flex-1 touch-manipulation rounded-xl px-4 text-sm font-medium active:opacity-60 disabled:opacity-40'
@@ -90,7 +89,7 @@ function NoteLine({ note }: { note: Note }) {
   return (
     <p
       role={note.tone}
-      className={`${NOTE} ${note.tone === 'alert' ? 'text-red-500' : 'text-foreground/60'}`}
+      className={`${NOTE} ${note.tone === 'alert' ? 'text-destructive' : 'text-foreground/60'}`}
     >
       {note.text}
     </p>
@@ -146,7 +145,7 @@ function Switch({
 
 function LearningBadge() {
   return (
-    <span className="rounded-full bg-mark-blue/15 px-2 py-0.5 text-[0.6875rem] font-semibold text-mark-blue">
+    <span className="rounded-full bg-mark-blue/15 px-2 py-0.5 text-[0.6875rem] font-semibold text-accent">
       Learning
     </span>
   )
@@ -403,7 +402,7 @@ export function MemoryScreen() {
       <div
         role="status"
         aria-label="Loading memory"
-        className="flex animate-pulse flex-col gap-3 px-4 pt-6"
+        className="flex motion-safe:animate-pulse flex-col gap-3 px-4 pt-6"
       >
         <div className="h-12 rounded-2xl bg-foreground/8" />
         <div className="h-12 rounded-2xl bg-foreground/8" />
@@ -474,7 +473,7 @@ export function MemoryScreen() {
                   rebuild.running || clearingIndex || recall.chunks === 0
                 }
                 onClick={() => setConfirm({ kind: 'clearIndex' })}
-                className={`${PILL} bg-background text-red-500`}
+                className={`${PILL} bg-background text-destructive`}
               >
                 {clearingIndex ? 'Clearing…' : 'Clear index'}
               </button>
@@ -540,6 +539,7 @@ export function MemoryScreen() {
                       }
                     ]}
                     onPress={() => setViewing(memory)}
+                    surface="card"
                   >
                     <div className="flex min-h-14 flex-col justify-center gap-1 px-4 py-3">
                       <span className="line-clamp-3 text-base leading-snug">
@@ -562,7 +562,7 @@ export function MemoryScreen() {
               type="button"
               disabled={clearing}
               onClick={() => setConfirm({ kind: 'clearAll' })}
-              className={`${GROUP} mt-3 min-h-12 w-full touch-manipulation px-4 text-base font-medium text-red-500 active:opacity-60 disabled:opacity-50`}
+              className={`${GROUP} mt-3 min-h-12 w-full touch-manipulation px-4 text-base font-medium text-destructive active:opacity-60 disabled:opacity-50`}
             >
               {clearing ? 'Clearing…' : 'Clear all memories'}
             </button>

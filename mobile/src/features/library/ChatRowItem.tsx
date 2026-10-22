@@ -4,6 +4,7 @@
 
 import { memo } from 'react'
 
+import { SEPARATOR } from '@/core/ui/classes'
 import { SwipeRow } from '@/core/ui/SwipeRow'
 import { SEARCH_MODE_LABELS } from '@/features/compose/SearchOptionFields'
 import type { ChatRow } from '@/features/library/library-api'
@@ -14,6 +15,8 @@ export type ChatRowItemProps = {
   /** The date the row shows (ISO): the one its section is grouped by. */
   time: string
   now: Date
+  /** Draws an inset hairline under the row (all but a group's last row). */
+  separator: boolean
   onOpen(chat: ChatRow): void
   onDelete(chat: ChatRow): void
   onRename(chat: ChatRow): void
@@ -58,6 +61,7 @@ export const ChatRowItem = memo(function ChatRowItem({
   chat,
   time,
   now,
+  separator,
   onOpen,
   onDelete,
   onRename
@@ -65,7 +69,7 @@ export const ChatRowItem = memo(function ChatRowItem({
   const badge = modeBadge(chat.searchMode)
   const files = chat.fileCount
   return (
-    <li style={ROW_STYLE} className="border-b border-border last:border-b-0">
+    <li style={ROW_STYLE}>
       <SwipeRow
         actions={[
           {
@@ -77,7 +81,11 @@ export const ChatRowItem = memo(function ChatRowItem({
         ]}
         onPress={() => onOpen(chat)}
       >
-        <div className="flex min-h-[72px] flex-col justify-center gap-1 px-4 py-3">
+        <div
+          className={`relative flex min-h-[72px] flex-col justify-center gap-1 px-4 py-3 ${
+            separator ? SEPARATOR : ''
+          }`}
+        >
           <span className="line-clamp-2 text-base leading-snug font-medium">
             {chat.title || 'Untitled'}
           </span>

@@ -146,7 +146,8 @@ function HeaderButton({
 }
 
 const BACK_ICON = 'M15 5l-7 7 7 7'
-const SOURCES_ICON = 'M4 6h16M4 12h16M4 18h10'
+// Two stacked pages: apart from the Library tab's three lines.
+const SOURCES_ICON = 'M8 3h8l4 4v11M4 7h9l3 3v10H4zM13 7v3h3'
 
 function ErrorBanner({
   error,
@@ -165,7 +166,7 @@ function ErrorBanner({
   return (
     <div
       role="alert"
-      className="flex items-center gap-3 rounded-2xl bg-red-500/10 px-4 py-2 text-sm text-red-600 dark:text-red-400"
+      className="flex items-center gap-3 rounded-2xl bg-red-500/10 px-4 py-2 text-sm text-destructive"
     >
       <p className="min-w-0 flex-1">{error.message}</p>
       {action && (
@@ -186,7 +187,7 @@ function LoadingSkeleton() {
     <div
       role="status"
       aria-label="Loading chat"
-      className="flex animate-pulse flex-col gap-3"
+      className="flex motion-safe:animate-pulse flex-col gap-3"
     >
       <div className="ml-auto h-10 w-2/3 rounded-3xl bg-foreground/8" />
       <div className="h-4 w-full rounded bg-foreground/8" />
