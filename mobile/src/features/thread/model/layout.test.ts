@@ -141,8 +141,8 @@ describe('pastTurnStyle', () => {
     containIntrinsicSize: 'auto 480px',
     // Room inside the contained (clipped) box for hit areas and focus rings
     // at its edges, the box's place in the layout unchanged.
-    padding: '8px 12px',
-    margin: '-8px -12px'
+    padding: '8px 1rem',
+    margin: '-8px -1rem'
   }
 
   it('lets the browser skip laying out a past message while off screen', () => {

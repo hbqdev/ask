@@ -76,12 +76,14 @@ export function layoutAssistantMessage(
 // rendered height as its placeholder, so the scroll position holds. The box
 // is contained, so it clips what overflows it: padding (taken back by the
 // negative margin, so the layout is unchanged) leaves room for a citation
-// chip's hit area or a focus ring at its edge.
+// chip's hit area or a focus ring at its edge. Sideways it is 1rem, the
+// bleed of SpecImages' full-width image row (-mx-4), so that row keeps its
+// width when the answer becomes a past one.
 const PAST_TURN: CSSProperties = {
   contentVisibility: 'auto',
   containIntrinsicSize: 'auto 480px',
-  padding: '8px 12px',
-  margin: '-8px -12px'
+  padding: '8px 1rem',
+  margin: '-8px -1rem'
 }
 
 /**
