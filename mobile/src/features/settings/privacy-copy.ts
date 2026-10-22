@@ -74,7 +74,7 @@ export function privacySections(host: string): PrivacySection[] {
     {
       title: 'Deleting your account',
       paragraphs: [
-        'Settings → Account → Delete account removes your chats, notes, memories, attached files, settings and the account itself from the Ask server. It can’t be undone. Settings kept on this device, like your custom instructions, stay there until you change them or remove the app. The services named above handle what they received under their own privacy policies.'
+        'Settings → Account → Delete account removes your chats, notes, memories, attached files, settings and the account itself from the Ask server. It can’t be undone. Deleting your account also removes your custom instructions from this device; other settings kept here, like the theme, stay until you change them or remove the app. The services named above handle what they received under their own privacy policies.'
       ]
     }
   ]
