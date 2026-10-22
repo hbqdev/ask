@@ -455,6 +455,17 @@ describe('DiscoverScreen states', () => {
     expect(tech.refresh).not.toHaveBeenCalled()
   })
 
+  it('shows no end-of-feed spinner under the banner, and none to page with', async () => {
+    const tech = feed('tech', {
+      status: 'error',
+      error: 'Server error (502)',
+      hasMore: true
+    })
+    await renderScreen(tech)
+    expect(screen.getByRole('alert')).toBeInTheDocument()
+    expect(screen.queryByTestId('discover-more')).toBeNull()
+  })
+
   it('says when a topic has no stories, and offers a refresh', async () => {
     const tech = feed('tech', { items: [], hasMore: false })
     await renderScreen(tech)

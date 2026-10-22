@@ -514,6 +514,39 @@ describe('useDiscover', () => {
       expect(worldRenders.every(r => r.urls.length === 0)).toBe(true)
     })
 
+    it('A page 2 in flight → B → A (cache) → stale page dropped', async () => {
+      const { result, rerender } = renderDiscover('tech')
+      await waitFor(() => expect(result.current.status).toBe('ready'))
+      const stale = deferred<Response>()
+      server.on('tech', 2, () => stale.promise)
+      let more!: Promise<void>
+      act(() => {
+        more = result.current.loadMore()
+      })
+      rerender({ topic: 'world' })
+      await waitFor(() => expect(result.current.status).toBe('ready'))
+      rerender({ topic: 'tech' }) // fresh in the cache: shown at once
+      expect(result.current.status).toBe('ready')
+
+      await act(async () => {
+        stale.resolve(json({ blogs: [blog('https://tech.example/stale')] }))
+        await more
+      })
+      expect(urls(result.current.items)).toEqual(pageUrls('tech', 1))
+      // Tech's page 2 is asked for again, and only its answer is used.
+      await act(() => result.current.loadMore())
+      expect(urls(result.current.items)).toEqual([
+        ...pageUrls('tech', 1),
+        ...pageUrls('tech', 2)
+      ])
+      expect(server.requests()).toEqual([
+        'tech:1',
+        'tech:2',
+        'world:1',
+        'tech:2'
+      ])
+    })
+
     it('drops a request when switching to a topic shown from the cache', async () => {
       const { result, rerender } = renderDiscover('tech')
       await waitFor(() => expect(result.current.status).toBe('ready'))

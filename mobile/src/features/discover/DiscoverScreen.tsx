@@ -202,7 +202,8 @@ const Feed = memo(function Feed({
     return () => observer.disconnect()
   }, [active, hasMore, loadMore, items, scroller])
 
-  const more = hasMore && (
+  // Not under a failure's banner: Retry pages on from there.
+  const more = hasMore && status !== 'error' && (
     <div
       ref={sentinel}
       data-testid="discover-more"

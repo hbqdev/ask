@@ -1,6 +1,6 @@
 // Discover's call to Ask's public news route (app/api/discover/route.ts): one
-// page of articles for a topic, kept only when it can be shown (a thumbnail)
-// and opened (an http(s) url), as the web's Discover page does.
+// page of articles for a topic, kept only when it can be shown (an http(s)
+// thumbnail) and opened (an http(s) url), as the web's Discover page does.
 
 import type { ApiClient } from '@/core/api/client'
 import { thumbUrl } from '@/lib/discover/thumb-url'
@@ -53,7 +53,7 @@ type DiscoverResponse = {
 }
 
 /**
- * One page (1..20) of a topic's articles. The route is public, so no token is
+ * One page (1..DISCOVER_MAX_PAGE, see useDiscover) of a topic's articles. The route is public, so no token is
  * asked for or sent: this works signed out.
  */
 export async function fetchDiscoverPage(
@@ -67,7 +67,9 @@ export async function fetchDiscoverPage(
     { auth: false }
   )
   return blogs
-    .filter(blog => blog.thumbnail && sanitizeHttpUrl(blog.url))
+    .filter(
+      blog => sanitizeHttpUrl(blog.thumbnail) && sanitizeHttpUrl(blog.url)
+    )
     .map(blog => ({
       title: blog.title,
       summary: blog.content,

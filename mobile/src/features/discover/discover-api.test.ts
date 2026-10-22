@@ -86,6 +86,21 @@ describe('fetchDiscoverPage', () => {
     ])
   })
 
+  it('keeps only items whose thumbnail is http(s)', async () => {
+    const { client: c } = client(() =>
+      json({
+        blogs: [
+          blog({ url: 'https://ok.example/1' }),
+          blog({ url: 'https://a.example', thumbnail: 'javascript:alert(1)' }),
+          blog({ url: 'https://b.example', thumbnail: 'data:image/png,xx' }),
+          blog({ url: 'https://c.example', thumbnail: '/relative.jpg' })
+        ]
+      })
+    )
+    const items = await fetchDiscoverPage(c, 'tech', 1)
+    expect(items.map(i => i.url)).toEqual(['https://ok.example/1'])
+  })
+
   it('maps content to summary, drops category and normalises the thumbnail', async () => {
     const { client: c } = client(() =>
       json({
