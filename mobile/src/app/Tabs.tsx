@@ -141,7 +141,7 @@ export function Tabs({ tabs, initial, children }: TabsProps) {
                   haptic('selection')
                   select(tab.id)
                 }}
-                className={`flex min-h-11 flex-1 touch-manipulation flex-col items-center justify-center gap-0.5 text-[min(0.6875rem,13px)] font-medium active:opacity-50 ${
+                className={`flex min-h-11 flex-1 touch-manipulation flex-col items-center justify-center gap-0.5 text-[clamp(10px,0.6875rem,13px)] leading-none font-medium active:opacity-50 ${
                   isActive ? 'text-mark-blue' : 'text-foreground/55'
                 }`}
               >

@@ -109,11 +109,11 @@ function Chip({
         {busy && <ProgressRing item={item} />}
       </div>
       <div className="min-w-0 flex-1">
-        <p className="truncate text-sm leading-5 font-medium">{item.name}</p>
+        <p className="truncate text-sm font-medium">{item.name}</p>
         {note && (
           <p
             role={failed ? 'alert' : undefined}
-            className={`truncate text-xs leading-4 ${
+            className={`truncate text-xs ${
               failed ? 'text-red-500' : 'text-foreground/50'
             }`}
           >
@@ -127,7 +127,7 @@ function Chip({
             aria-label={`Retry ${item.name}`}
             onClick={() => onRetry(item.id)}
             // The hit area reaches past the text without growing the chip much.
-            className="-my-2 -ml-2 flex min-h-11 min-w-11 touch-manipulation items-center px-2 text-xs leading-5 font-semibold text-foreground underline active:opacity-50"
+            className="-my-2 -ml-2 flex min-h-11 min-w-11 touch-manipulation items-center px-2 text-xs font-semibold text-foreground underline active:opacity-50"
           >
             Retry
           </button>

@@ -17,11 +17,7 @@ import { useApi, type Api } from '@/core/api/ApiProvider'
 import { ApiError } from '@/core/api/errors'
 import { haptic } from '@/core/haptics'
 import { StackProvider, StackView, useStack } from '@/core/nav/stack'
-import {
-  Composer,
-  COMPOSER_MAX_HEIGHT_PX,
-  type ComposerProps
-} from '@/features/compose/Composer'
+import { Composer, type ComposerProps } from '@/features/compose/Composer'
 import type { OptionsSheetProps } from '@/features/compose/OptionsSheet'
 import { uploadFile, type UploadResult } from '@/features/compose/upload'
 import type { SearchSettings } from '@/features/thread/chat-body'
@@ -343,9 +339,45 @@ describe('Composer', () => {
     const { input } = setup()
     fireEvent.change(input, { target: { value: 'many\nlines' } })
 
-    expect(COMPOSER_MAX_HEIGHT_PX).toBe(6 * 24 + 16)
-    expect(input.style.height).toBe(`${COMPOSER_MAX_HEIGHT_PX}px`)
+    // Six 24px lines and the 16px padding where no line height is laid out.
+    expect(input.style.height).toBe(`${6 * 24 + 16}px`)
     expect(input.style.overflowY).toBe('auto')
+  })
+
+  it('caps at six lines of the field’s own line height, which follows the text size', () => {
+    Object.defineProperty(HTMLTextAreaElement.prototype, 'scrollHeight', {
+      configurable: true,
+      get: () => 1000
+    })
+    const { input } = setup()
+    input.style.lineHeight = '36px'
+    fireEvent.change(input, { target: { value: 'many\nlines' } })
+    expect(input.style.height).toBe(`${6 * 36 + 16}px`)
+    expect(input.style.overflowY).toBe('auto')
+  })
+
+  it('without a px line height, caps at six lines of 1.5 × its font size', () => {
+    Object.defineProperty(HTMLTextAreaElement.prototype, 'scrollHeight', {
+      configurable: true,
+      get: () => 1000
+    })
+    const { input } = setup()
+    input.style.lineHeight = 'normal'
+    input.style.fontSize = '20px'
+    fireEvent.change(input, { target: { value: 'many\nlines' } })
+    expect(input.style.height).toBe(`${6 * 30 + 16}px`)
+  })
+
+  it('a field shorter than the cap does not scroll, at any text size', () => {
+    Object.defineProperty(HTMLTextAreaElement.prototype, 'scrollHeight', {
+      configurable: true,
+      get: () => 200
+    })
+    const { input } = setup()
+    input.style.lineHeight = '36px'
+    fireEvent.change(input, { target: { value: 'a\nb\nc\nd\ne' } })
+    expect(input.style.height).toBe('200px')
+    expect(input.style.overflowY).toBe('hidden')
   })
 
   it('takes focus when asked to', () => {

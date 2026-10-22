@@ -27,6 +27,10 @@ describe('CitationChip', () => {
     const { container } = render(<CitationChip source={SOURCE} />)
     const chip = screen.getByRole('button', { name: /example\.com/ })
     expect(chip).toHaveTextContent('example.com')
+    // The pill grows with its text (rem), and the host keeps its descenders.
+    expect(chip).toHaveClass('h-[1.25rem]')
+    expect(chip).not.toHaveClass('h-5')
+    expect(within(chip).getByText('example.com')).toHaveClass('leading-tight')
     expect(container.querySelector('img')).toHaveAttribute(
       'src',
       SOURCE.favicon

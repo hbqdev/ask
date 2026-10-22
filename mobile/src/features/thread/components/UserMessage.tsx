@@ -192,12 +192,8 @@ function FileChip({ file }: { file: FileItem }) {
         <Icon d={FILE_ICON} />
       </span>
       <span className="min-w-0">
-        <span className="block truncate text-sm leading-5 font-medium">
-          {file.name}
-        </span>
-        <span className="block text-xs leading-4 text-foreground/50">
-          {file.type}
-        </span>
+        <span className="block truncate text-sm font-medium">{file.name}</span>
+        <span className="block text-xs text-foreground/50">{file.type}</span>
       </span>
     </>
   )

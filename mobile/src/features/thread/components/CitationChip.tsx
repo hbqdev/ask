@@ -49,10 +49,10 @@ export function CitationChip({ source }: { source: Source }) {
         type="button"
         data-citation={source.url}
         onClick={() => setOpen(true)}
-        className="citation-chip mx-0.5 inline-flex h-5 max-w-[10rem] touch-manipulation items-center gap-1 rounded-full bg-foreground/8 px-1.5 text-[0.7rem] leading-none font-medium text-foreground/70 active:opacity-50"
+        className="citation-chip mx-0.5 inline-flex h-[1.25rem] max-w-[10rem] touch-manipulation items-center gap-1 rounded-full bg-foreground/8 px-1.5 text-[0.7rem] leading-none font-medium text-foreground/70 active:opacity-50"
       >
         <SourceIcon source={source} className="size-3 shrink-0" />
-        <span className="truncate">{source.host}</span>
+        <span className="truncate leading-tight">{source.host}</span>
       </button>
       <Sheet open={open} onClose={() => setOpen(false)} title={title}>
         <div className="flex flex-col gap-3 px-2 pb-2">

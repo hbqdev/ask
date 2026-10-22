@@ -40,10 +40,12 @@ export function watchTextSize(doc: Document = document): () => void {
 
   const probe = doc.createElement('span')
   probe.setAttribute('aria-hidden', 'true')
-  // As an attribute, so the system font reaches WebKit verbatim.
+  // As an attribute, so the system font reaches WebKit verbatim. Fixed at the
+  // viewport's corner: in the flow (after the full-height app) it would make
+  // the document taller than the screen, and the web view would scroll.
   probe.setAttribute(
     'style',
-    'position:absolute; visibility:hidden; font:-apple-system-body'
+    'position:fixed; top:0; left:0; visibility:hidden; pointer-events:none; font:-apple-system-body'
   )
   probe.textContent = 'M'
   doc.body.appendChild(probe)
@@ -51,7 +53,11 @@ export function watchTextSize(doc: Document = document): () => void {
   const view = doc.defaultView ?? window
   const apply = () => {
     const body = parseFloat(view.getComputedStyle(probe).fontSize)
-    doc.documentElement.style.fontSize = `${rootFontSize(body)}px`
+    const next = `${rootFontSize(body)}px`
+    // Unchanged (the observer's first call, most returns to the app): no write.
+    if (doc.documentElement.style.fontSize !== next) {
+      doc.documentElement.style.fontSize = next
+    }
   }
   apply()
 

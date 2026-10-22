@@ -141,11 +141,13 @@ describe('Tabs', () => {
     )
   })
 
-  it('labels follow the text size, capped at 13px so the bar keeps its height', () => {
+  it('labels follow the text size between 10px and 13px, on a tight line', () => {
     render(<Tabs tabs={makeTabs()} />)
     for (const name of ['Ask', 'Library', 'Settings']) {
-      // 11px at the default 16px root; 13px from a 19px root up.
-      expect(tab(name)).toHaveClass('text-[min(0.6875rem,13px)]')
+      // 11px at the default 16px root; never below iOS's 10pt tab label,
+      // never past 13px; line-height 1 keeps icon + label inside 44px.
+      expect(tab(name)).toHaveClass('text-[clamp(10px,0.6875rem,13px)]')
+      expect(tab(name)).toHaveClass('leading-none')
       expect(tab(name).className).not.toContain('text-[11px]')
     }
   })

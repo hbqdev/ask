@@ -99,7 +99,12 @@ describe('watchTextSize', () => {
     const span = probe()!
     expect(span).not.toBeNull()
     expect(span.textContent).toBe('M')
-    expect(span.style.position).toBe('absolute')
+    // Pinned to the viewport's corner, out of the flow: it must never make
+    // the document taller than the screen (the web view would scroll).
+    expect(span.style.position).toBe('fixed')
+    expect(span.style.top).toBe('0px')
+    expect(span.style.left).toBe('0px')
+    expect(span.style.pointerEvents).toBe('none')
     expect(span.style.visibility).toBe('hidden')
     expect(span.getAttribute('style')).toMatch(/font:\s*-apple-system-body/)
     expect(supports).toHaveBeenCalledWith('font', '-apple-system-body')
@@ -124,6 +129,18 @@ describe('watchTextSize', () => {
     bodyPx = '14px'
     document.dispatchEvent(new Event('visibilitychange'))
     expect(document.documentElement.style.fontSize).toBe('14px')
+  })
+
+  it('writes the root size only when it changes', () => {
+    watchTextSize()
+    const style = document.documentElement.style
+    const set = vi.spyOn(style, 'fontSize', 'set')
+    resize(probe()!)
+    document.dispatchEvent(new Event('visibilitychange'))
+    expect(set).not.toHaveBeenCalled()
+    bodyPx = '19px'
+    resize(probe()!)
+    expect(set).toHaveBeenCalledExactlyOnceWith('17.88px')
   })
 
   it('cleanup removes the probe and stops updating', () => {

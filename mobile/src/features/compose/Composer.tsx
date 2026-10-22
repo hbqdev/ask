@@ -34,12 +34,27 @@ import { DictationBar, MicButton } from '@/features/voice/MicButton'
 import { useDictation } from '@/features/voice/useDictation'
 import { ACCEPT_ATTRIBUTE } from '@/lib/config/upload-allowlist'
 
-const LINE_HEIGHT_PX = 24
 const MAX_LINES = 6
-/** The field's vertical padding (py-2), inside its height. */
+/** The field's vertical padding (py-2, fixed px), inside its height. */
 const PADDING_Y_PX = 16
-/** The tallest the field grows; past it the text scrolls. */
-export const COMPOSER_MAX_HEIGHT_PX = MAX_LINES * LINE_HEIGHT_PX + PADDING_Y_PX
+/** A line where nothing is laid out (text-base at the default text size). */
+const FALLBACK_LINE_HEIGHT_PX = 24
+
+/**
+ * The field's line height in px, as laid out: it follows the iOS text size
+ * (src/core/text-size.ts). `normal` counts as 1.5 × the font size.
+ */
+function lineHeightPx(style: CSSStyleDeclaration): number {
+  const line = parseFloat(style.lineHeight)
+  if (line > 0) return line
+  const font = parseFloat(style.fontSize)
+  return font > 0 ? font * 1.5 : FALLBACK_LINE_HEIGHT_PX
+}
+
+/** The tallest the field grows (six lines); past it the text scrolls. */
+function maxFieldHeight(el: HTMLElement): number {
+  return MAX_LINES * lineHeightPx(getComputedStyle(el)) + PADDING_Y_PX
+}
 
 /** The keyCode Safari gives the Enter that commits an IME composition. */
 const IME_KEY_CODE = 229
@@ -203,10 +218,9 @@ export function Composer({
   useLayoutEffect(() => {
     const el = field.current!
     el.style.height = 'auto'
-    const height = Math.min(el.scrollHeight, COMPOSER_MAX_HEIGHT_PX)
-    el.style.height = `${height}px`
-    el.style.overflowY =
-      el.scrollHeight > COMPOSER_MAX_HEIGHT_PX ? 'auto' : 'hidden'
+    const max = maxFieldHeight(el)
+    el.style.height = `${Math.min(el.scrollHeight, max)}px`
+    el.style.overflowY = el.scrollHeight > max ? 'auto' : 'hidden'
   }, [text, dictating])
 
   // The picker opens within the tap, as iOS requires.
@@ -264,7 +278,7 @@ export function Composer({
           aria-label={placeholder}
           autoFocus={autoFocus}
           enterKeyHint="send"
-          className="block w-full resize-none bg-transparent py-2 text-base leading-6 outline-none placeholder:text-foreground/40"
+          className="block w-full resize-none bg-transparent py-2 text-base outline-none placeholder:text-foreground/40"
         />
         <div className="flex items-center justify-between gap-2">
           <div className="flex min-w-0 items-center gap-1">

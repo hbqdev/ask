@@ -1,5 +1,5 @@
-import { readFileSync } from 'node:fs'
-import { resolve } from 'node:path'
+import { readdirSync, readFileSync } from 'node:fs'
+import { join, resolve } from 'node:path'
 
 import { describe, expect, it } from 'vitest'
 
@@ -118,5 +118,29 @@ describe('Dynamic Type', () => {
     // a px step keeps padding, sizes and hit areas where they are (and equal
     // to Tailwind's 0.25rem default at the 16px default root).
     expect(rule('@theme')['--spacing']).toBe('4px')
+  })
+})
+
+describe('Dynamic Type: line heights', () => {
+  /** Every app source file (not tests) under src/. */
+  function sources(dir: string): string[] {
+    return readdirSync(dir, { withFileTypes: true }).flatMap(entry => {
+      const path = join(dir, entry.name)
+      if (entry.isDirectory()) return sources(path)
+      return /\.(tsx?|css)$/.test(entry.name) && !/\.test\./.test(entry.name)
+        ? [path]
+        : []
+    })
+  }
+
+  it('no leading-<n> class: with a 4px spacing step it is a fixed px line height under scaling text', () => {
+    // leading-N compiles to calc(var(--spacing) * N). Use the text size's own
+    // line height, leading-none/tight/snug/normal/relaxed, or a rem value.
+    const offenders = sources(__dirname).flatMap(path =>
+      [
+        ...readFileSync(path, 'utf8').matchAll(/\bleading-\d+(?:\.\d+)?\b/g)
+      ].map(m => `${path.slice(__dirname.length + 1)}: ${m[0]}`)
+    )
+    expect(offenders).toEqual([])
   })
 })
