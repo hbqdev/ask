@@ -98,6 +98,18 @@ describe('DiscoverRow', () => {
     expect(row).toHaveClass('relative', 'after:h-px', 'after:left-4')
   })
 
+  it('ends its hairline where the lead card ends, 16 px in from the right', () => {
+    // The lead card sits 16 px in from both edges (mx-4); the hairline starts
+    // at the thumbnail (16 px in) and stops 16 px short of the right, so on
+    // an iPad's readable column the rows and the card share a right edge.
+    render(<DiscoverLeadCard item={ITEM} {...handlers()} />)
+    expect(screen.getByTestId('discover-lead')).toHaveClass('mx-4')
+    render(<DiscoverRow item={ITEM} {...handlers()} separator />)
+    const row = screen.getByRole('listitem')
+    expect(row).toHaveClass('after:left-4', 'after:right-4')
+    expect(row).not.toHaveClass('after:right-0')
+  })
+
   it('sizes the title in rem, so it follows the text size', () => {
     render(<DiscoverRow item={ITEM} {...handlers()} />)
     // 15px at the default 16px root.

@@ -320,8 +320,14 @@ export function UserMessage({ message, baseUrl }: UserMessageProps) {
       ))}
       {sources.length > 0 && (
         // Wrapped rows sit 44 px centre to centre, so the chips' hit areas
-        // meet halfway between them.
-        <div className="flex max-w-full flex-wrap justify-end gap-x-1.5 gap-y-2.5">
+        // meet halfway between them. Under a quote toggle the row adds 2 px
+        // to the column's 8 px gap: 10 px keeps the toggle's (36 px) and a
+        // chip's (34 px) 44-pt hit areas from overlapping.
+        <div
+          className={`flex max-w-full flex-wrap justify-end gap-x-1.5 gap-y-2.5 ${
+            quotes.length > 0 ? 'mt-0.5' : ''
+          }`}
+        >
           {sources.map((source, i) => (
             <SourceChip key={i} source={source} />
           ))}

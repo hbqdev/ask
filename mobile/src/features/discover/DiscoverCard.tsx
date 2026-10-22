@@ -5,7 +5,6 @@
 
 import { memo, useId, useState } from 'react'
 
-import { SEPARATOR } from '@/core/ui/classes'
 import type { DiscoverItem } from '@/features/discover/discover-api'
 
 export type DiscoverCardProps = {
@@ -132,6 +131,14 @@ export const DiscoverLeadCard = memo(function DiscoverLeadCard({
   )
 })
 
+/**
+ * A row's hairline: from the thumbnail (16 px in) to 16 px short of the right,
+ * so it ends where the lead card (mx-4) does, on an iPad's readable column as
+ * on a phone.
+ */
+const ROW_SEPARATOR =
+  'after:absolute after:bottom-0 after:left-4 after:right-4 after:h-px after:bg-border'
+
 /** A story after the first: a thumbnail and the title. */
 export const DiscoverRow = memo(function DiscoverRow({
   item,
@@ -144,7 +151,7 @@ export const DiscoverRow = memo(function DiscoverRow({
 }) {
   return (
     <li
-      className={`flex items-center ${separator ? `relative ${SEPARATOR}` : ''}`}
+      className={`flex items-center ${separator ? `relative ${ROW_SEPARATOR}` : ''}`}
     >
       <button
         type="button"

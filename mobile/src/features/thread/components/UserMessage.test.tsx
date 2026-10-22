@@ -453,4 +453,31 @@ describe('UserMessage: tap targets', () => {
       expect(clippingAncestors(control, container)).toEqual([])
     }
   })
+
+  it('puts 10 px between a quote toggle and the link chips under it', () => {
+    // The column's gap is 8 px; the toggle (36 px) and a chip (34 px) need
+    // 10 px between them for their 44-pt hit areas not to overlap, so the
+    // chip row adds 2 px (mt-0.5) when a toggle sits above it.
+    renderMessage([
+      { type: 'text', text: 'Explain' },
+      { type: 'data-quotedContext', data: { text: 'Quoted' } },
+      { type: 'data-sourceUrl', data: { url: 'https://example.test/a' } }
+    ])
+    const chip = screen.getByRole('button', {
+      name: 'Open https://example.test/a'
+    })
+    expect(chip.parentElement!.parentElement).toHaveClass('gap-2')
+    expect(chip.parentElement).toHaveClass('mt-0.5')
+  })
+
+  it('keeps the plain 8 px gap above the link chips with no quote toggle', () => {
+    renderMessage([
+      { type: 'text', text: 'Explain' },
+      { type: 'data-sourceUrl', data: { url: 'https://example.test/a' } }
+    ])
+    const chip = screen.getByRole('button', {
+      name: 'Open https://example.test/a'
+    })
+    expect(chip.parentElement).not.toHaveClass('mt-0.5')
+  })
 })
