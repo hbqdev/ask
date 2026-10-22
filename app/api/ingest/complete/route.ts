@@ -6,7 +6,7 @@ import path from 'node:path'
 import { dbAdmin } from '@/lib/db'
 import {
   completeIngestFailure,
-  markFileReady,
+  markProcessingFileReady,
   updateIngestProgress
 } from '@/lib/db/file-actions'
 import { libraryFiles as files } from '@/lib/db/schema'
@@ -63,8 +63,13 @@ async function embedAndSettle(
       await completeIngestFailure(fileId, embedFailureReason(e), false)
       return
     }
-    if (partial) await markFileReady(fileId, PARTIAL_NOTE)
-    else await markFileReady(fileId)
+    const ready = partial
+      ? await markProcessingFileReady(fileId, PARTIAL_NOTE)
+      : await markProcessingFileReady(fileId)
+    if (!ready)
+      console.warn(
+        `[ingest/complete] ${fileId} was settled while it embedded; left as is`
+      )
   } catch (e) {
     console.error('[ingest/complete] could not record the outcome:', e)
   } finally {
@@ -104,6 +109,11 @@ export async function POST(req: NextRequest) {
   if (SETTLED.has(row.status)) return NextResponse.json({ status: row.status })
 
   if (error || !Array.isArray(chunks) || chunks.length === 0) {
+    // This process is embedding the file from an earlier completion (the
+    // worker may have given up waiting and reported a failure): that embed
+    // settles it, so a failure report must not flip it back to pending.
+    if (embedding.has(fileId))
+      return NextResponse.json({ status: 'processing' }, { status: 202 })
     const status = await completeIngestFailure(
       fileId,
       (error ?? 'worker returned no content').slice(0, 500),

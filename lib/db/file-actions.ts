@@ -132,6 +132,28 @@ export async function markFileReady(id: string, note?: string): Promise<void> {
     .where(eq(files.id, id))
 }
 
+// markFileReady for the worker path's background embed: it settles the file
+// only while it is still 'processing', so a file that expired or was swept to
+// failed while its chunks were embedding keeps that state. Returns whether
+// the file was marked ready.
+export async function markProcessingFileReady(
+  id: string,
+  note?: string
+): Promise<boolean> {
+  const result = await db.execute(sql`
+    UPDATE files SET
+      status = 'ready',
+      ingested_at = now(),
+      ingest_error = ${note ?? null},
+      ingest_stage = NULL,
+      claimed_at = NULL
+    WHERE id = ${id}
+      AND status = 'processing'
+    RETURNING id
+  `)
+  return Boolean(execRows(result)[0])
+}
+
 // Finalize jobs that reached the attempt cap via silent worker death: the
 // worker claimed them (attempts++ to MAX_ATTEMPTS) but never reported back, so
 // they sit status='processing' — excluded from the attempts<MAX requeue

@@ -42,6 +42,7 @@ import {
   gcOrphanUploads,
   getFileStatusesForUser,
   markFileReady,
+  markProcessingFileReady,
   releaseFastPathToWorker
 } from '../file-actions'
 
@@ -558,5 +559,42 @@ describe('markFileReady', () => {
         ingestError: 'Indexed the first part only (file too large)'
       })
     )
+  })
+})
+
+// The worker path's background embed settles the file only if nothing else
+// settled it meanwhile (expiry, the retries-exhausted sweep).
+describe('markProcessingFileReady', () => {
+  const dialect = new PgDialect()
+  beforeEach(() => vi.clearAllMocks())
+
+  it('marks only a still-processing file ready, clearing stage and claim', async () => {
+    execute.mockResolvedValueOnce([{ id: 'f1' }])
+    expect(await markProcessingFileReady('f1')).toBe(true)
+    const q = dialect.sqlToQuery(execute.mock.calls[0][0])
+    expect(q.sql).toMatch(/SET\s+status = 'ready'/)
+    expect(q.sql).toMatch(/ingested_at = now\(\)/)
+    expect(q.sql).toMatch(/ingest_stage = NULL/)
+    expect(q.sql).toMatch(/claimed_at = NULL/)
+    expect(q.sql).toMatch(/WHERE id = \$\d+\s+AND status = 'processing'/)
+    expect(q.params).toEqual([null, 'f1'])
+  })
+
+  it('stores the partial-index note as the ingest error', async () => {
+    execute.mockResolvedValueOnce([{ id: 'f1' }])
+    await markProcessingFileReady(
+      'f1',
+      'Indexed the first part only (file too large)'
+    )
+    const q = dialect.sqlToQuery(execute.mock.calls[0][0])
+    expect(q.params).toEqual([
+      'Indexed the first part only (file too large)',
+      'f1'
+    ])
+  })
+
+  it('reports false and changes nothing visible when the file was settled meanwhile', async () => {
+    execute.mockResolvedValueOnce([])
+    expect(await markProcessingFileReady('f1')).toBe(false)
   })
 })
