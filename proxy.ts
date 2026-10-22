@@ -73,8 +73,11 @@ export const config = {
      *   there, which truncated uploads and broke larger recordings. These two
      *   routes answer the app's CORS themselves (lib/http/with-app-cors.ts);
      *   /api is a public path, so they need nothing else from the proxy.
+     * - api/ingest/complete (exact): the ingest worker posts all of a file's
+     *   chunks in one body, often past 10 MB. It checks the worker's bearer
+     *   token itself and needs no session or CORS.
      * Feel free to modify this pattern to include more paths.
      */
-    '/((?!_next/static|_next/image|favicon.ico|api/upload$|api/voice/transcribe$|.*\\.(?:svg|png|jpg|jpeg|gif|webp)$).*)'
+    '/((?!_next/static|_next/image|favicon.ico|api/upload$|api/voice/transcribe$|api/ingest/complete$|.*\\.(?:svg|png|jpg|jpeg|gif|webp)$).*)'
   ]
 }

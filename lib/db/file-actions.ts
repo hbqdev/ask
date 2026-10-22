@@ -117,13 +117,15 @@ export async function findFileByObjectKey(
   return rows[0] ?? null
 }
 
-export async function markFileReady(id: string): Promise<void> {
+// `note` is kept in ingest_error on a ready file for the attachment UI to show
+// (e.g. that only the first part of a very large file was indexed).
+export async function markFileReady(id: string, note?: string): Promise<void> {
   await db
     .update(files)
     .set({
       status: 'ready',
       ingestedAt: new Date(),
-      ingestError: null,
+      ingestError: note ?? null,
       ingestStage: null,
       claimedAt: null
     })

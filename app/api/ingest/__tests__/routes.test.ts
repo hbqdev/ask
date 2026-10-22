@@ -366,16 +366,55 @@ describe('POST /api/ingest/complete', () => {
     expect(storeExtractedChunks).not.toHaveBeenCalled()
   })
 
-  it('rejects more than 2000 chunks with 400', async () => {
-    mockDbSelect([{ id: 'f1', objectKey: 'u1/f1.pdf', filename: 'a.pdf' }])
-    const chunks = Array.from({ length: 2001 }, (_, i) => `chunk-${i}`)
+  // A file too big for the 2000-chunk index is not failed: its first 2000
+  // chunks (in document order) are indexed, and the file is marked ready
+  // with a note the attachment UI shows.
+  for (const total of [2001, 5000]) {
+    it(`indexes the first 2000 of ${total} chunks and marks the file ready with a partial note`, async () => {
+      mockDbSelect([{ id: 'f1', objectKey: 'u1/f1.csv', filename: 'a.csv' }])
+      vi.mocked(storeExtractedChunks).mockResolvedValue(undefined)
+      const chunks = Array.from({ length: total }, (_, i) => `chunk-${i}`)
+
+      const res = await completePOST(
+        postReq('http://x/api/ingest/complete', AUTH, { fileId: 'f1', chunks })
+      )
+
+      expect(res.status).toBe(200)
+      await expect(res.json()).resolves.toEqual({ status: 'ready' })
+      expect(storeExtractedChunks).toHaveBeenCalledWith(
+        path.join(uploadsDir, 'u1/f1.csv'),
+        'a.csv',
+        chunks.slice(0, 2000)
+      )
+      expect(markFileReady).toHaveBeenCalledWith(
+        'f1',
+        'Indexed the first part only (file too large)'
+      )
+      expect(completeIngestFailure).not.toHaveBeenCalled()
+    })
+  }
+
+  it('indexes the whole chunks that fit when the body itself is over the size cap', async () => {
+    mockDbSelect([{ id: 'f1', objectKey: 'u1/f1.txt', filename: 'a.txt' }])
+    vi.mocked(storeExtractedChunks).mockResolvedValue(undefined)
+    // ~30 MB of JSON: more than the route reads, though under 2000 chunks.
+    const chunks = Array.from({ length: 1500 }, (_, i) =>
+      `${i}:`.padEnd(20_000, 'y')
+    )
 
     const res = await completePOST(
       postReq('http://x/api/ingest/complete', AUTH, { fileId: 'f1', chunks })
     )
 
-    expect(res.status).toBe(400)
-    expect(storeExtractedChunks).not.toHaveBeenCalled()
+    expect(res.status).toBe(200)
+    const stored = vi.mocked(storeExtractedChunks).mock.calls[0][2]
+    expect(stored.length).toBeGreaterThan(100)
+    expect(stored.length).toBeLessThan(1500)
+    expect(stored).toEqual(chunks.slice(0, stored.length))
+    expect(markFileReady).toHaveBeenCalledWith(
+      'f1',
+      'Indexed the first part only (file too large)'
+    )
   })
 
   it('accepts exactly 2000 chunks (boundary — not >2000)', async () => {
@@ -394,6 +433,8 @@ describe('POST /api/ingest/complete', () => {
       'a.pdf',
       chunks
     )
+    // Complete: ready with no partial note.
+    expect(vi.mocked(markFileReady).mock.calls).toEqual([['f1']])
   })
 
   it('rejects an objectKey that resolves outside UPLOADS_DIR with 400 (defense-in-depth)', async () => {

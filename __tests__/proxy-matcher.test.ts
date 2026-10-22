@@ -16,6 +16,15 @@ describe('proxy matcher', () => {
     expect(matches('/api/voice/transcribe')).toBe(false)
   })
 
+  // The ingest worker posts every extracted chunk of a file at once; a large
+  // text file makes a body well past 10 MB. The route checks the worker's
+  // bearer token itself and needs no session or CORS from the proxy.
+  it('does not run the proxy for the ingest completion route', () => {
+    expect(matches('/api/ingest/complete')).toBe(false)
+    expect(matches('/api/ingest/claim')).toBe(true)
+    expect(matches('/api/ingest/complete-x')).toBe(true)
+  })
+
   it('still runs the proxy for the other API routes and pages', () => {
     expect(matches('/api/chat')).toBe(true)
     expect(matches('/api/voice/speak')).toBe(true)
