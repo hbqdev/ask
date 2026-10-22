@@ -5,6 +5,17 @@ import { deleteAccount } from '@/lib/actions/account'
 // deleteAccount's refusals, mapped to statuses.
 const ANONYMOUS_MODE = 'Account deletion is unavailable in anonymous mode.'
 const SIGNED_OUT = 'User not authenticated'
+const NOT_CONFIGURED =
+  'Account deletion is not configured. Set SUPABASE_SECRET_KEY.'
+
+// What a failure tells the client: fixed text only. deleteAccount's own
+// message can be upstream (Supabase or R2) text, so it is logged here instead.
+const FAILED = { error: 'Failed to delete account', retryable: true }
+// A retry cannot help until the operator sets the admin key.
+const UNAVAILABLE = {
+  error: 'Account deletion is not configured on this server.',
+  retryable: false
+}
 
 const CONFIRM_REQUIRED = {
   error: 'Send {"confirm":"DELETE"} to delete the account.'
@@ -51,8 +62,9 @@ export async function DELETE(request: NextRequest) {
   if (result.error === SIGNED_OUT) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }
+  if (result.error) console.error('DELETE /api/account failed:', result.error)
   return NextResponse.json(
-    { error: result.error ?? 'Failed to delete account', retryable: true },
+    result.error === NOT_CONFIGURED ? UNAVAILABLE : FAILED,
     { status: 500 }
   )
 }
