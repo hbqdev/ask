@@ -146,4 +146,25 @@ describe('groupByDate', () => {
     // The rows are the caller's objects, not copies.
     expect(groups[0].rows[0]).toBe(rows[0])
   })
+
+  it('groups any dated rows, such as notes, by their updatedAt', () => {
+    const notes = [
+      {
+        id: 'n1',
+        createdAt: new Date(2026, 6, 1).toISOString(),
+        updatedAt: new Date(2026, 9, 21, 9, 0).toISOString()
+      },
+      {
+        id: 'n2',
+        createdAt: new Date(2026, 6, 1).toISOString(),
+        updatedAt: new Date(2026, 6, 2).toISOString()
+      }
+    ]
+    const groups = groupByDate(notes, NOW, 'updatedAt')
+    expect(groups.map(g => [g.label, g.rows.map(r => r.id)])).toEqual([
+      ['Today', ['n1']],
+      ['July 2026', ['n2']]
+    ])
+    expect(groups[0].rows[0]).toBe(notes[0])
+  })
 })

@@ -396,3 +396,36 @@ describe('AssistantTurn read-aloud', () => {
     expect(reader.read).not.toHaveBeenCalled()
   })
 })
+
+describe('AssistantTurn notes', () => {
+  it('offers no Save to notes without a notes saver', () => {
+    renderTurn()
+    expect(
+      screen.queryByRole('button', { name: 'Save to notes' })
+    ).not.toBeInTheDocument()
+  })
+
+  it('saves this answer, by its message id, to notes', async () => {
+    const notes = {
+      isSaved: vi.fn(() => false),
+      save: vi.fn(async () => {})
+    }
+    renderTurn({ notes })
+    expect(notes.isSaved).toHaveBeenCalledWith('a1')
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: 'Save to notes' }))
+    })
+    expect(notes.save).toHaveBeenCalledExactlyOnceWith(
+      'a1',
+      expect.stringContaining('The fact')
+    )
+    expect(screen.getByRole('button', { name: 'Saved' })).toBeDisabled()
+  })
+
+  it('shows Saved for an answer saved earlier this session', () => {
+    renderTurn({
+      notes: { isSaved: () => true, save: vi.fn(async () => {}) }
+    })
+    expect(screen.getByRole('button', { name: 'Saved' })).toBeDisabled()
+  })
+})

@@ -11,9 +11,11 @@ import userEvent from '@testing-library/user-event'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { Tabs, useSelectTab } from '@/app/Tabs'
+import { haptic } from '@/core/haptics'
 import { StackProvider } from '@/core/nav/stack'
 import { groupByDate } from '@/features/library/group-by-date'
 import type { ChatRow, SearchHit } from '@/features/library/library-api'
+import { LIBRARY_SEGMENT_KEY } from '@/features/library/library-segment'
 import { LIBRARY_SORT_KEY } from '@/features/library/library-sort'
 import { LibraryScreen } from '@/features/library/LibraryScreen'
 import { relativeTime } from '@/features/library/relative-time'
@@ -23,6 +25,7 @@ import {
   type ChatSearch,
   type Library
 } from '@/features/library/useLibrary'
+import { useNotes, type Notes } from '@/features/notes/useNotes'
 import { openThread } from '@/features/thread/ThreadScreen'
 import { intersect, isObserved, observerOf } from '@/test/intersection-observer'
 
@@ -31,6 +34,8 @@ vi.mock('@/features/library/useLibrary', () => ({
   useChatSearch: vi.fn()
 }))
 vi.mock('@/features/thread/ThreadScreen', () => ({ openThread: vi.fn() }))
+vi.mock('@/features/notes/useNotes', () => ({ useNotes: vi.fn() }))
+vi.mock('@/core/haptics', () => ({ haptic: vi.fn() }))
 vi.mock('@/app/Tabs', async importOriginal => ({
   ...(await importOriginal<typeof import('@/app/Tabs')>()),
   useSelectTab: vi.fn()
@@ -127,6 +132,29 @@ function chatSearch(over: Partial<ChatSearch> = {}): ChatSearch {
     results: [],
     status: 'idle',
     submit: vi.fn(),
+    ...over
+  }
+}
+
+function notesState(over: Partial<Notes> = {}): Notes {
+  return {
+    notes: [
+      {
+        id: 'n1',
+        title: 'Note one',
+        content: 'Saved answer',
+        chatId: null,
+        sourceMessageId: null,
+        createdAt: daysAgo(0),
+        updatedAt: daysAgo(0)
+      }
+    ],
+    status: 'ready',
+    error: undefined,
+    hasMore: false,
+    loadMore: vi.fn(async () => {}),
+    refresh: vi.fn(async () => {}),
+    remove: vi.fn(async () => true),
     ...over
   }
 }
@@ -237,6 +265,7 @@ beforeEach(() => {
   vi.useFakeTimers({ toFake: ['Date'] })
   vi.setSystemTime(NOW)
   vi.mocked(useSelectTab).mockReturnValue(selectTab)
+  vi.mocked(useNotes).mockReturnValue(notesState())
   vi.spyOn(HTMLElement.prototype, 'clientWidth', 'get').mockReturnValue(375)
 })
 
@@ -763,5 +792,88 @@ describe('LibraryScreen rendering', () => {
     expect(rowButton('Renamed')).toBeInTheDocument()
     expect(relativeTime).toHaveBeenCalledOnce()
     expect(vi.mocked(relativeTime).mock.calls[0][0]).toBe(renamed.lastViewedAt)
+  })
+})
+
+// --- Segments -------------------------------------------------------------------
+
+describe('LibraryScreen segments', () => {
+  const segment = (name: 'Chats' | 'Notes') => screen.getByRole('tab', { name })
+
+  const panel = (name: 'Chats' | 'Notes') =>
+    document.getElementById(segment(name).getAttribute('aria-controls')!)!
+
+  it('opens on Chats, with Notes beside it', async () => {
+    await renderScreen()
+    const tabs = within(
+      screen.getByRole('tablist', { name: 'Library sections' })
+    ).getAllByRole('tab')
+    expect(tabs.map(t => t.textContent)).toEqual(['Chats', 'Notes'])
+    expect(segment('Chats')).toHaveAttribute('aria-selected', 'true')
+    expect(segment('Notes')).toHaveAttribute('aria-selected', 'false')
+    expect(rowButton('Chat a')).toBeVisible()
+    // Notes are not asked for until the segment is opened.
+    expect(useNotes).not.toHaveBeenCalled()
+  })
+
+  it('shows the notes on Notes, with a tick, and remembers the choice', async () => {
+    await renderScreen()
+    fireEvent.click(segment('Notes'))
+    expect(segment('Notes')).toHaveAttribute('aria-selected', 'true')
+    expect(useNotes).toHaveBeenCalled()
+    expect(
+      screen.getByRole('button', { name: /^Note one/ })
+    ).toBeInTheDocument()
+    expect(haptic).toHaveBeenCalledWith('selection')
+    expect(prefsData.get(LIBRARY_SEGMENT_KEY)).toBe('notes')
+    expect(panel('Notes')).not.toHaveAttribute('inert')
+    expect(panel('Chats')).toHaveAttribute('inert')
+    expect(panel('Chats')).toHaveStyle({ visibility: 'hidden' })
+  })
+
+  it('a tap on the shown segment does nothing', async () => {
+    await renderScreen()
+    fireEvent.click(segment('Chats'))
+    expect(haptic).not.toHaveBeenCalled()
+    expect(Preferences.set).not.toHaveBeenCalled()
+  })
+
+  it('opens on the stored segment, loading no chats until Chats is shown', async () => {
+    prefsData.set(LIBRARY_SEGMENT_KEY, 'notes')
+    vi.mocked(useLibrary).mockReturnValue(library())
+    vi.mocked(useChatSearch).mockReturnValue(chatSearch())
+    render(
+      <StackProvider root={HOME}>
+        <LibraryScreen />
+      </StackProvider>
+    )
+    expect(
+      await screen.findByRole('button', { name: /^Note one/ })
+    ).toBeInTheDocument()
+    expect(segment('Notes')).toHaveAttribute('aria-selected', 'true')
+    expect(useLibrary).not.toHaveBeenCalled()
+    fireEvent.click(segment('Chats'))
+    expect(useLibrary).toHaveBeenCalled()
+    expect(rowButton('Chat a')).toBeVisible()
+  })
+
+  it('switching segments renders neither list again, and each keeps its state', async () => {
+    await renderScreen()
+    const chatRow = rowButton('Chat a')
+    fireEvent.click(segment('Notes'))
+    // Each chat list render groups the rows once (the groupByDate spy).
+    const chatListRenders = vi.mocked(groupByDate).mock.calls.length
+    // Each row render (chat or note) formats its time once.
+    const rowRenders = vi.mocked(relativeTime).mock.calls.length
+    const noteRenders = vi.mocked(useNotes).mock.calls.length
+    fireEvent.click(segment('Chats'))
+    fireEvent.click(segment('Notes'))
+    fireEvent.click(segment('Chats'))
+    expect(vi.mocked(groupByDate).mock.calls.length).toBe(chatListRenders)
+    expect(vi.mocked(relativeTime).mock.calls.length).toBe(rowRenders)
+    expect(vi.mocked(useNotes).mock.calls.length).toBe(noteRenders)
+    // The same row element: the list was kept, not mounted again.
+    expect(rowButton('Chat a')).toBe(chatRow)
+    expect(panel('Notes')).toHaveAttribute('inert')
   })
 })

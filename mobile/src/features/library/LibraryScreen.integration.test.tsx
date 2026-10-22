@@ -2,6 +2,7 @@
 // Ask server behind the real API client.
 
 import {
+  act,
   fireEvent,
   render,
   screen,
@@ -17,8 +18,10 @@ import { useAuth, type Auth } from '@/core/auth/AuthProvider'
 import { StackProvider } from '@/core/nav/stack'
 import { saveLibraryCache } from '@/features/library/library-cache'
 import type { ChatRow } from '@/features/library/library-api'
+import { LIBRARY_SEGMENT_KEY } from '@/features/library/library-segment'
 import { LIBRARY_SORT_KEY } from '@/features/library/library-sort'
 import { LibraryScreen } from '@/features/library/LibraryScreen'
+import { resetNotesCache } from '@/features/notes/notes-cache'
 
 vi.mock('@/core/api/ApiProvider', () => ({ useApi: vi.fn() }))
 vi.mock('@/core/auth/AuthProvider', () => ({ useAuth: vi.fn() }))
@@ -100,6 +103,23 @@ function fakeServer(chats: ChatRow[]) {
             }))
         })
       }
+      if (method === 'GET' && url.pathname === '/api/notes') {
+        return json({
+          notes: [
+            {
+              id: 'n1',
+              title: 'Saved tides',
+              content: 'The moon pulls the sea.',
+              chatId: 'c0',
+              sourceMessageId: 'm1',
+              createdAt: NOW.toISOString(),
+              updatedAt: NOW.toISOString()
+            }
+          ],
+          nextCursor: null,
+          hasMore: false
+        })
+      }
       return json({ error: 'unexpected' }, 418)
     }
   )
@@ -143,6 +163,7 @@ beforeEach(() => {
   vi.clearAllMocks()
   vi.useFakeTimers({ toFake: ['Date'] })
   vi.setSystemTime(NOW)
+  resetNotesCache()
   vi.mocked(useAuth).mockReturnValue({
     session: { user: { id: 'user-1' } }
   } as unknown as Auth)
@@ -274,5 +295,29 @@ describe('LibraryScreen with the real library hooks', () => {
     await user.click(screen.getByRole('button', { name: 'Clear search' }))
     expect(screen.queryByRole('list', { name: 'Search results' })).toBeNull()
     expect(screen.getByRole('button', { name: /^Chat 0/ })).toBeInTheDocument()
+  })
+})
+
+describe('LibraryScreen segments with the real hooks', () => {
+  it('loads the notes once on Notes, and switching back and forth reloads neither list', async () => {
+    const server = fakeServer([row(0, 0)])
+    renderScreen()
+    await screen.findByRole('button', { name: /^Chat 0/ })
+    expect(server.requests('GET', '/api/notes')).toHaveLength(0)
+
+    fireEvent.click(screen.getByRole('tab', { name: 'Notes' }))
+    expect(
+      await screen.findByRole('button', { name: /^Saved tides/ })
+    ).toHaveTextContent('The moon pulls the sea.')
+    expect(prefsData.get(LIBRARY_SEGMENT_KEY)).toBe('notes')
+
+    const chatLoads = server.requests('GET', '/api/chats').length
+    fireEvent.click(screen.getByRole('tab', { name: 'Chats' }))
+    fireEvent.click(screen.getByRole('tab', { name: 'Notes' }))
+    fireEvent.click(screen.getByRole('tab', { name: 'Chats' }))
+    await act(async () => {})
+    expect(server.requests('GET', '/api/chats')).toHaveLength(chatLoads)
+    expect(server.requests('GET', '/api/notes')).toHaveLength(1)
+    expect(screen.getByRole('button', { name: /^Chat 0/ })).toBeVisible()
   })
 })

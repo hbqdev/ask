@@ -1,11 +1,12 @@
 // The actions under an answer: copy it, share it with the native share sheet,
-// read it aloud, retry the turn, and list its sources. Copy and Share use the
-// same text as the web's Copy (citations as source links, spec fences gone);
-// Share adds the cited URLs. In a saved chat, Share first asks whether to
+// save it to notes, read it aloud, retry the turn, and list its sources. Copy,
+// Share and Save to notes use the same text as the web's Copy (citations as
+// source links, spec fences gone); Share adds the cited URLs. In a saved chat, Share first asks whether to
 // share the answer or a public link to the chat; the link is made with that
 // choice open, and a failure to make it is said there. Read aloud is a
 // speaker that turns into a spinner while the audio loads and a stop button
-// while it plays; a tap on either stops.
+// while it plays; a tap on either stops. Save to notes saves the copied text
+// once: it then reads Saved and takes no more taps.
 
 import { Clipboard } from '@capacitor/clipboard'
 import { Share } from '@capacitor/share'
@@ -13,6 +14,10 @@ import { useEffect, useRef, useState, type ReactNode } from 'react'
 
 import { haptic } from '@/core/haptics'
 import { Sheet } from '@/core/ui/Sheet'
+import {
+  isNotesUnavailable,
+  NOTES_UNAVAILABLE
+} from '@/features/notes/notes-api'
 import { SourcesSheet } from '@/features/thread/components/SourcesSheet'
 import {
   copyableAnswer,
@@ -22,6 +27,7 @@ import {
 import {
   COPIED_MS,
   isShareCancelled,
+  reasonOf,
   SHARE_LINK_ERROR
 } from '@/features/thread/share-api'
 import { useMakeLink } from '@/features/thread/useMakeLink'
@@ -29,6 +35,7 @@ import type { ReadAloud } from '@/features/voice/useReadAloud'
 
 export const COPY_ERROR = 'Couldn’t copy the answer.'
 export const SHARE_ERROR = 'Couldn’t share the answer.'
+export const SAVE_NOTE_ERROR = 'Couldn’t save to notes.'
 
 /** A chat's public link, and the title it is shared under. */
 export type ChatLink = { title: string; url: string }
@@ -48,7 +55,13 @@ export type MessageActionsProps = {
    * Share shares the answer at once.
    */
   linkToChat?: () => Promise<ChatLink>
+  /** Saves the answer, as copied, to notes; absent where notes can't be. */
+  onSaveNote?: (content: string) => Promise<void>
+  /** The answer was saved to notes already (read once, when shown). */
+  noteSaved?: boolean
 }
+
+type NoteState = 'idle' | 'saving' | 'saved'
 
 const CHOICE =
   'min-h-12 touch-manipulation rounded-xl px-4 text-left text-base text-foreground active:bg-muted disabled:opacity-50'
@@ -66,11 +79,13 @@ function ActionButton({
   label,
   onClick,
   busy,
+  disabled,
   children
 }: {
   label: string
   onClick: () => void
   busy?: boolean
+  disabled?: boolean
   children: ReactNode
 }) {
   return (
@@ -78,8 +93,9 @@ function ActionButton({
       type="button"
       aria-label={label}
       aria-busy={busy || undefined}
+      disabled={disabled}
       onClick={onClick}
-      className="flex min-h-11 min-w-11 touch-manipulation items-center justify-center gap-1.5 rounded-full px-2 text-sm text-foreground/60 active:opacity-50"
+      className="flex min-h-11 min-w-11 touch-manipulation items-center justify-center gap-1.5 rounded-full px-2 text-sm text-foreground/60 active:opacity-50 disabled:active:opacity-100"
     >
       {children}
     </button>
@@ -107,6 +123,7 @@ const ICONS = {
   copy: 'M9 9h10v10H9zM5 15V5h10',
   check: 'M5 12.5l4.5 4.5L19 7.5',
   share: 'M12 3v12M7 8l5-5 5 5M5 13v6h14v-6',
+  bookmark: 'M6 4h12v16l-6-4.5L6 20z',
   retry: 'M4 4v6h6M20 12a8 8 0 1 1-2.34-5.66L20 8.5',
   speaker:
     'M4 9.5v5h3.5L12 18.5v-13L7.5 9.5H4zM15.5 9a4 4 0 0 1 0 6M18 6.5a7.5 7.5 0 0 1 0 11'
@@ -173,9 +190,12 @@ export function MessageActions({
   sources,
   onRetry,
   readAloud,
-  linkToChat
+  linkToChat,
+  onSaveNote,
+  noteSaved = false
 }: MessageActionsProps) {
   const [copied, setCopied] = useState(false)
+  const [note, setNote] = useState<NoteState>(noteSaved ? 'saved' : 'idle')
   const [error, setError] = useState<string | null>(null)
   const [sourcesOpen, setSourcesOpen] = useState(false)
   // The share choice, and the link made while it is open.
@@ -199,6 +219,32 @@ export function MessageActions({
     setCopied(true)
     clearTimeout(copiedTimer.current)
     copiedTimer.current = setTimeout(() => setCopied(false), COPIED_MS)
+  }
+
+  // Read through a ref too: two taps in one frame must not save twice.
+  const noteRef = useRef(note)
+  const showNote = (next: NoteState) => {
+    noteRef.current = next
+    setNote(next)
+  }
+
+  const saveNote = async () => {
+    if (noteRef.current !== 'idle') return
+    setError(null)
+    showNote('saving')
+    try {
+      await onSaveNote!(copyableAnswer(text, maps))
+    } catch (e) {
+      showNote('idle')
+      setError(
+        isNotesUnavailable(e)
+          ? NOTES_UNAVAILABLE
+          : `${SAVE_NOTE_ERROR} ${reasonOf(e)}`
+      )
+      return
+    }
+    haptic('success')
+    showNote('saved')
   }
 
   /** Opens the share sheet; a failure other than a cancel says `failure`. */
@@ -252,6 +298,26 @@ export function MessageActions({
         <ActionButton label="Share" onClick={share}>
           <Icon d={ICONS.share} />
         </ActionButton>
+        {onSaveNote && (
+          <ActionButton
+            label={
+              note === 'saved'
+                ? 'Saved'
+                : note === 'saving'
+                  ? 'Saving'
+                  : 'Save to notes'
+            }
+            onClick={() => void saveNote()}
+            busy={note === 'saving'}
+            disabled={note !== 'idle'}
+          >
+            {note === 'saving' ? (
+              <Spinner />
+            ) : (
+              <Icon d={note === 'saved' ? ICONS.check : ICONS.bookmark} />
+            )}
+          </ActionButton>
+        )}
         {text.trim() && <ReadAloudButton readAloud={readAloud} text={text} />}
         <ActionButton label="Retry" onClick={onRetry}>
           <Icon d={ICONS.retry} />

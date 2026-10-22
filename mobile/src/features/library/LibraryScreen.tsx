@@ -1,9 +1,12 @@
-// The Library tab: the user's chats in date sections (or by title), with the
-// total, a remembered sort, search, pull to refresh, infinite scroll, and
-// swipe to delete or rename. Rows show from the offline cache at once while
-// the list revalidates; a failed load keeps them and says so.
+// The Library tab: Chats and Notes, a segmented control between them (the
+// choice remembered on the device). Chats: the user's chats in date sections
+// (or by title), with the total, a remembered sort, search, pull to refresh,
+// infinite scroll, and swipe to delete or rename; rows show from the offline
+// cache at once while the list revalidates, and a failed load keeps them and
+// says so. Notes: the answers the user saved (NotesList). Each segment mounts
+// the first time it is shown and then stays mounted, keeping its rows and
+// scroll; a switch renders neither list again.
 
-import { App } from '@capacitor/app'
 import {
   memo,
   useCallback,
@@ -17,6 +20,7 @@ import {
 } from 'react'
 
 import { useSelectTab, useTabActive } from '@/app/Tabs'
+import { haptic } from '@/core/haptics'
 import { useStack } from '@/core/nav/stack'
 import { ConfirmSheet } from '@/core/ui/ConfirmSheet'
 import { PullScroller } from '@/core/ui/PullScroller'
@@ -29,6 +33,10 @@ import {
   type ChatRow,
   type ChatSort
 } from '@/features/library/library-api'
+import {
+  useLibrarySegment,
+  type LibrarySegment
+} from '@/features/library/library-segment'
 import { LIBRARY_SORTS, useLibrarySort } from '@/features/library/library-sort'
 import {
   useChatSearch,
@@ -36,6 +44,8 @@ import {
   type ChatSearch,
   type Library
 } from '@/features/library/useLibrary'
+import { useToday } from '@/features/library/useToday'
+import { NotesList } from '@/features/notes/NotesList'
 import { openThread } from '@/features/thread/ThreadScreen'
 
 /** How far below the visible list the next page starts loading. */
@@ -46,11 +56,23 @@ const SKELETON_ROWS = 6
 const PILL =
   'min-h-11 shrink-0 touch-manipulation rounded-full px-4 text-sm font-semibold active:opacity-50'
 
+const SEGMENTS: { id: LibrarySegment; label: string }[] = [
+  { id: 'chats', label: 'Chats' },
+  { id: 'notes', label: 'Notes' }
+]
+
 export function LibraryScreen() {
-  const [sort, setSort, loaded] = useLibrarySort()
-  // The list waits for the stored sort, so it neither fetches nor shows the
-  // cache in an order about to change.
-  if (!loaded) {
+  const [sort, setSort, sortLoaded] = useLibrarySort()
+  const [segment, setSegment, segmentLoaded] = useLibrarySegment()
+  // The segments shown before the current one: they stay mounted.
+  const [visited, setVisited] = useState<ReadonlySet<LibrarySegment>>(
+    () => new Set()
+  )
+  const idPrefix = useId()
+
+  // The lists wait for the stored sort and segment, so they neither fetch
+  // nor show the cache in an order, or a segment, about to change.
+  if (!sortLoaded || !segmentLoaded) {
     return (
       <main className="flex min-h-0 flex-1 flex-col">
         <header className="px-4 pt-6 pb-3">
@@ -60,7 +82,78 @@ export function LibraryScreen() {
       </main>
     )
   }
-  return <LibraryList sort={sort} onSort={setSort} />
+
+  const select = (next: LibrarySegment) => {
+    if (next === segment) return
+    haptic('selection')
+    setVisited(v => new Set(v).add(segment))
+    setSegment(next)
+  }
+  const mounted = (id: LibrarySegment) => id === segment || visited.has(id)
+  const tabId = (id: LibrarySegment) => `${idPrefix}-segment-${id}`
+  const panelId = (id: LibrarySegment) => `${idPrefix}-panel-${id}`
+
+  return (
+    <main className="flex min-h-0 flex-1 flex-col">
+      <header className="flex flex-col gap-3 px-4 pt-6 pb-1">
+        <h1 className="px-2 text-3xl font-bold tracking-tight">Library</h1>
+        <div
+          role="tablist"
+          aria-label="Library sections"
+          className="flex rounded-xl bg-muted p-0.5"
+        >
+          {SEGMENTS.map(({ id, label }) => {
+            const selected = id === segment
+            return (
+              <button
+                key={id}
+                id={tabId(id)}
+                type="button"
+                role="tab"
+                aria-selected={selected}
+                aria-controls={mounted(id) ? panelId(id) : undefined}
+                onClick={() => select(id)}
+                className={`min-h-11 flex-1 touch-manipulation rounded-[10px] text-sm font-semibold active:opacity-50 ${
+                  selected
+                    ? 'bg-background text-foreground shadow-sm'
+                    : 'text-muted-foreground'
+                }`}
+              >
+                {label}
+              </button>
+            )
+          })}
+        </div>
+      </header>
+      <div className="relative min-h-0 flex-1">
+        {SEGMENTS.map(({ id }) => {
+          if (!mounted(id)) return null
+          const shown = id === segment
+          return (
+            <div
+              key={id}
+              id={panelId(id)}
+              role="tabpanel"
+              aria-labelledby={tabId(id)}
+              className="absolute inset-0 flex flex-col"
+              // visibility, not display: the segment keeps its layout and
+              // scroll position while hidden.
+              style={shown ? undefined : { visibility: 'hidden' }}
+              inert={!shown}
+            >
+              {/* The lists (ChatList, NotesList) are memoized: a switch
+                  renders neither again. */}
+              {id === 'chats' ? (
+                <LibraryList sort={sort} onSort={setSort} />
+              ) : (
+                <NotesList />
+              )}
+            </div>
+          )
+        })}
+      </div>
+    </main>
+  )
 }
 
 function LibraryList({
@@ -95,7 +188,7 @@ function LibraryList({
   }
 
   return (
-    <main className="flex min-h-0 flex-1 flex-col">
+    <div className="flex min-h-0 flex-1 flex-col">
       <LibraryHeader
         total={library.total}
         sort={sort}
@@ -146,7 +239,7 @@ function LibraryList({
         onSubmit={title => void library.rename(renaming!.id, title)}
         onClose={() => setRenaming(null)}
       />
-    </main>
+    </div>
   )
 }
 
@@ -175,16 +268,11 @@ function LibraryHeader({
   }
 
   return (
-    <header className="flex flex-col gap-3 px-4 pt-6 pb-3">
-      <div className="flex items-end justify-between gap-3 px-2">
-        <div className="min-w-0">
-          <h1 className="text-3xl font-bold tracking-tight">Library</h1>
-          {total !== undefined && (
-            <p className="text-sm text-muted-foreground">
-              {total} {total === 1 ? 'chat' : 'chats'}
-            </p>
-          )}
-        </div>
+    <header className="flex flex-col gap-3 px-4 pt-2 pb-3">
+      <div className="flex items-center justify-between gap-3 px-2">
+        <p className="min-w-0 text-sm text-muted-foreground">
+          {total !== undefined && `${total} ${total === 1 ? 'chat' : 'chats'}`}
+        </p>
         <button
           type="button"
           aria-label={`Sort: ${sortLabel}`}
@@ -276,12 +364,6 @@ function LibraryHeader({
 
 // --- The list -------------------------------------------------------------------
 
-/** Today's local midnight (ms): it changes once a day. */
-function startOfToday() {
-  const now = new Date()
-  return new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime()
-}
-
 type ChatListProps = Pick<
   Library,
   'chats' | 'status' | 'error' | 'hasMore' | 'loadMore' | 'refresh'
@@ -331,17 +413,7 @@ const ChatList = memo(function ChatList({
   // memoized row) stays the same until midnight. A render takes up a new
   // day: showing the tab renders the list again (`active` changed), and so
   // does the app coming back on another day than it last rendered.
-  const [, setDay] = useState(startOfToday)
-  useEffect(() => {
-    const handle = App.addListener('appStateChange', ({ isActive }) => {
-      if (isActive) setDay(startOfToday())
-    })
-    return () => {
-      void handle.then(h => h.remove())
-    }
-  }, [])
-  const today = startOfToday()
-  const now = useMemo(() => new Date(today), [today])
+  const now = useToday()
   const key = sort === 'recent' ? 'lastViewedAt' : 'createdAt'
   const groups = useMemo(
     () => (sort === 'title' ? null : groupByDate(chats, now, key)),

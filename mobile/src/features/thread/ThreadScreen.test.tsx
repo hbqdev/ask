@@ -21,6 +21,8 @@ import { SEARCH_SETTINGS_KEY } from '@/features/compose/search-settings'
 import { SearchSettingsProvider } from '@/features/compose/SearchSettingsProvider'
 import { uploadFile } from '@/features/compose/upload'
 import { deleteChat, renameChat } from '@/features/library/library-api'
+import { saveNote, type Note } from '@/features/notes/notes-api'
+import { resetNotesCache } from '@/features/notes/notes-cache'
 import { shareChat, unshareChat } from '@/features/thread/share-api'
 import type { ChatErrorView } from '@/features/thread/model/chat-errors'
 import { openThread, ThreadScreen } from '@/features/thread/ThreadScreen'
@@ -39,6 +41,10 @@ vi.mock('@/features/library/library-api', async importOriginal => ({
   ...(await importOriginal<typeof import('@/features/library/library-api')>()),
   renameChat: vi.fn(),
   deleteChat: vi.fn()
+}))
+vi.mock('@/features/notes/notes-api', async importOriginal => ({
+  ...(await importOriginal<typeof import('@/features/notes/notes-api')>()),
+  saveNote: vi.fn()
 }))
 vi.mock('@/features/thread/share-api', async importOriginal => ({
   ...(await importOriginal<typeof import('@/features/thread/share-api')>()),
@@ -1242,5 +1248,71 @@ describe('ThreadScreen read-aloud', () => {
     act(() => stack.push({ key: 'other', render: () => <p>Other</p> }))
     expect(playingOwner()).toBeNull()
     expect(objectUrls.revoked).toEqual(objectUrls.made)
+  })
+})
+
+describe('ThreadScreen notes', () => {
+  const NOTE: Note = {
+    id: 'n1',
+    title: 'Answer',
+    content: 'The fact',
+    chatId: 'c1',
+    sourceMessageId: 'a1',
+    createdAt: '2026-10-21T08:00:00.000Z',
+    updatedAt: '2026-10-21T08:00:00.000Z'
+  }
+
+  beforeEach(() => {
+    resetNotesCache()
+    vi.mocked(saveNote).mockResolvedValue(NOTE)
+    vi.mocked(useAuth).mockReturnValue({
+      signOut,
+      session: { user: { id: 'user-1' } }
+    } as unknown as Auth)
+  })
+
+  const saveFirstAnswer = () =>
+    act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: 'Save to notes' }))
+    })
+
+  it('saves an answer of a saved chat with the chat and the message', async () => {
+    renderScreen(session({ messages: TURN, saved: true }))
+    await saveFirstAnswer()
+    expect(saveNote).toHaveBeenCalledExactlyOnceWith(client, {
+      content: expect.stringContaining('The fact'),
+      chatId: 'c1',
+      sourceMessageId: 'a1'
+    })
+    expect(screen.getByRole('button', { name: 'Saved' })).toBeDisabled()
+  })
+
+  it('saves an answer of a chat not saved yet without the chat', async () => {
+    renderScreen(session({ messages: TURN, saved: false }))
+    await saveFirstAnswer()
+    expect(saveNote).toHaveBeenCalledExactlyOnceWith(client, {
+      content: expect.stringContaining('The fact'),
+      sourceMessageId: 'a1'
+    })
+  })
+
+  it('shows Saved for an answer saved earlier, when the chat is opened again', async () => {
+    const first = renderScreen(session({ messages: TURN, saved: true }))
+    await saveFirstAnswer()
+    first.unmount()
+    renderScreen(session({ messages: TURN, saved: true }))
+    expect(screen.getByRole('button', { name: 'Saved' })).toBeDisabled()
+  })
+
+  it('signed out, saves without remembering the answer', async () => {
+    vi.mocked(useAuth).mockReturnValue({ signOut } as unknown as Auth)
+    const first = renderScreen(session({ messages: TURN, saved: true }))
+    await saveFirstAnswer()
+    expect(saveNote).toHaveBeenCalledOnce()
+    first.unmount()
+    renderScreen(session({ messages: TURN, saved: true }))
+    expect(
+      screen.getByRole('button', { name: 'Save to notes' })
+    ).toBeInTheDocument()
   })
 })

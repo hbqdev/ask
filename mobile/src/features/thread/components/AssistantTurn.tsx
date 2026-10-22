@@ -6,7 +6,15 @@
 // shown, as the web's SpeakButton auto-plays the data-spokenGist part.
 
 import type { UIMessage } from 'ai'
-import { lazy, memo, Suspense, useEffect, useMemo, useRef } from 'react'
+import {
+  lazy,
+  memo,
+  Suspense,
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef
+} from 'react'
 
 import { useTabActive } from '@/app/Tabs'
 import { useScreenActive } from '@/core/nav/stack'
@@ -51,6 +59,16 @@ export type AssistantTurnProps = {
   autoRead?: boolean
   /** Makes the chat's public link; absent while the chat isn't saved. */
   linkToChat?: () => Promise<ChatLink>
+  /** Saves answers to notes; absent where notes can't be saved. */
+  notes?: AnswerNotes
+}
+
+/** Saving a thread's answers to notes. Pass a stable object. */
+export type AnswerNotes = {
+  /** Whether the answer `messageId` was saved already. */
+  isSaved(messageId: string): boolean
+  /** Saves the answer `messageId`, as `content`, to notes. */
+  save(messageId: string, content: string): Promise<void>
 }
 
 type AnswerBlock = Extract<Block, { kind: 'answer' }>
@@ -70,7 +88,11 @@ function spokenAnswerOf(message: UIMessage): string {
 const loadAnswerMarkdown = () =>
   import('@/features/thread/components/AnswerMarkdown')
 
-const AnswerMarkdown = lazy(() =>
+/**
+ * AnswerMarkdown in its own chunk. Render it in a Suspense with PlainAnswer
+ * as the fallback, as an answer is (a note's screen does too).
+ */
+export const LazyAnswerMarkdown = lazy(() =>
   loadAnswerMarkdown().then(m => ({ default: m.AnswerMarkdown }))
 )
 
@@ -91,7 +113,7 @@ export function Thinking() {
 }
 
 /** The answer as plain text for the moment the renderer is still loading. */
-function PlainAnswer({ text }: { text: string }) {
+export function PlainAnswer({ text }: { text: string }) {
   return <div className="answer-prose whitespace-pre-wrap">{text}</div>
 }
 
@@ -115,7 +137,8 @@ export const AssistantTurn = memo(function AssistantTurn({
   onRetry,
   baseUrl,
   autoRead = false,
-  linkToChat
+  linkToChat,
+  notes
 }: AssistantTurnProps) {
   const blocks = useMemo(
     () => layoutAssistantMessage(message, streaming),
@@ -131,6 +154,12 @@ export const AssistantTurn = memo(function AssistantTurn({
     [finalAnswer]
   )
   const showActions = !(isLatest && streaming)
+
+  const messageId = message.id
+  const saveNote = useCallback(
+    (content: string) => notes!.save(messageId, content),
+    [notes, messageId]
+  )
 
   // Read aloud from the actions, or by itself once when fresh. An answer
   // that becomes fresh while its screen is hidden is never read by itself.
@@ -163,7 +192,7 @@ export const AssistantTurn = memo(function AssistantTurn({
         return (
           <div key={i} className="flex flex-col gap-3">
             <Suspense fallback={<PlainAnswer text={answer} />}>
-              <AnswerMarkdown
+              <LazyAnswerMarkdown
                 text={answer}
                 sources={sources}
                 streaming={streaming}
@@ -183,6 +212,8 @@ export const AssistantTurn = memo(function AssistantTurn({
           onRetry={() => onRetry(message.id)}
           readAloud={readAloud}
           linkToChat={linkToChat}
+          onSaveNote={notes && saveNote}
+          noteSaved={notes?.isSaved(messageId)}
         />
       )}
     </article>

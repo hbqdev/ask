@@ -5,7 +5,8 @@
 // the menu or from an answer's Share; whether it is public is the server's
 // word when it loaded, then whatever was done here. Its answers are read
 // aloud only while it is shown: leaving it (another tab, a screen pushed over
-// it, going back) or the app going to the background stops the reading.
+// it, going back) or the app going to the background stops the reading. An
+// answer can be saved to notes (with the chat, once the chat is saved).
 
 import type { UIMessage } from 'ai'
 import {
@@ -24,11 +25,14 @@ import { newId } from '@/core/ids'
 import { useScreenActive, useStack, type Stack } from '@/core/nav/stack'
 import { Composer } from '@/features/compose/Composer'
 import { useSharedSearchSettings } from '@/features/compose/SearchSettingsProvider'
+import { isMessageSaved } from '@/features/notes/notes-cache'
+import { saveAnswerToNotes } from '@/features/notes/useNotes'
 import type { FilePart } from '@/features/thread/chat-body'
 import {
   AssistantTurn,
   preloadAnswerRenderer,
-  Thinking
+  Thinking,
+  type AnswerNotes
 } from '@/features/thread/components/AssistantTurn'
 import { SourcesSheet } from '@/features/thread/components/SourcesSheet'
 import { UserMessage } from '@/features/thread/components/UserMessage'
@@ -200,7 +204,8 @@ export function ThreadScreen({
   initialTitle
 }: ThreadScreenProps) {
   const { pop } = useStack()
-  const { signOut } = useAuth()
+  const { signOut, session } = useAuth()
+  const userId = session?.user.id
   const { baseUrl, client } = useApi()
   const [settings, setSettings, settingsLoaded] = useSharedSearchSettings()
   const thread = useThread({ chatId, isNew, settings })
@@ -341,6 +346,28 @@ export function ThreadScreen({
     [createLink]
   )
 
+  // --- Notes ------------------------------------------------------------------
+  // An answer is saved to notes with this chat once the chat exists on the
+  // server (read through a ref, so that change doesn't re-render every turn).
+  const savedRef = useRef(thread.saved)
+  useEffect(() => {
+    savedRef.current = thread.saved
+  }, [thread.saved])
+  const notes = useMemo<AnswerNotes>(
+    () => ({
+      isSaved: messageId =>
+        userId !== undefined && isMessageSaved(userId, messageId),
+      save: async (messageId, content) => {
+        await saveAnswerToNotes(client, userId, {
+          content,
+          ...(savedRef.current ? { chatId } : {}),
+          sourceMessageId: messageId
+        })
+      }
+    }),
+    [client, userId, chatId]
+  )
+
   const lastAnswer = messages.findLast(m => m.role === 'assistant')
   const sources = useMemo(
     () => (lastAnswer ? listSources(lastAnswer) : []),
@@ -418,6 +445,7 @@ export function ThreadScreen({
                       baseUrl={baseUrl}
                       autoRead={message.id === thread.freshAnswerId}
                       linkToChat={thread.saved ? linkToChat : undefined}
+                      notes={notes}
                     />
                   )
                 })}

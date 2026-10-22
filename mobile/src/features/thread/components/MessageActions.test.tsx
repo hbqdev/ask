@@ -4,13 +4,16 @@ import type { UIMessage } from 'ai'
 import { act, fireEvent, render, screen, within } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
+import { ApiError } from '@/core/api/errors'
 import { haptic } from '@/core/haptics'
+import { NOTES_UNAVAILABLE } from '@/features/notes/notes-api'
 import {
   COPY_ERROR,
   MessageActions,
+  SAVE_NOTE_ERROR,
   SHARE_ERROR
 } from '@/features/thread/components/MessageActions'
-import { listSources } from '@/features/thread/model/citations'
+import { copyableAnswer, listSources } from '@/features/thread/model/citations'
 import { COPIED_MS } from '@/features/thread/share-api'
 import type { ReadAloud } from '@/features/voice/useReadAloud'
 import { extractCitationMaps } from '@/lib/utils/citation'
@@ -482,5 +485,110 @@ describe('MessageActions haptics', () => {
       fireEvent.click(screen.getByRole('button', { name: 'Copy' }))
     })
     expect(haptic).not.toHaveBeenCalled()
+  })
+})
+
+describe('MessageActions: Save to notes', () => {
+  function withNotes(
+    onSaveNote: (content: string) => Promise<void> = vi.fn(async () => {}),
+    noteSaved = false
+  ) {
+    render(
+      <MessageActions
+        text={TEXT}
+        maps={maps}
+        question="What are the facts?"
+        sources={sources}
+        onRetry={vi.fn()}
+        readAloud={reader()}
+        onSaveNote={onSaveNote}
+        noteSaved={noteSaved}
+      />
+    )
+    return onSaveNote
+  }
+
+  it('is offered only where notes can be saved', () => {
+    actions()
+    expect(
+      screen.queryByRole('button', { name: 'Save to notes' })
+    ).not.toBeInTheDocument()
+  })
+
+  it('saves the copied answer, then says Saved with a success haptic', async () => {
+    const save = withNotes()
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: 'Save to notes' }))
+    })
+    expect(save).toHaveBeenCalledExactlyOnceWith(copyableAnswer(TEXT, maps))
+    const saved = screen.getByRole('button', { name: 'Saved' })
+    expect(saved).toBeDisabled()
+    expect(haptic).toHaveBeenCalledExactlyOnceWith('success')
+  })
+
+  it('a second tap makes no second note', async () => {
+    const save = withNotes()
+    const button = screen.getByRole('button', { name: 'Save to notes' })
+    await act(async () => {
+      fireEvent.click(button)
+      fireEvent.click(button)
+    })
+    fireEvent.click(screen.getByRole('button', { name: 'Saved' }))
+    expect(save).toHaveBeenCalledOnce()
+  })
+
+  it('is busy, and takes no tap, while saving', async () => {
+    let finish!: () => void
+    const save = withNotes(
+      vi.fn(() => new Promise<void>(resolve => (finish = resolve)))
+    )
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: 'Save to notes' }))
+    })
+    const busy = screen.getByRole('button', { name: 'Saving' })
+    expect(busy).toHaveAttribute('aria-busy', 'true')
+    expect(busy).toBeDisabled()
+    fireEvent.click(busy)
+    expect(save).toHaveBeenCalledOnce()
+    await act(async () => finish())
+    expect(screen.getByRole('button', { name: 'Saved' })).toBeDisabled()
+  })
+
+  it('starts as Saved for an answer already saved', () => {
+    const save = withNotes(undefined, true)
+    const saved = screen.getByRole('button', { name: 'Saved' })
+    expect(saved).toBeDisabled()
+    fireEvent.click(saved)
+    expect(save).not.toHaveBeenCalled()
+  })
+
+  it('says why a save failed, and can be tried again', async () => {
+    const save = withNotes(
+      vi
+        .fn<(content: string) => Promise<void>>()
+        .mockRejectedValueOnce(new Error('Failed to save note.'))
+        .mockResolvedValueOnce()
+    )
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: 'Save to notes' }))
+    })
+    expect(screen.getByRole('alert')).toHaveTextContent(
+      `${SAVE_NOTE_ERROR} Failed to save note.`
+    )
+    expect(haptic).not.toHaveBeenCalled()
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: 'Save to notes' }))
+    })
+    expect(save).toHaveBeenCalledTimes(2)
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Saved' })).toBeInTheDocument()
+  })
+
+  it('says notes aren’t available on a server without accounts (403)', async () => {
+    withNotes(vi.fn(async () => Promise.reject(new ApiError(403, 'anon'))))
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: 'Save to notes' }))
+    })
+    expect(screen.getByRole('alert')).toHaveTextContent(NOTES_UNAVAILABLE)
   })
 })

@@ -25,6 +25,13 @@ import {
 import { SEARCH_SETTINGS_KEY } from '@/features/compose/search-settings'
 import { LIBRARY_CACHE_KEY } from '@/features/library/library-cache'
 import { LIBRARY_SORT_KEY } from '@/features/library/library-sort'
+import {
+  addNote,
+  getNotesCache,
+  isMessageSaved,
+  resetNotesCache,
+  setNotesCache
+} from '@/features/notes/notes-cache'
 import { CUSTOM_INSTRUCTIONS_KEY } from '@/features/settings/custom-instructions'
 import { memoryStorage } from '@/test/memory-storage'
 
@@ -886,5 +893,65 @@ describe('AuthProvider: the shared model pick', () => {
     await pickTwice()
     emit('TOKEN_REFRESHED', { ...session, access_token: 'fake-refreshed' })
     expect(getModelChoice().selected).toBe('cloud:a-waiting')
+  })
+})
+
+describe('AuthProvider: the notes cache', () => {
+  const NOTE = {
+    id: 'n1',
+    title: 'Tides',
+    content: 'The moon pulls the sea.',
+    chatId: null,
+    sourceMessageId: 'm1',
+    createdAt: '2026-10-21T08:00:00.000Z',
+    updatedAt: '2026-10-21T08:00:00.000Z'
+  }
+
+  /** User 1's notes, and an answer saved this session, in memory. */
+  function cacheNotes() {
+    setNotesCache({ userId: 'user-1', notes: [NOTE], nextCursor: null })
+    addNote('user-1', { ...NOTE, id: 'n2', sourceMessageId: 'm2' })
+  }
+
+  function expectCleared() {
+    expect(getNotesCache()).toBeNull()
+    expect(isMessageSaved('user-1', 'm1')).toBe(false)
+    expect(isMessageSaved('user-1', 'm2')).toBe(false)
+  }
+
+  beforeEach(() => {
+    resetNotesCache()
+  })
+
+  it('signOut clears it', async () => {
+    const { result } = await signedInAuth()
+    cacheNotes()
+    await act(async () => {
+      await result.current.signOut()
+    })
+    expectCleared()
+  })
+
+  it('SIGNED_OUT clears it', async () => {
+    const { emit } = await signedInAuth()
+    cacheNotes()
+    emit('SIGNED_OUT', null)
+    expectCleared()
+  })
+
+  it('a session for another user clears it', async () => {
+    const { emit } = await signedInAuth()
+    cacheNotes()
+    const other = { ...session, user: { id: 'user-2' } } as unknown as Session
+    emit('SIGNED_IN', other)
+    expectCleared()
+  })
+
+  it('a refreshed session for the same user keeps it', async () => {
+    const { emit } = await signedInAuth()
+    cacheNotes()
+    emit('TOKEN_REFRESHED', { ...session, access_token: 'fake-refreshed' })
+    expect(getNotesCache()!.notes).toHaveLength(2)
+    expect(isMessageSaved('user-1', 'm2')).toBe(true)
   })
 })

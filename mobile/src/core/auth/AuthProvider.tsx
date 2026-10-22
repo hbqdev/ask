@@ -24,6 +24,7 @@ import { AUTH_STORAGE_KEY } from '@/core/auth/supabase'
 import { useAuthCallbackLink } from '@/core/deep-link'
 import { resetModelChoice } from '@/features/compose/model-choice'
 import { clearLibraryCache } from '@/features/library/library-cache'
+import { resetNotesCache } from '@/features/notes/notes-cache'
 
 export type AuthStatus = 'loading' | 'signedOut' | 'signedIn'
 
@@ -101,8 +102,9 @@ export function AuthProvider({
   const signedOutHere = useRef(false)
 
   // The user the app last showed. Account state kept in memory (the shared
-  // model pick and its save queue) is reset whenever the account changes, so
-  // nothing of one account's is ever shown to, or sent for, the next.
+  // model pick and its save queue, the notes) is reset whenever the account
+  // changes, so nothing of one account's is ever shown to, or sent for, the
+  // next.
   const accountId = useRef<string | null>(null)
 
   const showSession = useCallback((session: Session) => {
@@ -110,6 +112,7 @@ export function AuthProvider({
     const id = session.user.id
     if (accountId.current !== null && accountId.current !== id) {
       resetModelChoice()
+      resetNotesCache()
     }
     accountId.current = id
     setView({ status: 'signedIn', session })
@@ -117,11 +120,12 @@ export function AuthProvider({
 
   // However the session ended (signOut here, or supabase-js dropping it: a
   // revoked or expired refresh, a sign-out elsewhere), the cached Library
-  // rows of that account go too. Not awaited: a failure to clear never keeps
-  // the app signed in.
+  // rows and notes of that account go too. Not awaited: a failure to clear
+  // never keeps the app signed in.
   const showSignedOut = useCallback(() => {
     accountId.current = null
     resetModelChoice()
+    resetNotesCache()
     clearLibraryCache(storage).catch(() => {})
     setView({ status: 'signedOut', session: null })
   }, [storage])
@@ -218,9 +222,9 @@ export function AuthProvider({
       authKeys.map(suffix => storage.removeItem(AUTH_STORAGE_KEY + suffix))
     )
     setError(null)
-    // Also clears the cached Library rows, which belong to this account;
-    // device preferences (search settings, Library sort, custom instructions)
-    // stay.
+    // Also clears the cached Library rows and notes, which belong to this
+    // account; device preferences (search settings, Library sort and
+    // segment, custom instructions) stay.
     showSignedOut()
   }, [client, storage, showSignedOut])
 
