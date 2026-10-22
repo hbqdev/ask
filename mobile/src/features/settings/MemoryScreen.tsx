@@ -3,10 +3,10 @@
 // remembers (tap one to read it all, swipe to delete it, or clear them all).
 //
 // A rebuild runs one bounded batch per request (each can take most of a
-// minute), with progress after each, and stops when the screen is left or
-// covered. Sending the app to the background pauses it (the batch in flight
-// is dropped) until the user taps Continue. The rest of the screen stays
-// usable meanwhile.
+// minute), with progress after each, and stops when the screen is left.
+// Covering the screen or sending the app to the background pauses it (the
+// batch in flight is dropped) until the user taps Continue. The rest of the
+// screen stays usable meanwhile.
 
 import { App } from '@capacitor/app'
 import { useCallback, useEffect, useId, useRef, useState } from 'react'
@@ -25,7 +25,9 @@ import {
   deleteMemory,
   fetchMemory,
   memoryErrorText,
+  rebuildErrorText,
   rebuildRecallIndex,
+  refreshRecallStatus,
   saveMemorySettings,
   type Memory,
   type MemorySettings,
@@ -65,7 +67,10 @@ type Confirm =
 
 const BACK_ICON = 'M15 5l-7 7 7 7'
 
-/** The abort reason of a rebuild paused by the app going to the background. */
+/**
+ * The abort reason of a rebuild paused by the app going to the background or
+ * the screen being covered.
+ */
 const PAUSED = Symbol('paused')
 
 const SECTION_TITLE =
@@ -235,25 +240,29 @@ export function MemoryScreen() {
   // --- Recall index ---
 
   const rebuildAbort = useRef<AbortController | null>(null)
-  const stopRebuild = useCallback(() => {
-    rebuildAbort.current?.abort()
+  // Set at once on a tap and cleared when the run ends, so a second tap
+  // before the re-render (or one while a stopped batch winds down) starts
+  // nothing.
+  const rebuilding = useRef(false)
+  const stopRebuild = useCallback((reason?: typeof PAUSED) => {
+    rebuildAbort.current?.abort(reason)
     rebuildAbort.current = null
   }, [])
-  // Left (unmounted) or covered: stop.
-  useEffect(() => stopRebuild, [stopRebuild])
+  // Left (unmounted): stop.
+  useEffect(() => () => stopRebuild(), [stopRebuild])
+  // Covered: pause, to continue on the user's tap once it is shown again.
   useEffect(() => {
-    if (!active) stopRebuild()
+    if (!active) stopRebuild(PAUSED)
   }, [active, stopRebuild])
   // To the background: pause, so the batch is not cut off mid-way by iOS.
   useEffect(() => {
-    const handle = App.addListener('pause', () => {
-      rebuildAbort.current?.abort(PAUSED)
-      rebuildAbort.current = null
-    })
+    const handle = App.addListener('pause', () => stopRebuild(PAUSED))
     return () => void handle.then(h => h.remove())
-  }, [])
+  }, [stopRebuild])
 
   const startRebuild = async () => {
+    if (rebuilding.current) return
+    rebuilding.current = true
     const controller = new AbortController()
     rebuildAbort.current = controller
     setIndexNote(null)
@@ -264,11 +273,11 @@ export function MemoryScreen() {
         signal: controller.signal,
         onBatch: async () => {
           setRebuild(r => ({ ...r, batches: r.batches + 1 }))
-          // The index's new size; a failed refresh only leaves the old one.
-          await fetchMemory(client, controller.signal).then(
-            overview => setRecall(overview.recall),
-            () => {}
-          )
+          // The index's new size; a failed (or timed-out) refresh only
+          // leaves the old one.
+          await refreshRecallStatus(client, {
+            signal: controller.signal
+          }).then(setRecall, () => {})
         }
       })
       if (outcome.kind === 'done') {
@@ -293,11 +302,12 @@ export function MemoryScreen() {
       } else if (!controller.signal.aborted) {
         setIndexNote({
           tone: 'alert',
-          text: `${REBUILD_ERROR} ${memoryErrorText(error)}`
+          text: `${REBUILD_ERROR} ${rebuildErrorText(error)}`
         })
       }
     } finally {
       if (rebuildAbort.current === controller) rebuildAbort.current = null
+      rebuilding.current = false
       setRebuild({ running: false, batches: 0 })
     }
   }
@@ -478,8 +488,8 @@ export function MemoryScreen() {
                   : `Indexed ${plural(recall.chats, 'chat', 'chats')}…`}
               </p>
               <p className={`${NOTE} text-foreground/50`}>
-                Keep this screen open: leaving it stops indexing, and leaving
-                the app pauses it.
+                Keep this screen open: going back stops indexing, and switching
+                away or leaving the app pauses it.
               </p>
             </>
           )}

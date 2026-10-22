@@ -19,6 +19,8 @@ import {
 } from '@/core/nav/stack'
 import {
   MEMORY_UNAVAILABLE,
+  RECALL_REFRESH_TIMEOUT_MS,
+  REBUILD_FAILED,
   type Memory,
   type MemoryOverview
 } from '@/features/settings/memory-api'
@@ -233,6 +235,7 @@ beforeEach(() => {
 })
 
 afterEach(() => {
+  vi.useRealTimers()
   vi.restoreAllMocks()
 })
 
@@ -521,15 +524,59 @@ describe('MemoryScreen: recall index', () => {
     ).toHaveTextContent(REBUILD_STOPPED)
   })
 
-  it('says why a rebuild failed', async () => {
+  it('says a rebuild failed in the app’s words, never the server’s', async () => {
     routes['POST /api/memory/recall'] = () =>
-      json({ error: 'Rebuild failed — see server logs' }, 500)
+      json({ error: 'Rebuild failed — see server logs', retryable: true }, 500)
     await renderScreen()
     fireEvent.click(rebuildButton())
     const alert = await screen.findByRole('alert')
-    expect(alert).toHaveTextContent(REBUILD_ERROR)
-    expect(alert).toHaveTextContent('Rebuild failed — see server logs')
+    expect(alert).toHaveTextContent(`${REBUILD_ERROR} ${REBUILD_FAILED}`)
+    expect(alert).not.toHaveTextContent(/server logs/)
     expect(rebuildButton()).toBeEnabled()
+  })
+
+  it('a double tap on Rebuild starts one rebuild', async () => {
+    routes['POST /api/memory/recall'] = hang
+    await renderScreen()
+    const button = rebuildButton()
+    // Both taps land before React re-renders the button as busy.
+    act(() => {
+      button.click()
+      button.click()
+    })
+    await waitFor(() => expect(sent()).toContain('POST /api/memory/recall'))
+    await act(async () => {})
+    expect(sent().filter(r => r === 'POST /api/memory/recall')).toHaveLength(1)
+  })
+
+  it('a progress refresh that hangs gives up and the rebuild goes on', async () => {
+    // The clock still runs (Testing Library waits on it), and can jump.
+    vi.useFakeTimers({
+      toFake: ['setTimeout', 'clearTimeout'],
+      shouldAdvanceTime: true
+    })
+    routes['POST /api/memory/recall'] = sequence(
+      () => json({ messages: 10, chunks: 20, done: false }),
+      () => json({ messages: 5, chunks: 9, done: true })
+    )
+    let gets = 0
+    // The refresh after the first batch hangs; the others answer.
+    routes['GET /api/memory'] = init =>
+      ++gets === 2
+        ? hang(init)
+        : json(overview({ recall: { chunks: 40, chats: 4 } }))
+    await renderScreen()
+    fireEvent.click(rebuildButton())
+    await waitFor(() => expect(gets).toBe(2))
+    expect(screen.queryByText('Indexed 15 messages.')).toBeNull()
+
+    await act(() => vi.advanceTimersByTimeAsync(RECALL_REFRESH_TIMEOUT_MS))
+
+    await waitFor(() =>
+      expect(screen.getByText('Indexed 15 messages.')).toBeInTheDocument()
+    )
+    expect(screen.queryByRole('alert')).toBeNull()
+    expect(sent().filter(r => r === 'POST /api/memory/recall')).toHaveLength(2)
   })
 
   it('stops indexing when the screen goes away', async () => {
@@ -543,20 +590,41 @@ describe('MemoryScreen: recall index', () => {
     expect(init!.signal!.aborted).toBe(true)
   })
 
-  it('stops indexing, quietly, when the screen is covered', async () => {
-    routes['POST /api/memory/recall'] = hang
+  it('pauses when the screen is covered, and continues on request', async () => {
+    let posts = 0
+    routes['POST /api/memory/recall'] = init => {
+      posts++
+      if (posts === 1) return json({ messages: 50, chunks: 120, done: false })
+      if (posts === 2) return hang(init)
+      return json({ messages: 30, chunks: 70, done: true })
+    }
+    routes['GET /api/memory'] = sequence(
+      () => json(overview()),
+      () => json(overview({ recall: { chunks: 150, chats: 5 } })),
+      () => json(overview({ recall: { chunks: 220, chats: 8 } }))
+    )
     const { rerender } = await renderScreen()
     fireEvent.click(rebuildButton())
-    await waitFor(() => expect(sent()).toContain('POST /api/memory/recall'))
+    await waitFor(() => expect(posts).toBe(2))
     const [, init] = fetchImpl.mock.calls.at(-1)!
 
     vi.mocked(useScreenActive).mockReturnValue(false)
     rerender(<MemoryScreen />)
     expect(init!.signal!.aborted).toBe(true)
-    await waitFor(() =>
-      expect(rebuildButton()).toHaveTextContent('Rebuild index')
-    )
+    // Uncovered again: the progress so far, and a way to go on.
+    vi.mocked(useScreenActive).mockReturnValue(true)
+    rerender(<MemoryScreen />)
+    expect(
+      await screen.findByText('Rebuild paused — 5 chats indexed')
+    ).toBeInTheDocument()
     expect(screen.queryByRole('alert')).toBeNull()
+    expect(rebuildButton()).toHaveTextContent('Rebuild index')
+    await act(async () => {})
+    expect(posts).toBe(2)
+
+    fireEvent.click(screen.getByRole('button', { name: 'Continue' }))
+    expect(await screen.findByText('Indexed 30 messages.')).toBeInTheDocument()
+    expect(posts).toBe(3)
   })
 
   it('pauses when the app goes to the background, and continues on request', async () => {

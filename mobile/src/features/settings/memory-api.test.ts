@@ -12,12 +12,17 @@ import {
   MEMORY_UNAVAILABLE,
   memoryErrorText,
   REBUILD_BATCH_TIMEOUT_MS,
+  REBUILD_FAILED,
   REBUILD_TIMED_OUT,
+  rebuildErrorText,
   rebuildRecallBatch,
   rebuildRecallIndex,
+  RECALL_REFRESH_TIMEOUT_MS,
+  refreshRecallStatus,
   saveMemorySettings,
   type RecallBatch
 } from '@/features/settings/memory-api'
+import { NETWORK_ERROR_MESSAGE } from '@/core/api/client'
 
 const BASE = 'https://ask.test.invalid'
 
@@ -100,6 +105,53 @@ describe('fetchMemory', () => {
   it('rejects with the server’s status', async () => {
     const { client: api } = client(() => json({ error: 'Unauthorized' }, 401))
     await expect(fetchMemory(api)).rejects.toMatchObject({ status: 401 })
+  })
+})
+
+describe('refreshRecallStatus', () => {
+  it('GETs /api/memory and returns the recall index’s size', async () => {
+    const { client: api, fetchImpl } = client(() =>
+      json({
+        enabled: true,
+        recallEnabled: true,
+        recall: { chunks: 40, chats: 4 },
+        memories: [MEMORY]
+      })
+    )
+    await expect(refreshRecallStatus(api)).resolves.toEqual({
+      chunks: 40,
+      chats: 4
+    })
+    const { url, init } = request(fetchImpl)
+    expect(url).toBe(`${BASE}/api/memory`)
+    expect(init.method ?? 'GET').toBe('GET')
+  })
+
+  it('gives up after its timeout, so a hung refresh never stalls a rebuild', async () => {
+    vi.useFakeTimers()
+    const { client: api } = client(hang)
+    const result = refreshRecallStatus(api)
+    const settled = expect(result).rejects.toMatchObject({
+      status: 0,
+      retryable: true
+    })
+    let done = false
+    void result.catch(() => {}).finally(() => (done = true))
+    await vi.advanceTimersByTimeAsync(RECALL_REFRESH_TIMEOUT_MS - 1)
+    expect(done).toBe(false)
+    await vi.advanceTimersByTimeAsync(1)
+    await settled
+    expect(vi.getTimerCount()).toBe(0)
+    expect(RECALL_REFRESH_TIMEOUT_MS).toBe(15_000)
+  })
+
+  it('stops when the caller aborts, with the caller’s reason', async () => {
+    const { client: api } = client(hang)
+    const controller = new AbortController()
+    const result = refreshRecallStatus(api, { signal: controller.signal })
+    const reason = new Error('paused')
+    controller.abort(reason)
+    await expect(result).rejects.toBe(reason)
   })
 })
 
@@ -429,5 +481,36 @@ describe('memoryErrorText', () => {
     )
     expect(memoryErrorText(new Error('Network down'))).toBe('Network down')
     expect(memoryErrorText('odd')).toBe('odd')
+  })
+})
+
+describe('rebuildErrorText', () => {
+  it.each([401, 403])('says memory is unavailable for a %i', status => {
+    expect(rebuildErrorText(new ApiError(status, 'Unauthorized'))).toBe(
+      MEMORY_UNAVAILABLE
+    )
+  })
+
+  it('keeps the app’s own network and timeout messages', () => {
+    expect(rebuildErrorText(new ApiError(0, NETWORK_ERROR_MESSAGE))).toBe(
+      NETWORK_ERROR_MESSAGE
+    )
+    expect(rebuildErrorText(new ApiError(0, REBUILD_TIMED_OUT))).toBe(
+      REBUILD_TIMED_OUT
+    )
+  })
+
+  it('never shows the server’s text', () => {
+    for (const error of [
+      new ApiError(500, 'Rebuild failed — see server logs', {
+        retryable: true
+      }),
+      new ApiError(502, 'Bad gateway'),
+      new Error('odd'),
+      'odd'
+    ]) {
+      expect(rebuildErrorText(error)).toBe(REBUILD_FAILED)
+    }
+    expect(REBUILD_FAILED).toBe('Try again later.')
   })
 })

@@ -63,7 +63,16 @@ export const REBUILD_BATCH_TIMEOUT_MS = 120_000
  */
 export const MAX_REBUILD_ROUNDS = 200
 
+/**
+ * How long a rebuild waits for the index's new size after a batch; past it the
+ * old size stays and the rebuild goes on.
+ */
+export const RECALL_REFRESH_TIMEOUT_MS = 15_000
+
 export const REBUILD_TIMED_OUT = 'Indexing took too long. Try again.'
+const REFRESH_TIMED_OUT = 'Refreshing the index size took too long.'
+/** A failed rebuild's reason when the app has none of its own to give. */
+export const REBUILD_FAILED = 'Try again later.'
 export const MEMORY_UNAVAILABLE =
   'Memory isn’t available for this account on this server.'
 
@@ -124,38 +133,71 @@ export async function clearRecallIndex(client: ApiClient): Promise<void> {
 }
 
 /**
- * Indexes one bounded batch of past messages. Rejects with the caller's
- * reason when `signal` aborts, and with a retryable REBUILD_TIMED_OUT
- * ApiError after `timeoutMs`.
+ * Runs `request` with a signal that aborts when the caller's `signal` does
+ * (rejecting with the caller's reason) or after `timeoutMs` (rejecting with a
+ * retryable status-0 ApiError saying `timedOut`).
  */
-export async function rebuildRecallBatch(
-  client: ApiClient,
+async function withDeadline<T>(
+  request: (signal: AbortSignal) => Promise<T>,
   {
     signal,
-    timeoutMs = REBUILD_BATCH_TIMEOUT_MS
-  }: { signal?: AbortSignal; timeoutMs?: number } = {}
-): Promise<RecallBatch> {
+    timeoutMs,
+    timedOut
+  }: { signal?: AbortSignal; timeoutMs: number; timedOut: string }
+): Promise<T> {
   signal?.throwIfAborted()
   // One controller for both ends (AbortSignal.any needs iOS 17.4).
   const controller = new AbortController()
   const timer = setTimeout(
-    () =>
-      controller.abort(new ApiError(0, REBUILD_TIMED_OUT, { retryable: true })),
+    () => controller.abort(new ApiError(0, timedOut, { retryable: true })),
     timeoutMs
   )
   const onAbort = () => controller.abort(signal!.reason)
   signal?.addEventListener('abort', onAbort, { once: true })
   try {
-    return await client.json<RecallBatch>(RECALL_PATH, {
-      method: 'POST',
-      signal: controller.signal
-    })
+    return await request(controller.signal)
   } catch (error) {
     throw controller.signal.aborted ? controller.signal.reason : error
   } finally {
     clearTimeout(timer)
     signal?.removeEventListener('abort', onAbort)
   }
+}
+
+/**
+ * Indexes one bounded batch of past messages. Rejects with the caller's
+ * reason when `signal` aborts, and with a retryable REBUILD_TIMED_OUT
+ * ApiError after `timeoutMs`.
+ */
+export function rebuildRecallBatch(
+  client: ApiClient,
+  {
+    signal,
+    timeoutMs = REBUILD_BATCH_TIMEOUT_MS
+  }: { signal?: AbortSignal; timeoutMs?: number } = {}
+): Promise<RecallBatch> {
+  return withDeadline(
+    timed =>
+      client.json<RecallBatch>(RECALL_PATH, { method: 'POST', signal: timed }),
+    { signal, timeoutMs, timedOut: REBUILD_TIMED_OUT }
+  )
+}
+
+/**
+ * The recall index's current size, for a rebuild's progress. Rejects with the
+ * caller's reason when `signal` aborts, and with a retryable ApiError after
+ * RECALL_REFRESH_TIMEOUT_MS.
+ */
+export async function refreshRecallStatus(
+  client: ApiClient,
+  { signal }: { signal?: AbortSignal } = {}
+): Promise<RecallStatus> {
+  const overview = await withDeadline(timed => fetchMemory(client, timed), {
+    signal,
+    timeoutMs: RECALL_REFRESH_TIMEOUT_MS,
+    timedOut: REFRESH_TIMED_OUT
+  })
+  return overview.recall
 }
 
 /**
@@ -207,4 +249,15 @@ export function memoryErrorText(error: unknown): string {
     return MEMORY_UNAVAILABLE
   }
   return reasonOf(error)
+}
+
+/**
+ * Why a rebuild failed, in the app's words: the server's text (e.g. "see
+ * server logs") is never shown. A status-0 ApiError is the app's own (no
+ * connection, or a batch that took too long).
+ */
+export function rebuildErrorText(error: unknown): string {
+  if (!(error instanceof ApiError)) return REBUILD_FAILED
+  if (error.status === 401 || error.status === 403) return MEMORY_UNAVAILABLE
+  return error.status === 0 ? error.message : REBUILD_FAILED
 }
