@@ -148,6 +148,27 @@ describe('NotesList', () => {
     expect(value.remove).toHaveBeenCalledWith('n1')
   })
 
+  it('deletes after a confirmation from a long press, its sheet titled with the note', () => {
+    const value = notes()
+    renderList(value)
+    expect(rowButton('Note 1')).toHaveAccessibleDescription(
+      'Touch and hold for Delete.'
+    )
+    expect(rowButton('Note 1').querySelector('.selectable')).toBeNull()
+    fireEvent.contextMenu(rowButton('Note 1'))
+    const actions = screen.getByRole('dialog', { name: 'Note 1' })
+    fireEvent.click(within(actions).getByRole('button', { name: 'Delete' }))
+    const sheet = screen.getByRole('dialog', { name: 'Delete this note?' })
+    fireEvent.click(within(sheet).getByRole('button', { name: 'Delete' }))
+    expect(value.remove).toHaveBeenCalledWith('n1')
+  })
+
+  it('titles an untitled note’s actions Untitled', () => {
+    renderList(notes({ notes: [note(0, { title: '' })] }))
+    fireEvent.contextMenu(rowButton('Untitled'))
+    expect(screen.getByRole('dialog')).toHaveAccessibleName('Untitled')
+  })
+
   it('cancelling the confirmation deletes nothing', () => {
     const value = notes()
     renderList(value)

@@ -158,6 +158,13 @@ body {
   -webkit-touch-callout: default;
 }
 
+/* A screen's title takes focus when navigation shows the screen (focusHeading
+   in core/ui/focus.ts), so VoiceOver starts there. It is not a control: no
+   ring. */
+h1[tabindex='-1']:focus {
+  outline: none;
+}
+
 /* --- Navigation -------------------------------------------------------------
    Stack pushes and pops slide with transforms only (compositor-friendly at
    120 Hz), on the curve iOS uses for its own navigation. */

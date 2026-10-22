@@ -18,19 +18,31 @@
 // past it, once more coming back, never on every move), and a light tap when
 // an action runs, by a full swipe or its button. Even Delete taps light: the
 // warning belongs to the point of no return, its confirmation (ConfirmSheet).
+//
+// Without swiping: a press held still for LONG_PRESS_MS (or a contextmenu
+// event: a right click, Android's long press) opens the actions in a sheet,
+// with a medium tap. That is the way for VoiceOver, which the row tells
+// about in its description. The row itself stays at rest, its colour and
+// buttons unshown. Nothing in a row is selectable, so iOS shows no text
+// selection or callout for the press (the page's chrome: styles.css).
 
 import {
   useEffect,
+  useId,
   useRef,
   useState,
   type KeyboardEvent,
+  type MouseEvent,
   type PointerEvent,
   type ReactNode,
   type TransitionEvent
 } from 'react'
 
+import { flushSync } from 'react-dom'
+
 import { haptic } from '@/core/haptics'
 import { EDGE_ZONE } from '@/core/nav/use-edge-swipe'
+import { Sheet } from '@/core/ui/Sheet'
 
 export type SwipeAction = {
   label: string
@@ -47,6 +59,8 @@ export type SwipeRowProps = {
    * (default), or a grouped card's tint.
    */
   surface?: 'page' | 'card'
+  /** The title of the sheet a long press opens. Default 'Actions'. */
+  actionsTitle?: string
 }
 
 /** The width, in px, of each action button. */
@@ -55,6 +69,8 @@ export const ACTION_WIDTH = 80
 export const OPEN_AT = 72
 /** The fraction of the row's width a full swipe must pass. */
 export const FULL_SWIPE = 0.6
+/** How long, in ms, a press held still opens the row's actions sheet. */
+export const LONG_PRESS_MS = 500
 // How far a pointer moves before the gesture counts as a swipe or a scroll.
 const SLOP = 10
 
@@ -153,11 +169,19 @@ function run(action: SwipeAction) {
   action.onAction()
 }
 
+// A press that may become a long press: where it went down.
+type Hold = { id: number; x: number; y: number }
+
+// The actions sheet's buttons: ConfirmSheet's.
+const SHEET_BUTTON =
+  'min-h-12 w-full touch-manipulation rounded-xl bg-muted text-base font-medium active:opacity-50'
+
 export function SwipeRow({
   children,
   actions,
   onPress,
-  surface = 'page'
+  surface = 'page',
+  actionsTitle = 'Actions'
 }: SwipeRowProps) {
   const root = useRef<HTMLDivElement>(null)
   const content = useRef<HTMLDivElement>(null)
@@ -174,6 +198,13 @@ export function SwipeRow({
   // missing transition event).
   const coverTimer = useRef<ReturnType<typeof setTimeout>>(undefined)
   const openWidth = actions.length * ACTION_WIDTH
+  // The long press: the press being held, its timer, and whether it fired
+  // (so the click its release makes is swallowed).
+  const hold = useRef<Hold | null>(null)
+  const holdTimer = useRef<ReturnType<typeof setTimeout>>(undefined)
+  const held = useRef(false)
+  const [sheetOpen, setSheetOpen] = useState(false)
+  const hintId = useId()
 
   // This row in the registry, created once: the registry compares by identity.
   const [handle] = useState<OpenRow>(() => ({
@@ -217,9 +248,36 @@ export function SwipeRow({
     () => () => {
       releaseOpen(handle)
       clearTimeout(coverTimer.current)
+      clearTimeout(holdTimer.current)
     },
     [handle]
   )
+
+  const cancelHold = () => {
+    clearTimeout(holdTimer.current)
+    hold.current = null
+  }
+
+  const showActions = () => {
+    haptic('medium')
+    setSheetOpen(true)
+  }
+
+  // Held long enough: the actions open, and the finger moving on from here
+  // swipes nothing.
+  const onHeld = () => {
+    hold.current = null
+    drag.current = null
+    held.current = true
+    showActions()
+  }
+
+  // The sheet goes first, so focus is back on the row (Sheet's return) before
+  // the action opens anything of its own (a confirmation).
+  const choose = (action: SwipeAction) => {
+    flushSync(() => setSheetOpen(false))
+    run(action)
+  }
 
   const current = (e: PointerEvent<Element>) => {
     const d = drag.current
@@ -229,7 +287,15 @@ export function SwipeRow({
   const handlers = {
     onPointerDown(e: PointerEvent<HTMLDivElement>) {
       swiped.current = false
+      held.current = false
+      // The edge zone is the stack's back swipe, held or dragged.
       if (!e.isPrimary || e.clientX <= EDGE_ZONE) return
+      // An open row's press is a tap that closes it.
+      if (actions.length > 0 && !open) {
+        hold.current = { id: e.pointerId, x: e.clientX, y: e.clientY }
+        clearTimeout(holdTimer.current)
+        holdTimer.current = setTimeout(onHeld, LONG_PRESS_MS)
+      }
       const from = open ? -openWidth : 0
       drag.current = {
         id: e.pointerId,
@@ -241,6 +307,13 @@ export function SwipeRow({
       }
     },
     onPointerMove(e: PointerEvent<HTMLDivElement>) {
+      const h = hold.current
+      if (
+        h?.id === e.pointerId &&
+        Math.hypot(e.clientX - h.x, e.clientY - h.y) > SLOP
+      ) {
+        cancelHold()
+      }
       const d = current(e)
       if (!d) return
       const dx = e.clientX - d.x
@@ -271,6 +344,13 @@ export function SwipeRow({
       }
     },
     onPointerUp(e: PointerEvent<HTMLDivElement>) {
+      cancelHold()
+      // The click this release makes would press the row, or land on the
+      // sheet's backdrop and close it: it is swallowed wherever it lands.
+      if (held.current) {
+        held.current = false
+        swallowNextClick()
+      }
       const d = current(e)
       if (!d) return
       if (!swiping.current) {
@@ -286,6 +366,7 @@ export function SwipeRow({
       }
     },
     onPointerCancel(e: PointerEvent<HTMLDivElement>) {
+      cancelHold()
       const d = current(e)
       if (!d) return
       if (swiping.current) settle(d.from)
@@ -302,6 +383,21 @@ export function SwipeRow({
   const onClick = () => {
     if (swiped.current) swiped.current = false
     else activate()
+  }
+
+  // A right click, or a long press where the browser makes one (Android):
+  // the actions, not the browser's menu. After the long press opened them,
+  // nothing more. Made during a press, it ends that press as a long press
+  // would: its click is swallowed and the finger swipes nothing.
+  const onContextMenu = (e: MouseEvent<HTMLDivElement>) => {
+    if (actions.length === 0) return
+    e.preventDefault()
+    if (hold.current) {
+      held.current = true
+      drag.current = null
+    }
+    cancelHold()
+    if (!sheetOpen) showActions()
   }
 
   const onKeyDown = (e: KeyboardEvent<HTMLDivElement>) => {
@@ -363,7 +459,9 @@ export function SwipeRow({
         ref={content}
         role="button"
         tabIndex={0}
+        aria-describedby={actions.length > 0 ? hintId : undefined}
         onClick={onClick}
+        onContextMenu={onContextMenu}
         onKeyDown={onKeyDown}
         onTransitionEnd={onTransitionEnd}
         onTransitionCancel={onTransitionEnd}
@@ -372,6 +470,40 @@ export function SwipeRow({
       >
         {children}
       </div>
+      {actions.length > 0 && (
+        <span id={hintId} className="sr-only">
+          {`Touch and hold for ${actions.map(a => a.label).join(', ')}.`}
+        </span>
+      )}
+      <Sheet
+        open={sheetOpen}
+        onClose={() => setSheetOpen(false)}
+        title={actionsTitle}
+      >
+        <div className="flex flex-col gap-2 pb-2">
+          {actions.map(action => (
+            <button
+              key={action.label}
+              type="button"
+              onClick={() => choose(action)}
+              className={`${SHEET_BUTTON} ${
+                action.tone === 'destructive'
+                  ? 'text-destructive'
+                  : 'text-foreground'
+              }`}
+            >
+              {action.label}
+            </button>
+          ))}
+          <button
+            type="button"
+            onClick={() => setSheetOpen(false)}
+            className={`${SHEET_BUTTON} text-foreground`}
+          >
+            Cancel
+          </button>
+        </div>
+      </Sheet>
     </div>
   )
 }

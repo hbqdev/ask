@@ -165,4 +165,37 @@ describe('ChatRowItem', () => {
     fireEvent.click(within(item).getByRole('button', { name: 'Rename' }))
     expect(onRename).toHaveBeenCalledExactlyOnceWith(row)
   })
+
+  it('offers its actions on a long press, titled with the chat', () => {
+    const row = chat()
+    const { content, onDelete, onRename } = setup(row)
+    fireEvent.contextMenu(content)
+    const sheet = screen.getByRole('dialog', { name: 'Why is the sky blue?' })
+    fireEvent.click(within(sheet).getByRole('button', { name: 'Delete' }))
+    expect(onDelete).toHaveBeenCalledExactlyOnceWith(row)
+
+    fireEvent.contextMenu(content)
+    fireEvent.click(
+      within(screen.getByRole('dialog')).getByRole('button', {
+        name: 'Rename'
+      })
+    )
+    expect(onRename).toHaveBeenCalledExactlyOnceWith(row)
+  })
+
+  it('titles an untitled chat’s actions Untitled', () => {
+    const { content } = setup(chat({ title: '' }))
+    fireEvent.contextMenu(content)
+    expect(screen.getByRole('dialog')).toHaveAccessibleName('Untitled')
+  })
+
+  it('says how to reach its actions without swiping, and selects no text', () => {
+    const { content } = setup()
+    expect(content).toHaveAccessibleDescription(
+      'Touch and hold for Delete, Rename.'
+    )
+    // Nothing in the row opts back into selection or the iOS callout
+    // (the page's chrome turns both off: styles.css).
+    expect(content.querySelector('.selectable')).toBeNull()
+  })
 })

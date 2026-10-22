@@ -2,7 +2,7 @@ import { fireEvent, render, screen } from '@testing-library/react'
 import { useRef, type KeyboardEvent } from 'react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
-import { trapTab, useReturnFocus } from '@/core/ui/focus'
+import { focusHeading, trapTab, useReturnFocus } from '@/core/ui/focus'
 
 function Modal() {
   useReturnFocus()
@@ -140,5 +140,53 @@ describe('trapTab', () => {
     })
     document.activeElement!.dispatchEvent(event)
     expect(event.defaultPrevented).toBe(true)
+  })
+})
+
+describe('focusHeading', () => {
+  function box(html: string): HTMLElement {
+    const el = document.createElement('div')
+    el.innerHTML = html
+    document.body.append(el)
+    return el
+  }
+
+  afterEach(() => {
+    document.body.innerHTML = ''
+  })
+
+  it('focuses the h1 without scrolling, making it focusable', () => {
+    const el = box('<p>intro</p><h1>Library</h1><h1>Second</h1>')
+    const h1 = el.querySelector('h1')!
+    const focus = vi.spyOn(h1, 'focus')
+    expect(focusHeading(el)).toBe(true)
+    expect(h1).toHaveFocus()
+    expect(h1).toHaveAttribute('tabindex', '-1')
+    expect(focus).toHaveBeenCalledWith({ preventScroll: true })
+  })
+
+  it('leaves a tabindex the heading already has', () => {
+    const el = box('<h1 tabindex="0">Settings</h1>')
+    expect(focusHeading(el)).toBe(true)
+    expect(el.querySelector('h1')).toHaveAttribute('tabindex', '0')
+    expect(el.querySelector('h1')).toHaveFocus()
+  })
+
+  it('skips a heading in a hidden part (an inactive tab or segment)', () => {
+    const el = box(
+      '<div inert><h1>Ask anything</h1></div>' +
+        '<div style="visibility: hidden"><h1>Discover</h1></div>' +
+        '<div hidden><h1>Notes</h1></div>' +
+        '<h1>Library</h1>'
+    )
+    expect(focusHeading(el)).toBe(true)
+    expect(screen.getByText('Library')).toHaveFocus()
+  })
+
+  it('returns false and moves nothing with no heading shown', () => {
+    const el = box('<h2>Not a title</h2><div hidden><h1>Hidden</h1></div>')
+    const before = document.activeElement
+    expect(focusHeading(el)).toBe(false)
+    expect(document.activeElement).toBe(before)
   })
 })

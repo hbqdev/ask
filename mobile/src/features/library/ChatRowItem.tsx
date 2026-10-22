@@ -1,6 +1,6 @@
 // One Library row: the chat's title, when, its search mode (when not the
-// default) and its file count. A tap opens it; a swipe offers Delete and
-// Rename.
+// default) and its file count. A tap opens it; a swipe, or a long press,
+// offers Delete and Rename.
 
 import { memo } from 'react'
 
@@ -80,6 +80,7 @@ export const ChatRowItem = memo(function ChatRowItem({
           { label: 'Rename', onAction: () => onRename(chat) }
         ]}
         onPress={() => onOpen(chat)}
+        actionsTitle={chat.title || 'Untitled'}
       >
         <div
           className={`relative flex min-h-[72px] flex-col justify-center gap-1 px-4 py-3 ${

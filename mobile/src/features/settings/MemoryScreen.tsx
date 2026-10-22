@@ -539,6 +539,7 @@ export function MemoryScreen() {
                     ]}
                     onPress={() => setViewing(memory)}
                     surface="card"
+                    actionsTitle="Memory"
                   >
                     <div
                       className={`relative flex min-h-14 flex-col justify-center gap-1 px-4 py-3 ${

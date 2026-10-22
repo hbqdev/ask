@@ -12,6 +12,7 @@ import {
 } from 'react'
 
 import { useEdgeSwipe } from '@/core/nav/use-edge-swipe'
+import { focusHeading } from '@/core/ui/focus'
 
 export type ScreenEntry = { key: string; render: () => ReactNode }
 
@@ -28,6 +29,10 @@ const StackContext = createContext<Stack | null>(null)
 // Each history entry the stack pushes records the depth it was pushed at, so a
 // popstate (the back gesture, or a programmatic back) says how deep to be.
 const DEPTH_KEY = 'askStackDepth'
+
+// What had focus when each screen was pushed: its opener, which gets focus
+// back when the screen is popped. Keyed by entry (entries are stable).
+const openers = new WeakMap<ScreenEntry, HTMLElement>()
 
 function depthOf(state: unknown): number {
   const depth = (state as Record<string, unknown> | null)?.[DEPTH_KEY]
@@ -69,6 +74,10 @@ export function StackProvider({
 
   const push = useCallback(
     (screen: ScreenEntry) => {
+      const active = document.activeElement
+      if (active instanceof HTMLElement && active !== document.body) {
+        openers.set(screen, active)
+      }
       const next = [...current.current, screen]
       commit(next)
       history.pushState({ [DEPTH_KEY]: next.length - 1 }, '')
@@ -85,6 +94,10 @@ export function StackProvider({
 
   const replace = useCallback(
     (screen: ScreenEntry) => {
+      // Popping the replacement goes back to what opened the screen it took
+      // the place of.
+      const opener = openers.get(current.current[current.current.length - 1])
+      if (opener) openers.set(screen, opener)
       commit([...current.current.slice(0, -1), screen])
     },
     [commit]
@@ -128,6 +141,21 @@ export function useStack(): Stack {
 // How long to wait for a popped screen's slide before removing it anyway
 // (the slide is 280ms; see styles.css).
 const LEAVE_FALLBACK_MS = 400
+
+/**
+ * How far the screen below moves while the top one is dragged back: it
+ * starts PARALLAX of the width to the left and arrives as the top one goes.
+ */
+export const PARALLAX = 0.3
+
+const reducedMotion = () =>
+  window.matchMedia('(prefers-reduced-motion: reduce)').matches
+
+/** Hands a layer's position back to the stylesheet (its transition). */
+function release(el: HTMLElement) {
+  el.style.transition = ''
+  el.style.transform = ''
+}
 
 type Motion = {
   /** The screens this motion was worked out for. */
@@ -176,10 +204,14 @@ export function StackView() {
   }
 
   const topRef = useRef<HTMLDivElement>(null)
+  // The screen below the top one, which the back swipe uncovers.
+  const belowRef = useRef<HTMLDivElement>(null)
   const swipe = useEdgeSwipe(
     () => {
-      // Let the slide out run from where the finger let go.
+      // Let the slide out run from where the finger let go, and the screen
+      // below settle from where it was.
       topRef.current!.style.transition = ''
+      release(belowRef.current!)
       pop()
     },
     {
@@ -187,14 +219,38 @@ export function StackView() {
         const el = topRef.current!
         el.style.transition = 'none'
         el.style.transform = `translate3d(${dx}px, 0, 0)`
+        if (reducedMotion()) return
+        const below = belowRef.current!
+        const shift = (dx / window.innerWidth - 1) * PARALLAX * 100
+        below.style.transition = 'none'
+        below.style.transform = `translate3d(${shift}%, 0, 0)`
       },
       onCancel() {
-        const el = topRef.current!
-        el.style.transition = ''
-        el.style.transform = ''
+        release(topRef.current!)
+        release(belowRef.current!)
       }
     }
   )
+
+  // Focus follows navigation: a pushed (or replacing) screen takes it at its
+  // title, unless something in it already took it; a pop gives it back to
+  // what opened the popped screen, or else to the title of the one shown.
+  // The first mount moves nothing.
+  const shown = useRef(screens)
+  useEffect(() => {
+    const prev = shown.current
+    if (prev === screens) return
+    shown.current = screens
+    const top = topRef.current!
+    if (screens.length >= prev.length) {
+      if (!top.contains(document.activeElement)) focusHeading(top)
+      return
+    }
+    // The lowest screen popped (history can go back several at once).
+    const opener = openers.get(prev[screens.length])
+    if (opener?.isConnected) opener.focus({ preventScroll: true })
+    else focusHeading(top)
+  }, [screens])
 
   const leaving = motion.leaving
   const clearLeaving = useCallback(() => {
@@ -227,7 +283,7 @@ export function StackView() {
         return (
           <div
             key={entry.key}
-            ref={isTop ? topRef : undefined}
+            ref={isTop ? topRef : i === topIndex - 1 ? belowRef : undefined}
             data-stack-key={entry.key}
             className={className}
             // Deeper screens paint above shallower ones (a leaving screen is

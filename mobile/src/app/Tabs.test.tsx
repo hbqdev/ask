@@ -13,8 +13,13 @@ import {
   type TabSpec
 } from '@/app/Tabs'
 import { haptic } from '@/core/haptics'
+import { scrollActiveToTop } from '@/core/nav/scroll-to-top'
 
 vi.mock('@/core/haptics', () => ({ haptic: vi.fn() }))
+vi.mock('@/core/nav/scroll-to-top', async importOriginal => ({
+  ...(await importOriginal<typeof import('@/core/nav/scroll-to-top')>()),
+  scrollActiveToTop: vi.fn()
+}))
 
 // Vitest does not process CSS, so read the stylesheet as text.
 const css = readFileSync(resolve(__dirname, '../styles.css'), 'utf8')
@@ -308,5 +313,95 @@ describe('Tabs haptics', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Go to settings' }))
     expect(tab('Settings')).toHaveAttribute('aria-selected', 'true')
     expect(haptic).not.toHaveBeenCalled()
+  })
+})
+
+describe('Tabs focus and re-tap', () => {
+  beforeEach(() => {
+    vi.mocked(haptic).mockClear()
+    vi.mocked(scrollActiveToTop).mockClear()
+  })
+
+  function titledTabs(): TabSpec[] {
+    const page = (title: string) => () => (
+      <main>
+        <h1>{title}</h1>
+        <SelectSettings />
+      </main>
+    )
+    return [
+      { id: 'ask', label: 'Ask', icon: <svg />, render: page('Ask anything') },
+      {
+        id: 'library',
+        label: 'Library',
+        icon: <svg />,
+        render: page('Your library')
+      },
+      {
+        id: 'settings',
+        label: 'Settings',
+        icon: <svg />,
+        render: page('Your settings')
+      }
+    ]
+  }
+
+  function SelectSettings() {
+    const selectTab = useSelectTab()
+    return (
+      <button type="button" onClick={() => selectTab?.('settings')}>
+        Go to settings
+      </button>
+    )
+  }
+
+  it('focuses the new tab’s heading', () => {
+    render(<Tabs tabs={titledTabs()} />)
+    fireEvent.click(tab('Library'))
+    expect(screen.getByText('Your library')).toHaveFocus()
+    expect(screen.getByText('Your library')).toHaveAttribute('tabindex', '-1')
+
+    // A kept tab shown again too.
+    fireEvent.click(tab('Ask'))
+    expect(screen.getByText('Ask anything')).toHaveFocus()
+  })
+
+  it('a switch made by the app moves no focus', () => {
+    render(<Tabs tabs={titledTabs()} />)
+    const go = screen.getByRole('button', { name: 'Go to settings' })
+    go.focus()
+    fireEvent.click(go)
+    expect(tab('Settings')).toHaveAttribute('aria-selected', 'true')
+    expect(screen.getByText('Your settings')).not.toHaveFocus()
+    expect(screen.getByText('Your settings')).not.toHaveAttribute('tabindex')
+  })
+
+  it('a later app switch after a tap moves no focus either', () => {
+    render(<Tabs tabs={titledTabs()} />)
+    fireEvent.click(tab('Library'))
+    // The Library panel's button (Ask's is hidden and inert).
+    const go = screen
+      .getByRole('tabpanel', { name: 'Library' })
+      .querySelector('button')!
+    go.focus()
+    fireEvent.click(go)
+    expect(tab('Settings')).toHaveAttribute('aria-selected', 'true')
+    expect(go).toHaveFocus()
+  })
+
+  it('re-tapping the active tab scrolls it to the top', () => {
+    render(<Tabs tabs={titledTabs()} />)
+    tab('Ask').focus()
+    fireEvent.click(tab('Ask'))
+    expect(scrollActiveToTop).toHaveBeenCalledTimes(1)
+    expect(haptic).not.toHaveBeenCalled()
+    expect(tab('Ask')).toHaveFocus()
+    expect(tab('Ask')).toHaveAttribute('aria-selected', 'true')
+  })
+
+  it('switching tabs does not scroll', () => {
+    render(<Tabs tabs={titledTabs()} />)
+    fireEvent.click(tab('Library'))
+    expect(scrollActiveToTop).not.toHaveBeenCalled()
   })
 })

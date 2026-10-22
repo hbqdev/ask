@@ -6,7 +6,7 @@ import {
   screen,
   waitFor
 } from '@testing-library/react'
-import { useState, type ReactNode } from 'react'
+import { useEffect, useRef, useState, type ReactNode } from 'react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import {
@@ -216,12 +216,39 @@ function hasLayer(key: string): boolean {
   return document.querySelector(`[data-stack-key="${key}"]`) !== null
 }
 
+/** Stands in for the device's reduced-motion setting, as matchMedia reports it. */
+function reducedMotion(reduce: boolean) {
+  vi.stubGlobal(
+    'matchMedia',
+    vi.fn((query: string) => ({
+      matches: reduce && query === '(prefers-reduced-motion: reduce)'
+    }))
+  )
+}
+
+// The swipe's clock (performance.now), in ms. Swipes here step it by 100 ms
+// an event, so they are slow drags, never flicks.
+let clock = 0
+
+function point(x: number) {
+  return { clientX: x, clientY: 300, pointerId: 1, isPrimary: true }
+}
+
+/** A point 100 ms after the last. */
+function at(x: number) {
+  clock += 100
+  return point(x)
+}
+
 describe('StackView', () => {
   let savedWidth: number
 
   beforeEach(() => {
     vi.spyOn(history, 'back').mockImplementation(() => {})
     vi.spyOn(history, 'go').mockImplementation(() => {})
+    clock = 0
+    vi.spyOn(performance, 'now').mockImplementation(() => clock)
+    reducedMotion(false)
     savedWidth = window.innerWidth
     window.innerWidth = 390
   })
@@ -230,6 +257,7 @@ describe('StackView', () => {
     window.innerWidth = savedWidth
     vi.useRealTimers()
     vi.restoreAllMocks()
+    vi.unstubAllGlobals()
   })
 
   it('shows the root screen without an entrance animation', () => {
@@ -344,12 +372,6 @@ describe('StackView', () => {
     setupView()
     act(() => stack.push(entry('thread')))
     const top = layer('thread')
-    const at = (x: number) => ({
-      clientX: x,
-      clientY: 300,
-      pointerId: 1,
-      isPrimary: true
-    })
     fireEvent.pointerDown(top, at(10))
     fireEvent.pointerMove(top, at(150))
     expect(top.style.transform).toBe('translate3d(140px, 0, 0)')
@@ -368,13 +390,9 @@ describe('StackView', () => {
     setupView()
     act(() => stack.push(entry('thread')))
     const top = layer('thread')
-    const at = (x: number) => ({
-      clientX: x,
-      clientY: 300,
-      pointerId: 1,
-      isPrimary: true
-    })
     fireEvent.pointerDown(top, at(10))
+    // 25 px a step: slow, so not a flick.
+    fireEvent.pointerMove(top, at(35))
     fireEvent.pointerMove(top, at(60))
     fireEvent.pointerUp(top, at(60))
 
@@ -399,5 +417,258 @@ describe('StackView', () => {
       isPrimary: true
     })
     expect(root.style.transform).toBe('')
+  })
+
+  it('drags the screen below with parallax', () => {
+    setupView()
+    act(() => stack.push(entry('thread')))
+    const top = layer('thread')
+    const below = layer('home')
+    fireEvent.pointerDown(top, at(10))
+    // Half the width across: the screen below is half way in from -30%.
+    fireEvent.pointerMove(top, at(205))
+    expect(below.style.transition).toBe('none')
+    expect(below.style.transform).toBe('translate3d(-15%, 0, 0)')
+    fireEvent.pointerMove(top, at(49))
+    expect(below.style.transform).toBe(
+      `translate3d(${(39 / 390 - 1) * 30}%, 0, 0)`
+    )
+  })
+
+  it('clears it on cancel and on back', () => {
+    setupView()
+    act(() => stack.push(entry('thread')))
+    const top = layer('thread')
+    const below = layer('home')
+    fireEvent.pointerDown(top, at(10))
+    fireEvent.pointerMove(top, at(35))
+    fireEvent.pointerMove(top, at(60))
+    expect(below.style.transform).not.toBe('')
+    fireEvent.pointerUp(top, at(60))
+    expect(stack.screens.map(s => s.key)).toEqual(['home', 'thread'])
+    expect(below.style.transform).toBe('')
+    expect(below.style.transition).toBe('')
+
+    fireEvent.pointerDown(top, at(10))
+    fireEvent.pointerMove(top, at(250))
+    expect(below.style.transform).not.toBe('')
+    fireEvent.pointerUp(top, at(250))
+    expect(stack.screens.map(s => s.key)).toEqual(['home'])
+    // The stylesheet's transition settles it from where it was to 0.
+    expect(below.style.transform).toBe('')
+    expect(below.style.transition).toBe('')
+  })
+
+  it('moves only the screen just below the top', () => {
+    setupView()
+    act(() => stack.push(entry('thread')))
+    act(() => stack.push(entry('source')))
+    fireEvent.pointerDown(layer('source'), at(10))
+    fireEvent.pointerMove(layer('source'), at(205))
+    expect(layer('thread').style.transform).toBe('translate3d(-15%, 0, 0)')
+    expect(layer('home').style.transform).toBe('')
+  })
+
+  it('no parallax under reduced motion', () => {
+    reducedMotion(true)
+    setupView()
+    act(() => stack.push(entry('thread')))
+    const top = layer('thread')
+    fireEvent.pointerDown(top, at(10))
+    fireEvent.pointerMove(top, at(205))
+    expect(layer('home').style.transform).toBe('')
+    expect(layer('home').style.transition).toBe('')
+    // The top screen still follows the finger.
+    expect(top.style.transform).toBe('translate3d(195px, 0, 0)')
+  })
+
+  it('a fast flick goes back', () => {
+    setupView()
+    act(() => stack.push(entry('thread')))
+    const top = layer('thread')
+    clock = 0
+    fireEvent.pointerDown(top, point(10))
+    clock = 100
+    fireEvent.pointerMove(top, point(30))
+    // The last 30 px in 10 ms.
+    clock = 110
+    fireEvent.pointerMove(top, point(60))
+    fireEvent.pointerUp(top, point(60))
+    expect(stack.screens.map(s => s.key)).toEqual(['home'])
+  })
+})
+
+// --- Focus --------------------------------------------------------------------
+
+describe('StackView focus', () => {
+  beforeEach(() => {
+    vi.spyOn(history, 'back').mockImplementation(() => {})
+    vi.spyOn(history, 'go').mockImplementation(() => {})
+    clock = 0
+    vi.spyOn(performance, 'now').mockImplementation(() => clock)
+    reducedMotion(false)
+  })
+
+  afterEach(() => {
+    vi.restoreAllMocks()
+    vi.unstubAllGlobals()
+    document.body.innerHTML = ''
+  })
+
+  function Home() {
+    return (
+      <main>
+        <h1>Home</h1>
+        <button type="button">open</button>
+      </main>
+    )
+  }
+
+  const titled = (key: string, title: string) => entry(key, <h1>{title}</h1>)
+
+  function openFromHome() {
+    setupView(entry('home', <Home />))
+    const opener = screen.getByRole('button', { name: 'open' })
+    opener.focus()
+    return opener
+  }
+
+  it('focuses the pushed screen’s heading', () => {
+    openFromHome()
+    act(() => stack.push(titled('thread', 'Thread')))
+    expect(screen.getByText('Thread')).toHaveFocus()
+    expect(screen.getByText('Thread')).toHaveAttribute('tabindex', '-1')
+  })
+
+  it('leaves focus a pushed screen already took', () => {
+    function Field() {
+      const ref = useRef<HTMLInputElement>(null)
+      useEffect(() => ref.current!.focus(), [])
+      return (
+        <>
+          <h1>Note</h1>
+          <input ref={ref} aria-label="Body" />
+        </>
+      )
+    }
+    openFromHome()
+    act(() => stack.push(entry('note', <Field />)))
+    expect(screen.getByLabelText('Body')).toHaveFocus()
+  })
+
+  it('returns focus to the opener on pop', () => {
+    const opener = openFromHome()
+    act(() => stack.push(titled('thread', 'Thread')))
+    expect(opener).not.toHaveFocus()
+    const focus = vi.spyOn(opener, 'focus')
+    act(() => stack.pop())
+    expect(opener).toHaveFocus()
+    expect(focus).toHaveBeenCalledWith({ preventScroll: true })
+  })
+
+  it('returns focus to the opener after a swipe back', () => {
+    const opener = openFromHome()
+    act(() => stack.push(titled('thread', 'Thread')))
+    expect(opener).not.toHaveFocus()
+    const top = layer('thread')
+    // Past a third of jsdom's 1024 px window.
+    fireEvent.pointerDown(top, at(10))
+    fireEvent.pointerMove(top, at(400))
+    fireEvent.pointerUp(top, at(400))
+    expect(stack.screens.map(s => s.key)).toEqual(['home'])
+    expect(opener).toHaveFocus()
+  })
+
+  it('returns focus through a stack of screens, one opener each', () => {
+    const opener = openFromHome()
+    act(() =>
+      stack.push(
+        entry(
+          'thread',
+          <>
+            <h1>Thread</h1>
+            <button type="button">source</button>
+          </>
+        )
+      )
+    )
+    const source = screen.getByText('source')
+    source.focus()
+    act(() => stack.push(titled('source', 'Source')))
+    expect(screen.getByText('Source')).toHaveFocus()
+    act(() => stack.pop())
+    expect(source).toHaveFocus()
+    act(() => stack.pop())
+    expect(opener).toHaveFocus()
+  })
+
+  it('history going back several screens at once returns to the lowest opener', () => {
+    const opener = openFromHome()
+    act(() =>
+      stack.push(
+        entry(
+          'thread',
+          <>
+            <h1>Thread</h1>
+            <button type="button">source</button>
+          </>
+        )
+      )
+    )
+    screen.getByText('source').focus()
+    act(() => stack.push(titled('source', 'Source')))
+    act(() => {
+      window.dispatchEvent(
+        new PopStateEvent('popstate', { state: { askStackDepth: 0 } })
+      )
+    })
+    expect(stack.screens.map(s => s.key)).toEqual(['home'])
+    expect(opener).toHaveFocus()
+  })
+
+  it('falls back to the heading when the opener is gone', () => {
+    setupView(entry('home', <Home />))
+    const gone = document.createElement('button')
+    document.body.append(gone)
+    gone.focus()
+    act(() => stack.push(titled('thread', 'Thread')))
+    gone.remove()
+    act(() => stack.pop())
+    expect(screen.getByText('Home')).toHaveFocus()
+  })
+
+  it('falls back to the heading when nothing had focus at the push', () => {
+    setupView(entry('home', <Home />))
+    ;(document.activeElement as HTMLElement).blur()
+    expect(document.activeElement).toBe(document.body)
+    act(() => stack.push(titled('thread', 'Thread')))
+    ;(document.activeElement as HTMLElement).blur()
+    act(() => stack.pop())
+    expect(screen.getByText('Home')).toHaveFocus()
+  })
+
+  it('focuses a replacing screen’s heading, and its pop returns to the first opener', () => {
+    const opener = openFromHome()
+    act(() => stack.push(titled('a', 'A')))
+    act(() => stack.replace(titled('b', 'B')))
+    expect(screen.getByText('B')).toHaveFocus()
+    act(() => stack.pop())
+    expect(opener).toHaveFocus()
+  })
+
+  it('focuses the fresh root’s heading on a reset', () => {
+    openFromHome()
+    act(() => stack.push(titled('a', 'A')))
+    act(() => stack.reset(titled('fresh', 'Fresh')))
+    expect(screen.getByText('Fresh')).toHaveFocus()
+  })
+
+  it('moves no focus on first mount', () => {
+    const outside = document.createElement('button')
+    document.body.append(outside)
+    outside.focus()
+    setupView(entry('home', <Home />))
+    expect(outside).toHaveFocus()
+    expect(screen.getByText('Home')).not.toHaveAttribute('tabindex')
   })
 })

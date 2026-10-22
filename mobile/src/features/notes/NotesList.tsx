@@ -267,6 +267,7 @@ const NoteRowItem = memo(function NoteRowItem({
           }
         ]}
         onPress={() => onOpen(note)}
+        actionsTitle={note.title || 'Untitled'}
       >
         <div
           className={`relative flex min-h-[88px] flex-col justify-center gap-1 px-4 py-3 ${

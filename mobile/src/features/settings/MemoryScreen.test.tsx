@@ -853,6 +853,20 @@ describe('MemoryScreen: memories', () => {
     await waitFor(() => expect(sent()).toContain('DELETE /api/memory/m1'))
   })
 
+  it('deletes one after a confirmation from a long press', async () => {
+    await renderScreen()
+    const row = rowButton('Lives in Hanoi')
+    expect(row).toHaveAccessibleDescription('Touch and hold for Delete.')
+    expect(row.querySelector('.selectable')).toBeNull()
+    fireEvent.contextMenu(row)
+    const actions = screen.getByRole('dialog', { name: 'Memory' })
+    fireEvent.click(within(actions).getByRole('button', { name: 'Delete' }))
+    const sheet = screen.getByRole('dialog', { name: 'Delete this memory?' })
+    expect(sheet).toHaveTextContent('Lives in Hanoi')
+    fireEvent.click(within(sheet).getByRole('button', { name: 'Delete' }))
+    await waitFor(() => expect(sent()).toContain('DELETE /api/memory/m1'))
+  })
+
   it('cancelling the confirmation deletes nothing', async () => {
     await renderScreen()
     swipeDelete('Lives in Hanoi')

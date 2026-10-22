@@ -6,7 +6,7 @@ import { useEffect } from 'react'
 
 /** Whether nothing around `el` hides it: no inert, hidden or inline
  *  visibility: hidden ancestor (an inactive tab, a hidden Library segment). */
-function isShown(el: HTMLElement): boolean {
+export function isShown(el: HTMLElement): boolean {
   for (let node: HTMLElement | null = el; node; node = node.parentElement) {
     if (
       node.hasAttribute('inert') ||

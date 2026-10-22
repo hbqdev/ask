@@ -3,12 +3,16 @@ import {
   memo,
   useCallback,
   useContext,
+  useEffect,
   useId,
+  useRef,
   useState,
   type ReactNode
 } from 'react'
 
 import { haptic } from '@/core/haptics'
+import { scrollActiveToTop } from '@/core/nav/scroll-to-top'
+import { focusHeading } from '@/core/ui/focus'
 
 export type TabId = 'ask' | 'discover' | 'library' | 'settings'
 
@@ -74,7 +78,9 @@ const TabContent = memo(function TabContent({ tab }: { tab: TabSpec }) {
 /**
  * The app's tab shell: a bottom tab bar over one panel per tab. A tab mounts
  * the first time it is opened and then stays mounted (hidden when inactive),
- * so its state and scroll position survive switching away and back.
+ * so its state and scroll position survive switching away and back. A tap on
+ * another tab moves focus to its title; a tap on the tab shown scrolls it to
+ * the top.
  */
 export function Tabs({ tabs, initial, children }: TabsProps) {
   const idPrefix = useId()
@@ -91,6 +97,17 @@ export function Tabs({ tabs, initial, children }: TabsProps) {
 
   const tabId = (id: TabId) => `${idPrefix}-tab-${id}`
   const panelId = (id: TabId) => `${idPrefix}-panel-${id}`
+
+  // Set by a tap that switches tabs: once the tab is shown, its title takes
+  // focus (VoiceOver reads the new tab from the top). A switch the app makes
+  // leaves focus where it is.
+  const tapped = useRef(false)
+  useEffect(() => {
+    if (!tapped.current) return
+    tapped.current = false
+    focusHeading(document.getElementById(panelId(active))!)
+    // panelId only reads the stable idPrefix.
+  }, [active])
 
   return (
     <SelectTabContext.Provider value={select}>
@@ -136,9 +153,14 @@ export function Tabs({ tabs, initial, children }: TabsProps) {
                 aria-selected={isActive}
                 aria-controls={opened.has(tab.id) ? panelId(tab.id) : undefined}
                 onClick={() => {
-                  if (isActive) return
+                  // As in iOS: the tab shown goes back to its top.
+                  if (isActive) {
+                    scrollActiveToTop()
+                    return
+                  }
                   // A tap on the bar ticks; a switch the app makes does not.
                   haptic('selection')
+                  tapped.current = true
                   select(tab.id)
                 }}
                 className={`flex min-h-11 flex-1 touch-manipulation flex-col items-center justify-center gap-0.5 text-[clamp(10px,0.6875rem,13px)] leading-none font-medium active:opacity-50 ${

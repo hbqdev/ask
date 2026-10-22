@@ -135,6 +135,14 @@ describe('selection and zoom', () => {
   })
 })
 
+describe('focus', () => {
+  it('a heading focused by navigation draws no focus ring', () => {
+    // focusHeading (core/ui/focus.ts) gives a screen's h1 tabindex -1 and
+    // focuses it, for VoiceOver; it is not a control, so no ring shows.
+    expect(rule("h1[tabindex='-1']:focus")).toEqual({ outline: 'none' })
+  })
+})
+
 describe('Dynamic Type', () => {
   it('@theme fixes the spacing step at 4px, so only type follows the text size', () => {
     // src/core/text-size.ts moves the root font size with the iOS text size;

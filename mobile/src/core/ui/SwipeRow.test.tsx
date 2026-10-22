@@ -1,10 +1,11 @@
-import { act, fireEvent, render, screen } from '@testing-library/react'
+import { act, fireEvent, render, screen, within } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { haptic } from '@/core/haptics'
 import { EDGE_ZONE } from '@/core/nav/use-edge-swipe'
 import {
   ACTION_WIDTH,
+  LONG_PRESS_MS,
   OPEN_AT,
   SwipeRow,
   type SwipeAction
@@ -725,5 +726,293 @@ describe('SwipeRow haptics', () => {
     tap(content)
     expect(onPress).toHaveBeenCalledTimes(1)
     expect(kinds()).toEqual([])
+  })
+})
+
+describe('SwipeRow long press', () => {
+  beforeEach(() => {
+    vi.useFakeTimers()
+    vi.mocked(haptic).mockClear()
+  })
+
+  afterEach(() => {
+    // Disarm a click swallow a test left armed, before the next test.
+    act(() => vi.advanceTimersByTime(1000))
+    vi.useRealTimers()
+  })
+
+  const sheet = () => screen.getByRole('dialog')
+  const hold = (el: HTMLElement, ms = LONG_PRESS_MS, p: Point = { x: 200 }) => {
+    fireEvent.pointerDown(el, at(p))
+    act(() => vi.advanceTimersByTime(ms))
+  }
+
+  it('waits LONG_PRESS_MS, 500 ms', () => {
+    expect(LONG_PRESS_MS).toBe(500)
+  })
+
+  it('a long press opens the actions sheet', () => {
+    const { content } = setup()
+    hold(content, LONG_PRESS_MS - 1)
+    expect(screen.queryByRole('dialog')).toBeNull()
+    act(() => vi.advanceTimersByTime(1))
+
+    expect(sheet()).toHaveAccessibleName('Actions')
+    const buttons = within(sheet()).getAllByRole('button')
+    expect(buttons.map(b => b.textContent)).toEqual([
+      'Delete',
+      'Rename',
+      'Cancel'
+    ])
+    expect(buttons[0]).toHaveClass('text-destructive')
+    expect(buttons[1]).not.toHaveClass('text-destructive')
+    expect(haptic).toHaveBeenCalledExactlyOnceWith('medium')
+    // The row itself stays at rest: no colour, buttons hidden and inert.
+    expect(content.parentElement!.className).not.toContain('bg-red-600')
+    expect(actionsOf('Chat A')).toHaveClass('invisible')
+    expect(isOpen('Chat A')).toBe(false)
+    expect(content.style.transform).toBe('')
+  })
+
+  it('titles the sheet with actionsTitle', () => {
+    const { actions } = makeActions()
+    render(
+      <SwipeRow actions={actions} onPress={vi.fn()} actionsTitle="Trip notes">
+        <span>Chat A</span>
+      </SwipeRow>
+    )
+    hold(content('Chat A'))
+    expect(sheet()).toHaveAccessibleName('Trip notes')
+  })
+
+  it('a small wobble still counts as holding still', () => {
+    const { content } = setup()
+    fireEvent.pointerDown(content, at({ x: 200, y: 100 }))
+    fireEvent.pointerMove(content, at({ x: 206, y: 108 }))
+    act(() => vi.advanceTimersByTime(LONG_PRESS_MS))
+    expect(sheet()).toBeInTheDocument()
+  })
+
+  it('moving cancels the long press', () => {
+    const { content } = setup()
+    fireEvent.pointerDown(content, at({ x: 200, y: 100 }))
+    fireEvent.pointerMove(content, at({ x: 200, y: 111 }))
+    act(() => vi.advanceTimersByTime(LONG_PRESS_MS))
+    expect(screen.queryByRole('dialog')).toBeNull()
+
+    fireEvent.pointerDown(content, at({ x: 200, y: 100 }))
+    fireEvent.pointerMove(content, at({ x: 192, y: 93 }))
+    act(() => vi.advanceTimersByTime(LONG_PRESS_MS))
+    expect(screen.queryByRole('dialog')).toBeNull()
+    expect(haptic).not.toHaveBeenCalledWith('medium')
+  })
+
+  it('another pointer’s move does not cancel it', () => {
+    const { content } = setup()
+    fireEvent.pointerDown(content, at({ x: 200 }))
+    fireEvent.pointerMove(content, at({ x: 50, id: 2 }))
+    act(() => vi.advanceTimersByTime(LONG_PRESS_MS))
+    expect(sheet()).toBeInTheDocument()
+  })
+
+  it('a release or a cancel before 500 ms is no long press', () => {
+    const { content, onPress } = setup()
+    hold(content, 300)
+    fireEvent.pointerUp(content, at({ x: 200 }))
+    fireEvent.click(content)
+    expect(onPress).toHaveBeenCalledTimes(1)
+    act(() => vi.advanceTimersByTime(LONG_PRESS_MS))
+    expect(screen.queryByRole('dialog')).toBeNull()
+
+    hold(content, 300)
+    fireEvent.pointerCancel(content, at({ x: 200 }))
+    act(() => vi.advanceTimersByTime(LONG_PRESS_MS))
+    expect(screen.queryByRole('dialog')).toBeNull()
+  })
+
+  it('a non-primary pointer starts none', () => {
+    const { content } = setup()
+    fireEvent.pointerDown(content, { ...at({ x: 200 }), isPrimary: false })
+    act(() => vi.advanceTimersByTime(LONG_PRESS_MS))
+    expect(screen.queryByRole('dialog')).toBeNull()
+  })
+
+  it('a press in the back-swipe edge zone is no long press (the edge is the stack’s)', () => {
+    const { content } = setup()
+    hold(content, LONG_PRESS_MS, { x: EDGE_ZONE })
+    expect(screen.queryByRole('dialog')).toBeNull()
+  })
+
+  it('an open row’s press is no long press (a tap closes it)', () => {
+    const { content } = setup()
+    drag(content, [{ x: 300 }, { x: 200 }])
+    expect(isOpen('Chat A')).toBe(true)
+    hold(content)
+    expect(screen.queryByRole('dialog')).toBeNull()
+  })
+
+  it('the long press’s click does not press the row', () => {
+    const { content, onPress } = setup()
+    hold(content)
+    fireEvent.pointerUp(content, at({ x: 200 }))
+    fireEvent.click(content)
+    expect(onPress).not.toHaveBeenCalled()
+    expect(sheet()).toBeInTheDocument()
+  })
+
+  it('nor closes the sheet, should it land on the backdrop', () => {
+    const { content } = setup()
+    hold(content)
+    fireEvent.pointerUp(content, at({ x: 200 }))
+    fireEvent.click(screen.getByTestId('sheet-backdrop'))
+    expect(sheet()).toBeInTheDocument()
+  })
+
+  it('after the long press, the finger moving on does not swipe the row', () => {
+    const { content } = setup()
+    hold(content)
+    fireEvent.pointerMove(content, at({ x: 100 }))
+    fireEvent.pointerUp(content, at({ x: 100 }))
+    expect(content.style.transform).toBe('')
+    expect(isOpen('Chat A')).toBe(false)
+  })
+
+  it('choosing Delete runs the action, once the sheet has closed', () => {
+    const { content, del } = setup()
+    del.mockImplementation(() => {
+      expect(screen.queryByRole('dialog')).toBeNull()
+    })
+    hold(content)
+    fireEvent.pointerUp(content, at({ x: 200 }))
+    vi.mocked(haptic).mockClear()
+    // The next press disarms the swallowed click; this one chooses.
+    fireEvent.pointerDown(within(sheet()).getByText('Delete'))
+    fireEvent.click(within(sheet()).getByText('Delete'))
+    expect(del).toHaveBeenCalledTimes(1)
+    expect(screen.queryByRole('dialog')).toBeNull()
+    expect(haptic).toHaveBeenCalledExactlyOnceWith('light')
+  })
+
+  it('choosing an action gives focus back to the row before it runs', () => {
+    const { content, rename } = setup()
+    let focused: Element | null = null
+    rename.mockImplementation(() => {
+      focused = document.activeElement
+    })
+    content.focus()
+    hold(content)
+    fireEvent.click(within(sheet()).getByText('Rename'))
+    expect(rename).toHaveBeenCalledTimes(1)
+    expect(focused).toBe(content)
+  })
+
+  it('Cancel closes it and runs nothing', () => {
+    const { content, del, rename } = setup()
+    hold(content)
+    fireEvent.click(within(sheet()).getByText('Cancel'))
+    expect(screen.queryByRole('dialog')).toBeNull()
+    expect(del).not.toHaveBeenCalled()
+    expect(rename).not.toHaveBeenCalled()
+  })
+
+  it('closes like any sheet (Escape, the backdrop), running nothing', () => {
+    const { content, del, rename } = setup()
+    hold(content)
+    fireEvent.keyDown(document, { key: 'Escape' })
+    expect(screen.queryByRole('dialog')).toBeNull()
+    fireEvent.contextMenu(content)
+    fireEvent.click(screen.getByTestId('sheet-backdrop'))
+    expect(screen.queryByRole('dialog')).toBeNull()
+    expect(del).not.toHaveBeenCalled()
+    expect(rename).not.toHaveBeenCalled()
+  })
+
+  it('a contextmenu event opens it too, with no browser menu', () => {
+    const { content } = setup()
+    const event = new MouseEvent('contextmenu', {
+      bubbles: true,
+      cancelable: true
+    })
+    act(() => {
+      content.dispatchEvent(event)
+    })
+    expect(event.defaultPrevented).toBe(true)
+    expect(sheet()).toHaveAccessibleName('Actions')
+    expect(haptic).toHaveBeenCalledExactlyOnceWith('medium')
+  })
+
+  it('a contextmenu that follows the long press opens nothing more', () => {
+    const { content } = setup()
+    hold(content)
+    fireEvent.contextMenu(content)
+    expect(screen.getAllByRole('dialog')).toHaveLength(1)
+    expect(haptic).toHaveBeenCalledExactlyOnceWith('medium')
+  })
+
+  it('a contextmenu during a press (before 500 ms) swallows that press’s click', () => {
+    const { content, onPress } = setup()
+    hold(content, 300)
+    fireEvent.contextMenu(content)
+    act(() => vi.advanceTimersByTime(LONG_PRESS_MS))
+    fireEvent.pointerUp(content, at({ x: 200 }))
+    fireEvent.click(content)
+    expect(onPress).not.toHaveBeenCalled()
+    expect(screen.getAllByRole('dialog')).toHaveLength(1)
+    expect(haptic).toHaveBeenCalledExactlyOnceWith('medium')
+  })
+
+  it('the row describes its actions', () => {
+    const { content } = setup()
+    // The hint is the row's description, not part of its name.
+    expect(content).toHaveAccessibleName('Chat A')
+    expect(content).toHaveAccessibleDescription(
+      'Touch and hold for Delete, Rename.'
+    )
+    const hint = document.getElementById(
+      content.getAttribute('aria-describedby')!
+    )!
+    expect(hint).toHaveClass('sr-only')
+    expect(content.contains(hint)).toBe(false)
+  })
+
+  it('a row with no actions has no hint and no long press', () => {
+    render(
+      <SwipeRow actions={[]} onPress={vi.fn()}>
+        <span>Bare</span>
+      </SwipeRow>
+    )
+    const row = content('Bare')
+    expect(row).not.toHaveAttribute('aria-describedby')
+    hold(row)
+    const event = new MouseEvent('contextmenu', {
+      bubbles: true,
+      cancelable: true
+    })
+    row.dispatchEvent(event)
+    expect(event.defaultPrevented).toBe(false)
+    expect(screen.queryByRole('dialog')).toBeNull()
+  })
+
+  it('an unmounted row’s pending long press does nothing', () => {
+    const { actions } = makeActions()
+    const view = render(
+      <SwipeRow actions={actions} onPress={vi.fn()}>
+        <span>Chat A</span>
+      </SwipeRow>
+    )
+    fireEvent.pointerDown(content('Chat A'), at({ x: 200 }))
+    view.unmount()
+    act(() => vi.advanceTimersByTime(LONG_PRESS_MS))
+    expect(haptic).not.toHaveBeenCalled()
+  })
+
+  it('a later tap after the sheet closed presses as usual', () => {
+    const { content, onPress } = setup()
+    hold(content)
+    fireEvent.pointerUp(content, at({ x: 200 }))
+    fireEvent.click(content)
+    fireEvent.click(within(sheet()).getByText('Cancel'))
+    tap(content)
+    expect(onPress).toHaveBeenCalledTimes(1)
   })
 })
