@@ -261,7 +261,10 @@ h1[tabindex='-1']:focus {
    whatever sits there, so its colour runs to the edge: the tab bar, a
    thread's composer, a sheet, or (.safe-bottom) a pushed screen's scroller
    content and sign-in. With the keyboard up the web view ends above it, and
-   the bottom inset is 0. */
+   the bottom inset is 0.
+   These rules are unlayered, so they beat any Tailwind padding utility on the
+   same element (a pt-*, px-* or pb-* there silently loses): pad a child
+   instead, as the sign-in screen does. */
 .app-root {
   padding-top: env(safe-area-inset-top);
   padding-left: env(safe-area-inset-left);
@@ -282,8 +285,9 @@ h1[tabindex='-1']:focus {
   padding-bottom: max(env(safe-area-inset-bottom), 8px);
 }
 
-/* Ask's home composer sits on the tab bar, which already clears it. */
-[role='tabpanel'] .composer {
+/* Ask's home composer sits on the tab bar, which already clears it (the
+   home passes onTabBar). */
+.composer.composer-on-tab-bar {
   padding-bottom: 8px;
 }
 

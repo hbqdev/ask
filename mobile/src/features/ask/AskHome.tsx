@@ -71,6 +71,7 @@ export function AskHome() {
         settings={settings}
         onSettings={setSettings}
         draft={draft}
+        onTabBar
       />
     </main>
   )

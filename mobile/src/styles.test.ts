@@ -127,10 +127,12 @@ describe('safe areas', () => {
     )
   })
 
-  it('a composer in a tab sits on the tab bar without its own inset', () => {
+  it('a composer on the tab bar sits there without its own inset', () => {
     // Ask's home composer is above the tab bar, which already clears the
-    // home indicator; only a thread's composer is at the bottom edge.
-    expect(rule("[role='tabpanel'] .composer")['padding-bottom']).toBe('8px')
+    // home indicator; only a thread's composer is at the bottom edge. The
+    // home says so itself (onTabBar), not by an ARIA role around it.
+    expect(rule('.composer.composer-on-tab-bar')['padding-bottom']).toBe('8px')
+    expect(css).not.toContain("[role='tabpanel'] .composer")
   })
 })
 

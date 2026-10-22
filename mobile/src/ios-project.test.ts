@@ -456,6 +456,20 @@ describe('the native page chrome', () => {
       /sentinel\.frame = CGRect\(x: 0, y: 0, width: view\.bounds\.width, height: 1\)/
     )
     expect(swift).toContain('sentinel.autoresizingMask = [.flexibleWidth]')
+    // Never at the top by its own offset, whatever UIKit makes of the safe
+    // area it sits in: no automatic inset, set before the offset.
+    const never = swift.indexOf(
+      'sentinel.contentInsetAdjustmentBehavior = .never'
+    )
+    expect(never).toBeGreaterThan(-1)
+    expect(never).toBeLessThan(swift.indexOf('sentinel.contentOffset ='))
+  })
+
+  it('places the keyboard by the view’s own window, with no deprecated UIScreen.main', () => {
+    expect(swift).not.toContain('UIScreen.main')
+    expect(swift).toContain(
+      'view.window.map { view.convert(frame, from: $0.screen.coordinateSpace) }'
+    )
   })
 
   it('reports the status-bar override with the page colour', () => {

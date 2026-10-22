@@ -28,7 +28,7 @@ function ConfigError({ message }: { message: string }) {
   const { loaded } = useTheme()
   useHideSplash(loaded)
   return (
-    <main className="flex flex-1 flex-col items-center justify-center gap-2 px-6 text-center">
+    <main className="safe-bottom flex flex-1 flex-col items-center justify-center gap-2 px-6 text-center">
       <h1 className="text-xl font-semibold tracking-tight">
         Ask isn't configured
       </h1>

@@ -148,6 +148,8 @@ describe('App', () => {
     expect(
       screen.getByText('Missing Supabase configuration')
     ).toBeInTheDocument()
+    // Centred on the safe area, clear of the home indicator.
+    expect(screen.getByRole('main')).toHaveClass('safe-bottom')
     expect(mocks.createSupabase).not.toHaveBeenCalled()
     // The splash must not hide the error forever.
     expect(mocks.hideSplash).toHaveBeenCalledTimes(1)

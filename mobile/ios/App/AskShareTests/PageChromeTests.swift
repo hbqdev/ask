@@ -105,6 +105,13 @@ final class PageChromeTests: XCTestCase {
         XCTAssertEqual(PageChrome.keyboardOverlap(keyboard: keyboard, in: view), 254)
     }
 
+    func testAKeyboardWhollyBelowAShorterViewOverlapsNothing() {
+        // A view that ends above the keyboard's top (a shorter window).
+        let view = CGRect(x: 0, y: 0, width: 402, height: 800)
+        let keyboard = CGRect(x: 0, y: 900, width: 402, height: 300)
+        XCTAssertEqual(PageChrome.keyboardOverlap(keyboard: keyboard, in: view), 0)
+    }
+
     func testWithNoKeyboardTheWebViewReachesTheBottomEdge() {
         XCTAssertEqual(PageChrome.bottomPinConstant(keyboard: nil, in: screen), 0)
     }

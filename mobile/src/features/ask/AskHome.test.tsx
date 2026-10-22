@@ -168,6 +168,11 @@ describe('AskHome', () => {
     expect(readableColumn(homeBox().closest('form')!)).toBeNull()
   })
 
+  it('puts its composer on the tab bar, which clears the home indicator', () => {
+    renderHome()
+    expect(homeBox().closest('form')).toHaveClass('composer-on-tab-bar')
+  })
+
   it('nothing clips the composer’s hit areas, up to the screen', () => {
     renderHome()
     for (const name of ['Attach', 'Search mode: Balanced', 'Dictate']) {

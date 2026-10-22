@@ -83,6 +83,11 @@ export type ComposerProps = {
    * draft goes on a new line under it.
    */
   draft?: { text: string; append?: boolean }
+  /**
+   * It sits on the tab bar (Ask's home), which already clears the home
+   * indicator; otherwise (a thread) it is at the bottom edge and clears it.
+   */
+  onTabBar?: boolean
 }
 
 function ArrowUp() {
@@ -140,7 +145,8 @@ export function Composer({
   onSettings,
   autoFocus,
   disabled = false,
-  draft
+  draft,
+  onTabBar = false
 }: ComposerProps) {
   const [text, setText] = useState('')
   const [optionsOpen, setOptionsOpen] = useState(false)
@@ -257,7 +263,10 @@ export function Composer({
   return (
     // The bar spans the screen; on an iPad its row sits in the readable
     // column, over the turns.
-    <form className="composer bg-background px-3 pt-2" onSubmit={onSubmit}>
+    <form
+      className={`composer bg-background px-3 pt-2${onTabBar ? ' composer-on-tab-bar' : ''}`}
+      onSubmit={onSubmit}
+    >
       <div className={`${READABLE} rounded-3xl bg-foreground/5 px-3 pt-1 pb-2`}>
         <AttachmentChips
           items={attachments.items}

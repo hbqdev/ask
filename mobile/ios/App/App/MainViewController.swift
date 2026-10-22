@@ -53,6 +53,9 @@ final class MainViewController: UIViewController, UIScrollViewDelegate {
         sentinel.alpha = 1
         sentinel.showsVerticalScrollIndicator = false
         sentinel.showsHorizontalScrollIndicator = false
+        // No automatic inset from the safe area it sits in: "not at the top"
+        // rests on its own offset alone.
+        sentinel.contentInsetAdjustmentBehavior = .never
         sentinel.contentSize = CGSize(width: 1, height: 2)
         sentinel.contentOffset = CGPoint(x: 0, y: 1)
         sentinel.scrollsToTop = true
@@ -113,11 +116,12 @@ final class MainViewController: UIViewController, UIScrollViewDelegate {
 
     /// Sets the bottom pin from the last keyboard frame and the view's
     /// current bounds; true when it changed (the equality check also stops a
-    /// layout pass from triggering another).
+    /// layout pass from triggering another). A view with no window has no
+    /// keyboard over it.
     @discardableResult
     private func updateBottomPin() -> Bool {
-        let keyboard = keyboardFrame.map {
-            view.convert($0, from: view.window?.screen.coordinateSpace ?? UIScreen.main.coordinateSpace)
+        let keyboard = keyboardFrame.flatMap { frame in
+            view.window.map { view.convert(frame, from: $0.screen.coordinateSpace) }
         }
         let constant = PageChrome.bottomPinConstant(keyboard: keyboard, in: view.bounds)
         guard bottomPin.constant != constant else { return false }

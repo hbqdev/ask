@@ -433,9 +433,27 @@ describe('Composer', () => {
     expect(stop).toHaveClass('size-9')
   })
 
+  it('on the tab bar, says so, so it leaves the home indicator to the bar', () => {
+    const { container } = render(
+      <Composer
+        placeholder="Ask"
+        busy={false}
+        onSend={vi.fn()}
+        settings={BALANCED}
+        onSettings={vi.fn()}
+        onTabBar
+      />
+    )
+    expect(container.firstElementChild).toHaveClass(
+      'composer',
+      'composer-on-tab-bar'
+    )
+  })
+
   it('clears the home indicator with a safe-area bottom padding', () => {
     const { container } = setup()
     expect(container.firstElementChild).toHaveClass('composer')
+    expect(container.firstElementChild).not.toHaveClass('composer-on-tab-bar')
     const css = readFileSync(resolve(__dirname, '../../styles.css'), 'utf8')
     expect(css).toMatch(
       /\.composer\s*\{[^}]*padding-bottom:\s*max\(env\(safe-area-inset-bottom\),\s*8px\)/
