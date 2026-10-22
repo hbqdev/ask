@@ -13,6 +13,7 @@ import {
 } from '@/core/auth/preferences-storage'
 import { isE2eAutoSend } from '@/core/config'
 import { useStack, type ScreenEntry } from '@/core/nav/stack'
+import { openMemory } from '@/features/settings/MemoryScreen'
 
 /** The Preferences key that holds the seeded screen. */
 export const E2E_SCREEN_KEY = 'e2e-screen'
@@ -33,8 +34,10 @@ const E2E_SCREENS = {
   discover: nav => nav.selectTab('discover'),
   library: nav => nav.selectTab('library'),
   settings: nav => nav.selectTab('settings'),
-  // The Memory screen (Phase 5 Task 6): Settings, then push it.
-  'settings/memory': null
+  'settings/memory': nav => {
+    nav.selectTab('settings')
+    openMemory(nav.push)
+  }
 } satisfies Record<string, ((nav: E2eNav) => void) | null>
 
 export type E2eScreen = keyof typeof E2E_SCREENS

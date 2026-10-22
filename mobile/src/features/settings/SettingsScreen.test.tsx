@@ -6,6 +6,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { useApi, type Api } from '@/core/api/ApiProvider'
 import { createApiClient } from '@/core/api/client'
 import { useAuth, type Auth } from '@/core/auth/AuthProvider'
+import { StackProvider } from '@/core/nav/stack'
 import { THEME_STORAGE_KEY } from '@/core/theme'
 import { ThemeProvider } from '@/core/ThemeProvider'
 import { resetModelChoice } from '@/features/compose/model-choice'
@@ -78,7 +79,9 @@ async function renderSettings(storage = memoryStorage()) {
   render(
     <ThemeProvider storage={storage}>
       <SearchSettingsProvider storage={memoryStorage()}>
-        <SettingsScreen />
+        <StackProvider root={{ key: 'tabs', render: () => null }}>
+          <SettingsScreen />
+        </StackProvider>
       </SearchSettingsProvider>
     </ThemeProvider>
   )
@@ -118,6 +121,7 @@ describe('SettingsScreen', () => {
       'Answers',
       'Voice',
       'Personalization',
+      'Memory',
       'Appearance',
       'Data',
       'About'

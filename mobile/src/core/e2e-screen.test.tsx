@@ -4,7 +4,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { Tabs, type TabSpec } from '@/app/Tabs'
 import type { AuthStorage } from '@/core/auth/preferences-storage'
 import { E2E_SCREEN_KEY, parseE2eScreen, useE2eScreen } from '@/core/e2e-screen'
-import { StackProvider } from '@/core/nav/stack'
+import { StackProvider, useStack } from '@/core/nav/stack'
 import { memoryStorage } from '@/test/memory-storage'
 
 vi.mock('@capacitor/preferences', () => ({
@@ -41,8 +41,12 @@ const TABS: TabSpec[] = [
   }
 ]
 
+/** The stack's screen keys at the last render. */
+let stackKeys: string[] = []
+
 function Probe(props: { enabled?: boolean; storage?: AuthStorage }) {
   useE2eScreen(props)
+  stackKeys = useStack().screens.map(s => s.key)
   return null
 }
 
@@ -174,13 +178,22 @@ describe('useE2eScreen', () => {
     expect(storage.data.has(E2E_SCREEN_KEY)).toBe(false)
   })
 
-  it('treats "settings/memory" as a no-op until the Memory screen exists', async () => {
+  it('opens Settings, then the Memory screen, for "settings/memory"', async () => {
     const storage = memoryStorage({ [E2E_SCREEN_KEY]: 'settings/memory' })
     renderShell({ enabled: true, storage })
     await settle()
 
-    expect(selectedTab()).toBe('Ask')
+    expect(selectedTab()).toBe('Settings')
+    expect(stackKeys).toEqual(['tabs', 'settings:memory'])
     expect(storage.data.has(E2E_SCREEN_KEY)).toBe(false)
+  })
+
+  it('pushes nothing for a tab', async () => {
+    const storage = memoryStorage({ [E2E_SCREEN_KEY]: 'settings' })
+    renderShell({ enabled: true, storage })
+    await settle()
+
+    expect(stackKeys).toEqual(['tabs'])
   })
 
   it('does nothing when the key is missing', async () => {

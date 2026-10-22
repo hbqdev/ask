@@ -4,14 +4,15 @@ import {
   AnswersSection,
   AppearanceSection,
   DataSection,
+  MemorySection,
   PersonalizationSection,
   VoiceSection
 } from '@/features/settings/SettingsSections'
 
 /**
  * The Settings tab: the account, how questions are answered, how answers
- * are read aloud, custom instructions, the theme, deleting all chats, and
- * about the app.
+ * are read aloud, custom instructions, the way to Memory, the theme,
+ * deleting all chats, and about the app.
  */
 export function SettingsScreen() {
   return (
@@ -21,6 +22,7 @@ export function SettingsScreen() {
       <AnswersSection />
       <VoiceSection />
       <PersonalizationSection />
+      <MemorySection />
       <AppearanceSection />
       <DataSection />
       <AboutSection />

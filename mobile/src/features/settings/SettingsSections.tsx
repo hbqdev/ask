@@ -1,5 +1,5 @@
 // The Settings tab's sections, top to bottom: Account, Answers, Voice,
-// Personalization, Appearance, Data and About.
+// Personalization, Memory, Appearance, Data and About.
 
 import { App } from '@capacitor/app'
 import { useCallback, useEffect, useId, useRef, useState } from 'react'
@@ -9,6 +9,7 @@ import { useApi } from '@/core/api/ApiProvider'
 import { useAuth } from '@/core/auth/AuthProvider'
 import { emitChatsChanged } from '@/core/chats-events'
 import { haptic } from '@/core/haptics'
+import { useStack } from '@/core/nav/stack'
 import type { ThemePref } from '@/core/theme'
 import { useTheme } from '@/core/ThemeProvider'
 import { ConfirmSheet } from '@/core/ui/ConfirmSheet'
@@ -26,6 +27,7 @@ import {
   normalizeCustomInstructions,
   saveCustomInstructions
 } from '@/features/settings/custom-instructions'
+import { openMemory } from '@/features/settings/MemoryScreen'
 import {
   useReadAloud,
   useStopReadingOnLeave
@@ -379,6 +381,40 @@ export function PersonalizationSection() {
           {INSTRUCTIONS_SAVE_ERROR}
         </p>
       )}
+    </section>
+  )
+}
+
+// --- Memory -----------------------------------------------------------------
+
+/** The way to the Memory screen. */
+export function MemorySection() {
+  const { push } = useStack()
+  return (
+    <section>
+      <h2 className={SECTION_TITLE}>Memory</h2>
+      <button
+        type="button"
+        onClick={() => openMemory(push)}
+        className={`${ROW_BUTTON} flex items-center gap-3 text-left`}
+      >
+        <span className="flex-1">Memory and past chats</span>
+        <svg
+          aria-hidden="true"
+          viewBox="0 0 24 24"
+          className="size-5 shrink-0 text-foreground/40"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth={2}
+          strokeLinecap="round"
+          strokeLinejoin="round"
+        >
+          <path d="M9 5l7 7-7 7" />
+        </svg>
+      </button>
+      <p className={`${NOTE} text-foreground/50`}>
+        What Ask remembers about you, and whether it uses your past chats.
+      </p>
     </section>
   )
 }

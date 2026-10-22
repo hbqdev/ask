@@ -8,6 +8,7 @@ import { useApi, type Api } from '@/core/api/ApiProvider'
 import { createApiClient } from '@/core/api/client'
 import { useAuth, type Auth } from '@/core/auth/AuthProvider'
 import { onChatsChanged } from '@/core/chats-events'
+import { StackProvider } from '@/core/nav/stack'
 import { resetModelChoice } from '@/features/compose/model-choice'
 import { SEARCH_SETTINGS_KEY } from '@/features/compose/search-settings'
 import {
@@ -15,6 +16,7 @@ import {
   useSharedSearchSettings
 } from '@/features/compose/SearchSettingsProvider'
 import { LIBRARY_CACHE_KEY } from '@/features/library/library-cache'
+import { openMemory } from '@/features/settings/MemoryScreen'
 import { CUSTOM_INSTRUCTIONS_KEY } from '@/features/settings/custom-instructions'
 import {
   AboutSection,
@@ -23,6 +25,7 @@ import {
   DataSection,
   DELETE_ALL_ERROR,
   INSTRUCTIONS_SAVE_ERROR,
+  MemorySection,
   PersonalizationSection,
   VOICE_SAMPLE_TEXT,
   VoiceSection
@@ -38,6 +41,7 @@ import { memoryStorage } from '@/test/memory-storage'
 
 vi.mock('@/core/api/ApiProvider', () => ({ useApi: vi.fn() }))
 vi.mock('@/core/auth/AuthProvider', () => ({ useAuth: vi.fn() }))
+vi.mock('@/features/settings/MemoryScreen', () => ({ openMemory: vi.fn() }))
 
 const prefs = vi.hoisted(() => new Map<string, string>())
 vi.mock('@capacitor/preferences', () => ({
@@ -424,6 +428,27 @@ describe('PersonalizationSection', () => {
     unmount()
     await flush()
     expect(app.remove).toHaveBeenCalled()
+  })
+})
+
+// --- Memory -----------------------------------------------------------------
+
+describe('MemorySection', () => {
+  it('opens the Memory screen', () => {
+    render(
+      <StackProvider root={{ key: 'tabs', render: () => null }}>
+        <MemorySection />
+      </StackProvider>
+    )
+    expect(
+      screen.getByRole('heading', { level: 2, name: 'Memory' })
+    ).toBeInTheDocument()
+    expect(openMemory).not.toHaveBeenCalled()
+    fireEvent.click(
+      screen.getByRole('button', { name: 'Memory and past chats' })
+    )
+    expect(openMemory).toHaveBeenCalledOnce()
+    expect(openMemory).toHaveBeenCalledWith(expect.any(Function))
   })
 })
 
