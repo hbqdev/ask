@@ -38,10 +38,12 @@ const config: CapacitorConfig = {
       showSpinner: false
     },
     Keyboard: {
-      // The web view shrinks above the keyboard, so the thread's composer is
-      // never covered by it.
-      resize: KeyboardResize.Native,
-      resizeOnFullScreen: true
+      // No plugin resize: MainViewController ends the web view at the
+      // keyboard's top itself (following the keyboard's frame, and again on
+      // a resize or rotation), so the composer sits just above it. A second
+      // writer on the same frame would fight it. The plugin's keyboard events
+      // still fire; nothing in the app listens to them.
+      resize: KeyboardResize.None
     }
   }
 }

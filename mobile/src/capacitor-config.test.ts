@@ -12,12 +12,10 @@ describe('capacitor.config', () => {
     })
   })
 
-  it('resizes the native web view for the keyboard, also in full screen', () => {
-    // The composer sits at the bottom of the thread: with a native resize the
-    // web view shrinks above the keyboard instead of being covered by it.
-    expect(config.plugins?.Keyboard).toEqual({
-      resize: 'native',
-      resizeOnFullScreen: true
-    })
+  it('leaves the web view’s size to the native shell', () => {
+    // MainViewController ends the web view at the keyboard's top (the
+    // composer sits just above it); the plugin's own resize would be a second
+    // writer on the same frame, so it is off. Its keyboard events still fire.
+    expect(config.plugins?.Keyboard).toEqual({ resize: 'none' })
   })
 })

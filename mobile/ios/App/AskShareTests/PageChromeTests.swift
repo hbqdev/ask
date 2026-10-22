@@ -105,6 +105,27 @@ final class PageChromeTests: XCTestCase {
         XCTAssertEqual(PageChrome.keyboardOverlap(keyboard: keyboard, in: view), 254)
     }
 
+    func testWithNoKeyboardTheWebViewReachesTheBottomEdge() {
+        XCTAssertEqual(PageChrome.bottomPinConstant(keyboard: nil, in: screen), 0)
+    }
+
+    func testTheWebViewEndsAtTheKeyboardsTop() {
+        let keyboard = CGRect(x: 0, y: 546, width: 402, height: 328)
+        XCTAssertEqual(PageChrome.bottomPinConstant(keyboard: keyboard, in: screen), -328)
+    }
+
+    func testAResizeWithTheKeyboardUpIsRecomputed() {
+        // A Stage Manager window 700 pt tall whose bottom meets the same
+        // keyboard: in the window's coordinates the keyboard starts at 372.
+        let window = CGRect(x: 0, y: 0, width: 402, height: 700)
+        XCTAssertEqual(
+            PageChrome.bottomPinConstant(keyboard: CGRect(x: 0, y: 372, width: 402, height: 328), in: window), -328)
+        // The window shrinks to end 128 pt above the keyboard: nothing to clear.
+        let shorter = CGRect(x: 0, y: 0, width: 402, height: 500)
+        XCTAssertEqual(
+            PageChrome.bottomPinConstant(keyboard: CGRect(x: 0, y: 572, width: 402, height: 328), in: shorter), 0)
+    }
+
     // MARK: - Light or dark
 
     func testDarkAndLightPageColours() {

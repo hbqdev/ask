@@ -51,6 +51,14 @@ struct PageChrome: Equatable {
         return max(0, view.maxY - keyboard.minY)
     }
 
+    /// The web view's bottom pin: 0 (the view's bottom edge) with no keyboard,
+    /// otherwise up by the keyboard's overlap. `keyboard` is in the view's
+    /// coordinates, worked out again after every resize or rotation.
+    static func bottomPinConstant(keyboard: CGRect?, in view: CGRect) -> CGFloat {
+        guard let keyboard else { return 0 }
+        return -keyboardOverlap(keyboard: keyboard, in: view)
+    }
+
     /// Light content over a dark page or when the page asks for it, dark
     /// content otherwise.
     static func statusBarStyle(pageIsDark: Bool, lightStatusBar: Bool) -> UIStatusBarStyle {

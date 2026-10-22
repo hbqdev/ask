@@ -4,7 +4,7 @@
 // and a chip with the search mode that opens the options sheet. While the box
 // is empty a mic takes Send's place: dictation records, transcribes and sends
 // the words (features/voice), the field showing the recording meanwhile. The keyboard
-// shrinks the web view natively (capacitor.config.ts), so the box simply sits
+// ends the web view at its top (MainViewController.swift), so the box simply sits
 // at the bottom; `.composer` (styles.css) clears the home indicator.
 
 import {

@@ -27,6 +27,8 @@ final class MainViewController: UIViewController, UIScrollViewDelegate {
     private var lightStatusBar = false
     /// The web view's bottom: the screen's bottom edge, or the keyboard's top.
     private var bottomPin: NSLayoutConstraint!
+    /// The keyboard's last end frame, in screen coordinates; nil once hidden.
+    private var keyboardFrame: CGRect?
 
     /// Status-bar taps. iOS scrolls a `scrollsToTop` scroll view on a tap on
     /// the status bar; the page's scrollers are overflow elements it cannot
@@ -80,27 +82,47 @@ final class MainViewController: UIViewController, UIScrollViewDelegate {
     /// The keyboard. The web view ends at its top, so the composer sits just
     /// above it and the page sees no bottom inset meanwhile (it is clear of
     /// the home indicator), so nothing is lifted twice. The Keyboard plugin's
-    /// native resize sets the web view's frame too, but the next layout pass
-    /// puts the frame back to these constraints (the composer ended up under
-    /// the keyboard), and keyboardLayoutGuide did not follow the keyboard on
-    /// the iOS 27 simulator; so the bottom pin follows the keyboard's frame,
-    /// moving with it. (The plugin's frame then agrees with it.)
+    /// own resize is off (capacitor.config.ts): its frame was put back by the
+    /// next layout pass anyway, and keyboardLayoutGuide did not follow the
+    /// keyboard on the iOS 27 simulator. So the bottom pin follows the
+    /// keyboard's frame, moving with it.
     @objc private func keyboardWillMove(_ note: Notification) {
         guard let info = note.userInfo,
               let end = (info[UIResponder.keyboardFrameEndUserInfoKey] as? NSValue)?.cgRectValue
         else { return }
-        let keyboard = note.name == UIResponder.keyboardWillHideNotification
-            ? .zero
-            : view.convert(end, from: view.window?.screen.coordinateSpace ?? UIScreen.main.coordinateSpace)
-        let overlap = PageChrome.keyboardOverlap(keyboard: keyboard, in: view.bounds)
-        guard bottomPin.constant != -overlap else { return }
-        bottomPin.constant = -overlap
+        if note.name == UIResponder.keyboardWillHideNotification {
+            keyboardFrame = nil
+        } else {
+            keyboardFrame = end
+        }
         let duration = (info[UIResponder.keyboardAnimationDurationUserInfoKey] as? Double) ?? 0.25
         let curve = (info[UIResponder.keyboardAnimationCurveUserInfoKey] as? UInt) ?? 7
+        guard updateBottomPin() else { return }
         UIView.animate(withDuration: duration, delay: 0,
                        options: UIView.AnimationOptions(rawValue: curve << 16)) {
             self.view.layoutIfNeeded()
         }
+    }
+
+    /// A resize (Split View, Stage Manager) or a rotation with the keyboard
+    /// up: the same keyboard covers a different part of the view.
+    override func viewDidLayoutSubviews() {
+        super.viewDidLayoutSubviews()
+        updateBottomPin()
+    }
+
+    /// Sets the bottom pin from the last keyboard frame and the view's
+    /// current bounds; true when it changed (the equality check also stops a
+    /// layout pass from triggering another).
+    @discardableResult
+    private func updateBottomPin() -> Bool {
+        let keyboard = keyboardFrame.map {
+            view.convert($0, from: view.window?.screen.coordinateSpace ?? UIScreen.main.coordinateSpace)
+        }
+        let constant = PageChrome.bottomPinConstant(keyboard: keyboard, in: view.bounds)
+        guard bottomPin.constant != constant else { return false }
+        bottomPin.constant = constant
+        return true
     }
 
     func scrollViewShouldScrollToTop(_ scrollView: UIScrollView) -> Bool {

@@ -387,13 +387,20 @@ describe('the native page chrome', () => {
     // next layout pass puts back to its constraints (the composer ended up
     // under the keyboard), and keyboardLayoutGuide did not follow the
     // keyboard on iOS 27. So the bottom pin's constant follows the keyboard's
-    // frame (PageChrome.keyboardOverlap), with the keyboard's own animation.
+    // frame (PageChrome.bottomPinConstant), with the keyboard's own animation,
+    // and the plugin's resize is off (capacitor.config.ts).
     expect(swift).toContain('UIResponder.keyboardWillChangeFrameNotification')
     expect(swift).toContain('UIResponder.keyboardWillHideNotification')
+    expect(swift).toMatch(/bottomPin\.constant = /)
     expect(swift).toContain(
-      'let overlap = PageChrome.keyboardOverlap(keyboard: keyboard, in: view.bounds)'
+      'PageChrome.bottomPinConstant(keyboard: keyboard, in: view.bounds)'
     )
-    expect(swift).toContain('bottomPin.constant = -overlap')
+    // The keyboard's last frame is kept (cleared when it hides), so a resize
+    // or rotation with the keyboard up recomputes the pin.
+    expect(swift).toContain('keyboardFrame = nil')
+    expect(swift).toMatch(
+      /override func viewDidLayoutSubviews\(\) \{[^}]*updateBottomPin\(/
+    )
     expect(swift).not.toContain('view.keyboardLayoutGuide')
   })
 
