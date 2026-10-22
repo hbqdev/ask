@@ -148,7 +148,12 @@ describe('AppShell', () => {
     renderShell(client)
 
     const tabs = await screen.findAllByRole('tab')
-    expect(tabs.map(t => t.textContent)).toEqual(['Ask', 'Library', 'Settings'])
+    expect(tabs.map(t => t.textContent)).toEqual([
+      'Ask',
+      'Discover',
+      'Library',
+      'Settings'
+    ])
     expect(screen.getByRole('tab', { name: 'Ask' })).toHaveAttribute(
       'aria-selected',
       'true'
@@ -217,6 +222,43 @@ describe('AppShell', () => {
 
     await user.click(screen.getByRole('tab', { name: 'Settings' }))
     expect(screen.getByText('user@example.test')).toBeInTheDocument()
+  })
+
+  it('shows the Discover feed from the configured server', async () => {
+    const { client } = fakeClient(async () => ({
+      data: { session },
+      error: null
+    }))
+    const fetchMock = vi.fn(
+      async (_input: RequestInfo | URL) =>
+        new Response(
+          JSON.stringify({
+            blogs: [
+              {
+                title: 'Chips get faster',
+                content: 'A new process node arrives.',
+                url: 'https://news.example.test/chips',
+                thumbnail: 'https://img.example.test/chips.jpg'
+              }
+            ]
+          }),
+          { headers: { 'Content-Type': 'application/json' } }
+        )
+    )
+    vi.stubGlobal('fetch', fetchMock)
+    const user = userEvent.setup()
+    renderShell(client)
+
+    await user.click(await screen.findByRole('tab', { name: 'Discover' }))
+    expect(
+      screen.getByRole('heading', { level: 1, name: 'Discover' })
+    ).toBeVisible()
+    expect(
+      await screen.findByRole('heading', { name: 'Chips get faster' })
+    ).toBeVisible()
+    expect(String(fetchMock.mock.calls[0][0])).toMatch(
+      /^https:\/\/ask\.test\.invalid\/api\/discover\?topic=tech&page=1$/
+    )
   })
 
   it('signing in shows the tabs', async () => {

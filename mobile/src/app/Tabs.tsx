@@ -10,7 +10,7 @@ import {
 
 import { haptic } from '@/core/haptics'
 
-export type TabId = 'ask' | 'library' | 'settings'
+export type TabId = 'ask' | 'discover' | 'library' | 'settings'
 
 export type TabSpec = {
   id: TabId

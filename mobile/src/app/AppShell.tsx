@@ -10,6 +10,7 @@ import { OrbitMark } from '@/core/ui/OrbitMark'
 import { AskHome } from '@/features/ask/AskHome'
 import { SignInScreen } from '@/features/auth/SignInScreen'
 import { SearchSettingsProvider } from '@/features/compose/SearchSettingsProvider'
+import { DiscoverScreen } from '@/features/discover/DiscoverScreen'
 import { LibraryScreen } from '@/features/library/LibraryScreen'
 import { SettingsScreen } from '@/features/settings/SettingsScreen'
 
@@ -38,6 +39,14 @@ const ASK_ICON = (
   </Icon>
 )
 
+// A compass: Discover is where to look around.
+const DISCOVER_ICON = (
+  <Icon>
+    <circle cx="12" cy="12" r="9" />
+    <path d="m15.5 8.5-2 5-5 2 2-5z" />
+  </Icon>
+)
+
 const LIBRARY_ICON = (
   <Icon>
     <path d="M4 6h16M4 12h16M4 18h10" />
@@ -55,6 +64,12 @@ const SETTINGS_ICON = (
 // stack keeps its root entry, so these must not change between renders.
 const TABS: TabSpec[] = [
   { id: 'ask', label: 'Ask', icon: ASK_ICON, render: () => <AskHome /> },
+  {
+    id: 'discover',
+    label: 'Discover',
+    icon: DISCOVER_ICON,
+    render: () => <DiscoverScreen />
+  },
   {
     id: 'library',
     label: 'Library',

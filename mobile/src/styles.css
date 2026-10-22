@@ -254,6 +254,16 @@ body {
   appearance: none;
 }
 
+/* --- Discover -----------------------------------------------------------------
+   The topic chips scroll sideways under the finger, without a scroll bar. */
+.discover-chips {
+  scrollbar-width: none;
+}
+
+.discover-chips::-webkit-scrollbar {
+  display: none;
+}
+
 /* --- Answer -----------------------------------------------------------------
    The answer's markdown. Streamdown spaces the blocks and styles headings,
    lists, quotes, code and tables itself (its classes, with the surface tokens
