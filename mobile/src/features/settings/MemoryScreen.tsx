@@ -488,8 +488,8 @@ export function MemoryScreen() {
                   : `Indexed ${plural(recall.chats, 'chat', 'chats')}…`}
               </p>
               <p className={`${NOTE} text-foreground/50`}>
-                Keep this screen open: going back stops indexing, and switching
-                away or leaving the app pauses it.
+                Keep this screen open: going back stops indexing, and leaving
+                the app pauses it.
               </p>
             </>
           )}

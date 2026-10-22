@@ -143,8 +143,8 @@ struct SharedInbox {
                      forKey: Self.key)
     }
 
-    /// The waiting item, removed from the inbox; nil when there is none (a
-    /// malformed entry is removed too).
+    /// The waiting item, removed from the inbox; nil when there is none or
+    /// the entry is malformed.
     func take() -> (text: String, createdAt: Double)? {
         Self.lock.lock(); defer { Self.lock.unlock() }
         let stored = defaults.dictionary(forKey: Self.key)
