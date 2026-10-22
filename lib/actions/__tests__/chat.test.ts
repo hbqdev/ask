@@ -23,6 +23,7 @@ import {
   renameChat,
   saveChatTitle,
   shareChat,
+  unshareChat,
   upsertMessage
 } from '../chat'
 
@@ -588,6 +589,51 @@ describe('Chat Actions', () => {
 
       expect(result).toBeNull()
       expect(dbActions.updateChatVisibility).not.toHaveBeenCalled()
+    })
+  })
+
+  describe('unshareChat', () => {
+    const privateChat: Chat = {
+      id: 'chat-123',
+      title: 'Test Chat',
+      userId: 'user-123',
+      visibility: 'private',
+      createdAt: new Date(),
+      lastViewedAt: null
+    }
+
+    it('sets the chat private for its owner and revalidates it', async () => {
+      vi.mocked(getCurrentUserId).mockResolvedValue('user-123')
+      vi.mocked(dbActions.updateChatVisibility).mockResolvedValue(privateChat)
+
+      const result = await unshareChat('chat-123')
+
+      expect(result).toEqual(privateChat)
+      expect(dbActions.updateChatVisibility).toHaveBeenCalledWith(
+        'chat-123',
+        'user-123',
+        'private'
+      )
+      expect(revalidateTag).toHaveBeenCalledWith('chat-chat-123', 'max')
+    })
+
+    it('returns null without touching the db when there is no user', async () => {
+      vi.mocked(getCurrentUserId).mockResolvedValue(undefined)
+
+      const result = await unshareChat('chat-123')
+
+      expect(result).toBeNull()
+      expect(dbActions.updateChatVisibility).not.toHaveBeenCalled()
+    })
+
+    it('returns null and skips revalidation for a missing or foreign chat', async () => {
+      vi.mocked(getCurrentUserId).mockResolvedValue('user-123')
+      vi.mocked(dbActions.updateChatVisibility).mockResolvedValue(null)
+
+      const result = await unshareChat('foreign')
+
+      expect(result).toBeNull()
+      expect(revalidateTag).not.toHaveBeenCalled()
     })
   })
 
