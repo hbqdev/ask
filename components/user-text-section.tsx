@@ -11,30 +11,12 @@ import {
   IconPencil as Pencil
 } from '@tabler/icons-react'
 
+import { splitPastedContent } from '@/lib/render/pasted-content'
 import { cn } from '@/lib/utils'
 
 import { Button } from './ui/button'
 import { CollapsibleMessage } from './collapsible-message'
 import { PastedContentCard, UrlChip } from './pasted-parts'
-
-// Legacy: old messages carry pasted material wrapped in <user-content> tags
-// (new messages use `data-pastedContent` parts). Split it out so we can render
-// it as a collapsed card and keep the instruction as the prominent text.
-const PASTED_RE = /<user-content>\n?([\s\S]*?)\n?<\/user-content>/g
-
-function splitPastedContent(content: string): {
-  cards: string[]
-  rest: string
-} {
-  const cards: string[] = []
-  const rest = content
-    .replace(PASTED_RE, (_, body: string) => {
-      cards.push(body)
-      return ''
-    })
-    .trim()
-  return { cards, rest }
-}
 
 interface UserTextSectionProps {
   content: string
