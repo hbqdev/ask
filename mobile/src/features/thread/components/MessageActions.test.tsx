@@ -7,11 +7,11 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { haptic } from '@/core/haptics'
 import {
   COPY_ERROR,
-  COPIED_MS,
   MessageActions,
   SHARE_ERROR
 } from '@/features/thread/components/MessageActions'
 import { listSources } from '@/features/thread/model/citations'
+import { COPIED_MS } from '@/features/thread/share-api'
 import type { ReadAloud } from '@/features/voice/useReadAloud'
 import { extractCitationMaps } from '@/lib/utils/citation'
 

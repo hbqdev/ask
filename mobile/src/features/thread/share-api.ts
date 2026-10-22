@@ -6,6 +6,14 @@ import type { ApiClient } from '@/core/api/client'
 
 export type ChatVisibility = 'public' | 'private'
 
+/** How long a Copy reads "Copied" after a copy. */
+export const COPIED_MS = 1500
+export const SHARE_LINK_ERROR = 'Couldn’t share the link.'
+
+/** An error's message, or the rejection itself as text. */
+export const reasonOf = (error: unknown) =>
+  error instanceof Error ? error.message : String(error)
+
 type ShareResponse = { url?: unknown }
 
 const sharePath = (id: string) => `/api/chats/${encodeURIComponent(id)}/share`

@@ -314,8 +314,15 @@ export function ThreadScreen({
   // A share or stop here wins over what the server said when the chat loaded.
   const [visibility, setVisibility] = useState<ChatVisibility>()
   const shared = (visibility ?? thread.savedVisibility) === 'public'
+  // Copy link copies the link a share here returned, else the chat's page on
+  // this server (the API base is the public site): it never shares again.
+  const [sharedUrl, setSharedUrl] = useState<string>()
+  const link =
+    sharedUrl ??
+    `${baseUrl.replace(/\/+$/, '')}/search/${encodeURIComponent(chatId)}`
   const createLink = useCallback(async () => {
     const url = await shareChat(client, chatId)
+    setSharedUrl(url)
     setVisibility('public')
     return url
   }, [client, chatId])
@@ -367,6 +374,7 @@ export function ThreadScreen({
               onRenamed={setRenamedTitle}
               onDeleted={pop}
               shared={shared}
+              link={link}
               createLink={createLink}
               stopSharing={stopSharing}
             />

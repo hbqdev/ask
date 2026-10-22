@@ -9,6 +9,7 @@ import {
 } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { StrictMode, type ReactNode } from 'react'
+import { Clipboard } from '@capacitor/clipboard'
 import { Share } from '@capacitor/share'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
@@ -663,6 +664,67 @@ describe('ThreadScreen', () => {
 
         expect(unshareChat).toHaveBeenCalledExactlyOnceWith(client, 'c1')
         expect(await menuItems()).not.toContain('Stop sharing')
+      })
+
+      describe('Copy link never calls share', () => {
+        const copyLink = async () => {
+          await userEvent.click(menuButton()!)
+          await userEvent.click(
+            screen.getByRole('button', { name: 'Copy link' })
+          )
+          await userEvent.keyboard('{Escape}')
+        }
+
+        it('copies the chat’s link on this server when it was public on loading', async () => {
+          renderScreen(
+            session({ messages: TURN, saved: true, savedVisibility: 'public' }),
+            { chatId: 'c/1' }
+          )
+
+          await copyLink()
+
+          expect(Clipboard.write).toHaveBeenCalledExactlyOnceWith({
+            string: `${BASE}/search/c%2F1`
+          })
+          expect(shareChat).not.toHaveBeenCalled()
+        })
+
+        it('copies the link a share made here, without sharing again', async () => {
+          renderScreen(session({ messages: TURN, saved: true }))
+          await userEvent.click(menuButton()!)
+          await userEvent.click(
+            screen.getByRole('button', { name: 'Share link' })
+          )
+          expect(shareChat).toHaveBeenCalledOnce()
+
+          await copyLink()
+
+          expect(Clipboard.write).toHaveBeenCalledExactlyOnceWith({
+            string: LINK
+          })
+          expect(shareChat).toHaveBeenCalledOnce()
+        })
+      })
+
+      it('keeps offering Stop sharing when stopping fails', async () => {
+        vi.mocked(unshareChat).mockRejectedValue(new Error('Server error'))
+        renderScreen(
+          session({ messages: TURN, saved: true, savedVisibility: 'public' })
+        )
+        await userEvent.click(menuButton()!)
+        await userEvent.click(
+          screen.getByRole('button', { name: 'Stop sharing' })
+        )
+        await userEvent.click(
+          within(
+            screen.getByRole('dialog', { name: 'Stop sharing this chat?' })
+          ).getByRole('button', { name: 'Stop sharing' })
+        )
+
+        expect(await screen.findByRole('alert')).toHaveTextContent(
+          'Couldn’t stop sharing. Server error'
+        )
+        expect(await menuItems()).toContain('Stop sharing')
       })
 
       it('a failed link keeps the chat as it was', async () => {

@@ -19,14 +19,16 @@ import {
   type CitationMaps,
   type Source
 } from '@/features/thread/model/citations'
-import { isShareCancelled } from '@/features/thread/share-api'
+import {
+  COPIED_MS,
+  isShareCancelled,
+  SHARE_LINK_ERROR
+} from '@/features/thread/share-api'
+import { useMakeLink } from '@/features/thread/useMakeLink'
 import type { ReadAloud } from '@/features/voice/useReadAloud'
 
-/** How long Copy reads "Copied" after a copy. */
-export const COPIED_MS = 1500
 export const COPY_ERROR = 'Couldn’t copy the answer.'
 export const SHARE_ERROR = 'Couldn’t share the answer.'
-export const SHARE_LINK_ERROR = 'Couldn’t share the link.'
 
 /** A chat's public link, and the title it is shared under. */
 export type ChatLink = { title: string; url: string }
@@ -47,9 +49,6 @@ export type MessageActionsProps = {
    */
   linkToChat?: () => Promise<ChatLink>
 }
-
-const reasonOf = (error: unknown) =>
-  error instanceof Error ? error.message : String(error)
 
 const CHOICE =
   'min-h-12 touch-manipulation rounded-xl px-4 text-left text-base text-foreground active:bg-muted disabled:opacity-50'
@@ -179,13 +178,9 @@ export function MessageActions({
   const [copied, setCopied] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [sourcesOpen, setSourcesOpen] = useState(false)
-  // The share choice: open, making the link, and a failure said in it.
+  // The share choice, and the link made while it is open.
   const [choosing, setChoosing] = useState(false)
-  const [makingLink, setMakingLink] = useState(false)
-  const [choiceError, setChoiceError] = useState<string | null>(null)
-  // Bumped whenever the choice closes, so a link made after the user closed
-  // it opens no share sheet and says nothing.
-  const choiceOpening = useRef(0)
+  const link = useMakeLink()
   const copiedTimer = useRef<ReturnType<typeof setTimeout> | undefined>(
     undefined
   )
@@ -225,15 +220,14 @@ export function MessageActions({
     )
 
   const closeChoice = () => {
-    choiceOpening.current++
-    setMakingLink(false)
+    link.cancel()
     setChoosing(false)
   }
 
   const share = async () => {
     setError(null)
     if (!linkToChat) return shareAnswer()
-    setChoiceError(null)
+    link.cancel()
     setChoosing(true)
   }
 
@@ -243,22 +237,10 @@ export function MessageActions({
   }
 
   const chooseLink = async () => {
-    const opening = choiceOpening.current
-    setChoiceError(null)
-    setMakingLink(true)
-    let link: ChatLink
-    try {
-      link = await linkToChat!()
-    } catch (e) {
-      if (opening === choiceOpening.current) {
-        setMakingLink(false)
-        setChoiceError(`Couldn’t create the link. ${reasonOf(e)}`)
-      }
-      return
-    }
-    if (opening !== choiceOpening.current) return
+    const made = await link.run(linkToChat!)
+    if (!made) return
     closeChoice()
-    await present({ title: link.title, url: link.url }, SHARE_LINK_ERROR)
+    await present({ title: made.title, url: made.url }, SHARE_LINK_ERROR)
   }
 
   return (
@@ -292,7 +274,7 @@ export function MessageActions({
         <div className="flex flex-col gap-1 pb-2">
           <button
             type="button"
-            disabled={makingLink}
+            disabled={link.making}
             onClick={() => void chooseAnswer()}
             className={CHOICE}
           >
@@ -300,19 +282,19 @@ export function MessageActions({
           </button>
           <button
             type="button"
-            aria-busy={makingLink || undefined}
-            disabled={makingLink}
+            aria-busy={link.making || undefined}
+            disabled={link.making}
             onClick={() => void chooseLink()}
             className={CHOICE}
           >
-            {makingLink ? 'Creating link…' : 'Share link to chat'}
+            {link.making ? 'Creating link…' : 'Share link to chat'}
           </button>
-          {choiceError && (
+          {link.error && (
             <p
               role="alert"
               className="px-4 pt-1 text-sm text-red-600 dark:text-red-400"
             >
-              {choiceError}
+              {link.error}
             </p>
           )}
         </div>

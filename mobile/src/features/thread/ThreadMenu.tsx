@@ -1,9 +1,11 @@
 // The thread header's "…" menu: share the open chat as a public link (and,
 // once shared, copy the link or stop sharing), rename it or delete it. A
 // rename or delete tells the chat list (chats-changed), so the Library shows
-// it. Making the link happens with the menu open, and a failure to make or
-// copy it is said there; any other failure is said in a line under the
-// header that the user can dismiss. A cancelled share sheet is no failure.
+// it. Only Share link makes the chat public: Copy link copies the link it is
+// given and never publishes a chat made private elsewhere again. The link is
+// made with the menu open, and a failure to make or copy it is said there;
+// any other failure is said in a line under the header that the user can
+// dismiss. A cancelled share sheet is no failure.
 
 import { Clipboard } from '@capacitor/clipboard'
 import { Share } from '@capacitor/share'
@@ -23,9 +25,11 @@ import {
 } from '@/features/library/library-api'
 import {
   COPIED_MS,
+  isShareCancelled,
+  reasonOf,
   SHARE_LINK_ERROR
-} from '@/features/thread/components/MessageActions'
-import { isShareCancelled } from '@/features/thread/share-api'
+} from '@/features/thread/share-api'
+import { useMakeLink } from '@/features/thread/useMakeLink'
 
 export type ThreadMenuProps = {
   chatId: string
@@ -37,6 +41,8 @@ export type ThreadMenuProps = {
   onDeleted: () => void
   /** The chat is public: offer Copy link and Stop sharing. */
   shared: boolean
+  /** The chat's public link, which Copy link copies as it is. */
+  link: string
   /** Makes the chat public and resolves with its link. */
   createLink: () => Promise<string>
   /** Makes the chat private again. */
@@ -44,12 +50,6 @@ export type ThreadMenuProps = {
 }
 
 type Open = 'menu' | 'rename' | 'delete' | 'unshare' | null
-
-/** Which menu item is making the link. */
-type Making = 'share' | 'copy' | null
-
-const reasonOf = (error: unknown) =>
-  error instanceof Error ? error.message : String(error)
 
 const MENU_ITEM =
   'min-h-12 touch-manipulation rounded-xl px-4 text-left text-base active:bg-muted'
@@ -60,6 +60,7 @@ export function ThreadMenu({
   onRenamed,
   onDeleted,
   shared,
+  link,
   createLink,
   stopSharing
 }: ThreadMenuProps) {
@@ -68,25 +69,23 @@ export function ThreadMenu({
   const [failure, setFailure] = useState<string>()
   // A delete on its way: the menu can't be opened again until it ends.
   const [deleting, setDeleting] = useState(false)
-  // Making the link, a failure said in the menu, and "Copied" after a copy.
-  const [making, setMaking] = useState<Making>(null)
-  const [menuFailure, setMenuFailure] = useState<string>()
+  // Share link's link, made with the menu open; a failed copy, said in the
+  // menu; and "Copied" after a copy.
+  const newLink = useMakeLink()
+  const [copyFailure, setCopyFailure] = useState<string>()
   const [copied, setCopied] = useState(false)
   const copiedTimer = useRef<ReturnType<typeof setTimeout>>(undefined)
   useEffect(() => () => clearTimeout(copiedTimer.current), [])
-  // Bumped whenever the menu closes, so a link made after the user closed it
-  // opens no share sheet and says nothing.
-  const menuOpening = useRef(0)
 
   const close = () => {
-    menuOpening.current++
-    setMaking(null)
+    newLink.cancel()
     setOpen(null)
   }
 
   const openMenu = () => {
     setFailure(undefined)
-    setMenuFailure(undefined)
+    newLink.cancel()
+    setCopyFailure(undefined)
     clearTimeout(copiedTimer.current)
     setCopied(false)
     setOpen('menu')
@@ -112,29 +111,9 @@ export function ThreadMenu({
     }
   }
 
-  // The chat's link, made with the menu open; undefined when it failed (said
-  // in the menu) or the menu was closed meanwhile.
-  const makeLink = async (by: Exclude<Making, null>) => {
-    const opening = menuOpening.current
-    setMenuFailure(undefined)
-    setMaking(by)
-    let url: string
-    try {
-      url = await createLink()
-    } catch (error) {
-      if (opening === menuOpening.current) {
-        setMaking(null)
-        setMenuFailure(`Couldn’t create the link. ${reasonOf(error)}`)
-      }
-      return undefined
-    }
-    if (opening !== menuOpening.current) return undefined
-    setMaking(null)
-    return url
-  }
-
   const shareLink = async () => {
-    const url = await makeLink('share')
+    setCopyFailure(undefined)
+    const url = await newLink.run(createLink)
     if (!url) return
     close()
     try {
@@ -144,13 +123,15 @@ export function ThreadMenu({
     }
   }
 
+  // Never makes a link: that would publish the chat again if it was made
+  // private elsewhere since it loaded. A link that no longer opens is better.
   const copyLink = async () => {
-    const url = await makeLink('copy')
-    if (!url) return
+    newLink.cancel()
+    setCopyFailure(undefined)
     try {
-      await Clipboard.write({ string: url })
+      await Clipboard.write({ string: link })
     } catch {
-      setMenuFailure('Couldn’t copy the link.')
+      setCopyFailure('Couldn’t copy the link.')
       return
     }
     haptic('success')
@@ -239,31 +220,26 @@ export function ThreadMenu({
         <div className="flex flex-col gap-1 pb-2">
           <button
             type="button"
-            aria-busy={making === 'share' || undefined}
-            disabled={making !== null}
+            aria-busy={newLink.making || undefined}
+            disabled={newLink.making}
             onClick={() => void shareLink()}
             className={`${MENU_ITEM} text-foreground disabled:opacity-50`}
           >
-            {making === 'share' ? 'Creating link…' : 'Share link'}
+            {newLink.making ? 'Creating link…' : 'Share link'}
           </button>
           {shared && (
             <>
               <button
                 type="button"
-                aria-busy={making === 'copy' || undefined}
-                disabled={making !== null}
+                disabled={newLink.making}
                 onClick={() => void copyLink()}
                 className={`${MENU_ITEM} text-foreground disabled:opacity-50`}
               >
-                {making === 'copy'
-                  ? 'Creating link…'
-                  : copied
-                    ? 'Copied'
-                    : 'Copy link'}
+                {copied ? 'Copied' : 'Copy link'}
               </button>
               <button
                 type="button"
-                disabled={making !== null}
+                disabled={newLink.making}
                 onClick={() => setOpen('unshare')}
                 className={`${MENU_ITEM} text-foreground disabled:opacity-50`}
               >
@@ -273,7 +249,7 @@ export function ThreadMenu({
           )}
           <button
             type="button"
-            disabled={making !== null}
+            disabled={newLink.making}
             onClick={() => setOpen('rename')}
             className={`${MENU_ITEM} text-foreground disabled:opacity-50`}
           >
@@ -281,18 +257,18 @@ export function ThreadMenu({
           </button>
           <button
             type="button"
-            disabled={making !== null}
+            disabled={newLink.making}
             onClick={() => setOpen('delete')}
             className={`${MENU_ITEM} text-red-600 disabled:opacity-50 dark:text-red-400`}
           >
             Delete chat
           </button>
-          {menuFailure && (
+          {(newLink.error ?? copyFailure) && (
             <p
               role="alert"
               className="px-4 pt-1 text-sm text-red-600 dark:text-red-400"
             >
-              {menuFailure}
+              {newLink.error ?? copyFailure}
             </p>
           )}
         </div>

@@ -4,6 +4,7 @@ import { createApiClient } from '@/core/api/client'
 import { ApiError } from '@/core/api/errors'
 import {
   isShareCancelled,
+  reasonOf,
   shareChat,
   unshareChat
 } from '@/features/thread/share-api'
@@ -102,6 +103,14 @@ describe('unshareChat', () => {
       message: 'Failed to unshare chat',
       retryable: true
     })
+  })
+})
+
+describe('reasonOf', () => {
+  it('is an Error’s message, or the rejection itself as text', () => {
+    expect(reasonOf(new Error('Not found'))).toBe('Not found')
+    expect(reasonOf('boom')).toBe('boom')
+    expect(reasonOf(undefined)).toBe('undefined')
   })
 })
 

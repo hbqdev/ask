@@ -10,7 +10,7 @@ import { ApiError } from '@/core/api/errors'
 import { onChatsChanged } from '@/core/chats-events'
 import { haptic } from '@/core/haptics'
 import { deleteChat, renameChat } from '@/features/library/library-api'
-import { COPIED_MS } from '@/features/thread/components/MessageActions'
+import { COPIED_MS } from '@/features/thread/share-api'
 import { ThreadMenu } from '@/features/thread/ThreadMenu'
 
 vi.mock('@/core/api/ApiProvider', () => ({ useApi: vi.fn() }))
@@ -45,6 +45,7 @@ function menuOf(title: string, shared: boolean) {
       onRenamed={onRenamed}
       onDeleted={onDeleted}
       shared={shared}
+      link={LINK}
       createLink={createLink}
       stopSharing={stopSharing}
     />
@@ -94,6 +95,12 @@ describe('ThreadMenu', () => {
         .getAllByRole('button')
         .map(b => b.textContent)
     ).toEqual(['Share link', 'Rename', 'Delete chat'])
+  })
+
+  it('makes no link by opening the menu', async () => {
+    renderMenu('Old title', { shared: true })
+    await openMenu()
+    expect(createLink).not.toHaveBeenCalled()
   })
 
   it('offers Copy link and Stop sharing too once the chat is shared', async () => {
@@ -237,14 +244,15 @@ describe('ThreadMenu', () => {
     const copyButton = () =>
       within(menu()).getByRole('button', { name: /Copy link|Copied/ })
 
-    it('copies the link, taps success and reads Copied for a moment, keeping the menu open', async () => {
+    it('copies the link it is given, never making one, taps success and reads Copied for a moment, keeping the menu open', async () => {
       renderMenu('Old title', { shared: true })
       await openMenu()
       vi.useFakeTimers()
 
       await act(async () => copyButton().click())
 
-      expect(createLink).toHaveBeenCalledOnce()
+      // Making a link would publish a chat made private elsewhere again.
+      expect(createLink).not.toHaveBeenCalled()
       expect(Clipboard.write).toHaveBeenCalledExactlyOnceWith({ string: LINK })
       expect(haptic).toHaveBeenCalledExactlyOnceWith('success')
       expect(copyButton()).toHaveTextContent('Copied')
@@ -252,6 +260,23 @@ describe('ThreadMenu', () => {
         vi.advanceTimersByTime(COPIED_MS)
       })
       expect(copyButton()).toHaveTextContent('Copy link')
+    })
+
+    it('clears a copy failure when Share link is tapped', async () => {
+      vi.mocked(Clipboard.write).mockRejectedValue(new Error('denied'))
+      let made!: (url: string) => void
+      createLink.mockReturnValue(new Promise(resolve => (made = resolve)))
+      renderMenu('Old title', { shared: true })
+      await openMenu()
+      await userEvent.click(copyButton())
+      expect(within(menu()).getByRole('alert')).toBeInTheDocument()
+
+      await userEvent.click(
+        within(menu()).getByRole('button', { name: 'Share link' })
+      )
+
+      expect(within(menu()).queryByRole('alert')).not.toBeInTheDocument()
+      await act(async () => made(LINK))
     })
 
     it('says so in the menu when the copy fails, with no haptic', async () => {
@@ -265,18 +290,6 @@ describe('ThreadMenu', () => {
       )
       expect(haptic).not.toHaveBeenCalled()
       expect(copyButton()).toHaveTextContent('Copy link')
-    })
-
-    it('says so in the menu when the link cannot be made', async () => {
-      createLink.mockRejectedValue(new Error('Server error'))
-      renderMenu('Old title', { shared: true })
-      await openMenu()
-      await userEvent.click(copyButton())
-
-      expect(within(menu()).getByRole('alert')).toHaveTextContent(
-        'Couldn’t create the link. Server error'
-      )
-      expect(Clipboard.write).not.toHaveBeenCalled()
     })
 
     it('stops the Copied timer when it goes away', async () => {
