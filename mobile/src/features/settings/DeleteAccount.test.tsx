@@ -77,17 +77,24 @@ function serve(answer: Answer) {
       return answer()
     }
   )
+  // As the app's: a server 401 would go to the app-wide handler, which
+  // signs out with its own, generic notice.
+  const handleUnauthorized = vi.fn<Api['handleUnauthorized']>(
+    async () => 'stop'
+  )
   const client = createApiClient({
     baseUrl: BASE,
     getToken: async () => 'fake-token',
-    fetchImpl
+    fetchImpl,
+    onUnauthorized: handleUnauthorized
   })
   vi.mocked(useApi).mockReturnValue({
     client,
     baseUrl: BASE,
-    getToken: async () => 'fake-token'
+    getToken: async () => 'fake-token',
+    handleUnauthorized
   } satisfies Api)
-  return { client, fetchImpl }
+  return { client, fetchImpl, handleUnauthorized }
 }
 
 /** A Supabase client stand-in whose stored session the server confirms. */
@@ -351,8 +358,8 @@ describe('DeleteAccountSheet', () => {
   it('a 401 signs out without claiming a deletion, and keeps the device’s data', async () => {
     // The deletion may have finished with its answer lost, or the session may
     // just have been revoked: the app cannot tell which.
-    const { supabase, storage } = await setup(async () =>
-      json({ error: 'Unauthorized' }, 401)
+    const { supabase, storage, handleUnauthorized, fetchImpl } = await setup(
+      async () => json({ error: 'Unauthorized' }, 401)
     )
     type('DELETE')
     fireEvent.click(deleteButton())
@@ -360,6 +367,9 @@ describe('DeleteAccountSheet', () => {
     await waitFor(() =>
       expect(authText()).toBe(`signedOut: ${SIGNED_OUT_AFTER_401_NOTICE}`)
     )
+    // Its own 401 path: not the app-wide refresh-and-sign-out, and not resent.
+    expect(handleUnauthorized).not.toHaveBeenCalled()
+    expect(fetchImpl).toHaveBeenCalledTimes(1)
     expect(SIGNED_OUT_AFTER_401_NOTICE).toBe(
       'You’ve been signed out. If you just deleted your account, it’s gone.'
     )

@@ -16,7 +16,10 @@ import {
 
 // --- Mocks ------------------------------------------------------------------
 
-vi.mock('@/core/auth/AuthProvider', () => ({ useAuth: vi.fn() }))
+vi.mock('@/core/auth/AuthProvider', async importOriginal => ({
+  ...(await importOriginal<typeof import('@/core/auth/AuthProvider')>()),
+  useAuth: vi.fn()
+}))
 
 type AppStateListener = (state: { isActive: boolean }) => void
 
@@ -215,7 +218,14 @@ describe('useThread', () => {
     vi.clearAllMocks()
     app.listeners.length = 0
     getAccessToken.mockResolvedValue('fake-token')
-    vi.mocked(useAuth).mockReturnValue({ getAccessToken } as unknown as Auth)
+    vi.mocked(useAuth).mockReturnValue({
+      status: 'signedIn',
+      getAccessToken,
+      // A server 401 (e.g. a refused stop) finds the refresh offline: the
+      // session stays and the 401 reaches the caller.
+      refreshAccessToken: vi.fn(async () => ({ status: 'offline' })),
+      signOut: vi.fn(async () => {})
+    } as unknown as Auth)
     vi.stubGlobal('fetch', fetchMock)
     unsubscribe = onChatsChanged(changed)
   })
@@ -1866,5 +1876,73 @@ describe('useThread', () => {
 
       expect(changed).not.toHaveBeenCalled()
     })
+  })
+})
+
+describe('useThread: a 401 on /api/chat', () => {
+  const refreshAccessToken = vi.fn<Auth['refreshAccessToken']>()
+  const signOut = vi.fn<Auth['signOut']>(async () => {})
+
+  beforeEach(() => {
+    vi.clearAllMocks()
+    app.listeners.length = 0
+    getAccessToken.mockResolvedValue('fake-token')
+    vi.mocked(useAuth).mockReturnValue({
+      status: 'signedIn',
+      getAccessToken,
+      refreshAccessToken,
+      signOut
+    } as unknown as Auth)
+    vi.stubGlobal('fetch', fetchMock)
+  })
+
+  afterEach(() => {
+    vi.unstubAllGlobals()
+  })
+
+  const refused = () => new Response('Authentication required', { status: 401 })
+
+  it('calls the handler, which refreshes, and the question is resent once', async () => {
+    refreshAccessToken.mockImplementation(async () => {
+      getAccessToken.mockResolvedValue('fake-fresh-token')
+      return { status: 'refreshed', token: 'fake-fresh-token' }
+    })
+    serve({ chat: [refused, () => sse(answerChunks('a1', 'Hello there'))] })
+    const { result } = renderThread()
+
+    act(() => result.current.send('What is new?'))
+
+    await waitFor(() =>
+      expect(transcript(result.current.messages)).toEqual([
+        { role: 'user', texts: ['What is new?'] },
+        { role: 'assistant', texts: ['Hello there'] }
+      ])
+    )
+    expect(refreshAccessToken).toHaveBeenCalledTimes(1)
+    const sent = requests('POST', '/api/chat')
+    expect(sent.map(authOf)).toEqual([
+      'Bearer fake-token',
+      'Bearer fake-fresh-token'
+    ])
+    // The same question both times.
+    expect(sent[1]!.body).toBe(sent[0]!.body)
+    expect(signOut).not.toHaveBeenCalled()
+  })
+
+  it('a second 401 signs out with the notice', async () => {
+    refreshAccessToken.mockResolvedValue({
+      status: 'refreshed',
+      token: 'fake-token'
+    })
+    serve({ chat: [refused, refused] })
+    const { result } = renderThread()
+
+    act(() => result.current.send('What is new?'))
+
+    await waitFor(() => expect(result.current.status).toBe('error'))
+    expect(signOut).toHaveBeenCalledExactlyOnceWith({
+      notice: 'You’ve been signed out.'
+    })
+    expect(requests('POST', '/api/chat')).toHaveLength(2)
   })
 })

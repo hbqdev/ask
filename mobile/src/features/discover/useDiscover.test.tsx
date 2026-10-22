@@ -83,7 +83,8 @@ function useServer() {
       fetchImpl: server.fetchImpl
     }),
     baseUrl: BASE,
-    getToken
+    getToken,
+    handleUnauthorized: async () => 'stop'
   } as Api)
 }
 

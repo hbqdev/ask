@@ -3,6 +3,8 @@ import { Preferences } from '@capacitor/preferences'
 import {
   AuthApiError,
   AuthRetryableFetchError,
+  AuthSessionMissingError,
+  AuthUnknownError,
   type AuthChangeEvent,
   type Session,
   type SupabaseClient
@@ -124,6 +126,7 @@ function fakeClient(sessionFromServer: Session | null = null) {
     }),
     signInWithPassword: vi.fn(),
     signOut: vi.fn().mockResolvedValue({ error: null }),
+    refreshSession: vi.fn(),
     signInWithOAuth: vi.fn().mockResolvedValue({
       data: { provider: 'google', url: 'https://supabase.test.invalid/auth' },
       error: null
@@ -882,6 +885,109 @@ describe('AuthProvider: getAccessToken', () => {
       error: null
     })
     await expect(result.current.getAccessToken()).resolves.toBeNull()
+  })
+})
+
+describe('AuthProvider: refreshAccessToken', () => {
+  const fresh = { ...session, access_token: 'fake-fresh-token' }
+
+  /** What refreshAccessToken makes of `outcome` (a result, or a throw). */
+  async function refreshWith(
+    outcome: { data?: unknown; error?: unknown } | { throws: unknown }
+  ) {
+    const { auth, result } = await signedInAuth()
+    if ('throws' in outcome)
+      auth.refreshSession.mockRejectedValue(outcome.throws)
+    else
+      auth.refreshSession.mockResolvedValue({
+        data: { session: null, user: null },
+        error: null,
+        ...outcome
+      })
+    const value = await result.current.refreshAccessToken()
+    expect(auth.refreshSession).toHaveBeenCalledTimes(1)
+    return value
+  }
+
+  it('a new session is refreshed, with its token', async () => {
+    await expect(
+      refreshWith({ data: { session: fresh, user: fresh.user } })
+    ).resolves.toEqual({ status: 'refreshed', token: 'fake-fresh-token' })
+  })
+
+  it('a refresh token Supabase rejects (400 invalid_grant) has failed', async () => {
+    const error = new AuthApiError(
+      'Invalid Refresh Token: Refresh Token Not Found',
+      400,
+      'refresh_token_not_found'
+    )
+    await expect(refreshWith({ error })).resolves.toEqual({ status: 'failed' })
+  })
+
+  it('a 401 from Supabase has failed', async () => {
+    const error = new AuthApiError('User not found', 401, 'user_not_found')
+    await expect(refreshWith({ error })).resolves.toEqual({ status: 'failed' })
+  })
+
+  it('no session after a successful call has failed', async () => {
+    await expect(refreshWith({})).resolves.toEqual({ status: 'failed' })
+  })
+
+  it('no stored refresh token at all has failed', async () => {
+    await expect(
+      refreshWith({ error: new AuthSessionMissingError() })
+    ).resolves.toEqual({ status: 'failed' })
+  })
+
+  it('a network failure is offline', async () => {
+    await expect(
+      refreshWith({ error: new AuthRetryableFetchError('Failed to fetch', 0) })
+    ).resolves.toEqual({ status: 'offline' })
+    await expect(
+      refreshWith({ throws: new TypeError('Load failed') })
+    ).resolves.toEqual({ status: 'offline' })
+  })
+
+  it('a Supabase 500 or 503 is offline', async () => {
+    // supabase-js reports 5xx as retryable fetch errors.
+    for (const code of [500, 503]) {
+      await expect(
+        refreshWith({
+          error: new AuthRetryableFetchError('Server error', code)
+        })
+      ).resolves.toEqual({ status: 'offline' })
+    }
+    // And should one ever come as an API error, it is still not definitive.
+    await expect(
+      refreshWith({ error: new AuthApiError('Server error', 503, undefined) })
+    ).resolves.toEqual({ status: 'offline' })
+  })
+
+  it('a 429 is offline', async () => {
+    const error = new AuthApiError(
+      'Too many requests',
+      429,
+      'over_request_rate_limit'
+    )
+    await expect(refreshWith({ error })).resolves.toEqual({ status: 'offline' })
+  })
+
+  it('a timeout or abort is offline', async () => {
+    await expect(
+      refreshWith({ throws: new DOMException('Timed out', 'TimeoutError') })
+    ).resolves.toEqual({ status: 'offline' })
+    await expect(
+      refreshWith({ throws: new DOMException('Aborted', 'AbortError') })
+    ).resolves.toEqual({ status: 'offline' })
+  })
+
+  it('an unknown error is offline', async () => {
+    await expect(
+      refreshWith({ error: new AuthUnknownError('Bad JSON', null) })
+    ).resolves.toEqual({ status: 'offline' })
+    await expect(
+      refreshWith({ throws: new Error('something odd') })
+    ).resolves.toEqual({ status: 'offline' })
   })
 })
 

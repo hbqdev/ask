@@ -121,7 +121,8 @@ function serve(routes: Record<string, Route> = {}) {
   vi.mocked(useApi).mockReturnValue({
     client,
     baseUrl: BASE,
-    getToken: async () => 'token'
+    getToken: async () => 'token',
+    handleUnauthorized: async () => 'stop'
   } satisfies Api)
   return fetchImpl
 }
@@ -140,6 +141,7 @@ function fakeAuth(overrides: Partial<Auth> = {}): Auth {
     signInWithGoogle: vi.fn(async () => true),
     signOut: vi.fn(async () => {}),
     getAccessToken: vi.fn(async () => null),
+    refreshAccessToken: vi.fn(async () => ({ status: 'offline' }) as const),
     ...overrides
   }
   vi.mocked(useAuth).mockReturnValue(auth)

@@ -1,6 +1,10 @@
 import { describe, expect, it, vi } from 'vitest'
 
-import { createApiClient } from '@/core/api/client'
+import {
+  createApiClient,
+  isServerUnauthorized,
+  SIGNED_OUT_MESSAGE
+} from '@/core/api/client'
 import { ApiError } from '@/core/api/errors'
 
 // Fake values only.
@@ -245,5 +249,92 @@ describe('createApiClient().json', () => {
     const err = await rejection(client.json('/api/chats'))
     expect(err).toBeInstanceOf(ApiError)
     expect(err.status).toBe(0)
+  })
+})
+
+describe('createApiClient: a server 401', () => {
+  function withHandler(answers: Array<'retry' | 'stop'>, responses: number[]) {
+    const fetchImpl = vi.fn<typeof fetch>()
+    for (const code of responses) {
+      fetchImpl.mockResolvedValueOnce(new Response(null, { status: code }))
+    }
+    const tokens = [TOKEN, 'fake-fresh-token']
+    const getToken = vi.fn(async () => tokens.shift() ?? null)
+    const onUnauthorized = vi.fn(async () => answers.shift() ?? 'stop')
+    const client = createApiClient({
+      baseUrl: BASE,
+      getToken,
+      fetchImpl,
+      onUnauthorized
+    })
+    return { client, fetchImpl, onUnauthorized }
+  }
+
+  it('goes to the handler, and is resent once with the fresh token', async () => {
+    const { client, fetchImpl, onUnauthorized } = withHandler(
+      ['retry'],
+      [401, 200]
+    )
+
+    const res = await client.fetch('/api/chats')
+
+    expect(res.status).toBe(200)
+    expect(onUnauthorized).toHaveBeenCalledExactlyOnceWith('first')
+    expect(fetchImpl).toHaveBeenCalledTimes(2)
+    expect(fetchImpl.mock.calls[1]![0]).toBe(`${BASE}/api/chats`)
+    expect(
+      new Headers(fetchImpl.mock.calls[1]![1]?.headers).get('Authorization')
+    ).toBe('Bearer fake-fresh-token')
+  })
+
+  it('json() rejects with the server’s 401 when the handler stops', async () => {
+    const { client, onUnauthorized } = withHandler(['stop'], [401])
+    const err = await rejection(client.json('/api/chats'))
+    expect(err.status).toBe(401)
+    expect(onUnauthorized).toHaveBeenCalledExactlyOnceWith('first')
+  })
+
+  it('signOutOn401:false leaves the 401 to the caller', async () => {
+    const { client, fetchImpl, onUnauthorized } = withHandler(['retry'], [401])
+
+    const err = await rejection(
+      client.json('/api/account', { method: 'DELETE', signOutOn401: false })
+    )
+
+    expect(err.status).toBe(401)
+    expect(onUnauthorized).not.toHaveBeenCalled()
+    expect(fetchImpl).toHaveBeenCalledTimes(1)
+  })
+
+  it('a public request (auth: false) never goes to the handler', async () => {
+    const { client, onUnauthorized } = withHandler(['retry'], [401])
+    await expect(
+      client.fetch('/api/x', { auth: false })
+    ).resolves.toHaveProperty('status', 401)
+    expect(onUnauthorized).not.toHaveBeenCalled()
+  })
+
+  it('the option is not passed on to fetch', async () => {
+    const { client, fetchImpl } = withHandler([], [200])
+    await client.fetch('/api/chats', { signOutOn401: false })
+    expect(fetchImpl.mock.calls[0]![1]).not.toHaveProperty('signOutOn401')
+  })
+
+  it('a network failure on the resend is a status-0 ApiError', async () => {
+    const { client, fetchImpl } = withHandler(['retry'], [401])
+    fetchImpl.mockRejectedValueOnce(new TypeError('Failed to fetch'))
+    const err = await rejection(client.fetch('/api/chats'))
+    expect(err.status).toBe(0)
+  })
+})
+
+describe('isServerUnauthorized', () => {
+  it('is a 401 the server answered, not the client’s own', () => {
+    expect(isServerUnauthorized(new ApiError(401, 'Unauthorized'))).toBe(true)
+    expect(isServerUnauthorized(new ApiError(401, SIGNED_OUT_MESSAGE))).toBe(
+      false
+    )
+    expect(isServerUnauthorized(new ApiError(403, 'Forbidden'))).toBe(false)
+    expect(isServerUnauthorized(new Error('Unauthorized'))).toBe(false)
   })
 })

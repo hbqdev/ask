@@ -68,6 +68,8 @@ function deferred<T>() {
   return { promise, resolve, reject }
 }
 
+const handleUnauthorized = vi.fn(async () => 'stop' as const)
+
 const voice = new Blob(['voice'], { type: 'audio/mp4' })
 
 function fakeRecording(audio: Blob = voice) {
@@ -86,10 +88,12 @@ beforeEach(() => {
   vi.mocked(haptic).mockClear()
   getToken.mockReset()
   getToken.mockResolvedValue('tok')
+  handleUnauthorized.mockClear()
   vi.mocked(useApi).mockReturnValue({
     baseUrl: BASE,
     getToken,
-    client: {}
+    client: {},
+    handleUnauthorized
   } as unknown as Api)
   recording = fakeRecording()
   vi.mocked(startRecording).mockReset()
@@ -250,6 +254,20 @@ describe('useDictation', () => {
     }
   })
 
+  it('a 401 calls the handler and shows its own message', async () => {
+    vi.mocked(transcribe).mockRejectedValueOnce(
+      new ApiError(401, 'Authentication required')
+    )
+    const { result, onText } = setup()
+    await startIt(result)
+    await advance(1_000)
+    await stopIt(result)
+
+    expect(handleUnauthorized).toHaveBeenCalledExactlyOnceWith('first')
+    expect(result.current.error).toBe('Authentication required')
+    expect(onText).not.toHaveBeenCalled()
+  })
+
   it('shows a failed transcription and sends nothing', async () => {
     vi.mocked(transcribe).mockRejectedValueOnce(
       new ApiError(503, 'Voice is unavailable right now')
@@ -263,6 +281,7 @@ describe('useDictation', () => {
     expect(result.current.error).toBe('Voice is unavailable right now')
     expect(haptic).toHaveBeenLastCalledWith('error')
     expect(onText).not.toHaveBeenCalled()
+    expect(handleUnauthorized).not.toHaveBeenCalled()
   })
 
   it("an empty transcript sends nothing and says it didn't catch that", async () => {

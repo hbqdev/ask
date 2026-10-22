@@ -17,7 +17,7 @@ import {
 } from 'react'
 
 import { useApi } from '@/core/api/ApiProvider'
-import { SIGNED_OUT_MESSAGE } from '@/core/api/client'
+import { isServerUnauthorized, SIGNED_OUT_MESSAGE } from '@/core/api/client'
 import { haptic } from '@/core/haptics'
 import {
   onStateChange,
@@ -70,7 +70,7 @@ const subscribe = (onChange: () => void) => onStateChange(() => onChange())
 type Phase = 'idle' | 'loading' | 'error'
 
 export function useReadAloud(owner: string): ReadAloud {
-  const { baseUrl, getToken } = useApi()
+  const { baseUrl, getToken, handleUnauthorized } = useApi()
   const playing = useSyncExternalStore(
     subscribe,
     () => playingOwner() === owner
@@ -78,10 +78,10 @@ export function useReadAloud(owner: string): ReadAloud {
   const [phase, setPhaseState] = useState<Phase>('idle')
   const [error, setError] = useState<string>()
 
-  const live = useRef({ baseUrl, getToken })
+  const live = useRef({ baseUrl, getToken, handleUnauthorized })
   useEffect(() => {
-    live.current = { baseUrl, getToken }
-  }, [baseUrl, getToken])
+    live.current = { baseUrl, getToken, handleUnauthorized }
+  }, [baseUrl, getToken, handleUnauthorized])
 
   // The phase, read synchronously so a quick second tap sees the first.
   const phaseRef = useRef<Phase>('idle')
@@ -147,6 +147,9 @@ export function useReadAloud(owner: string): ReadAloud {
       } catch (e) {
         if (controller.signal.aborted) return cancelled()
         pending = null
+        // The server refused the token: refresh, or sign out (app-wide).
+        if (isServerUnauthorized(e))
+          void live.current.handleUnauthorized('first')
         return fail((e as Error).message)
       }
       if (controller.signal.aborted) return cancelled()

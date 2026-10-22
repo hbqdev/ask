@@ -13,6 +13,7 @@ import type { ChatStatus, UIMessage } from 'ai'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
 import { useApi } from '@/core/api/ApiProvider'
+import { authRetryFetch } from '@/core/api/auth-retry'
 import { emitChatsChanged } from '@/core/chats-events'
 import { newId } from '@/core/ids'
 import { touchChat } from '@/features/library/library-api'
@@ -116,7 +117,7 @@ export function useThread({
   isNew,
   settings
 }: ThreadOptions): ThreadSession {
-  const { client, baseUrl, getToken } = useApi()
+  const { client, baseUrl, getToken, handleUnauthorized } = useApi()
   const [loading, setLoading] = useState(!isNew)
   const [loadError, setLoadError] = useState<Error>()
   // Set when a turn cut off by backgrounding could be neither resumed nor
@@ -124,10 +125,10 @@ export function useThread({
   const [resumeError, setResumeError] = useState<Error>()
 
   // The transport is built once; it reads live values through these refs.
-  const live = useRef({ isNew, settings, getToken })
+  const live = useRef({ isNew, settings, getToken, handleUnauthorized })
   useEffect(() => {
-    live.current = { isNew, settings, getToken }
-  }, [isNew, settings, getToken])
+    live.current = { isNew, settings, getToken, handleUnauthorized }
+  }, [isNew, settings, getToken, handleUnauthorized])
   // Set once useChat exists (below); resumes only start after that.
   const hooks = useRef<ResumeHooks>({})
 
@@ -142,6 +143,12 @@ export function useThread({
             if (!token) throw new Error('Signed out')
             return { Authorization: `Bearer ${token}` }
           },
+          // A 401 refreshes the session and resends once, or signs out.
+          fetch: authRetryFetch({
+            fetchImpl: (input, init) => globalThis.fetch(input, init),
+            getToken: () => live.current.getToken(),
+            onUnauthorized: stage => live.current.handleUnauthorized(stage)
+          }),
           // The custom instructions and auto-read are read for each request,
           // so a change made in Settings applies to the next question.
           prepareSendMessagesRequest: async ({

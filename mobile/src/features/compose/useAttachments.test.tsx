@@ -32,6 +32,7 @@ vi.mock('@/features/compose/image-convert', async importOriginal => ({
 const BASE = 'https://ask.test.invalid'
 const getToken = vi.fn<() => Promise<string | null>>()
 const clientJson = vi.fn()
+const handleUnauthorized = vi.fn(async () => 'stop' as const)
 
 function deferred<T>() {
   let resolve!: (value: T) => void
@@ -67,7 +68,8 @@ beforeEach(() => {
   vi.mocked(useApi).mockReturnValue({
     baseUrl: BASE,
     getToken,
-    client: { json: clientJson }
+    client: { json: clientJson },
+    handleUnauthorized
   } as unknown as Api)
   vi.mocked(toUploadable).mockImplementation(async file => file)
   vi.mocked(uploadFile).mockImplementation(async ({ file }) =>
@@ -282,6 +284,28 @@ describe('useAttachments', () => {
     act(() => result.current.add([pdf()]))
     await waitFor(() => expect(result.current.items[0].status).toBe('error'))
     expect(result.current.items[0].retryable).toBe(retryable)
+  })
+
+  it('a 401 calls the handler and keeps its own message', async () => {
+    vi.mocked(uploadFile).mockRejectedValueOnce(
+      new ApiError(401, 'Unauthorized')
+    )
+    const { result } = render()
+    act(() => result.current.add([pdf()]))
+    await waitFor(() => expect(result.current.items[0].status).toBe('error'))
+
+    expect(handleUnauthorized).toHaveBeenCalledExactlyOnceWith('first')
+    expect(result.current.items[0].error).toBe('Unauthorized')
+  })
+
+  it('no token (nothing sent) leaves the session alone', async () => {
+    getToken.mockResolvedValueOnce(null)
+    const { result } = render()
+    act(() => result.current.add([pdf()]))
+    await waitFor(() => expect(result.current.items[0].status).toBe('error'))
+
+    expect(uploadFile).not.toHaveBeenCalled()
+    expect(handleUnauthorized).not.toHaveBeenCalled()
   })
 
   it('a 401 can be retried, with a fresh token', async () => {

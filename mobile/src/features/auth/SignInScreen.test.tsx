@@ -31,6 +31,7 @@ function fakeAuth(overrides: Partial<Auth> = {}): Auth {
     signInWithGoogle: vi.fn(async () => true),
     signOut: vi.fn(async () => {}),
     getAccessToken: vi.fn(async () => null),
+    refreshAccessToken: vi.fn(async () => ({ status: 'offline' }) as const),
     ...overrides
   }
   vi.mocked(useAuth).mockReturnValue(auth)

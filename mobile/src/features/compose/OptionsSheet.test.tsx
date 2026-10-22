@@ -58,7 +58,8 @@ function serve(routes: { models?: Route; save?: Route }) {
   vi.mocked(useApi).mockReturnValue({
     client,
     baseUrl: BASE,
-    getToken: async () => 'token'
+    getToken: async () => 'token',
+    handleUnauthorized: async () => 'stop'
   } satisfies Api)
   return fetchImpl
 }

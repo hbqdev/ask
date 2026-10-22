@@ -37,6 +37,8 @@ export const DELETE_ACCOUNT_UNAVAILABLE = 'Not available on this server'
 export async function deleteAccount(client: ApiClient): Promise<void> {
   await client.json('/api/account', {
     method: 'DELETE',
+    // A 401 here has its own handling (and notice): see sessionGone.
+    signOutOn401: false,
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ confirm: CONFIRM_WORD })
   })

@@ -10,7 +10,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 
 import { useApi } from '@/core/api/ApiProvider'
-import { SIGNED_OUT_MESSAGE } from '@/core/api/client'
+import { isServerUnauthorized, SIGNED_OUT_MESSAGE } from '@/core/api/client'
 import { ApiError } from '@/core/api/errors'
 import { haptic } from '@/core/haptics'
 import { newId } from '@/core/ids'
@@ -135,7 +135,7 @@ export function ingestNote(item: Attachment): string | undefined {
 }
 
 export function useAttachments(chatId?: string): Attachments {
-  const { client, baseUrl, getToken } = useApi()
+  const { client, baseUrl, getToken, handleUnauthorized } = useApi()
   const [items, setItems] = useState<Attachment[]>([])
   const [overLimit, setOverLimit] = useState(false)
   // The picked files by id, kept for a retry; their count is the cap's.
@@ -143,10 +143,10 @@ export function useAttachments(chatId?: string): Attachments {
   const uploads = useRef(new Map<string, AbortController>())
   const previews = useRef(new Map<string, string>())
   const [convertInTurn] = useState(serialQueue)
-  const live = useRef({ chatId, baseUrl, getToken })
+  const live = useRef({ chatId, baseUrl, getToken, handleUnauthorized })
   useEffect(() => {
-    live.current = { chatId, baseUrl, getToken }
-  }, [chatId, baseUrl, getToken])
+    live.current = { chatId, baseUrl, getToken, handleUnauthorized }
+  }, [chatId, baseUrl, getToken, handleUnauthorized])
   const itemsRef = useRef(items)
   useEffect(() => {
     itemsRef.current = items
@@ -213,7 +213,11 @@ export function useAttachments(chatId?: string): Attachments {
           ingestStatus: result.status
         })
       } catch (err) {
-        if (!signal.aborted) fail(id, describeFailure(err))
+        if (signal.aborted) return
+        // The server refused the token: refresh, or sign out (app-wide).
+        if (isServerUnauthorized(err))
+          void live.current.handleUnauthorized('first')
+        fail(id, describeFailure(err))
       } finally {
         if (uploads.current.get(id) === controller) uploads.current.delete(id)
       }

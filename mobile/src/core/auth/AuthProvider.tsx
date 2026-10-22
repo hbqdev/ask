@@ -1,6 +1,7 @@
 import {
   isAuthApiError,
   isAuthRetryableFetchError,
+  isAuthSessionMissingError,
   type Session,
   type SupabaseClient
 } from '@supabase/supabase-js'
@@ -49,7 +50,21 @@ export type Auth = {
   signOut(options?: SignOutOptions): Promise<void>
   /** The current access token; supabase-js refreshes it first when needed. */
   getAccessToken(): Promise<string | null>
+  /**
+   * Refreshes the session now (the server refused its access token). Only a
+   * definitive refusal of the refresh token is `failed`; anything that may
+   * pass (no connection, a Supabase outage or rate limit) is `offline`.
+   */
+  refreshAccessToken(): Promise<RefreshResult>
 }
+
+/** The sign-in screen's notice after a session the server refused. */
+export const SIGNED_OUT_NOTICE = 'You’ve been signed out.'
+
+export type RefreshResult =
+  | { status: 'refreshed'; token: string }
+  | { status: 'failed' }
+  | { status: 'offline' }
 
 export type SignOutOptions = {
   notice?: string
@@ -76,6 +91,23 @@ function isNetworkFailure(err: unknown): boolean {
 }
 
 const NETWORK_ERROR = 'Network error. Check your connection.'
+
+const REFRESH_FAILED: RefreshResult = { status: 'failed' }
+const REFRESH_OFFLINE: RefreshResult = { status: 'offline' }
+
+/**
+ * What a failed refresh means. Only Supabase refusing the refresh token
+ * (400: invalid, revoked or expired; 401: the user is gone) or having no
+ * refresh token to send is definitive. Everything else (no connection, a
+ * 5xx, a 429, a timeout, anything unknown) may pass, so the session stays.
+ */
+function refreshFailure(err: unknown): RefreshResult {
+  if (isNetworkFailure(err)) return REFRESH_OFFLINE
+  if (isAuthApiError(err) && (err.status === 400 || err.status === 401)) {
+    return REFRESH_FAILED
+  }
+  return isAuthSessionMissingError(err) ? REFRESH_FAILED : REFRESH_OFFLINE
+}
 
 /** A short, user-facing message for a failed sign-in. */
 function signInErrorMessage(err: unknown): string {
@@ -267,6 +299,17 @@ export function AuthProvider({
     return data.session?.access_token ?? null
   }, [client])
 
+  const refreshAccessToken = useCallback(async (): Promise<RefreshResult> => {
+    try {
+      const { data, error: authError } = await client.auth.refreshSession()
+      if (authError) return refreshFailure(authError)
+      const token = data.session?.access_token
+      return token ? { status: 'refreshed', token } : REFRESH_FAILED
+    } catch (err) {
+      return refreshFailure(err)
+    }
+  }, [client])
+
   const value = useMemo(
     () => ({
       ...view,
@@ -275,9 +318,19 @@ export function AuthProvider({
       signIn,
       signInWithGoogle,
       signOut,
-      getAccessToken
+      getAccessToken,
+      refreshAccessToken
     }),
-    [view, error, notice, signIn, signInWithGoogle, signOut, getAccessToken]
+    [
+      view,
+      error,
+      notice,
+      signIn,
+      signInWithGoogle,
+      signOut,
+      getAccessToken,
+      refreshAccessToken
+    ]
   )
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>

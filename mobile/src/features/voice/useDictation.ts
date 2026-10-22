@@ -14,7 +14,7 @@ import { App } from '@capacitor/app'
 import { useCallback, useEffect, useRef, useState } from 'react'
 
 import { useApi } from '@/core/api/ApiProvider'
-import { SIGNED_OUT_MESSAGE } from '@/core/api/client'
+import { isServerUnauthorized, SIGNED_OUT_MESSAGE } from '@/core/api/client'
 import { haptic } from '@/core/haptics'
 import { startRecording, type Recording } from '@/features/voice/recorder'
 import { transcribe } from '@/features/voice/transcribe'
@@ -78,16 +78,16 @@ export function useDictation({
   onText,
   active = true
 }: DictationOptions): Dictation {
-  const { baseUrl, getToken } = useApi()
+  const { baseUrl, getToken, handleUnauthorized } = useApi()
   const [state, setState] = useState<DictationState>('idle')
   const [error, setError] = useState<string>()
   const [level, setLevel] = useState(0)
   const [seconds, setSeconds] = useState(0)
 
-  const live = useRef({ onText, baseUrl, getToken, active })
+  const live = useRef({ onText, baseUrl, getToken, handleUnauthorized, active })
   useEffect(() => {
-    live.current = { onText, baseUrl, getToken, active }
-  }, [onText, baseUrl, getToken, active])
+    live.current = { onText, baseUrl, getToken, handleUnauthorized, active }
+  }, [onText, baseUrl, getToken, handleUnauthorized, active])
 
   // The phase, read synchronously so double taps and late callbacks are safe.
   // A failure leaves it idle (the error is only shown).
@@ -182,6 +182,8 @@ export function useDictation({
       live.current.onText(text)
     } catch (e) {
       if (attempt.current !== mine) return
+      // The server refused the token: refresh, or sign out (app-wide).
+      if (isServerUnauthorized(e)) void live.current.handleUnauthorized('first')
       fail((e as Error).message)
     } finally {
       if (request.current === controller) request.current = null

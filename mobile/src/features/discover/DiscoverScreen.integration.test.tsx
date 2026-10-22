@@ -72,7 +72,8 @@ function renderScreen(failOnce: number[]) {
       fetchImpl: server.fetchImpl
     }),
     baseUrl: BASE,
-    getToken
+    getToken,
+    handleUnauthorized: async () => 'stop'
   } as Api)
   render(
     <StackProvider root={{ key: 'tabs', render: () => <DiscoverScreen /> }}>

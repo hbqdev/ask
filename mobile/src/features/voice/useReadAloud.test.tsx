@@ -55,6 +55,7 @@ vi.mock('@capacitor/app', () => ({
 
 const BASE = 'https://ask.test.invalid'
 const getToken = vi.fn<() => Promise<string | null>>()
+const handleUnauthorized = vi.fn(async () => 'stop' as const)
 const fetchMock = vi.fn<typeof fetch>()
 
 const ANSWER = [
@@ -103,7 +104,8 @@ beforeEach(() => {
   getToken.mockResolvedValue('tok')
   vi.mocked(useApi).mockReturnValue({
     baseUrl: BASE,
-    getToken
+    getToken,
+    handleUnauthorized
   } as unknown as Api)
   fetchMock.mockImplementation(async () => mp3())
   vi.stubGlobal('fetch', fetchMock)
@@ -296,6 +298,26 @@ describe('useReadAloud', () => {
     await waitFor(() => expect(result.current.state).toBe('playing'))
   })
 
+  it('a 401 calls the handler and shows its own message', async () => {
+    fetchMock.mockResolvedValueOnce(
+      new Response('Authentication required', { status: 401 })
+    )
+    const { result } = renderHook(() => useReadAloud('m1'))
+    act(() => result.current.toggle(ANSWER))
+    await waitFor(() => expect(result.current.state).toBe('error'))
+
+    expect(handleUnauthorized).toHaveBeenCalledExactlyOnceWith('first')
+    expect(result.current.error).toBe('Authentication required')
+  })
+
+  it('another failure leaves the session alone', async () => {
+    fetchMock.mockResolvedValueOnce(new Response('Nope', { status: 403 }))
+    const { result } = renderHook(() => useReadAloud('m1'))
+    act(() => result.current.toggle(ANSWER))
+    await waitFor(() => expect(result.current.state).toBe('error'))
+    expect(handleUnauthorized).not.toHaveBeenCalled()
+  })
+
   it('says so when signed out', async () => {
     getToken.mockResolvedValueOnce(null)
     const { result } = renderHook(() => useReadAloud('m1'))
@@ -308,6 +330,8 @@ describe('useReadAloud', () => {
     act(() => result.current.toggle(ANSWER))
     await waitFor(() => expect(result.current.state).toBe('error'))
     expect(result.current.error).toBe(SIGNED_OUT_MESSAGE)
+    // Nothing was sent: no server said anything about the session.
+    expect(handleUnauthorized).not.toHaveBeenCalled()
   })
 
   it('says so when the audio cannot play', async () => {
