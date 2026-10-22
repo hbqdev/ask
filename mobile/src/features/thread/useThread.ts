@@ -15,7 +15,13 @@ import { emitChatsChanged } from '@/core/chats-events'
 import { newId } from '@/core/ids'
 import { touchChat } from '@/features/library/library-api'
 import { loadCustomInstructions } from '@/features/settings/custom-instructions'
-import { buildChatBody, type SearchSettings } from '@/features/thread/chat-body'
+import {
+  buildChatBody,
+  filePartsOf,
+  userParts,
+  type FilePart,
+  type SearchSettings
+} from '@/features/thread/chat-body'
 import {
   describeChatError,
   type ChatErrorView
@@ -44,7 +50,8 @@ export type ThreadSession = {
    * messages load. The streamed title in those messages is never renamed.
    */
   savedTitle?: string
-  send(text: string): void
+  /** Asks `text` (trimmed) with any uploaded `files`; one of them is needed. */
+  send(text: string, files?: FilePart[]): void
   stop(): Promise<void>
   retry(assistantMessageId: string): void
   /** Loads an existing chat's saved messages again (after a failed load). */
@@ -362,10 +369,10 @@ export function useThread({
   }, [inFlight, runTurn])
 
   const send = useCallback(
-    (text: string) => {
+    (text: string, files: FilePart[] = []) => {
       const trimmed = text.trim()
-      if (!trimmed || inFlight()) return
-      runTurn(() => sendMessage({ text: trimmed }))
+      if ((!trimmed && files.length === 0) || inFlight()) return
+      runTurn(() => sendMessage({ parts: userParts(trimmed, files) }))
     },
     [inFlight, runTurn, sendMessage]
   )
@@ -403,12 +410,14 @@ export function useThread({
     const last = messagesRef.current.at(-1)
     if (!last) return
     if (last.role === 'assistant') return retry(last.id)
-    // The turn failed before any answer: resend the question as a new submit
-    // (a fresh message id), dropping the failed copy so it isn't shown twice.
+    // The turn failed before any answer: resend the question (and its files)
+    // as a new submit (a fresh message id), dropping the failed copy so it
+    // isn't shown twice.
     const text = textOf(last)
-    if (!text.trim()) return
+    const files = filePartsOf(last)
+    if (!text.trim() && files.length === 0) return
     setMessages(current => current.filter(m => m.id !== last.id))
-    send(text)
+    send(text, files)
   }, [inFlight, loadError, reload, retry, setMessages, send])
 
   const errorView = useMemo(() => {

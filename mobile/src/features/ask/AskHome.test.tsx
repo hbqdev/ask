@@ -1,4 +1,4 @@
-import { act, render, screen } from '@testing-library/react'
+import { act, render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
@@ -7,7 +7,9 @@ import { Tabs } from '@/app/Tabs'
 import { useApi, type Api } from '@/core/api/ApiProvider'
 import { useAuth, type Auth } from '@/core/auth/AuthProvider'
 import { StackProvider, StackView, useStack } from '@/core/nav/stack'
+import { newId } from '@/core/ids'
 import { AskHome } from '@/features/ask/AskHome'
+import { uploadFile } from '@/features/compose/upload'
 import { SearchSettingsProvider } from '@/features/compose/SearchSettingsProvider'
 import { useThread, type ThreadSession } from '@/features/thread/useThread'
 import { memoryStorage } from '@/test/memory-storage'
@@ -16,6 +18,7 @@ vi.mock('@/features/thread/useThread', () => ({ useThread: vi.fn() }))
 vi.mock('@/core/auth/AuthProvider', () => ({ useAuth: vi.fn() }))
 vi.mock('@/core/api/ApiProvider', () => ({ useApi: vi.fn() }))
 vi.mock('@/core/ids', () => ({ newId: vi.fn(() => 'new-chat-id') }))
+vi.mock('@/features/compose/upload', () => ({ uploadFile: vi.fn() }))
 
 type UrlOpenListener = (event: { url: string }) => void
 
@@ -77,6 +80,7 @@ afterEach(() => {
 
 beforeEach(() => {
   vi.clearAllMocks()
+  vi.mocked(newId).mockImplementation(() => 'new-chat-id')
   app.listeners.length = 0
   prefs.data.clear()
   vi.mocked(useThread).mockReturnValue({
@@ -126,7 +130,49 @@ describe('AskHome', () => {
     expect(useThread).toHaveBeenCalledWith(
       expect.objectContaining({ chatId: 'new-chat-id', isNew: true })
     )
-    expect(send).toHaveBeenCalledExactlyOnceWith('Why is the sky blue?')
+    expect(send).toHaveBeenCalledExactlyOnceWith('Why is the sky blue?', [])
+  })
+
+  it('asks with attached files, uploaded under the chat it opens', async () => {
+    const user = userEvent.setup()
+    let n = 0
+    vi.mocked(newId).mockImplementation(() => `id-${++n}`)
+    vi.mocked(useApi).mockReturnValue({
+      baseUrl: 'https://ask.test.invalid',
+      getToken: async () => 'tok'
+    } as Api)
+    const doc = {
+      url: 'https://ask.test.invalid/uploads/u1/chats/id-1/1-a.pdf',
+      filename: 'a.pdf',
+      mediaType: 'application/pdf'
+    }
+    vi.mocked(uploadFile).mockResolvedValue({
+      ...doc,
+      objectKey: 'k',
+      status: 'ready'
+    })
+    renderHome()
+    await user.upload(
+      screen.getByTestId('pick-files'),
+      new File(['%PDF'], 'a.pdf', { type: 'application/pdf' })
+    )
+    await waitFor(() =>
+      expect(screen.getByRole('button', { name: 'Send' })).toBeEnabled()
+    )
+    expect(uploadFile).toHaveBeenCalledWith(
+      expect.objectContaining({ chatId: 'id-1' })
+    )
+
+    await user.click(screen.getByRole('button', { name: 'Send' }))
+    expect(screen.getByTestId('keys')).toHaveTextContent('tabs,thread:id-1')
+    expect(send).toHaveBeenCalledExactlyOnceWith('', [doc])
+
+    // The next question gets a chat of its own.
+    openLink('ask://ask?q=next')
+    await user.click(screen.getByRole('button', { name: 'Send' }))
+    expect(screen.getByTestId('keys')).toHaveTextContent(
+      /^tabs,thread:id-(?!1$)\d+$/
+    )
   })
 
   describe('an ask:// link', () => {
@@ -152,7 +198,7 @@ describe('AskHome', () => {
       expect(screen.getByTestId('keys')).toHaveTextContent(
         'tabs,thread:new-chat-id'
       )
-      expect(send).toHaveBeenCalledExactlyOnceWith('from a link')
+      expect(send).toHaveBeenCalledExactlyOnceWith('from a link', [])
     })
 
     it('goes back to the Ask home from an open thread', async () => {
@@ -225,7 +271,7 @@ describe('AskHome', () => {
       expect(screen.getByTestId('keys')).toHaveTextContent(
         'tabs,thread:new-chat-id'
       )
-      expect(send).toHaveBeenCalledExactlyOnceWith('from a link')
+      expect(send).toHaveBeenCalledExactlyOnceWith('from a link', undefined)
     })
   })
 
@@ -241,7 +287,10 @@ describe('AskHome', () => {
       expect(screen.getByTestId('keys')).toHaveTextContent(
         'tabs,thread:new-chat-id'
       )
-      expect(send).toHaveBeenCalledExactlyOnceWith('Seeded question?')
+      expect(send).toHaveBeenCalledExactlyOnceWith(
+        'Seeded question?',
+        undefined
+      )
     })
 
     it('is never read in a normal build', async () => {

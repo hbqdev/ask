@@ -28,3 +28,26 @@ describe('the iOS project', () => {
     )
   })
 })
+
+describe('the iOS app’s permission prompts', () => {
+  // iOS shows these strings when Ask first asks for the camera, the photo
+  // library (attachments) and the microphone (dictation); a missing one ends
+  // the app at that moment instead.
+  const plist = read('App/Info.plist')
+  const usage = (key: string) =>
+    plist.match(
+      new RegExp(`<key>${key}</key>\\s*<string>([^<]*)</string>`)
+    )?.[1]
+
+  it('explains the camera, the photo library and the microphone in plain English', () => {
+    expect(usage('NSCameraUsageDescription')).toBe(
+      'Ask uses the camera so you can take a photo and ask about it.'
+    )
+    expect(usage('NSPhotoLibraryUsageDescription')).toBe(
+      'Ask uses your photo library so you can attach pictures to a question.'
+    )
+    expect(usage('NSMicrophoneUsageDescription')).toBe(
+      'Ask uses the microphone so you can dictate your question.'
+    )
+  })
+})

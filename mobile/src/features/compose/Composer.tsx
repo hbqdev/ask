@@ -1,22 +1,29 @@
 // The question box at the bottom of the home screen and of every thread: a
-// text field that grows to six lines, Send (Stop while a turn runs), and a chip
-// with the search mode that opens the options sheet. The keyboard shrinks the
-// web view natively (capacitor.config.ts), so the box simply sits at the
-// bottom; `.composer` (styles.css) clears the home indicator.
+// text field that grows to six lines, Send (Stop while a turn runs), a
+// paperclip that attaches photos and files (shown as chips above the field),
+// and a chip with the search mode that opens the options sheet. The keyboard
+// shrinks the web view natively (capacitor.config.ts), so the box simply sits
+// at the bottom; `.composer` (styles.css) clears the home indicator.
 
 import {
   useEffect,
   useLayoutEffect,
   useRef,
   useState,
+  type ChangeEvent,
   type FormEvent,
-  type KeyboardEvent
+  type KeyboardEvent,
+  type RefObject
 } from 'react'
 
 import { haptic } from '@/core/haptics'
+import { Sheet } from '@/core/ui/Sheet'
+import { AttachmentChips } from '@/features/compose/AttachmentChips'
 import { OptionsSheet } from '@/features/compose/OptionsSheet'
 import { SEARCH_MODE_LABELS } from '@/features/compose/SearchOptionFields'
-import type { SearchSettings } from '@/features/thread/chat-body'
+import { useAttachments } from '@/features/compose/useAttachments'
+import type { FilePart, SearchSettings } from '@/features/thread/chat-body'
+import { ACCEPT_ATTRIBUTE } from '@/lib/config/upload-allowlist'
 
 const LINE_HEIGHT_PX = 24
 const MAX_LINES = 6
@@ -33,7 +40,10 @@ export type ComposerProps = {
   placeholder: string
   /** A turn is running: the button is Stop instead of Send. */
   busy: boolean
-  onSend: (text: string) => void
+  /** The trimmed text (empty when only files go) and the uploaded files. */
+  onSend: (text: string, files: FilePart[]) => void
+  /** The chat the attachments are uploaded under (x-chat-id). */
+  chatId?: string
   /** Stops the running turn; needed wherever `busy` can be true. */
   onStop?: () => void
   settings: SearchSettings
@@ -65,6 +75,26 @@ function ArrowUp() {
   )
 }
 
+function Paperclip() {
+  return (
+    <svg
+      aria-hidden="true"
+      viewBox="0 0 24 24"
+      className="size-5"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth={2}
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    >
+      <path d="m21 11.5-8.6 8.6a5.5 5.5 0 0 1-7.8-7.8l8.6-8.6a3.7 3.7 0 0 1 5.2 5.2l-8.6 8.6a1.8 1.8 0 0 1-2.6-2.6l7.9-7.9" />
+    </svg>
+  )
+}
+
+const SHEET_OPTION =
+  'min-h-12 w-full touch-manipulation rounded-xl bg-muted text-base font-medium text-foreground active:opacity-50'
+
 function StopSquare() {
   return (
     <svg aria-hidden="true" viewBox="0 0 24 24" className="size-4">
@@ -77,6 +107,7 @@ export function Composer({
   placeholder,
   busy,
   onSend,
+  chatId,
   onStop,
   settings,
   onSettings,
@@ -86,7 +117,12 @@ export function Composer({
 }: ComposerProps) {
   const [text, setText] = useState('')
   const [optionsOpen, setOptionsOpen] = useState(false)
+  const [attachOpen, setAttachOpen] = useState(false)
   const field = useRef<HTMLTextAreaElement>(null)
+  const attachments = useAttachments(chatId)
+  const photoInput = useRef<HTMLInputElement>(null)
+  const cameraInput = useRef<HTMLInputElement>(null)
+  const fileInput = useRef<HTMLInputElement>(null)
 
   useEffect(() => {
     if (!draft) return
@@ -104,13 +140,31 @@ export function Composer({
       el.scrollHeight > COMPOSER_MAX_HEIGHT_PX ? 'auto' : 'hidden'
   }, [text])
 
-  const canSend = !busy && !disabled && text.trim().length > 0
+  // Nothing goes while a file is still uploading or has failed.
+  const canSend =
+    !busy &&
+    !disabled &&
+    attachments.ready &&
+    (text.trim().length > 0 || attachments.items.length > 0)
 
   const send = () => {
     if (!canSend) return
     haptic('light')
-    onSend(text.trim())
+    onSend(text.trim(), attachments.parts())
     setText('')
+    attachments.clear()
+  }
+
+  // The picker opens within the tap, as iOS requires.
+  const pick = (input: RefObject<HTMLInputElement | null>) => {
+    setAttachOpen(false)
+    input.current!.click()
+  }
+
+  const onPicked = (e: ChangeEvent<HTMLInputElement>) => {
+    attachments.add(e.target.files!)
+    // Cleared, so picking the same file again still fires a change.
+    e.target.value = ''
   }
 
   const onSubmit = (e: FormEvent) => {
@@ -134,6 +188,11 @@ export function Composer({
   return (
     <form className="composer bg-background px-3 pt-2" onSubmit={onSubmit}>
       <div className="rounded-3xl bg-foreground/5 px-3 pt-1 pb-2">
+        <AttachmentChips
+          items={attachments.items}
+          onRemove={attachments.remove}
+          onRetry={attachments.retry}
+        />
         <textarea
           ref={field}
           rows={1}
@@ -147,27 +206,38 @@ export function Composer({
           className="block w-full resize-none bg-transparent py-2 text-base leading-6 outline-none placeholder:text-foreground/40"
         />
         <div className="flex items-center justify-between gap-2">
-          <button
-            type="button"
-            aria-label={`Search mode: ${modeLabel}`}
-            aria-haspopup="dialog"
-            onClick={() => setOptionsOpen(true)}
-            className="flex min-h-9 touch-manipulation items-center gap-1 rounded-full bg-foreground/8 px-3 text-sm font-medium text-foreground/70 active:opacity-50"
-          >
-            {modeLabel}
-            <svg
-              aria-hidden="true"
-              viewBox="0 0 24 24"
-              className="size-4"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth={2}
-              strokeLinecap="round"
-              strokeLinejoin="round"
+          <div className="flex min-w-0 items-center gap-1">
+            <button
+              type="button"
+              aria-label="Attach"
+              aria-haspopup="dialog"
+              onClick={() => setAttachOpen(true)}
+              className="flex size-9 shrink-0 touch-manipulation items-center justify-center rounded-full text-foreground/70 active:bg-foreground/10"
             >
-              <path d="M6 9l6 6 6-6" />
-            </svg>
-          </button>
+              <Paperclip />
+            </button>
+            <button
+              type="button"
+              aria-label={`Search mode: ${modeLabel}`}
+              aria-haspopup="dialog"
+              onClick={() => setOptionsOpen(true)}
+              className="flex min-h-9 touch-manipulation items-center gap-1 rounded-full bg-foreground/8 px-3 text-sm font-medium text-foreground/70 active:opacity-50"
+            >
+              {modeLabel}
+              <svg
+                aria-hidden="true"
+                viewBox="0 0 24 24"
+                className="size-4"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth={2}
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              >
+                <path d="M6 9l6 6 6-6" />
+              </svg>
+            </button>
+          </div>
           {busy ? (
             <button
               type="button"
@@ -189,6 +259,62 @@ export function Composer({
           )}
         </div>
       </div>
+      <input
+        ref={photoInput}
+        type="file"
+        accept="image/*"
+        multiple
+        hidden
+        data-testid="pick-photos"
+        onChange={onPicked}
+      />
+      <input
+        ref={cameraInput}
+        type="file"
+        accept="image/*"
+        capture="environment"
+        hidden
+        data-testid="take-photo"
+        onChange={onPicked}
+      />
+      <input
+        ref={fileInput}
+        type="file"
+        accept={ACCEPT_ATTRIBUTE}
+        multiple
+        hidden
+        data-testid="pick-files"
+        onChange={onPicked}
+      />
+      <Sheet
+        open={attachOpen}
+        onClose={() => setAttachOpen(false)}
+        title="Attach"
+      >
+        <div className="flex flex-col gap-2 pb-2">
+          <button
+            type="button"
+            onClick={() => pick(photoInput)}
+            className={SHEET_OPTION}
+          >
+            Photo Library
+          </button>
+          <button
+            type="button"
+            onClick={() => pick(cameraInput)}
+            className={SHEET_OPTION}
+          >
+            Take Photo
+          </button>
+          <button
+            type="button"
+            onClick={() => pick(fileInput)}
+            className={SHEET_OPTION}
+          >
+            Choose File
+          </button>
+        </div>
+      </Sheet>
       <OptionsSheet
         open={optionsOpen}
         onClose={() => setOptionsOpen(false)}

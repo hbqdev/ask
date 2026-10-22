@@ -438,6 +438,67 @@ describe('useThread', () => {
     ])
   })
 
+  describe('attachments', () => {
+    const PHOTO = {
+      url: `${BASE}/uploads/u1/chats/chat-1/1-a.jpg?exp=1&sig=s`,
+      filename: 'a.jpg',
+      mediaType: 'image/jpeg'
+    }
+    const DOC = {
+      url: `${BASE}/uploads/u1/chats/chat-1/2-b.pdf`,
+      filename: 'b.pdf',
+      mediaType: 'application/pdf'
+    }
+
+    it("puts the files in the question's parts, after its text", async () => {
+      serve({ chat: [() => sse(answerChunks('a1', 'Both say hi'))] })
+      const { result } = renderThread()
+
+      act(() => result.current.send(' What do these say? ', [PHOTO, DOC]))
+      await waitFor(() => expect(result.current.status).toBe('ready'))
+
+      const [body] = chatBodies()
+      expect((body.message as UIMessage).parts).toEqual([
+        { type: 'text', text: 'What do these say?' },
+        { type: 'file', ...PHOTO },
+        { type: 'file', ...DOC }
+      ])
+    })
+
+    it('sends files alone, with no text part', async () => {
+      serve({ chat: [() => sse(answerChunks('a1', 'A photo'))] })
+      const { result } = renderThread()
+
+      act(() => result.current.send('  ', [PHOTO]))
+      await waitFor(() => expect(result.current.status).toBe('ready'))
+
+      expect((chatBodies()[0].message as UIMessage).parts).toEqual([
+        { type: 'file', ...PHOTO }
+      ])
+    })
+
+    it('retryLast resends a failed question with its files', async () => {
+      serve({
+        chat: [
+          () => new Response('No enabled model is available', { status: 503 }),
+          () => sse(answerChunks('a1', 'Answer'))
+        ]
+      })
+      const { result } = renderThread()
+      act(() => result.current.send('', [DOC]))
+      await waitFor(() => expect(result.current.status).toBe('error'))
+
+      act(() => result.current.retryLast())
+
+      await waitFor(() => expect(result.current.status).toBe('ready'))
+      expect(result.current.messages).toHaveLength(2)
+      const [, resend] = chatBodies()
+      expect((resend.message as UIMessage).parts).toEqual([
+        { type: 'file', ...DOC }
+      ])
+    })
+  })
+
   it('stop during submitted posts the server stop and returns to ready', async () => {
     let chatSignal: AbortSignal | undefined
     let abortedWhenStopPosted: boolean | undefined
@@ -910,6 +971,22 @@ describe('useThread', () => {
       expect(transcript(result.current.messages)).toEqual([
         { role: 'user', texts: ['Q'] }
       ])
+    })
+
+    it('does nothing for a last question with neither text nor files', async () => {
+      serve({
+        messages: [
+          () => json({ messages: [{ id: 'u1', role: 'user', parts: [] }] })
+        ]
+      })
+      const { result } = renderThread(false)
+      await waitFor(() => expect(result.current.messages).toHaveLength(1))
+
+      act(() => result.current.retryLast())
+
+      await act(async () => {})
+      expect(requests('POST', '/api/chat')).toHaveLength(0)
+      expect(result.current.messages).toHaveLength(1)
     })
 
     it('does nothing for an empty thread', async () => {

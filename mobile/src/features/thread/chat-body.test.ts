@@ -1,7 +1,12 @@
 import type { UIMessage } from 'ai'
 import { describe, expect, it } from 'vitest'
 
-import { buildChatBody, type SearchSettings } from '@/features/thread/chat-body'
+import {
+  buildChatBody,
+  filePartsOf,
+  userParts,
+  type SearchSettings
+} from '@/features/thread/chat-body'
 
 const settings: SearchSettings = {
   searchMode: 'quality',
@@ -146,5 +151,52 @@ describe('buildChatBody', () => {
     })
 
     expect(body).not.toHaveProperty('systemInstructions')
+  })
+})
+
+const PHOTO = {
+  url: 'https://ask.test.invalid/uploads/u1/chats/c1/1-a.jpg?exp=1&sig=s',
+  filename: 'a.jpg',
+  mediaType: 'image/jpeg'
+}
+const DOC = {
+  url: 'https://ask.test.invalid/uploads/u1/chats/c1/2-b.pdf',
+  filename: 'b.pdf',
+  mediaType: 'application/pdf'
+}
+
+describe('userParts', () => {
+  it('is the text, then each file, as the web sends them', () => {
+    expect(userParts('About these?', [PHOTO, DOC])).toEqual([
+      { type: 'text', text: 'About these?' },
+      { type: 'file', ...PHOTO },
+      { type: 'file', ...DOC }
+    ])
+  })
+
+  it('is the text alone without files', () => {
+    expect(userParts('Hi')).toEqual([{ type: 'text', text: 'Hi' }])
+  })
+
+  it('leaves out an empty text, as the web does for files sent alone', () => {
+    expect(userParts('', [DOC])).toEqual([{ type: 'file', ...DOC }])
+  })
+})
+
+describe('filePartsOf', () => {
+  it("gives back the files of a message's parts", () => {
+    const message: UIMessage = {
+      id: 'u1',
+      role: 'user',
+      parts: [
+        ...userParts('Q', [PHOTO, DOC]),
+        { type: 'file', url: 'data:x', mediaType: 'text/plain' }
+      ]
+    }
+    expect(filePartsOf(message)).toEqual([
+      PHOTO,
+      DOC,
+      { url: 'data:x', filename: '', mediaType: 'text/plain' }
+    ])
   })
 })

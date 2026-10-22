@@ -36,11 +36,11 @@
 	<key>ITSAppUsesNonExemptEncryption</key>
 	<false/>
 	<key>NSMicrophoneUsageDescription</key>
-	<string>Ask uses the microphone when you dictate a question.</string>
+	<string>Ask uses the microphone so you can dictate your question.</string>
 	<key>NSCameraUsageDescription</key>
-	<string>Ask uses the camera when you attach a photo to a question.</string>
+	<string>Ask uses the camera so you can take a photo and ask about it.</string>
 	<key>NSPhotoLibraryUsageDescription</key>
-	<string>Ask opens your photo library when you attach an image to a question.</string>
+	<string>Ask uses your photo library so you can attach pictures to a question.</string>
 	<key>NSLocationWhenInUseUsageDescription</key>
 	<string>Ask uses your location for local weather and nearby results.</string>
 	<key>UIBackgroundModes</key>

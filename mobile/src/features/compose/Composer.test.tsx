@@ -1,10 +1,19 @@
 import { readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 
-import { fireEvent, render, screen } from '@testing-library/react'
+import {
+  act,
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+  within
+} from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
+import { useApi, type Api } from '@/core/api/ApiProvider'
+import { ApiError } from '@/core/api/errors'
 import { haptic } from '@/core/haptics'
 import {
   Composer,
@@ -12,7 +21,9 @@ import {
   type ComposerProps
 } from '@/features/compose/Composer'
 import type { OptionsSheetProps } from '@/features/compose/OptionsSheet'
+import { uploadFile, type UploadResult } from '@/features/compose/upload'
 import type { SearchSettings } from '@/features/thread/chat-body'
+import { ACCEPT_ATTRIBUTE } from '@/lib/config/upload-allowlist'
 
 // The real sheet loads the model list from the server; here it is a stand-in
 // that shows whether it is open and can change the settings.
@@ -35,6 +46,26 @@ vi.mock('@/features/compose/OptionsSheet', async importOriginal => ({
 }))
 
 vi.mock('@/core/haptics', () => ({ haptic: vi.fn() }))
+vi.mock('@/core/api/ApiProvider', () => ({ useApi: vi.fn() }))
+vi.mock('@/features/compose/upload', () => ({ uploadFile: vi.fn() }))
+
+const uploaded = (name: string): UploadResult => ({
+  url: `https://ask.test.invalid/uploads/u1/chats/c1/1-${name}`,
+  filename: name,
+  mediaType: 'application/pdf',
+  objectKey: `u1/chats/c1/1-${name}`,
+  status: 'ready'
+})
+
+beforeEach(() => {
+  vi.mocked(useApi).mockReturnValue({
+    baseUrl: 'https://ask.test.invalid',
+    getToken: async () => 'tok',
+    client: { json: vi.fn() }
+  } as unknown as Api)
+  vi.mocked(uploadFile).mockReset()
+  vi.mocked(uploadFile).mockImplementation(async o => uploaded(o.filename))
+})
 
 const BALANCED: SearchSettings = { searchMode: 'balanced', sources: ['web'] }
 
@@ -86,7 +117,7 @@ describe('Composer', () => {
     await user.type(input, '  why is the sky blue  ')
     await user.click(sendButton())
 
-    expect(onSend).toHaveBeenCalledExactlyOnceWith('why is the sky blue')
+    expect(onSend).toHaveBeenCalledExactlyOnceWith('why is the sky blue', [])
     expect(input).toHaveValue('')
   })
 
@@ -95,7 +126,7 @@ describe('Composer', () => {
     const { input, onSend } = setup()
     await user.type(input, 'hello{Enter}')
 
-    expect(onSend).toHaveBeenCalledExactlyOnceWith('hello')
+    expect(onSend).toHaveBeenCalledExactlyOnceWith('hello', [])
     expect(input).toHaveValue('')
   })
 
@@ -251,6 +282,162 @@ describe('Composer', () => {
     expect(css).toMatch(
       /\.composer\s*\{[^}]*padding-bottom:\s*max\(env\(safe-area-inset-bottom\),\s*8px\)/
     )
+  })
+})
+
+function deferred<T>() {
+  let resolve!: (value: T) => void
+  let reject!: (reason: unknown) => void
+  const promise = new Promise<T>((res, rej) => {
+    resolve = res
+    reject = rej
+  })
+  return { promise, resolve, reject }
+}
+
+const pdf = (name = 'report.pdf') =>
+  new File(['%PDF'], name, { type: 'application/pdf' })
+
+const filePicker = () => screen.getByTestId('pick-files') as HTMLInputElement
+
+describe('Composer attachments', () => {
+  it('the paperclip opens a sheet whose options open the right pickers', async () => {
+    const user = userEvent.setup()
+    const clicked: HTMLInputElement[] = []
+    const click = vi
+      .spyOn(HTMLInputElement.prototype, 'click')
+      .mockImplementation(function (this: HTMLInputElement) {
+        clicked.push(this)
+      })
+    try {
+      setup()
+      const open = async () => {
+        await user.click(screen.getByRole('button', { name: 'Attach' }))
+        return screen.getByRole('dialog', { name: 'Attach' })
+      }
+
+      await user.click(
+        within(await open()).getByRole('button', { name: 'Photo Library' })
+      )
+      expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+      await user.click(
+        within(await open()).getByRole('button', { name: 'Take Photo' })
+      )
+      await user.click(
+        within(await open()).getByRole('button', { name: 'Choose File' })
+      )
+
+      const [library, camera, files] = clicked
+      expect(library).toHaveAttribute('type', 'file')
+      expect(library).toHaveAttribute('accept', 'image/*')
+      expect(library).not.toHaveAttribute('capture')
+      expect(library.multiple).toBe(true)
+
+      expect(camera).toHaveAttribute('accept', 'image/*')
+      expect(camera).toHaveAttribute('capture', 'environment')
+
+      expect(files).toHaveAttribute('accept', ACCEPT_ATTRIBUTE)
+      expect(files).not.toHaveAttribute('capture')
+      expect(files.multiple).toBe(true)
+      expect(clicked).toHaveLength(3)
+    } finally {
+      click.mockRestore()
+    }
+  })
+
+  it('closes the attach sheet without picking anything', async () => {
+    const user = userEvent.setup()
+    setup()
+    await user.click(screen.getByRole('button', { name: 'Attach' }))
+    expect(screen.getByRole('dialog', { name: 'Attach' })).toBeInTheDocument()
+
+    await user.keyboard('{Escape}')
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+  })
+
+  it('shows picked files as chips and resets the picker for the same file again', async () => {
+    const user = userEvent.setup()
+    setup({ chatId: 'c9' })
+    await user.upload(filePicker(), pdf())
+
+    expect(await screen.findByText('report.pdf')).toBeInTheDocument()
+    expect(filePicker().value).toBe('')
+    await waitFor(() =>
+      expect(uploadFile).toHaveBeenCalledWith(
+        expect.objectContaining({ filename: 'report.pdf', chatId: 'c9' })
+      )
+    )
+  })
+
+  it('send is disabled while an attachment is uploading or failed', async () => {
+    const user = userEvent.setup()
+    const upload = deferred<UploadResult>()
+    vi.mocked(uploadFile).mockReturnValueOnce(upload.promise)
+    const { input, onSend } = setup()
+    await user.type(input, 'What does it say?')
+    await user.upload(filePicker(), pdf())
+
+    await waitFor(() => expect(uploadFile).toHaveBeenCalled())
+    expect(sendButton()).toBeDisabled()
+    await user.type(input, '{Enter}')
+    expect(onSend).not.toHaveBeenCalled()
+
+    await act(async () => upload.reject(new ApiError(400, 'File too large')))
+    expect(await screen.findByText('File too large')).toBeInTheDocument()
+    expect(sendButton()).toBeDisabled()
+
+    // Retried and uploaded: it can go.
+    await user.click(screen.getByRole('button', { name: 'Retry report.pdf' }))
+    await waitFor(() => expect(sendButton()).toBeEnabled())
+  })
+
+  it('a failed attachment removed lets the question go', async () => {
+    const user = userEvent.setup()
+    vi.mocked(uploadFile).mockRejectedValueOnce(new ApiError(400, 'Nope'))
+    const { input, onSend } = setup()
+    await user.type(input, 'Hi')
+    await user.upload(filePicker(), pdf())
+    await screen.findByText('Nope')
+    expect(sendButton()).toBeDisabled()
+
+    await user.click(screen.getByRole('button', { name: 'Remove report.pdf' }))
+    expect(sendButton()).toBeEnabled()
+    await user.click(sendButton())
+    expect(onSend).toHaveBeenCalledExactlyOnceWith('Hi', [])
+  })
+
+  it('attachments alone can be sent, which clears them', async () => {
+    const user = userEvent.setup()
+    const { onSend } = setup()
+    expect(sendButton()).toBeDisabled()
+    await user.upload(filePicker(), pdf())
+    await waitFor(() => expect(sendButton()).toBeEnabled())
+
+    await user.click(sendButton())
+    expect(onSend).toHaveBeenCalledExactlyOnceWith('', [
+      {
+        url: uploaded('report.pdf').url,
+        filename: 'report.pdf',
+        mediaType: 'application/pdf'
+      }
+    ])
+    expect(screen.queryByText('report.pdf')).not.toBeInTheDocument()
+    expect(sendButton()).toBeDisabled()
+  })
+
+  it('sends the text with its files', async () => {
+    const user = userEvent.setup()
+    const { input, onSend } = setup()
+    await user.upload(filePicker(), [pdf('a.pdf'), pdf('b.pdf')])
+    await user.type(input, 'Compare these')
+    await waitFor(() => expect(sendButton()).toBeEnabled())
+
+    await user.type(input, '{Enter}')
+    expect(onSend).toHaveBeenCalledExactlyOnceWith('Compare these', [
+      expect.objectContaining({ filename: 'a.pdf' }),
+      expect.objectContaining({ filename: 'b.pdf' })
+    ])
+    expect(input).toHaveValue('')
   })
 })
 

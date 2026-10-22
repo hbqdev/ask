@@ -19,6 +19,7 @@ import { newId } from '@/core/ids'
 import { useStack, type Stack } from '@/core/nav/stack'
 import { Composer } from '@/features/compose/Composer'
 import { useSharedSearchSettings } from '@/features/compose/SearchSettingsProvider'
+import type { FilePart } from '@/features/thread/chat-body'
 import {
   AssistantTurn,
   preloadAnswerRenderer,
@@ -51,21 +52,30 @@ export type ThreadScreenProps = {
   isNew: boolean
   /** Asked once when the screen opens. */
   initialQuestion?: string
+  /** Uploaded files asked about with the opening question. */
+  initialFiles?: FilePart[]
   /** A saved chat's title, shown until the chat's own title loads. */
   initialTitle?: string
 }
 
 /**
- * Opens a thread over the current screen: a new chat (a fresh id) that asks
- * `question`, or the saved chat `chatId`, headed by `title` (from the
- * Library) until its own title loads. Whether it is new is decided here,
- * once, so it never changes while the screen is up.
+ * Opens a thread over the current screen: a new chat that asks `question`
+ * with `files`, or the saved chat `chatId`, headed by `title` (from the
+ * Library) until its own title loads. A new chat takes `newChatId` (the id
+ * its files were uploaded under), else a fresh id. Whether it is new is
+ * decided here, once, so it never changes while the screen is up.
  */
 export function openThread(
   push: Stack['push'],
-  o: { question?: string; chatId?: string; title?: string }
+  o: {
+    question?: string
+    files?: FilePart[]
+    chatId?: string
+    title?: string
+    newChatId?: string
+  }
 ) {
-  const chatId = o.chatId ?? newId()
+  const chatId = o.chatId ?? o.newChatId ?? newId()
   const isNew = o.chatId === undefined
   push({
     key: `thread:${chatId}`,
@@ -74,6 +84,7 @@ export function openThread(
         chatId={chatId}
         isNew={isNew}
         initialQuestion={o.question}
+        initialFiles={o.files}
         initialTitle={o.title}
       />
     )
@@ -173,6 +184,7 @@ export function ThreadScreen({
   chatId,
   isNew,
   initialQuestion,
+  initialFiles,
   initialTitle
 }: ThreadScreenProps) {
   const { pop } = useStack()
@@ -195,10 +207,11 @@ export function ThreadScreen({
   // loading when this screen opens.
   const asked = useRef(false)
   useEffect(() => {
-    if (asked.current || !initialQuestion || !settingsLoaded) return
+    if (asked.current || !settingsLoaded) return
+    if (!initialQuestion && !initialFiles?.length) return
     asked.current = true
-    send(initialQuestion)
-  }, [initialQuestion, send, settingsLoaded])
+    send(initialQuestion ?? '', initialFiles)
+  }, [initialQuestion, initialFiles, send, settingsLoaded])
 
   // --- Following the bottom ---------------------------------------------------
   // The answer renderer commits its blocks after React's update (and the
@@ -259,9 +272,9 @@ export function ThreadScreen({
     toBottom()
   }
 
-  const sendFollowUp = (text: string) => {
+  const sendFollowUp = (text: string, files: FilePart[]) => {
     setFollowing(true)
-    send(text)
+    send(text, files)
   }
 
   // --- Header -----------------------------------------------------------------
@@ -384,6 +397,7 @@ export function ThreadScreen({
         busy={busy}
         disabled={thread.loading}
         onSend={sendFollowUp}
+        chatId={chatId}
         onStop={() => void thread.stop()}
         settings={settings}
         onSettings={setSettings}

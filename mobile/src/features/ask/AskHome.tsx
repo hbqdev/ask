@@ -1,16 +1,20 @@
 // The Ask tab: the mark, "Ask anything" and the composer. A typed question
-// opens a new thread that asks it; an ask:// link only fills the box.
+// (with any attached files) opens a new thread that asks it; an ask:// link
+// only fills the box. The next chat's id is made up front, so attachments
+// upload under the chat they will be asked in, as on the web.
 
 import { useCallback, useState } from 'react'
 
 import { useSelectTab } from '@/app/Tabs'
 import { isE2eAutoSend } from '@/core/config'
 import { useAskDeepLink } from '@/core/deep-link'
+import { newId } from '@/core/ids'
 import { useStack } from '@/core/nav/stack'
 import { OrbitMark } from '@/core/ui/OrbitMark'
 import { useE2eAsk } from '@/features/ask/e2e-ask'
 import { Composer } from '@/features/compose/Composer'
 import { useSharedSearchSettings } from '@/features/compose/SearchSettingsProvider'
+import type { FilePart } from '@/features/thread/chat-body'
 import { openThread } from '@/features/thread/ThreadScreen'
 
 export function AskHome() {
@@ -18,10 +22,14 @@ export function AskHome() {
   const selectTab = useSelectTab()
   const [settings, setSettings, settingsLoaded] = useSharedSearchSettings()
   const [draft, setDraft] = useState<{ text: string }>()
+  const [chatId, setChatId] = useState(newId)
 
   const ask = useCallback(
-    (question: string) => openThread(push, { question }),
-    [push]
+    (question: string, files?: FilePart[]) => {
+      openThread(push, { question, files, newChatId: chatId })
+      setChatId(newId())
+    },
+    [push, chatId]
   )
 
   // A link never sends by itself: a turn can write a lasting memory (the
@@ -47,6 +55,7 @@ export function AskHome() {
         // Nothing runs on the home screen, so there is nothing to stop.
         busy={false}
         onSend={ask}
+        chatId={chatId}
         settings={settings}
         onSettings={setSettings}
         draft={draft}

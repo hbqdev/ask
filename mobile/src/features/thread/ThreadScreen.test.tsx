@@ -1,5 +1,12 @@
 import type { UIMessage } from 'ai'
-import { act, fireEvent, render, screen, within } from '@testing-library/react'
+import {
+  act,
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+  within
+} from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { StrictMode, type ReactNode } from 'react'
 import { Share } from '@capacitor/share'
@@ -10,6 +17,7 @@ import { useAuth, type Auth } from '@/core/auth/AuthProvider'
 import { StackProvider, StackView, useStack } from '@/core/nav/stack'
 import { SEARCH_SETTINGS_KEY } from '@/features/compose/search-settings'
 import { SearchSettingsProvider } from '@/features/compose/SearchSettingsProvider'
+import { uploadFile } from '@/features/compose/upload'
 import { deleteChat, renameChat } from '@/features/library/library-api'
 import type { ChatErrorView } from '@/features/thread/model/chat-errors'
 import { openThread, ThreadScreen } from '@/features/thread/ThreadScreen'
@@ -21,6 +29,7 @@ vi.mock('@/features/thread/useThread', () => ({ useThread: vi.fn() }))
 vi.mock('@/core/auth/AuthProvider', () => ({ useAuth: vi.fn() }))
 vi.mock('@/core/api/ApiProvider', () => ({ useApi: vi.fn() }))
 vi.mock('@/core/ids', () => ({ newId: vi.fn(() => 'new-chat-id') }))
+vi.mock('@/features/compose/upload', () => ({ uploadFile: vi.fn() }))
 vi.mock('@/features/library/library-api', async importOriginal => ({
   ...(await importOriginal<typeof import('@/features/library/library-api')>()),
   renameChat: vi.fn(),
@@ -60,6 +69,11 @@ vi.mock('@capacitor/browser', () => ({
 type Part = UIMessage['parts'][number]
 
 const BASE = 'https://ask.test.invalid'
+const DOC = {
+  url: `${BASE}/uploads/u1/chats/c1/1-b.pdf`,
+  filename: 'b.pdf',
+  mediaType: 'application/pdf'
+}
 const signOut = vi.fn(async () => {})
 
 // --- Fixtures ----------------------------------------------------------------
@@ -211,7 +225,35 @@ describe('openThread', () => {
       isNew: true,
       settings: { searchMode: 'balanced', sources: ['web'] }
     })
-    expect(thread.send).toHaveBeenCalledExactlyOnceWith('Why is the sky blue?')
+    expect(thread.send).toHaveBeenCalledExactlyOnceWith(
+      'Why is the sky blue?',
+      undefined
+    )
+  })
+
+  it('opens a new chat under a given id, asking with the files uploaded for it', async () => {
+    const thread = session()
+    vi.mocked(useThread).mockReturnValue(thread)
+    renderStack({ question: 'What is this?', files: [DOC], newChatId: 'pre-1' })
+    await act(async () => screen.getByRole('button', { name: 'Open' }).click())
+
+    expect(screen.getByTestId('keys')).toHaveTextContent('home,thread:pre-1')
+    expect(useThread).toHaveBeenCalledWith(
+      expect.objectContaining({ chatId: 'pre-1', isNew: true })
+    )
+    expect(thread.send).toHaveBeenCalledExactlyOnceWith('What is this?', [DOC])
+  })
+
+  it('asks with files alone', async () => {
+    const thread = session()
+    vi.mocked(useThread).mockReturnValue(thread)
+    renderStack({ files: [DOC] })
+    await act(async () => screen.getByRole('button', { name: 'Open' }).click())
+
+    expect(thread.send).toHaveBeenCalledExactlyOnceWith('', [DOC])
+    expect(
+      screen.getByRole('heading', { level: 1, name: 'Chat' })
+    ).toBeVisible()
   })
 
   it('opens an existing chat without sending anything', async () => {
@@ -283,7 +325,7 @@ describe('ThreadScreen', () => {
     )
     // Once the stored settings have loaded.
     await act(async () => {})
-    expect(thread.send).toHaveBeenCalledExactlyOnceWith('First?')
+    expect(thread.send).toHaveBeenCalledExactlyOnceWith('First?', undefined)
   })
 
   it('holds the opening question until the stored settings load', async () => {
@@ -307,7 +349,10 @@ describe('ThreadScreen', () => {
     await act(async () =>
       finishLoad(JSON.stringify({ searchMode: 'quality', sources: ['web'] }))
     )
-    expect(thread.send).toHaveBeenCalledExactlyOnceWith('Cold start?')
+    expect(thread.send).toHaveBeenCalledExactlyOnceWith(
+      'Cold start?',
+      undefined
+    )
     // Sent with the stored settings, not the defaults.
     const sendOrder = vi.mocked(thread.send).mock.invocationCallOrder[0]
     const renders = vi.mocked(useThread).mock
@@ -547,7 +592,35 @@ describe('ThreadScreen', () => {
     const thread = session({ messages: TURN })
     renderScreen(thread)
     await userEv.type(composer(), 'And then?{Enter}')
-    expect(thread.send).toHaveBeenCalledExactlyOnceWith('And then?')
+    expect(thread.send).toHaveBeenCalledExactlyOnceWith('And then?', [])
+  })
+
+  it('sends a follow-up with files uploaded under this chat', async () => {
+    const userEv = userEvent.setup()
+    vi.mocked(useApi).mockReturnValue({
+      baseUrl: BASE,
+      getToken: async () => 'tok'
+    } as Api)
+    vi.mocked(uploadFile).mockResolvedValue({
+      ...DOC,
+      objectKey: 'k',
+      status: 'ready'
+    })
+    const thread = session({ messages: TURN })
+    renderScreen(thread, { chatId: 'c7' })
+    await userEv.upload(
+      screen.getByTestId('pick-files'),
+      new File(['%PDF'], 'b.pdf', { type: 'application/pdf' })
+    )
+    await waitFor(() =>
+      expect(screen.getByRole('button', { name: 'Send' })).toBeEnabled()
+    )
+    expect(uploadFile).toHaveBeenCalledWith(
+      expect.objectContaining({ chatId: 'c7', filename: 'b.pdf' })
+    )
+
+    await userEv.click(screen.getByRole('button', { name: 'Send' }))
+    expect(thread.send).toHaveBeenCalledExactlyOnceWith('', [DOC])
   })
 
   it('asks a related question with send', () => {

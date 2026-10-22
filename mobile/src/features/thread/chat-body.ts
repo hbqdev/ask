@@ -3,9 +3,43 @@
 // and custom instructions, except that isNewChat survives a first submit that
 // failed (see below). Never the conversation (the server loads it), a model
 // (signed-in users get their saved preference) or an analytics id.
-import type { UIMessage } from 'ai'
+import type { FileUIPart, UIMessage } from 'ai'
 
 import type { SearchMode, SearchSources } from '@/lib/types/search'
+
+/** An uploaded attachment, as a question's file part carries it (code map §6). */
+export type FilePart = { url: string; filename: string; mediaType: string }
+
+/**
+ * A question's parts as the web builds them (components/chat.tsx onSubmit):
+ * the text, then one part per uploaded file. Files sent alone have no text
+ * part, as on the web; the server reads such a message as it is.
+ */
+export function userParts(
+  text: string,
+  files: FilePart[] = []
+): UIMessage['parts'] {
+  return [
+    ...(text ? [{ type: 'text' as const, text }] : []),
+    ...files.map(
+      ({ url, filename, mediaType }): FileUIPart => ({
+        type: 'file',
+        url,
+        filename,
+        mediaType
+      })
+    )
+  ]
+}
+
+/** The files a message carries, to send them again. */
+export function filePartsOf(message: UIMessage): FilePart[] {
+  return message.parts.flatMap(p =>
+    p.type === 'file'
+      ? [{ url: p.url, filename: p.filename ?? '', mediaType: p.mediaType }]
+      : []
+  )
+}
 
 /** The search settings each turn sends. Task 6 persists them. */
 export type SearchSettings = { searchMode: SearchMode; sources: SearchSources }
