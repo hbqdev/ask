@@ -11,13 +11,16 @@ export function stripForSpeech(text: string): string {
     // drop terminated ones, then any unterminated trailing block (stream cut
     // before the closing fence) from its opening fence to the end.
     stripSpecBlocks(text)
-      .replace(/```spec[\s\S]*$/, '')
+      .replace(/^[ \t]*```spec[\s\S]*$/m, '')
       // fenced code blocks are not read out at all (only their backticks would
-      // go below). A fence opens and closes only at a line start (up to three
-      // spaces in), so ``` mentioned mid-line is prose; an unclosed fence
-      // (stream cut) runs to the end.
+      // go below). A fence opens only on a line of its own: its backticks, at
+      // any indent (a list item's code is indented four or more), and an info
+      // string without backticks (```x``` at a line start is inline code). It
+      // closes at a line of at least as many backticks, so a ```` fence can
+      // show a ``` one; an unclosed fence (stream cut) runs to the end. ```
+      // mentioned mid-line is prose.
       .replace(
-        /^ {0,3}```[^\n]*(?:\n[\s\S]*?(?:^ {0,3}```[ \t]*$|(?![\s\S]))|(?![\s\S]))/gm,
+        /^[ \t]*(`{3,})[^`\n]*(?:\n[\s\S]*?(?:^[ \t]*\1`*[ \t]*$|(?![\s\S]))|(?![\s\S]))/gm,
         ' '
       )
       // horizontal rules (---, ***, ___ alone on a line)
