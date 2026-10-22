@@ -60,3 +60,27 @@ export function focusHeading(container: HTMLElement): boolean {
   heading.focus({ preventScroll: true })
   return true
 }
+
+// Input types that are controls, not text: focusing one raises no keyboard.
+const NON_TEXT_INPUTS = new Set([
+  'button',
+  'checkbox',
+  'color',
+  'file',
+  'image',
+  'radio',
+  'range',
+  'reset',
+  'submit'
+])
+
+/**
+ * Whether focusing `el` would raise the keyboard: a text field, a select, or
+ * anything editable. Navigation never gives focus back to one of these.
+ */
+export function isTextEntry(el: Element): boolean {
+  if (el instanceof HTMLInputElement) return !NON_TEXT_INPUTS.has(el.type)
+  return el.matches(
+    'textarea, select, [contenteditable]:not([contenteditable="false"]), [contenteditable]:not([contenteditable="false"]) *'
+  )
+}

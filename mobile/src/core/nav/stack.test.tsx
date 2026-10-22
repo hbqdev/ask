@@ -1,5 +1,6 @@
 import {
   act,
+  createEvent,
   fireEvent,
   render,
   renderHook,
@@ -226,18 +227,26 @@ function reducedMotion(reduce: boolean) {
   )
 }
 
-// The swipe's clock (performance.now), in ms. Swipes here step it by 100 ms
-// an event, so they are slow drags, never flicks.
-let clock = 0
+// The swipe's clock: each pointer event's timeStamp, in ms. swipe() steps it
+// by 100 ms an event unless given a time, so drags are slow, never flicks.
+let clock = 1000
 
-function point(x: number) {
-  return { clientX: x, clientY: 300, pointerId: 1, isPrimary: true }
-}
-
-/** A point 100 ms after the last. */
-function at(x: number) {
-  clock += 100
-  return point(x)
+/** Fires a pointer event at `x` that happened at `t` (100 ms on by default). */
+function swipe(
+  type: 'pointerDown' | 'pointerMove' | 'pointerUp',
+  el: HTMLElement,
+  x: number,
+  t = clock + 100
+) {
+  clock = t
+  const event = createEvent[type](el, {
+    clientX: x,
+    clientY: 300,
+    pointerId: 1,
+    isPrimary: true
+  })
+  Object.defineProperty(event, 'timeStamp', { value: t })
+  fireEvent(el, event)
 }
 
 describe('StackView', () => {
@@ -246,8 +255,7 @@ describe('StackView', () => {
   beforeEach(() => {
     vi.spyOn(history, 'back').mockImplementation(() => {})
     vi.spyOn(history, 'go').mockImplementation(() => {})
-    clock = 0
-    vi.spyOn(performance, 'now').mockImplementation(() => clock)
+    clock = 1000
     reducedMotion(false)
     savedWidth = window.innerWidth
     window.innerWidth = 390
@@ -372,12 +380,12 @@ describe('StackView', () => {
     setupView()
     act(() => stack.push(entry('thread')))
     const top = layer('thread')
-    fireEvent.pointerDown(top, at(10))
-    fireEvent.pointerMove(top, at(150))
+    swipe('pointerDown', top, 10)
+    swipe('pointerMove', top, 150)
     expect(top.style.transform).toBe('translate3d(140px, 0, 0)')
     expect(top.style.transition).toBe('none')
-    fireEvent.pointerMove(top, at(200))
-    fireEvent.pointerUp(top, at(200))
+    swipe('pointerMove', top, 200)
+    swipe('pointerUp', top, 200)
 
     expect(stack.screens.map(s => s.key)).toEqual(['home'])
     expect(top).toHaveClass('stack-leave')
@@ -390,11 +398,11 @@ describe('StackView', () => {
     setupView()
     act(() => stack.push(entry('thread')))
     const top = layer('thread')
-    fireEvent.pointerDown(top, at(10))
+    swipe('pointerDown', top, 10)
     // 25 px a step: slow, so not a flick.
-    fireEvent.pointerMove(top, at(35))
-    fireEvent.pointerMove(top, at(60))
-    fireEvent.pointerUp(top, at(60))
+    swipe('pointerMove', top, 35)
+    swipe('pointerMove', top, 60)
+    swipe('pointerUp', top, 60)
 
     expect(stack.screens.map(s => s.key)).toEqual(['home', 'thread'])
     expect(top.style.transform).toBe('')
@@ -424,12 +432,12 @@ describe('StackView', () => {
     act(() => stack.push(entry('thread')))
     const top = layer('thread')
     const below = layer('home')
-    fireEvent.pointerDown(top, at(10))
+    swipe('pointerDown', top, 10)
     // Half the width across: the screen below is half way in from -30%.
-    fireEvent.pointerMove(top, at(205))
+    swipe('pointerMove', top, 205)
     expect(below.style.transition).toBe('none')
     expect(below.style.transform).toBe('translate3d(-15%, 0, 0)')
-    fireEvent.pointerMove(top, at(49))
+    swipe('pointerMove', top, 49)
     expect(below.style.transform).toBe(
       `translate3d(${(39 / 390 - 1) * 30}%, 0, 0)`
     )
@@ -440,19 +448,19 @@ describe('StackView', () => {
     act(() => stack.push(entry('thread')))
     const top = layer('thread')
     const below = layer('home')
-    fireEvent.pointerDown(top, at(10))
-    fireEvent.pointerMove(top, at(35))
-    fireEvent.pointerMove(top, at(60))
+    swipe('pointerDown', top, 10)
+    swipe('pointerMove', top, 35)
+    swipe('pointerMove', top, 60)
     expect(below.style.transform).not.toBe('')
-    fireEvent.pointerUp(top, at(60))
+    swipe('pointerUp', top, 60)
     expect(stack.screens.map(s => s.key)).toEqual(['home', 'thread'])
     expect(below.style.transform).toBe('')
     expect(below.style.transition).toBe('')
 
-    fireEvent.pointerDown(top, at(10))
-    fireEvent.pointerMove(top, at(250))
+    swipe('pointerDown', top, 10)
+    swipe('pointerMove', top, 250)
     expect(below.style.transform).not.toBe('')
-    fireEvent.pointerUp(top, at(250))
+    swipe('pointerUp', top, 250)
     expect(stack.screens.map(s => s.key)).toEqual(['home'])
     // The stylesheet's transition settles it from where it was to 0.
     expect(below.style.transform).toBe('')
@@ -463,8 +471,8 @@ describe('StackView', () => {
     setupView()
     act(() => stack.push(entry('thread')))
     act(() => stack.push(entry('source')))
-    fireEvent.pointerDown(layer('source'), at(10))
-    fireEvent.pointerMove(layer('source'), at(205))
+    swipe('pointerDown', layer('source'), 10)
+    swipe('pointerMove', layer('source'), 205)
     expect(layer('thread').style.transform).toBe('translate3d(-15%, 0, 0)')
     expect(layer('home').style.transform).toBe('')
   })
@@ -474,8 +482,8 @@ describe('StackView', () => {
     setupView()
     act(() => stack.push(entry('thread')))
     const top = layer('thread')
-    fireEvent.pointerDown(top, at(10))
-    fireEvent.pointerMove(top, at(205))
+    swipe('pointerDown', top, 10)
+    swipe('pointerMove', top, 205)
     expect(layer('home').style.transform).toBe('')
     expect(layer('home').style.transition).toBe('')
     // The top screen still follows the finger.
@@ -486,15 +494,57 @@ describe('StackView', () => {
     setupView()
     act(() => stack.push(entry('thread')))
     const top = layer('thread')
-    clock = 0
-    fireEvent.pointerDown(top, point(10))
-    clock = 100
-    fireEvent.pointerMove(top, point(30))
+    swipe('pointerDown', top, 10, 1000)
+    swipe('pointerMove', top, 30, 1100)
     // The last 30 px in 10 ms.
-    clock = 110
-    fireEvent.pointerMove(top, point(60))
-    fireEvent.pointerUp(top, point(60))
+    swipe('pointerMove', top, 60, 1110)
+    swipe('pointerUp', top, 60, 1110)
     expect(stack.screens.map(s => s.key)).toEqual(['home'])
+  })
+
+  it('a stack change mid-drag leaves no layer offset, and the drag goes no further', () => {
+    setupView()
+    act(() => stack.push(entry('thread')))
+    swipe('pointerDown', layer('thread'), 10)
+    swipe('pointerMove', layer('thread'), 205)
+    expect(layer('home').style.transform).not.toBe('')
+    // A deep link pushes a screen while the finger is down.
+    act(() => stack.push(entry('linked')))
+    for (const key of ['home', 'thread', 'linked']) {
+      expect(layer(key).style.transform, key).toBe('')
+      expect(layer(key).style.transition, key).toBe('')
+    }
+    swipe('pointerMove', layer('linked'), 300)
+    swipe('pointerUp', layer('linked'), 300)
+    expect(layer('linked').style.transform).toBe('')
+    expect(stack.screens.map(s => s.key)).toEqual(['home', 'thread', 'linked'])
+  })
+
+  it('drags with parallax where matchMedia is missing', () => {
+    vi.stubGlobal('matchMedia', undefined)
+    setupView()
+    act(() => stack.push(entry('thread')))
+    swipe('pointerDown', layer('thread'), 10)
+    swipe('pointerMove', layer('thread'), 205)
+    expect(layer('home').style.transform).toBe('translate3d(-15%, 0, 0)')
+  })
+
+  it('reads the reduced-motion setting once a drag', () => {
+    setupView()
+    act(() => stack.push(entry('thread')))
+    const top = layer('thread')
+    swipe('pointerDown', top, 10)
+    swipe('pointerMove', top, 60)
+    swipe('pointerMove', top, 100)
+    swipe('pointerMove', top, 120)
+    expect(window.matchMedia).toHaveBeenCalledTimes(1)
+    // Short of a third: it snaps back.
+    swipe('pointerUp', top, 120)
+    expect(stack.screens.map(s => s.key)).toEqual(['home', 'thread'])
+    // The next drag reads it again.
+    swipe('pointerDown', top, 10)
+    swipe('pointerMove', top, 60)
+    expect(window.matchMedia).toHaveBeenCalledTimes(2)
   })
 })
 
@@ -504,8 +554,7 @@ describe('StackView focus', () => {
   beforeEach(() => {
     vi.spyOn(history, 'back').mockImplementation(() => {})
     vi.spyOn(history, 'go').mockImplementation(() => {})
-    clock = 0
-    vi.spyOn(performance, 'now').mockImplementation(() => clock)
+    clock = 1000
     reducedMotion(false)
   })
 
@@ -572,9 +621,9 @@ describe('StackView focus', () => {
     expect(opener).not.toHaveFocus()
     const top = layer('thread')
     // Past a third of jsdom's 1024 px window.
-    fireEvent.pointerDown(top, at(10))
-    fireEvent.pointerMove(top, at(400))
-    fireEvent.pointerUp(top, at(400))
+    swipe('pointerDown', top, 10)
+    swipe('pointerMove', top, 400)
+    swipe('pointerUp', top, 400)
     expect(stack.screens.map(s => s.key)).toEqual(['home'])
     expect(opener).toHaveFocus()
   })
@@ -624,6 +673,62 @@ describe('StackView focus', () => {
     })
     expect(stack.screens.map(s => s.key)).toEqual(['home'])
     expect(opener).toHaveFocus()
+  })
+
+  it('a pop back to a text-field opener focuses the heading, not the field (no keyboard)', () => {
+    setupView(
+      entry(
+        'home',
+        <main>
+          <h1>Home</h1>
+          <textarea aria-label="Ask" />
+        </main>
+      )
+    )
+    // Return in the composer sends: the field still has focus at the push.
+    const field = screen.getByLabelText('Ask')
+    field.focus()
+    act(() => stack.push(titled('thread', 'Thread')))
+    act(() => stack.pop())
+    expect(field).not.toHaveFocus()
+    expect(screen.getByText('Home')).toHaveFocus()
+  })
+
+  it('an opener in a hidden part gets no focus; the heading does', () => {
+    const opener = openFromHome()
+    act(() => stack.push(titled('thread', 'Thread')))
+    // Its part of the screen was hidden meanwhile (another tab shown).
+    opener.hidden = true
+    act(() => stack.pop())
+    expect(opener).not.toHaveFocus()
+    expect(screen.getByText('Home')).toHaveFocus()
+  })
+
+  it('a pop keeps focus something on the shown screen already took', () => {
+    function Draft() {
+      const shown = useScreenActive()
+      const ref = useRef<HTMLInputElement>(null)
+      const covered = useRef(false)
+      useEffect(() => {
+        if (!shown) covered.current = true
+        else if (covered.current) ref.current!.focus()
+      }, [shown])
+      return <input ref={ref} aria-label="Draft" />
+    }
+    setupView(
+      entry(
+        'home',
+        <main>
+          <h1>Home</h1>
+          <button type="button">open</button>
+          <Draft />
+        </main>
+      )
+    )
+    screen.getByText('open').focus()
+    act(() => stack.push(titled('thread', 'Thread')))
+    act(() => stack.pop())
+    expect(screen.getByLabelText('Draft')).toHaveFocus()
   })
 
   it('falls back to the heading when the opener is gone', () => {

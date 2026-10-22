@@ -11,6 +11,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { useApi, type Api } from '@/core/api/ApiProvider'
 import { createApiClient } from '@/core/api/client'
 import { haptic } from '@/core/haptics'
+import { LONG_PRESS_MS } from '@/core/ui/SwipeRow'
 import {
   useScreenActive,
   useStack,
@@ -858,8 +859,24 @@ describe('MemoryScreen: memories', () => {
     const row = rowButton('Lives in Hanoi')
     expect(row).toHaveAccessibleDescription('Touch and hold for Delete.')
     expect(row.querySelector('.selectable')).toBeNull()
-    fireEvent.contextMenu(row)
+    // A real press held for LONG_PRESS_MS, then its release and click.
+    vi.useFakeTimers()
+    const press = { clientX: 200, clientY: 100, pointerId: 1, isPrimary: true }
+    try {
+      fireEvent.pointerDown(row, press)
+      act(() => vi.advanceTimersByTime(LONG_PRESS_MS))
+      fireEvent.pointerUp(row, press)
+      fireEvent.click(row)
+    } finally {
+      vi.useRealTimers()
+    }
+    // The click opened no memory (its own sheet), and left this one up.
+    expect(screen.getAllByRole('dialog')).toHaveLength(1)
     const actions = screen.getByRole('dialog', { name: 'Memory' })
+    // The next press (on Delete) disarms the swallowed click.
+    fireEvent.pointerDown(
+      within(actions).getByRole('button', { name: 'Delete' })
+    )
     fireEvent.click(within(actions).getByRole('button', { name: 'Delete' }))
     const sheet = screen.getByRole('dialog', { name: 'Delete this memory?' })
     expect(sheet).toHaveTextContent('Lives in Hanoi')

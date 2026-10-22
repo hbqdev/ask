@@ -2,7 +2,12 @@ import { fireEvent, render, screen } from '@testing-library/react'
 import { useRef, type KeyboardEvent } from 'react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
-import { focusHeading, trapTab, useReturnFocus } from '@/core/ui/focus'
+import {
+  focusHeading,
+  isTextEntry,
+  trapTab,
+  useReturnFocus
+} from '@/core/ui/focus'
 
 function Modal() {
   useReturnFocus()
@@ -188,5 +193,41 @@ describe('focusHeading', () => {
     const before = document.activeElement
     expect(focusHeading(el)).toBe(false)
     expect(document.activeElement).toBe(before)
+  })
+})
+
+describe('isTextEntry', () => {
+  function el(html: string): Element {
+    const box = document.createElement('div')
+    box.innerHTML = html
+    return box.querySelector('[data-t]')!
+  }
+
+  it.each([
+    '<textarea data-t></textarea>',
+    '<select data-t></select>',
+    '<input data-t>',
+    '<input data-t type="text">',
+    '<input data-t type="search">',
+    '<input data-t type="email">',
+    '<input data-t type="password">',
+    '<div data-t contenteditable></div>',
+    '<div contenteditable="true"><p data-t>in an editor</p></div>'
+  ])('%s raises the keyboard', html => {
+    expect(isTextEntry(el(html))).toBe(true)
+  })
+
+  it.each([
+    '<button data-t>Send</button>',
+    '<input data-t type="checkbox">',
+    '<input data-t type="radio">',
+    '<input data-t type="button">',
+    '<input data-t type="submit">',
+    '<input data-t type="range">',
+    '<div data-t role="button" tabindex="0">Row</div>',
+    '<div contenteditable="false"><p data-t>read only</p></div>',
+    '<a data-t href="#">link</a>'
+  ])('%s does not', html => {
+    expect(isTextEntry(el(html))).toBe(false)
   })
 })

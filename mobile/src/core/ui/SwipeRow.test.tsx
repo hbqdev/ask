@@ -899,11 +899,67 @@ describe('SwipeRow long press', () => {
     rename.mockImplementation(() => {
       focused = document.activeElement
     })
-    content.focus()
+    // On touch, nothing focuses the row before the hold (iOS gives a tapped
+    // element no focus): here a search field elsewhere still has it.
+    const search = document.createElement('input')
+    document.body.append(search)
+    search.focus()
     hold(content)
+    // The row took focus as the sheet opened, so the sheet returns it there.
     fireEvent.click(within(sheet()).getByText('Rename'))
     expect(rename).toHaveBeenCalledTimes(1)
     expect(focused).toBe(content)
+    search.remove()
+  })
+
+  it('a contextmenu just after the timer fired (not yet rendered) taps once', async () => {
+    const { content } = setup()
+    fireEvent.pointerDown(content, at({ x: 200 }))
+    // The timer fires; its update has not been rendered when Android's
+    // contextmenu comes in the next task.
+    vi.spyOn(console, 'error').mockImplementation(() => {})
+    vi.advanceTimersByTime(LONG_PRESS_MS)
+    fireEvent.contextMenu(content)
+    expect(haptic).toHaveBeenCalledExactlyOnceWith('medium')
+    // Let the timer's update render.
+    await act(async () => {
+      vi.useRealTimers()
+      await new Promise(resolve => setTimeout(resolve, 0))
+    })
+    vi.useFakeTimers()
+    expect(screen.getAllByRole('dialog')).toHaveLength(1)
+  })
+
+  it('opens again after it closed', () => {
+    const { content } = setup()
+    fireEvent.contextMenu(content)
+    fireEvent.click(within(sheet()).getByText('Cancel'))
+    fireEvent.contextMenu(content)
+    expect(sheet()).toBeInTheDocument()
+    fireEvent.click(within(sheet()).getByText('Rename'))
+    fireEvent.contextMenu(content)
+    expect(sheet()).toBeInTheDocument()
+    fireEvent.keyDown(document, { key: 'Escape' })
+    fireEvent.contextMenu(content)
+    expect(sheet()).toBeInTheDocument()
+    expect(haptic).toHaveBeenCalledTimes(5) // 4 opens, 1 light for Rename
+  })
+
+  it('a row unmounted with its actions sheet open leaves no dialog, and the next tap presses', () => {
+    const { actions } = makeActions()
+    const view = render(
+      <SwipeRow actions={actions} onPress={vi.fn()}>
+        <span>Gone</span>
+      </SwipeRow>
+    )
+    hold(content('Gone'))
+    fireEvent.pointerUp(content('Gone'), at({ x: 200 }))
+    expect(sheet()).toBeInTheDocument()
+    view.unmount()
+    expect(screen.queryByRole('dialog')).toBeNull()
+    const { content: other, onPress } = setup('Other')
+    tap(other)
+    expect(onPress).toHaveBeenCalledTimes(1)
   })
 
   it('Cancel closes it and runs nothing', () => {

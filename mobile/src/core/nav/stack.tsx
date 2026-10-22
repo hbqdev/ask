@@ -12,7 +12,8 @@ import {
 } from 'react'
 
 import { useEdgeSwipe } from '@/core/nav/use-edge-swipe'
-import { focusHeading } from '@/core/ui/focus'
+import { isShown } from '@/core/nav/scroll-to-top'
+import { focusHeading, isTextEntry } from '@/core/ui/focus'
 
 export type ScreenEntry = { key: string; render: () => ReactNode }
 
@@ -148,8 +149,9 @@ const LEAVE_FALLBACK_MS = 400
  */
 export const PARALLAX = 0.3
 
+// Read once a drag. A web view without matchMedia counts as motion allowed.
 const reducedMotion = () =>
-  window.matchMedia('(prefers-reduced-motion: reduce)').matches
+  window.matchMedia?.('(prefers-reduced-motion: reduce)').matches ?? false
 
 /** Hands a layer's position back to the stylesheet (its transition). */
 function release(el: HTMLElement) {
@@ -206,10 +208,14 @@ export function StackView() {
   const topRef = useRef<HTMLDivElement>(null)
   // The screen below the top one, which the back swipe uncovers.
   const belowRef = useRef<HTMLDivElement>(null)
-  const swipe = useEdgeSwipe(
+  const viewRef = useRef<HTMLDivElement>(null)
+  // Whether this drag moves the screen below (null: no drag yet).
+  const parallax = useRef<boolean | null>(null)
+  const { cancel: cancelSwipe, ...swipe } = useEdgeSwipe(
     () => {
       // Let the slide out run from where the finger let go, and the screen
       // below settle from where it was.
+      parallax.current = null
       topRef.current!.style.transition = ''
       release(belowRef.current!)
       pop()
@@ -219,13 +225,15 @@ export function StackView() {
         const el = topRef.current!
         el.style.transition = 'none'
         el.style.transform = `translate3d(${dx}px, 0, 0)`
-        if (reducedMotion()) return
+        parallax.current ??= !reducedMotion()
+        if (!parallax.current) return
         const below = belowRef.current!
         const shift = (dx / window.innerWidth - 1) * PARALLAX * 100
         below.style.transition = 'none'
         below.style.transform = `translate3d(${shift}%, 0, 0)`
       },
       onCancel() {
+        parallax.current = null
         release(topRef.current!)
         release(belowRef.current!)
       }
@@ -235,22 +243,37 @@ export function StackView() {
   // Focus follows navigation: a pushed (or replacing) screen takes it at its
   // title, unless something in it already took it; a pop gives it back to
   // what opened the popped screen, or else to the title of the one shown.
-  // The first mount moves nothing.
+  // Never to a text field (that would raise the keyboard, which iOS never
+  // does on a back), nor to one gone or hidden. The first mount moves
+  // nothing.
   const shown = useRef(screens)
   useEffect(() => {
     const prev = shown.current
     if (prev === screens) return
     shown.current = screens
+    // A drag the stack changed under (a deep link, a history back) goes no
+    // further, and leaves no screen offset.
+    cancelSwipe()
+    parallax.current = null
+    viewRef
+      .current!.querySelectorAll<HTMLElement>(
+        ':scope > .stack-layer:not(.stack-leave)'
+      )
+      .forEach(release)
     const top = topRef.current!
+    if (top.contains(document.activeElement)) return
     if (screens.length >= prev.length) {
-      if (!top.contains(document.activeElement)) focusHeading(top)
+      focusHeading(top)
       return
     }
     // The lowest screen popped (history can go back several at once).
     const opener = openers.get(prev[screens.length])
-    if (opener?.isConnected) opener.focus({ preventScroll: true })
-    else focusHeading(top)
-  }, [screens])
+    if (opener?.isConnected && isShown(opener) && !isTextEntry(opener)) {
+      opener.focus({ preventScroll: true })
+    } else {
+      focusHeading(top)
+    }
+  }, [screens, cancelSwipe])
 
   const leaving = motion.leaving
   const clearLeaving = useCallback(() => {
@@ -269,7 +292,7 @@ export function StackView() {
   const layers = leaving ? [...screens, leaving] : screens
   const topIndex = screens.length - 1
   return (
-    <div className="stack-view">
+    <div ref={viewRef} className="stack-view">
       {layers.map((entry, i) => {
         const isTop = i === topIndex
         const isLeaving = i > topIndex

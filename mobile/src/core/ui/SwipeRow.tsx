@@ -204,6 +204,10 @@ export function SwipeRow({
   const holdTimer = useRef<ReturnType<typeof setTimeout>>(undefined)
   const held = useRef(false)
   const [sheetOpen, setSheetOpen] = useState(false)
+  // Whether the sheet is (being) shown: set at once, where sheetOpen waits
+  // for a render (a contextmenu right after the timer must not open it
+  // twice).
+  const shown = useRef(false)
   const hintId = useId()
 
   // This row in the registry, created once: the registry compares by identity.
@@ -259,8 +263,18 @@ export function SwipeRow({
   }
 
   const showActions = () => {
+    if (shown.current) return
+    shown.current = true
     haptic('medium')
+    // A held touch gives the row no focus: take it, so the sheet gives it
+    // back to the row when it closes (and its action's confirmation does).
+    content.current!.focus({ preventScroll: true })
     setSheetOpen(true)
+  }
+
+  const hideActions = () => {
+    shown.current = false
+    setSheetOpen(false)
   }
 
   // Held long enough: the actions open, and the finger moving on from here
@@ -275,7 +289,7 @@ export function SwipeRow({
   // The sheet goes first, so focus is back on the row (Sheet's return) before
   // the action opens anything of its own (a confirmation).
   const choose = (action: SwipeAction) => {
-    flushSync(() => setSheetOpen(false))
+    flushSync(hideActions)
     run(action)
   }
 
@@ -397,7 +411,7 @@ export function SwipeRow({
       drag.current = null
     }
     cancelHold()
-    if (!sheetOpen) showActions()
+    showActions()
   }
 
   const onKeyDown = (e: KeyboardEvent<HTMLDivElement>) => {
@@ -475,11 +489,7 @@ export function SwipeRow({
           {`Touch and hold for ${actions.map(a => a.label).join(', ')}.`}
         </span>
       )}
-      <Sheet
-        open={sheetOpen}
-        onClose={() => setSheetOpen(false)}
-        title={actionsTitle}
-      >
+      <Sheet open={sheetOpen} onClose={hideActions} title={actionsTitle}>
         <div className="flex flex-col gap-2 pb-2">
           {actions.map(action => (
             <button
@@ -497,7 +507,7 @@ export function SwipeRow({
           ))}
           <button
             type="button"
-            onClick={() => setSheetOpen(false)}
+            onClick={hideActions}
             className={`${SHEET_BUTTON} text-foreground`}
           >
             Cancel

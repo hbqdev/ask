@@ -1,4 +1,4 @@
-import { useRef, type PointerEvent } from 'react'
+import { useCallback, useRef, type PointerEvent } from 'react'
 
 /**
  * The default width, in px, of the left-edge zone the back swipe starts in.
@@ -19,7 +19,10 @@ export type EdgeSwipeOptions = {
   threshold?: number
   /** The release speed, in px/ms, of a flick back. Default FLICK_VELOCITY. */
   flickVelocity?: number
-  /** The clock, in ms. Default performance.now. */
+  /**
+   * A clock, in ms, to time the events by instead of their own timeStamp
+   * (for tests).
+   */
   now?: () => number
   /** Called on each move of a swipe with how far it has travelled, in px. */
   onDrag?(dx: number): void
@@ -34,33 +37,46 @@ export type EdgeSwipeHandlers = {
   onPointerCancel(e: PointerEvent<Element>): void
 }
 
+export type EdgeSwipe = EdgeSwipeHandlers & {
+  /** Drops the drag in progress (the screen it was on changed under it). */
+  cancel(): void
+}
+
 // How far a pointer moves before the gesture counts as a swipe or a scroll.
 const SLOP = 10
 
-// A release this long, in ms, after the last move is a stop, not a flick:
-// the finger came to rest before it let go.
-const FLICK_HOLD_MS = 100
+// A flick's speed is measured over the moves of the last FLICK_WINDOW_MS
+// before the release (since the finger last turned back right), and only
+// over at least FLICK_MIN_SPAN_MS: a 1 ms release jitter, or moves flushed
+// together after a stall, say nothing about the speed. A finger that rested
+// for the whole window before letting go has none.
+const FLICK_WINDOW_MS = 50
+const FLICK_MIN_SPAN_MS = 4
+
+type Sample = { x: number; t: number }
 
 type Drag = {
   id: number
   x: number
   y: number
   swiping: boolean
-  /** The last move: where and when. */
-  lastX: number
-  lastT: number
-  /** The speed of the last move, in px/ms (rightward positive). */
-  v: number
+  /** Where the pointer was and when, the window's worth (oldest first). */
+  samples: Sample[]
 }
 
-/** Takes in a move to `x` at `t`: its speed since the last one. */
-function sample(d: Drag, x: number, t: number) {
-  const dt = t - d.lastT
-  // Two moves in one instant say nothing about the speed.
-  if (dt <= 0) return
-  d.v = (x - d.lastX) / dt
-  d.lastX = x
-  d.lastT = t
+/** Records a move, dropping samples older than the window. */
+function record(d: Drag, x: number, t: number) {
+  d.samples.push({ x, t })
+  while (d.samples[0].t < t - FLICK_WINDOW_MS) d.samples.shift()
+}
+
+/** The speed, in px/ms, rightward, of the latest run of moves right. */
+function velocity(samples: Sample[]): number {
+  const end = samples[samples.length - 1]
+  let i = samples.length - 1
+  while (i > 0 && samples[i - 1].x <= samples[i].x) i--
+  const span = end.t - samples[i].t
+  return span >= FLICK_MIN_SPAN_MS ? (end.x - samples[i].x) / span : 0
 }
 
 /**
@@ -72,16 +88,23 @@ function sample(d: Drag, x: number, t: number) {
 export function useEdgeSwipe(
   onBack: () => void,
   opts: EdgeSwipeOptions = {}
-): EdgeSwipeHandlers {
+): EdgeSwipe {
   const {
     edge = EDGE_ZONE,
     threshold = 0.33,
     flickVelocity = FLICK_VELOCITY,
-    now = () => performance.now(),
+    now,
     onDrag,
     onCancel
   } = opts
   const drag = useRef<Drag | null>(null)
+  // Stable, for effects to depend on.
+  const cancel = useCallback(() => {
+    drag.current = null
+  }, [])
+  // Each event's own time: when the touch happened, not when a busy main
+  // thread got round to handling it.
+  const time = (e: PointerEvent<Element>) => (now ? now() : e.timeStamp)
 
   const current = (e: PointerEvent<Element>): Drag | null => {
     const d = drag.current
@@ -99,15 +122,13 @@ export function useEdgeSwipe(
         x: e.clientX,
         y: e.clientY,
         swiping: false,
-        lastX: e.clientX,
-        lastT: now(),
-        v: 0
+        samples: [{ x: e.clientX, t: time(e) }]
       }
     },
     onPointerMove(e) {
       const d = current(e)
       if (!d) return
-      sample(d, e.clientX, now())
+      record(d, e.clientX, time(e))
       const dx = e.clientX - d.x
       if (!d.swiping) {
         const dy = Math.abs(e.clientY - d.y)
@@ -127,13 +148,10 @@ export function useEdgeSwipe(
       const d = current(e)
       if (!d) return
       drag.current = null
-      const t = now()
-      // A release further on is a last move; one where the last move was,
-      // after the finger rested there, ends with no speed.
-      if (e.clientX !== d.lastX) sample(d, e.clientX, t)
-      else if (t - d.lastT > FLICK_HOLD_MS) d.v = 0
+      record(d, e.clientX, time(e))
       const dx = e.clientX - d.x
-      const flicked = d.swiping && dx > SLOP && d.v >= flickVelocity
+      const flicked =
+        d.swiping && dx > SLOP && velocity(d.samples) >= flickVelocity
       if (dx > threshold * window.innerWidth || flicked) onBack()
       else if (d.swiping) onCancel?.()
     },
@@ -142,6 +160,7 @@ export function useEdgeSwipe(
       if (!d) return
       drag.current = null
       if (d.swiping) onCancel?.()
-    }
+    },
+    cancel
   }
 }

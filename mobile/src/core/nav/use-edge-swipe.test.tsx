@@ -1,4 +1,4 @@
-import { fireEvent, render, screen } from '@testing-library/react'
+import { createEvent, fireEvent, render, screen } from '@testing-library/react'
 import { createPortal } from 'react-dom'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
@@ -29,8 +29,14 @@ afterEach(() => {
 })
 
 function Pad(props: { onBack: () => void; opts?: EdgeSwipeOptions }) {
-  const handlers = useEdgeSwipe(props.onBack, props.opts)
-  return <div data-testid="pad" {...handlers} />
+  const { cancel, ...handlers } = useEdgeSwipe(props.onBack, props.opts)
+  return (
+    <div data-testid="pad" {...handlers}>
+      <button type="button" onClick={cancel}>
+        cancel
+      </button>
+    </div>
+  )
 }
 
 function setup(opts?: EdgeSwipeOptions) {
@@ -50,6 +56,18 @@ type Point = {
 
 function at({ x, y = 300, id = 1, primary = true }: Point) {
   return { clientX: x, clientY: y, pointerId: id, isPrimary: primary }
+}
+
+/** Fires a pointer event that happened at `timeStamp` (ms). */
+function timed(
+  el: HTMLElement,
+  type: 'pointerDown' | 'pointerMove' | 'pointerUp',
+  x: number,
+  timeStamp: number
+) {
+  const event = createEvent[type](el, at({ x }))
+  Object.defineProperty(event, 'timeStamp', { value: timeStamp })
+  fireEvent(el, event)
 }
 
 function tick(p: Point) {
@@ -310,20 +328,112 @@ describe('useEdgeSwipe', () => {
     expect(onBack).not.toHaveBeenCalled()
   })
 
-  it('reads the time from performance.now by default', () => {
-    const now = vi.spyOn(performance, 'now')
+  it('times each event by its own timeStamp by default (not when it is handled)', () => {
+    // The handlers run back to back after a stall (performance.now 1 ms
+    // apart), but the moves happened 100 ms apart: a slow drag.
+    let handled = 0
+    vi.spyOn(performance, 'now').mockImplementation(() => ++handled)
     const onBack = vi.fn()
     render(<Pad onBack={onBack} />)
     const pad = screen.getByTestId('pad')
-    now.mockReturnValue(0)
-    fireEvent.pointerDown(pad, at({ x: 10 }))
-    now.mockReturnValue(20)
-    fireEvent.pointerMove(pad, at({ x: 30 }))
-    now.mockReturnValue(40)
-    fireEvent.pointerMove(pad, at({ x: 60 }))
-    fireEvent.pointerUp(pad, at({ x: 60 }))
-    expect(now).toHaveBeenCalled()
+    timed(pad, 'pointerDown', 10, 1000)
+    timed(pad, 'pointerMove', 30, 1100)
+    timed(pad, 'pointerMove', 50, 1200)
+    timed(pad, 'pointerUp', 50, 1201)
+    expect(onBack).not.toHaveBeenCalled()
+
+    // And a real flick, by its timestamps, goes back.
+    timed(pad, 'pointerDown', 10, 2000)
+    timed(pad, 'pointerMove', 34, 2016)
+    timed(pad, 'pointerMove', 58, 2032)
+    timed(pad, 'pointerUp', 58, 2040)
     expect(onBack).toHaveBeenCalledTimes(1)
+  })
+
+  it('a slow peek released with a tiny last jitter does not go back', () => {
+    const onCancel = vi.fn()
+    const { onBack, pad } = setup({ onCancel })
+    // 0.2 px/ms in 20 ms steps, then the release 1 ms later, 2 px on.
+    drag(pad, [
+      { x: 10, t: 0 },
+      { x: 14, t: 20 },
+      { x: 18, t: 40 },
+      { x: 22, t: 60 },
+      { x: 26, t: 80 },
+      { x: 30, t: 100 }
+    ])
+    expect(onCancel).toHaveBeenCalledTimes(1)
+    onCancel.mockClear()
+    tick({ x: 10, t: 1000 })
+    fireEvent.pointerDown(pad, at({ x: 10 }))
+    for (const [x, t] of [
+      [14, 1020],
+      [18, 1040],
+      [22, 1060],
+      [26, 1080],
+      [30, 1100]
+    ]) {
+      clock = t
+      fireEvent.pointerMove(pad, at({ x }))
+    }
+    clock = 1101
+    fireEvent.pointerUp(pad, at({ x: 32 }))
+    expect(onBack).not.toHaveBeenCalled()
+    expect(onCancel).toHaveBeenCalledTimes(1)
+  })
+
+  it('a genuine fast flick at the touch rate goes back', () => {
+    const { onBack, pad } = setup()
+    // 1.5 px/ms, a move every 16 ms, released 8 ms after the last move.
+    tick({ x: 10, t: 0 })
+    fireEvent.pointerDown(pad, at({ x: 10 }))
+    for (const [x, t] of [
+      [34, 16],
+      [58, 32],
+      [82, 48]
+    ]) {
+      clock = t
+      fireEvent.pointerMove(pad, at({ x }))
+    }
+    clock = 56
+    fireEvent.pointerUp(pad, at({ x: 82 }))
+    expect(onBack).toHaveBeenCalledTimes(1)
+  })
+
+  it('a burst of moves under 4 ms (a stall flushed at once) is no flick', () => {
+    const { onBack, pad } = setup()
+    drag(pad, [
+      { x: 10, t: 0 },
+      { x: 30, t: 100 },
+      { x: 40, t: 101 },
+      { x: 50, t: 102 }
+    ])
+    expect(onBack).not.toHaveBeenCalled()
+  })
+
+  it('measures the speed since the last turn back right only', () => {
+    const { onBack, pad } = setup()
+    // Fast right, then back left: the last 40 ms moved left.
+    drag(pad, [
+      { x: 10, t: 0 },
+      { x: 70, t: 20 },
+      { x: 60, t: 30 },
+      { x: 50, t: 40 }
+    ])
+    expect(onBack).not.toHaveBeenCalled()
+  })
+
+  it('cancel() drops the drag in progress', () => {
+    const onDrag = vi.fn()
+    const { onBack, pad } = setup({ onDrag })
+    fireEvent.pointerDown(pad, at({ x: 10 }))
+    fireEvent.pointerMove(pad, at({ x: 40 }))
+    fireEvent.click(screen.getByRole('button', { name: 'cancel' }))
+    onDrag.mockClear()
+    fireEvent.pointerMove(pad, at({ x: 300 }))
+    fireEvent.pointerUp(pad, at({ x: 300 }))
+    expect(onDrag).not.toHaveBeenCalled()
+    expect(onBack).not.toHaveBeenCalled()
   })
 
   it('ignores a press in a portal of the screen’s (a sheet it opened)', () => {
