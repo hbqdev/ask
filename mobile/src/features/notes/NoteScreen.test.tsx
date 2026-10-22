@@ -263,6 +263,46 @@ describe('NoteScreen', () => {
     expect(pop).toHaveBeenCalled()
   })
 
+  it('keeps the note out of the list while its delete is on its way, and out of a list loaded meanwhile', async () => {
+    setNotesCache({ userId: 'user-1', notes: [NOTE], nextCursor: null })
+    const gate = deferred<Response>()
+    handle = method =>
+      method === 'DELETE' ? gate.promise : json({ note: NOTE })
+    renderNote()
+    fireEvent.click(screen.getByRole('button', { name: 'Delete' }))
+    await act(async () => {
+      fireEvent.click(
+        within(screen.getByRole('dialog')).getByRole('button', {
+          name: 'Delete'
+        })
+      )
+    })
+    expect(getNotesCache()!.notes).toEqual([])
+    // A Notes list refresh read before the delete landed.
+    act(() =>
+      setNotesCache({ userId: 'user-1', notes: [NOTE], nextCursor: null })
+    )
+    expect(getNotesCache()!.notes).toEqual([])
+    await act(async () => gate.resolve(json({ ok: true })))
+    expect(pop).toHaveBeenCalled()
+  })
+
+  it('a failed delete lets the note show in lists loaded later', async () => {
+    renderNote()
+    await screen.findByRole('heading', { level: 1, name: 'Tides' })
+    handle = () => json({ error: 'Down' }, 503)
+    fireEvent.click(screen.getByRole('button', { name: 'Delete' }))
+    await act(async () => {
+      fireEvent.click(
+        within(screen.getByRole('dialog')).getByRole('button', {
+          name: 'Delete'
+        })
+      )
+    })
+    setNotesCache({ userId: 'user-1', notes: [NOTE], nextCursor: null })
+    expect(getNotesCache()!.notes).toEqual([NOTE])
+  })
+
   it('counts a note already deleted elsewhere as deleted', async () => {
     renderNote()
     await screen.findByRole('heading', { level: 1, name: 'Tides' })

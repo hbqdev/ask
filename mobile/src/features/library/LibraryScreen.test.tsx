@@ -838,6 +838,20 @@ describe('LibraryScreen segments', () => {
     expect(Preferences.set).not.toHaveBeenCalled()
   })
 
+  it('only the segment shown watches its end for the next page', async () => {
+    vi.mocked(useNotes).mockReturnValue(notesState({ hasMore: true }))
+    await renderScreen(library({ hasMore: true }))
+    const chatsEnd = screen.getByTestId('library-more')
+    expect(isObserved(chatsEnd)).toBe(true)
+    fireEvent.click(segment('Notes'))
+    const notesEnd = screen.getByTestId('notes-more')
+    expect(isObserved(notesEnd)).toBe(true)
+    expect(isObserved(chatsEnd)).toBe(false)
+    fireEvent.click(segment('Chats'))
+    expect(isObserved(chatsEnd)).toBe(true)
+    expect(isObserved(notesEnd)).toBe(false)
+  })
+
   it('opens on the stored segment, loading no chats until Chats is shown', async () => {
     prefsData.set(LIBRARY_SEGMENT_KEY, 'notes')
     vi.mocked(useLibrary).mockReturnValue(library())

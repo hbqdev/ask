@@ -5,7 +5,7 @@
 // cache at once while the list revalidates, and a failed load keeps them and
 // says so. Notes: the answers the user saved (NotesList). Each segment mounts
 // the first time it is shown and then stays mounted, keeping its rows and
-// scroll; a switch renders neither list again.
+// scroll; a switch renders no row again, and a hidden segment pages nothing.
 
 import {
   memo,
@@ -19,7 +19,7 @@ import {
   type RefObject
 } from 'react'
 
-import { useSelectTab, useTabActive } from '@/app/Tabs'
+import { ActiveWithin, useSelectTab, useTabActive } from '@/app/Tabs'
 import { haptic } from '@/core/haptics'
 import { useStack } from '@/core/nav/stack'
 import { ConfirmSheet } from '@/core/ui/ConfirmSheet'
@@ -141,13 +141,15 @@ export function LibraryScreen() {
               style={shown ? undefined : { visibility: 'hidden' }}
               inert={!shown}
             >
-              {/* The lists (ChatList, NotesList) are memoized: a switch
-                  renders neither again. */}
-              {id === 'chats' ? (
-                <LibraryList sort={sort} onSort={setSort} />
-              ) : (
-                <NotesList />
-              )}
+              {/* A hidden segment pages nothing (its end is not watched).
+                  The lists' rows are memoized: a switch renders none again. */}
+              <ActiveWithin shown={shown}>
+                {id === 'chats' ? (
+                  <LibraryList sort={sort} onSort={setSort} />
+                ) : (
+                  <NotesList />
+                )}
+              </ActiveWithin>
             </div>
           )
         })}

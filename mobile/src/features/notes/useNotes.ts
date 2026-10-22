@@ -28,7 +28,9 @@ import {
   addNote,
   appendNotes,
   dropNote,
+  findNote,
   getNotesCache,
+  getNotesEpoch,
   restoreNote,
   setNotesCache,
   subscribeNotesCache
@@ -78,25 +80,31 @@ export function useNotes(): Notes {
     status: list ? 'refreshing' : 'loading'
   }))
 
-  // Bumped by every first-page load: a page from an older one is dropped.
+  // Bumped by every first-page load (and on unmount): a page from an older
+  // one is dropped.
   const generation = useRef(0)
+  // The generation whose first page the cached list is (or, after a failed
+  // first page, that kept the list); -1 for none yet. A next page is read
+  // only from that list's cursor while it is the current generation's.
+  const committedIn = useRef(-1)
+  // A next page asked for while the current first page is on its way. It
+  // runs from the new list's cursor once that list is stored; a newer first
+  // page, or a failed one, drops it.
+  const moreWanted = useRef(false)
   // The generation of the next page now loading, if any.
   const loadingMoreIn = useRef<number | null>(null)
-  // Notes removed here, kept out of any page that raced the delete.
-  const removed = useRef(new Set<string>())
-
-  const keep = useCallback(
-    (notes: Note[]) => notes.filter(n => !removed.current.has(n.id)),
-    []
-  )
 
   const refresh = useCallback(async () => {
     const mine = ++generation.current
+    moreWanted.current = false
     // Signed out: nothing to show and nothing to ask the server for.
     if (!userId) {
+      committedIn.current = mine
       setView({ userId, status: 'ready' })
       return
     }
+    // A reset (sign-out) meanwhile: what lands belongs to nobody now.
+    const epoch = getNotesEpoch()
     const shown = getNotesCache()?.userId === userId
     setView(v => ({
       userId,
@@ -105,33 +113,44 @@ export function useNotes(): Notes {
     }))
     try {
       const page = await fetchNotesPage(client)
-      if (mine !== generation.current) return
-      setNotesCache({
-        userId,
-        notes: keep(page.notes),
-        nextCursor: page.nextCursor
-      })
+      if (mine !== generation.current || epoch !== getNotesEpoch()) return
+      setNotesCache({ userId, notes: page.notes, nextCursor: page.nextCursor })
+      committedIn.current = mine
       setView({ userId, status: 'ready' })
     } catch (error) {
       if (mine !== generation.current) return
+      // The list did not change: it stays, now as this generation's, and a
+      // page wanted meanwhile is not loaded.
+      committedIn.current = mine
+      moreWanted.current = false
       setView({ userId, ...failed(error) })
     }
-  }, [client, userId, keep])
+  }, [client, userId])
 
-  // On mount and for a new user: load the first page.
+  // On mount and for a new user: load the first page. Unmounted, a page on
+  // its way is dropped.
   useEffect(() => {
     void refresh()
+    return () => {
+      generation.current++
+    }
   }, [refresh])
 
   const loadMore = useCallback(async () => {
-    const cursor = userId && cacheCursor(userId)
     const mine = generation.current
-    if (!userId || !cursor || loadingMoreIn.current === mine) return
+    if (!userId) return
+    if (committedIn.current !== mine) {
+      moreWanted.current = true
+      return
+    }
+    const cursor = cacheCursor(userId)
+    if (!cursor || loadingMoreIn.current === mine) return
     loadingMoreIn.current = mine
+    const epoch = getNotesEpoch()
     try {
       const page = await fetchNotesPage(client, { cursor })
-      if (mine !== generation.current) return
-      appendNotes(userId, keep(page.notes), page.nextCursor)
+      if (mine !== generation.current || epoch !== getNotesEpoch()) return
+      appendNotes(userId, page.notes, page.nextCursor)
       setView({ userId, status: 'ready' })
     } catch (error) {
       if (mine !== generation.current) return
@@ -139,21 +158,28 @@ export function useNotes(): Notes {
     } finally {
       if (loadingMoreIn.current === mine) loadingMoreIn.current = null
     }
-  }, [client, userId, keep])
+  }, [client, userId])
+
+  // A next page wanted during a first-page load runs once that page is in.
+  useEffect(() => {
+    if (!moreWanted.current || committedIn.current !== generation.current) {
+      return
+    }
+    moreWanted.current = false
+    void loadMore()
+  }, [view, loadMore])
 
   const remove = useCallback(
     async (id: string) => {
-      if (!userId) return false
+      if (!userId || !findNote(userId, id)) return false
+      // Also kept out of any page that races the delete (notes-cache).
       const dropped = dropNote(userId, id)
-      if (!dropped) return false
-      removed.current.add(id)
       try {
         await deleteNote(client, id)
       } catch (error) {
         // Already gone on the server: that is what the user wanted.
         if (error instanceof ApiError && error.status === 404) return true
-        removed.current.delete(id)
-        restoreNote(userId, dropped)
+        restoreNote(userId, id, dropped)
         setView(v => ({ ...v, error: errorMessage(error) }))
         return false
       }
@@ -186,15 +212,17 @@ function cacheCursor(userId: string) {
 
 /**
  * Saves an answer as a note, puts it first in the Notes list and remembers
- * the answer as saved (for the signed-in `userId`). Rejects when the save
- * fails, remembering nothing.
+ * the answer as saved (for the signed-in `userId`, unless the cache was reset
+ * meanwhile). Rejects when the save fails, remembering nothing.
  */
 export async function saveAnswerToNotes(
   client: ApiClient,
   userId: string | undefined,
   note: NewNote
 ): Promise<Note> {
+  const epoch = getNotesEpoch()
   const saved = await saveNote(client, note)
-  if (userId) addNote(userId, saved)
+  // Signed out meanwhile: nothing of this account's is kept.
+  if (userId && epoch === getNotesEpoch()) addNote(userId, saved)
   return saved
 }

@@ -5,7 +5,13 @@ import { fireEvent, render, screen } from '@testing-library/react'
 import { useState } from 'react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
-import { Tabs, useSelectTab, useTabActive, type TabSpec } from '@/app/Tabs'
+import {
+  ActiveWithin,
+  Tabs,
+  useSelectTab,
+  useTabActive,
+  type TabSpec
+} from '@/app/Tabs'
 import { haptic } from '@/core/haptics'
 
 vi.mock('@/core/haptics', () => ({ haptic: vi.fn() }))
@@ -212,6 +218,37 @@ describe('useTabActive', () => {
   it('is true outside the tab shell', () => {
     render(<ActiveProbe />)
     expect(screen.getByText('library shown')).toBeInTheDocument()
+  })
+})
+
+describe('ActiveWithin', () => {
+  function Probe() {
+    return <p>{useTabActive() ? 'part shown' : 'part hidden'}</p>
+  }
+
+  it('narrows useTabActive to a part of a tab that hides itself', () => {
+    render(
+      <Tabs
+        tabs={makeTabs(() => (
+          <>
+            <ActiveWithin shown>
+              <Probe />
+            </ActiveWithin>
+            <ActiveWithin shown={false}>
+              <Probe />
+            </ActiveWithin>
+          </>
+        ))}
+        initial="library"
+      />
+    )
+    expect(screen.getByText('part shown')).toBeInTheDocument()
+    expect(screen.getByText('part hidden')).toBeInTheDocument()
+
+    // The tab hidden: no part of it is shown.
+    fireEvent.click(tab('Settings'))
+    expect(screen.queryByText('part shown')).toBeNull()
+    expect(screen.getAllByText('part hidden')).toHaveLength(2)
   })
 })
 

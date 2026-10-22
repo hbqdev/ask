@@ -7,6 +7,7 @@ import {
   dropNote,
   findNote,
   getNotesCache,
+  getNotesEpoch,
   isMessageSaved,
   resetNotesCache,
   restoreNote,
@@ -160,13 +161,13 @@ describe('dropNote and restoreNote', () => {
     expect(getNotesCache()!.notes.map(n => n.id)).toEqual(['n1', 'n3'])
     // Its answer can be saved again.
     expect(isMessageSaved('u1', 'm2')).toBe(false)
-    restoreNote('u1', dropped!)
+    restoreNote('u1', 'n2', dropped)
     expect(getNotesCache()!.notes.map(n => n.id)).toEqual(['n1', 'n2', 'n3'])
     expect(isMessageSaved('u1', 'm2')).toBe(true)
   })
 
   it('drops nothing that is not listed for that user', () => {
-    expect(dropNote('u1', 'n1')).toBeNull()
+    expect(dropNote('u1', 'n8')).toBeNull()
     setNotesCache({ userId: 'u1', notes: [note(1)], nextCursor: null })
     expect(dropNote('u1', 'n9')).toBeNull()
     expect(dropNote('u2', 'n1')).toBeNull()
@@ -177,8 +178,8 @@ describe('dropNote and restoreNote', () => {
     setNotesCache({ userId: 'u1', notes: [note(1), note(2)], nextCursor: null })
     const dropped = dropNote('u1', 'n2')!
     setNotesCache({ userId: 'u1', notes: [], nextCursor: null })
-    restoreNote('u1', dropped)
-    restoreNote('u1', dropped)
+    restoreNote('u1', 'n2', dropped)
+    restoreNote('u1', 'n2', dropped)
     expect(getNotesCache()!.notes.map(n => n.id)).toEqual(['n2'])
   })
 
@@ -186,11 +187,68 @@ describe('dropNote and restoreNote', () => {
     setNotesCache({ userId: 'u1', notes: [note(1)], nextCursor: null })
     const dropped = dropNote('u1', 'n1')!
     setNotesCache({ userId: 'u2', notes: [], nextCursor: null })
-    restoreNote('u1', dropped)
+    restoreNote('u1', 'n1', dropped)
     expect(getNotesCache()!.notes).toEqual([])
     resetNotesCache()
-    restoreNote('u1', dropped)
+    restoreNote('u1', 'n1', dropped)
     expect(getNotesCache()).toBeNull()
+  })
+})
+
+describe('removed notes', () => {
+  it('a dropped note stays out of any list set or page added later, until restored', () => {
+    setNotesCache({
+      userId: 'u1',
+      notes: [note(1), note(2)],
+      nextCursor: CURSOR
+    })
+    const dropped = dropNote('u1', 'n2')
+    // A page read before the delete landed still has it.
+    setNotesCache({
+      userId: 'u1',
+      notes: [note(1), note(2)],
+      nextCursor: CURSOR
+    })
+    appendNotes('u1', [note(2), note(3)], null)
+    expect(getNotesCache()!.notes.map(n => n.id)).toEqual(['n1', 'n3'])
+    restoreNote('u1', 'n2', dropped)
+    setNotesCache({ userId: 'u1', notes: [note(1), note(2)], nextCursor: null })
+    expect(getNotesCache()!.notes.map(n => n.id)).toEqual(['n1', 'n2'])
+  })
+
+  it('a note deleted before it was listed is kept out too (a note’s own screen)', () => {
+    expect(dropNote('u1', 'n5')).toBeNull()
+    setNotesCache({ userId: 'u1', notes: [note(5), note(6)], nextCursor: null })
+    expect(getNotesCache()!.notes.map(n => n.id)).toEqual(['n6'])
+    // A failed delete lets it show again.
+    restoreNote('u1', 'n5', null)
+    setNotesCache({ userId: 'u1', notes: [note(5), note(6)], nextCursor: null })
+    expect(getNotesCache()!.notes.map(n => n.id)).toEqual(['n5', 'n6'])
+  })
+
+  it('keeps one user’s removals out of another user’s list, and reset forgets them', () => {
+    dropNote('u1', 'n1')
+    setNotesCache({ userId: 'u2', notes: [note(1)], nextCursor: null })
+    expect(getNotesCache()!.notes.map(n => n.id)).toEqual(['n1'])
+    // Another user's removal starts their own record.
+    dropNote('u2', 'n9')
+    setNotesCache({ userId: 'u1', notes: [note(1)], nextCursor: null })
+    expect(getNotesCache()!.notes.map(n => n.id)).toEqual(['n1'])
+    dropNote('u1', 'n1')
+    resetNotesCache()
+    setNotesCache({ userId: 'u1', notes: [note(1)], nextCursor: null })
+    expect(getNotesCache()!.notes.map(n => n.id)).toEqual(['n1'])
+  })
+})
+
+describe('getNotesEpoch', () => {
+  it('changes with every reset, and only then', () => {
+    const before = getNotesEpoch()
+    setNotesCache({ userId: 'u1', notes: [note(1)], nextCursor: null })
+    addNote('u1', note(2))
+    expect(getNotesEpoch()).toBe(before)
+    resetNotesCache()
+    expect(getNotesEpoch()).not.toBe(before)
   })
 })
 

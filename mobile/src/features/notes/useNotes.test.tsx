@@ -7,6 +7,7 @@ import { useAuth, type Auth } from '@/core/auth/AuthProvider'
 import { NOTES_UNAVAILABLE, type Note } from '@/features/notes/notes-api'
 import {
   addNote,
+  dropNote,
   getNotesCache,
   isMessageSaved,
   resetNotesCache,
@@ -44,6 +45,20 @@ function fakeServer(count: number, pageSize = 25) {
   const notes = Array.from({ length: count }, (_, i) => note(i))
   const overrides: Array<{ match: RegExp; method: string; handle: Handler }> =
     []
+  /** GET /api/notes: the page after `cursorId`, newest first. */
+  const page = (url: URL) => {
+    const after = url.searchParams.get('cursorId')
+    const start = after ? notes.findIndex(n => n.id === after) + 1 : 0
+    const rows = notes.slice(start, start + pageSize)
+    const hasMore = start + pageSize < notes.length
+    const last = rows.at(-1)
+    return json({
+      notes: rows,
+      nextCursor:
+        hasMore && last ? { updatedAt: last.updatedAt, id: last.id } : null,
+      hasMore
+    })
+  }
   const fetchImpl = vi.fn(
     async (input: RequestInfo | URL, init: RequestInit = {}) => {
       const url = new URL(String(input))
@@ -52,19 +67,7 @@ function fakeServer(count: number, pageSize = 25) {
         o => o.method === method && o.match.test(url.pathname)
       )
       if (override) return override.handle(url, init)
-      if (method === 'GET' && url.pathname === '/api/notes') {
-        const after = url.searchParams.get('cursorId')
-        const start = after ? notes.findIndex(n => n.id === after) + 1 : 0
-        const page = notes.slice(start, start + pageSize)
-        const hasMore = start + pageSize < notes.length
-        const last = page.at(-1)
-        return json({
-          notes: page,
-          nextCursor:
-            hasMore && last ? { updatedAt: last.updatedAt, id: last.id } : null,
-          hasMore
-        })
-      }
+      if (method === 'GET' && url.pathname === '/api/notes') return page(url)
       const one = url.pathname.match(/^\/api\/notes\/([^/]+)$/)
       if (method === 'DELETE' && one) {
         const index = notes.findIndex(n => n.id === one[1])
@@ -87,6 +90,7 @@ function fakeServer(count: number, pageSize = 25) {
   return {
     notes,
     fetchImpl,
+    page,
     on(method: string, match: RegExp, handle: Handler) {
       overrides.unshift({ match, method, handle })
     },
@@ -196,6 +200,191 @@ describe('useNotes', () => {
     gate.resolve()
     await act(() => more)
     expect(result.current.notes.map(n => n.id)).toEqual(['n0'])
+  })
+
+  describe('a next page wanted during a refresh', () => {
+    /** Holds the next first-page request until `release`. */
+    function holdFirstPage(server: ReturnType<typeof fakeServer>) {
+      const gate = deferred<void>()
+      let held = true
+      server.on('GET', /^\/api\/notes$/, async url => {
+        if (!url.searchParams.get('cursorId') && held) {
+          held = false
+          await gate.promise
+        }
+        return server.page(url)
+      })
+      return () => gate.resolve()
+    }
+
+    /** Five notes saved elsewhere: the new first page ends at n19. */
+    const savedElsewhere = (server: ReturnType<typeof fakeServer>) =>
+      server.notes.unshift(...Array.from({ length: 5 }, (_, i) => note(i - 5)))
+
+    it('loadMore during a refresh does not skip notes', async () => {
+      const server = fakeServer(30)
+      const { result } = mount(server)
+      await waitFor(() => expect(result.current.status).toBe('ready'))
+      savedElsewhere(server)
+      const release = holdFirstPage(server)
+      let refreshed!: Promise<void>
+      act(() => {
+        refreshed = result.current.refresh()
+      })
+      // The list scrolled to the end while the first page is on its way.
+      await act(() => result.current.loadMore())
+      await act(async () => {})
+      // No page after the old list's cursor (n24).
+      expect(server.pages()).toEqual([null, null])
+      await act(async () => {
+        release()
+        await refreshed
+      })
+      // The wanted page follows from the new first page's cursor.
+      await waitFor(() => expect(result.current.notes).toHaveLength(35))
+      expect(server.pages()).toEqual([null, null, 'n19'])
+      expect(result.current.notes.map(n => n.id)).toEqual(
+        server.notes.map(n => n.id)
+      )
+    })
+
+    it('loadMore between the first page landing and its render does not page from the old list', async () => {
+      const server = fakeServer(30)
+      const { result } = mount(server)
+      await waitFor(() => expect(result.current.status).toBe('ready'))
+      savedElsewhere(server)
+      const release = holdFirstPage(server)
+      let refreshed!: Promise<void>
+      act(() => {
+        refreshed = result.current.refresh()
+      })
+      const env = globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }
+      // Outside act, React renders the new list in a later task, as on a device.
+      env.IS_REACT_ACT_ENVIRONMENT = false
+      try {
+        release()
+        await refreshed
+        void result.current.loadMore()
+        await waitFor(() => expect(result.current.notes).toHaveLength(35))
+      } finally {
+        env.IS_REACT_ACT_ENVIRONMENT = true
+      }
+      expect(server.pages()).toEqual([null, null, 'n19'])
+      expect(result.current.notes.map(n => n.id)).toEqual(
+        server.notes.map(n => n.id)
+      )
+    })
+
+    it('is dropped when a newer refresh replaces that one', async () => {
+      const server = fakeServer(30)
+      const { result } = mount(server)
+      await waitFor(() => expect(result.current.status).toBe('ready'))
+      const release = holdFirstPage(server)
+      let first!: Promise<void>
+      act(() => {
+        first = result.current.refresh()
+      })
+      await act(() => result.current.loadMore())
+      await act(() => result.current.refresh())
+      await act(async () => {
+        release()
+        await first
+      })
+      await act(async () => {})
+      // Only first pages: none that nobody asked for since.
+      expect(server.pages()).toEqual([null, null, null])
+      expect(result.current.notes).toHaveLength(25)
+    })
+
+    it('is not run when that refresh fails', async () => {
+      const server = fakeServer(30)
+      const { result } = mount(server)
+      await waitFor(() => expect(result.current.status).toBe('ready'))
+      const page0 = deferred<Response>()
+      server.on('GET', /^\/api\/notes$/, () => page0.promise)
+      let refreshed!: Promise<void>
+      act(() => {
+        refreshed = result.current.refresh()
+      })
+      await act(() => result.current.loadMore())
+      await act(async () => {
+        page0.resolve(json({ error: 'Down' }, 503))
+        await refreshed
+      })
+      await act(async () => {})
+      expect(result.current.status).toBe('error')
+      expect(server.pages()).toEqual([null, null])
+      expect(result.current.notes).toHaveLength(25)
+    })
+  })
+
+  describe('sign-out while a load is on its way', () => {
+    it('a first page that lands after the cache was reset is not stored', async () => {
+      const server = fakeServer(3)
+      const gate = deferred<void>()
+      server.on('GET', /^\/api\/notes$/, async url => {
+        await gate.promise
+        return server.page(url)
+      })
+      mount(server)
+      act(() => resetNotesCache())
+      await act(async () => gate.resolve())
+      expect(getNotesCache()).toBeNull()
+    })
+
+    it('a first page that lands after the list unmounted is not stored', async () => {
+      const server = fakeServer(3)
+      const gate = deferred<void>()
+      server.on('GET', /^\/api\/notes$/, async url => {
+        await gate.promise
+        return server.page(url)
+      })
+      const { unmount } = mount(server)
+      unmount()
+      await act(async () => gate.resolve())
+      expect(getNotesCache()).toBeNull()
+    })
+
+    it('a next page that lands after the cache was reset is not added', async () => {
+      const server = fakeServer(30)
+      const { result } = mount(server)
+      await waitFor(() => expect(result.current.status).toBe('ready'))
+      const gate = deferred<void>()
+      server.on('GET', /^\/api\/notes$/, async url => {
+        await gate.promise
+        return server.page(url)
+      })
+      let more!: Promise<void>
+      act(() => {
+        more = result.current.loadMore()
+      })
+      // Signed out, then back in as the same user, with a fresh list.
+      act(() => {
+        resetNotesCache()
+        setNotesCache({ userId: 'user-1', notes: [note(0)], nextCursor: null })
+      })
+      await act(async () => {
+        gate.resolve()
+        await more
+      })
+      expect(getNotesCache()!.notes.map(n => n.id)).toEqual(['n0'])
+    })
+  })
+
+  it('keeps a note deleted on its own screen out of a refresh that raced it', async () => {
+    const server = fakeServer(3)
+    const { result } = mount(server)
+    await waitFor(() => expect(result.current.status).toBe('ready'))
+    const stale = [...server.notes]
+    server.on('GET', /^\/api\/notes$/, () =>
+      json({ notes: stale, nextCursor: null, hasMore: false })
+    )
+    // NoteScreen's delete, before the server has applied it.
+    act(() => {
+      dropNote('user-1', 'n1')
+    })
+    await act(() => result.current.refresh())
+    expect(result.current.notes.map(n => n.id)).toEqual(['n0', 'n2'])
   })
 
   it('shows the cached list at once while it revalidates', async () => {
@@ -430,6 +619,31 @@ describe('saveAnswerToNotes', () => {
     expect(saved).toMatchObject({ content: 'Answer', chatId: 'c1' })
     expect(result.current.notes[0].id).toBe(saved.id)
     expect(isMessageSaved('user-1', 'm1')).toBe(true)
+  })
+
+  it('remembers nothing when the cache was reset (sign-out) while it saved', async () => {
+    const server = fakeServer(1)
+    const { client, result } = mount(server)
+    await waitFor(() => expect(result.current.status).toBe('ready'))
+    const gate = deferred<void>()
+    server.on('POST', /^\/api\/notes$/, async () => {
+      await gate.promise
+      return json({ note: note(99, { sourceMessageId: 'm1' }) }, 201)
+    })
+    let saving!: Promise<Note>
+    act(() => {
+      saving = saveAnswerToNotes(client, 'user-1', {
+        content: 'Answer',
+        sourceMessageId: 'm1'
+      })
+    })
+    act(() => resetNotesCache())
+    await act(async () => {
+      gate.resolve()
+      await saving
+    })
+    expect(getNotesCache()).toBeNull()
+    expect(isMessageSaved('user-1', 'm1')).toBe(false)
   })
 
   it('rejects, remembering nothing, when the save fails', async () => {

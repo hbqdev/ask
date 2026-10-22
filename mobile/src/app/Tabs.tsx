@@ -46,6 +46,26 @@ export function useTabActive(): boolean {
   return useContext(TabActiveContext)
 }
 
+/**
+ * Narrows useTabActive for a part of a tab that hides itself while the tab
+ * is shown (the Library's segments): inside, it is true only while both the
+ * tab and this part are shown.
+ */
+export function ActiveWithin({
+  shown,
+  children
+}: {
+  shown: boolean
+  children: ReactNode
+}) {
+  const tabShown = useTabActive()
+  return (
+    <TabActiveContext.Provider value={tabShown && shown}>
+      {children}
+    </TabActiveContext.Provider>
+  )
+}
+
 // Switching tabs re-renders Tabs only; a kept tab's content does not re-render.
 const TabContent = memo(function TabContent({ tab }: { tab: TabSpec }) {
   return tab.render()

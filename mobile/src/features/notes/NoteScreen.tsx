@@ -24,7 +24,7 @@ import {
   NOTES_UNAVAILABLE,
   type Note
 } from '@/features/notes/notes-api'
-import { dropNote, findNote } from '@/features/notes/notes-cache'
+import { dropNote, findNote, restoreNote } from '@/features/notes/notes-cache'
 import {
   LazyAnswerMarkdown,
   PlainAnswer
@@ -168,17 +168,20 @@ export function NoteScreen({ noteId }: { noteId: string }) {
   const remove = async () => {
     setError(null)
     setDeleting(true)
+    // Out of the Notes list at once, and out of any list loaded before the
+    // server applies the delete; back in if it fails.
+    const dropped = userId ? dropNote(userId, noteId) : null
     try {
       await deleteNote(client, noteId)
     } catch (e) {
       // Already gone on the server: that is what the user wanted.
       if (!(e instanceof ApiError && e.status === 404)) {
+        if (userId) restoreNote(userId, noteId, dropped)
         setDeleting(false)
         setError(`${DELETE_NOTE_ERROR} ${reasonOf(e)}`)
         return
       }
     }
-    if (userId) dropNote(userId, noteId)
     pop()
   }
 
