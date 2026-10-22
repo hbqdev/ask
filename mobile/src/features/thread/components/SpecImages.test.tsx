@@ -40,7 +40,9 @@ describe('SpecImages', () => {
 
   it('offers each image’s own long-press menu, to save or copy it', () => {
     const { container } = render(<SpecImages images={IMAGES} />)
-    for (const img of container.querySelectorAll('img')) {
+    const imgs = container.querySelectorAll('img')
+    expect(imgs).toHaveLength(IMAGES.length)
+    for (const img of imgs) {
       expect(img).toHaveClass('selectable')
     }
   })

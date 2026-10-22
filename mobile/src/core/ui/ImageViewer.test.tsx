@@ -149,12 +149,10 @@ describe('ImageViewer', () => {
     const strip = screen.getByTestId('viewer-strip')
     expect(strip).toHaveClass('touch-pan-x')
     expect(strip).not.toHaveClass('touch-pinch-zoom')
-    // Unzoomed, a swipe on the image still pages the strip.
+    // Unzoomed, a swipe on the page still pages the strip.
     const img = screen.getByRole('img', { name: '1.png' })
-    expect(img).toHaveStyle({
-      transform: 'translate(0px, 0px) scale(1)',
-      touchAction: 'pan-x'
-    })
+    expect(img).toHaveStyle({ transform: 'translate(0px, 0px) scale(1)' })
+    expect(img.parentElement).toHaveStyle({ touchAction: 'pan-x' })
     expect(strip).not.toHaveStyle({ overflowX: 'hidden' })
   })
 
@@ -172,17 +170,35 @@ describe('ImageViewer', () => {
     expect(other.style.transform).toBe('')
   })
 
+  it('zooms with a pinch that starts on the black around the image', () => {
+    setup()
+    const img = screen.getByRole('img', { name: '1.png' })
+    const page = img.parentElement!
+    const finger = (id: number, x: number) => ({
+      clientX: x,
+      clientY: 10,
+      pointerId: id
+    })
+    fireEvent.pointerDown(page, finger(1, 75))
+    fireEvent.pointerDown(page, finger(2, 125))
+    fireEvent.pointerMove(page, finger(1, 50))
+    fireEvent.pointerMove(page, finger(2, 150))
+    fireEvent.pointerUp(page, finger(1, 50))
+    fireEvent.pointerUp(page, finger(2, 150))
+    expect(img).toHaveStyle({ transform: 'translate(0px, 0px) scale(2)' })
+  })
+
   it('does not page while zoomed', () => {
     setup()
     const strip = screen.getByTestId('viewer-strip')
     const img = screen.getByRole('img', { name: '1.png' })
     doubleTap(img)
-    // The strip stops scrolling and the image takes every touch, to pan.
+    // The strip stops scrolling and the page takes every touch, to pan.
     expect(strip).toHaveStyle({ overflowX: 'hidden' })
-    expect(img).toHaveStyle({ touchAction: 'none' })
+    expect(img.parentElement).toHaveStyle({ touchAction: 'none' })
     doubleTap(img)
     expect(strip).not.toHaveStyle({ overflowX: 'hidden' })
-    expect(img).toHaveStyle({ touchAction: 'pan-x' })
+    expect(img.parentElement).toHaveStyle({ touchAction: 'pan-x' })
   })
 
   it('resets zoom when the page changes', () => {
@@ -190,6 +206,7 @@ describe('ImageViewer', () => {
     setup()
     const strip = screen.getByTestId('viewer-strip')
     doubleTap(screen.getByRole('img', { name: '1.png' }))
+    expect(strip).toHaveStyle({ overflowX: 'hidden' })
     // A page change that was already under way when the zoom began.
     strip.scrollLeft = 100
     fireEvent.scroll(strip)
@@ -211,6 +228,9 @@ describe('ImageViewer', () => {
       <ImageViewer open images={IMAGES} start={0} onClose={onClose} />
     )
     doubleTap(screen.getByRole('img', { name: '1.png' }))
+    expect(screen.getByRole('img', { name: '1.png' })).toHaveStyle({
+      transform: 'translate(0px, 0px) scale(2.5)'
+    })
     rerender(
       <ImageViewer open={false} images={IMAGES} start={0} onClose={onClose} />
     )

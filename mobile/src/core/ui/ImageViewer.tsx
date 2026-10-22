@@ -6,9 +6,10 @@
 // is light over the black, Tab stays on its controls, and on close focus goes
 // back to what opened it.
 //
-// The page never zooms; the image it is on does (usePinchZoom): pinched, or
-// double-tapped in and out. While zoomed one finger pans the image and the
-// strip does not page; a page change, or closing, unzooms.
+// The page never zooms; the image it is on does (usePinchZoom), as in Photos:
+// pinched about the fingers, or double-tapped in and out, anywhere on its
+// page. While zoomed one finger pans the image and the strip does not page;
+// a page change, or closing, unzooms.
 
 import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
@@ -63,7 +64,7 @@ function ViewerPanel({
 }: Omit<ImageViewerProps, 'open'>) {
   useReturnFocus()
   const [index, setIndex] = useState(start)
-  const { zoom, zoomed, reset, handlers } = usePinchZoom()
+  const { zoom, zoomed, reset, handlers, imageRef } = usePinchZoom()
   const dialog = useRef<HTMLDivElement>(null)
   const strip = useRef<HTMLDivElement>(null)
   // The latest onClose, so the key listener isn't re-added on each render.
@@ -91,8 +92,8 @@ function ViewerPanel({
     }
   }, [])
 
-  // A new page starts unzoomed.
-  useEffect(reset, [index, reset])
+  // A new page starts unzoomed, before it is painted.
+  useLayoutEffect(reset, [index, reset])
 
   const onScroll = () => {
     const el = strip.current!
@@ -120,10 +121,16 @@ function ViewerPanel({
       >
         {images.map((image, i) => (
           // Each page clips its image, so a zoomed one never spills onto
-          // the next page or widens the strip.
+          // the next page or widens the strip. The page it is on takes the
+          // zoom gestures, black around the image included.
           <div
             key={i}
             className="flex size-full shrink-0 snap-center snap-always items-center justify-center overflow-hidden"
+            {...(i === index && {
+              ...handlers,
+              // Unzoomed, a swipe on the page pages the strip.
+              style: { touchAction: zoomed ? 'none' : 'pan-x' }
+            })}
           >
             <FallbackImage
               src={image.src}
@@ -131,11 +138,9 @@ function ViewerPanel({
               className="max-h-full max-w-full object-contain"
               fallback={<Placeholder />}
               {...(i === index && {
-                ...handlers,
+                ref: imageRef,
                 style: {
-                  transform: `translate(${zoom.x}px, ${zoom.y}px) scale(${zoom.scale})`,
-                  // Unzoomed, a swipe on the image pages the strip.
-                  touchAction: zoomed ? 'none' : 'pan-x'
+                  transform: `translate(${zoom.x}px, ${zoom.y}px) scale(${zoom.scale})`
                 }
               })}
             />
