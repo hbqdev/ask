@@ -1,10 +1,14 @@
-import { NextRequest, NextResponse } from 'next/server'
+import { after, NextRequest, NextResponse } from 'next/server'
 
 import { eq } from 'drizzle-orm'
 import path from 'node:path'
 
 import { dbAdmin } from '@/lib/db'
-import { completeIngestFailure, markFileReady } from '@/lib/db/file-actions'
+import {
+  completeIngestFailure,
+  markFileReady,
+  updateIngestProgress
+} from '@/lib/db/file-actions'
 import { libraryFiles as files } from '@/lib/db/schema'
 import { storeExtractedChunks } from '@/lib/embeddings/upload-rag'
 import { checkIngestAuth } from '@/lib/utils/ingest-auth'
@@ -19,6 +23,54 @@ const PARTIAL_NOTE = 'Indexed the first part only (file too large)'
 // The most of a completion body that is read into memory: 2000 chunks of the
 // worker's 1800 characters fit even fully \u-escaped (CJK), about 22 MB.
 const MAX_BODY_BYTES = 24 * 1024 * 1024
+// States a file never leaves through a completion: a duplicate one (worker
+// retry, requeued job) for such a file is acknowledged and otherwise ignored.
+const SETTLED = new Set(['ready', 'failed', 'expired'])
+// Files whose chunks this process is embedding right now, so a duplicate
+// completion arriving meanwhile does not start a second embed of the same file.
+const embedding = new Set<string>()
+
+// The reason an embed failure is shown to the user with (as ingestError).
+function embedFailureReason(e: unknown): string {
+  if (e instanceof Error && e.name === 'AbortError')
+    return 'Could not index this file: the embedding service did not respond in time. Try uploading it again.'
+  const detail = e instanceof Error ? e.message : String(e)
+  return `Could not index this file: the embedding service failed (${detail}). Try uploading it again.`.slice(
+    0,
+    500
+  )
+}
+
+// Embeds and stores the chunks, then settles the file: ready (with the
+// partial note when only part of it was kept) or failed with a reason —
+// never left 'processing'. Runs after the response, so it must not throw.
+async function embedAndSettle(
+  fileId: string,
+  abs: string,
+  filename: string,
+  chunks: string[],
+  partial: boolean
+): Promise<void> {
+  try {
+    try {
+      // Each finished batch refreshes the job's claim, so a long embed is not
+      // mistaken for a dead worker and requeued while it runs.
+      await storeExtractedChunks(abs, filename, chunks, () =>
+        updateIngestProgress(fileId, 'embedding').catch(() => false)
+      )
+    } catch (e) {
+      console.error('[ingest/complete] embed/store failed:', e)
+      await completeIngestFailure(fileId, embedFailureReason(e), false)
+      return
+    }
+    if (partial) await markFileReady(fileId, PARTIAL_NOTE)
+    else await markFileReady(fileId)
+  } catch (e) {
+    console.error('[ingest/complete] could not record the outcome:', e)
+  } finally {
+    embedding.delete(fileId)
+  }
+}
 
 export async function POST(req: NextRequest) {
   const auth = checkIngestAuth(req.headers.get('authorization'))
@@ -49,6 +101,7 @@ export async function POST(req: NextRequest) {
   const row = rows[0]
   if (!row?.objectKey)
     return NextResponse.json({ error: 'unknown file' }, { status: 404 })
+  if (SETTLED.has(row.status)) return NextResponse.json({ status: row.status })
 
   if (error || !Array.isArray(chunks) || chunks.length === 0) {
     const status = await completeIngestFailure(
@@ -76,15 +129,17 @@ export async function POST(req: NextRequest) {
   if (!abs.startsWith(UPLOADS_DIR + path.sep))
     return NextResponse.json({ error: 'invalid object key' }, { status: 400 })
 
-  try {
-    await storeExtractedChunks(abs, row.filename, kept)
-  } catch (e) {
-    // Embedder down — tell the worker to retry completion later; the job
-    // stays claimed and its heartbeat keeps it from stale-requeueing.
-    console.error('[ingest/complete] embed/store failed:', e)
-    return new NextResponse(null, { status: 503 })
+  // Embedding up to MAX_CHUNKS chunks can take longer than the worker waits
+  // for this response, so answer now and embed after it has been sent; the
+  // file's status (polled by the UI) reports the outcome.
+  if (!embedding.has(fileId)) {
+    embedding.add(fileId)
+    try {
+      after(() => embedAndSettle(fileId, abs, row.filename, kept, partial))
+    } catch (e) {
+      embedding.delete(fileId)
+      throw e
+    }
   }
-  if (partial) await markFileReady(fileId, PARTIAL_NOTE)
-  else await markFileReady(fileId)
-  return NextResponse.json({ status: 'ready' })
+  return NextResponse.json({ status: 'processing' }, { status: 202 })
 }

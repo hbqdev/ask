@@ -14,6 +14,16 @@ import {
   vi
 } from 'vitest'
 
+// after() needs a live Next request scope; capture its tasks instead so a
+// test decides when the background embed runs (runAfterTasks below).
+const afterTasks = vi.hoisted(() => [] as Array<unknown>)
+vi.mock('next/server', async importOriginal => ({
+  ...(await importOriginal<typeof import('next/server')>()),
+  after: vi.fn((task: unknown) => {
+    afterTasks.push(task)
+  })
+}))
+
 // Auto-mocked; each test configures the resolved values it needs.
 vi.mock('@/lib/db')
 vi.mock('@/lib/db/file-actions')
@@ -21,6 +31,8 @@ vi.mock('@/lib/embeddings/upload-rag')
 // The claim/progress routes fire a best-effort worker heartbeat; stub it so
 // the routes never touch a real Redis under test.
 vi.mock('@/lib/utils/ingest-heartbeat')
+
+import { after } from 'next/server'
 
 import { db } from '@/lib/db'
 import {
@@ -57,7 +69,15 @@ afterAll(async () => {
 
 beforeEach(() => {
   vi.clearAllMocks()
+  afterTasks.length = 0
 })
+
+// Runs the work the route handed to after(), as Next does once the response
+// has been sent.
+async function runAfterTasks() {
+  const tasks = afterTasks.splice(0)
+  await Promise.all(tasks.map(t => (typeof t === 'function' ? t() : t)))
+}
 
 afterEach(() => {
   vi.unstubAllEnvs()
@@ -379,12 +399,14 @@ describe('POST /api/ingest/complete', () => {
         postReq('http://x/api/ingest/complete', AUTH, { fileId: 'f1', chunks })
       )
 
-      expect(res.status).toBe(200)
-      await expect(res.json()).resolves.toEqual({ status: 'ready' })
+      expect(res.status).toBe(202)
+      await expect(res.json()).resolves.toEqual({ status: 'processing' })
+      await runAfterTasks()
       expect(storeExtractedChunks).toHaveBeenCalledWith(
         path.join(uploadsDir, 'u1/f1.csv'),
         'a.csv',
-        chunks.slice(0, 2000)
+        chunks.slice(0, 2000),
+        expect.any(Function)
       )
       expect(markFileReady).toHaveBeenCalledWith(
         'f1',
@@ -406,7 +428,8 @@ describe('POST /api/ingest/complete', () => {
       postReq('http://x/api/ingest/complete', AUTH, { fileId: 'f1', chunks })
     )
 
-    expect(res.status).toBe(200)
+    expect(res.status).toBe(202)
+    await runAfterTasks()
     const stored = vi.mocked(storeExtractedChunks).mock.calls[0][2]
     expect(stored.length).toBeGreaterThan(100)
     expect(stored.length).toBeLessThan(1500)
@@ -426,12 +449,13 @@ describe('POST /api/ingest/complete', () => {
       postReq('http://x/api/ingest/complete', AUTH, { fileId: 'f1', chunks })
     )
 
-    expect(res.status).toBe(200)
-    await expect(res.json()).resolves.toEqual({ status: 'ready' })
+    expect(res.status).toBe(202)
+    await runAfterTasks()
     expect(storeExtractedChunks).toHaveBeenCalledWith(
       path.join(uploadsDir, 'u1/f1.pdf'),
       'a.pdf',
-      chunks
+      chunks,
+      expect.any(Function)
     )
     // Complete: ready with no partial note.
     expect(vi.mocked(markFileReady).mock.calls).toEqual([['f1']])
@@ -495,20 +519,25 @@ describe('POST /api/ingest/complete', () => {
       })
     )
 
-    expect(res.status).toBe(200)
-    await expect(res.json()).resolves.toEqual({ status: 'ready' })
+    expect(res.status).toBe(202)
+    await runAfterTasks()
     expect(storeExtractedChunks).toHaveBeenCalledWith(
       path.join(uploadsDir, 'u1/f1.pdf'),
       'a.pdf',
-      ['one', 'two']
+      ['one', 'two'],
+      expect.any(Function)
     )
-    expect(markFileReady).toHaveBeenCalledWith('f1')
+    expect(vi.mocked(markFileReady).mock.calls).toEqual([['f1']])
+    expect(completeIngestFailure).not.toHaveBeenCalled()
   })
 
-  it('returns 503 and does not mark the file ready when storeExtractedChunks throws', async () => {
+  // Embedding up to 2000 chunks takes longer than the worker waits for a
+  // response (60 s), so the route answers 202 at once and embeds afterwards.
+  it('answers 202 processing before the embed has finished, and only then marks the file ready', async () => {
     mockDbSelect([{ id: 'f1', objectKey: 'u1/f1.pdf', filename: 'a.pdf' }])
-    vi.mocked(storeExtractedChunks).mockRejectedValue(
-      new Error('embedder down')
+    let finishEmbed!: () => void
+    vi.mocked(storeExtractedChunks).mockImplementation(
+      () => new Promise<void>(resolve => (finishEmbed = resolve))
     )
 
     const res = await completePOST(
@@ -518,7 +547,233 @@ describe('POST /api/ingest/complete', () => {
       })
     )
 
-    expect(res.status).toBe(503)
+    expect(res.status).toBe(202)
+    await expect(res.json()).resolves.toEqual({ status: 'processing' })
+    expect(after).toHaveBeenCalledTimes(1)
     expect(markFileReady).not.toHaveBeenCalled()
+
+    const background = runAfterTasks()
+    await vi.waitFor(() => expect(storeExtractedChunks).toHaveBeenCalled())
+    expect(markFileReady).not.toHaveBeenCalled()
+    finishEmbed()
+    await background
+    expect(markFileReady).toHaveBeenCalledWith('f1')
+  })
+
+  it('keeps the job claimed while it embeds: each finished batch refreshes its progress', async () => {
+    mockDbSelect([{ id: 'f1', objectKey: 'u1/f1.pdf', filename: 'a.pdf' }])
+    vi.mocked(updateIngestProgress).mockResolvedValue(true)
+    vi.mocked(storeExtractedChunks).mockImplementation(
+      async (_p, _f, _c, onBatch) => {
+        await onBatch?.()
+        await onBatch?.()
+      }
+    )
+
+    await completePOST(
+      postReq('http://x/api/ingest/complete', AUTH, {
+        fileId: 'f1',
+        chunks: ['one']
+      })
+    )
+    await runAfterTasks()
+
+    expect(vi.mocked(updateIngestProgress).mock.calls).toEqual([
+      ['f1', 'embedding'],
+      ['f1', 'embedding']
+    ])
+    expect(markFileReady).toHaveBeenCalledWith('f1')
+  })
+
+  it('a failed progress refresh does not fail the embed', async () => {
+    mockDbSelect([{ id: 'f1', objectKey: 'u1/f1.pdf', filename: 'a.pdf' }])
+    vi.mocked(updateIngestProgress).mockRejectedValue(new Error('db blip'))
+    vi.mocked(storeExtractedChunks).mockImplementation(
+      async (_p, _f, _c, onBatch) => {
+        await onBatch?.()
+      }
+    )
+
+    await completePOST(
+      postReq('http://x/api/ingest/complete', AUTH, {
+        fileId: 'f1',
+        chunks: ['one']
+      })
+    )
+    await runAfterTasks()
+
+    expect(markFileReady).toHaveBeenCalledWith('f1')
+    expect(completeIngestFailure).not.toHaveBeenCalled()
+  })
+
+  // The file must never sit in 'processing' forever: an embed that fails in
+  // the background marks it failed with a reason the attachment UI can show.
+  it('marks the file failed with a readable reason when the background embed fails', async () => {
+    mockDbSelect([{ id: 'f1', objectKey: 'u1/f1.pdf', filename: 'a.pdf' }])
+    const abort = new Error('This operation was aborted')
+    abort.name = 'AbortError'
+    vi.mocked(storeExtractedChunks).mockRejectedValue(abort)
+    vi.mocked(completeIngestFailure).mockResolvedValue('failed')
+    vi.spyOn(console, 'error').mockImplementation(() => {})
+
+    const res = await completePOST(
+      postReq('http://x/api/ingest/complete', AUTH, {
+        fileId: 'f1',
+        chunks: ['one']
+      })
+    )
+    expect(res.status).toBe(202)
+    await runAfterTasks()
+
+    expect(markFileReady).not.toHaveBeenCalled()
+    expect(completeIngestFailure).toHaveBeenCalledTimes(1)
+    const [id, reason, retryable] = vi.mocked(completeIngestFailure).mock
+      .calls[0]
+    expect(id).toBe('f1')
+    expect(retryable).toBe(false)
+    expect(reason).toMatch(/embedding service/i)
+    expect(reason).toMatch(/in time/i)
+    expect(reason.length).toBeLessThanOrEqual(500)
+  })
+
+  it('names other embed errors in the failure reason', async () => {
+    mockDbSelect([{ id: 'f1', objectKey: 'u1/f1.pdf', filename: 'a.pdf' }])
+    vi.mocked(storeExtractedChunks).mockRejectedValue(
+      new Error('embedder HTTP 500')
+    )
+    vi.mocked(completeIngestFailure).mockResolvedValue('failed')
+    vi.spyOn(console, 'error').mockImplementation(() => {})
+
+    await completePOST(
+      postReq('http://x/api/ingest/complete', AUTH, {
+        fileId: 'f1',
+        chunks: ['one']
+      })
+    )
+    await runAfterTasks()
+
+    const reason = vi.mocked(completeIngestFailure).mock.calls[0][1]
+    expect(reason).toMatch(/embedding service/i)
+    expect(reason).toContain('embedder HTTP 500')
+  })
+
+  it('a background task never throws, even when recording the outcome fails', async () => {
+    mockDbSelect([{ id: 'f1', objectKey: 'u1/f1.pdf', filename: 'a.pdf' }])
+    vi.mocked(storeExtractedChunks).mockRejectedValue(new Error('down'))
+    vi.mocked(completeIngestFailure).mockRejectedValue(new Error('db down'))
+    vi.spyOn(console, 'error').mockImplementation(() => {})
+
+    await completePOST(
+      postReq('http://x/api/ingest/complete', AUTH, {
+        fileId: 'f1',
+        chunks: ['one']
+      })
+    )
+    await expect(runAfterTasks()).resolves.toBeUndefined()
+    expect(markFileReady).not.toHaveBeenCalled()
+  })
+
+  // A duplicate completion (worker retry, requeued job) for a file that is
+  // already settled must not embed it again or change its state.
+  for (const status of ['ready', 'failed', 'expired'] as const) {
+    it(`ignores a completion for a file already ${status}`, async () => {
+      mockDbSelect([
+        { id: 'f1', objectKey: 'u1/f1.pdf', filename: 'a.pdf', status }
+      ])
+
+      const res = await completePOST(
+        postReq('http://x/api/ingest/complete', AUTH, {
+          fileId: 'f1',
+          chunks: ['one']
+        })
+      )
+
+      expect(res.status).toBe(200)
+      await expect(res.json()).resolves.toEqual({ status })
+      await runAfterTasks()
+      expect(after).not.toHaveBeenCalled()
+      expect(storeExtractedChunks).not.toHaveBeenCalled()
+      expect(markFileReady).not.toHaveBeenCalled()
+      expect(completeIngestFailure).not.toHaveBeenCalled()
+    })
+  }
+
+  it('ignores a failure report for a file already ready', async () => {
+    mockDbSelect([
+      { id: 'f1', objectKey: 'u1/f1.pdf', filename: 'a.pdf', status: 'ready' }
+    ])
+
+    const res = await completePOST(
+      postReq('http://x/api/ingest/complete', AUTH, {
+        fileId: 'f1',
+        error: 'late failure',
+        retryable: false
+      })
+    )
+
+    expect(res.status).toBe(200)
+    await expect(res.json()).resolves.toEqual({ status: 'ready' })
+    expect(completeIngestFailure).not.toHaveBeenCalled()
+  })
+
+  it('a completion whose background embed could not be scheduled can be retried', async () => {
+    mockDbSelect([{ id: 'f9', objectKey: 'u1/f9.pdf', filename: 'a.pdf' }])
+    vi.mocked(storeExtractedChunks).mockResolvedValue(undefined)
+    vi.mocked(after).mockImplementationOnce(() => {
+      throw new Error('no request scope')
+    })
+    const complete = () =>
+      completePOST(
+        postReq('http://x/api/ingest/complete', AUTH, {
+          fileId: 'f9',
+          chunks: ['one']
+        })
+      )
+
+    await expect(complete()).rejects.toThrow('no request scope')
+    expect((await complete()).status).toBe(202)
+    await runAfterTasks()
+    expect(markFileReady).toHaveBeenCalledWith('f9')
+  })
+
+  it('does not start a second embed while one for the same file is running', async () => {
+    mockDbSelect([
+      {
+        id: 'f1',
+        objectKey: 'u1/f1.pdf',
+        filename: 'a.pdf',
+        status: 'processing'
+      }
+    ])
+    let finishEmbed!: () => void
+    vi.mocked(storeExtractedChunks).mockImplementation(
+      () => new Promise<void>(resolve => (finishEmbed = resolve))
+    )
+    const complete = () =>
+      completePOST(
+        postReq('http://x/api/ingest/complete', AUTH, {
+          fileId: 'f1',
+          chunks: ['one']
+        })
+      )
+
+    expect((await complete()).status).toBe(202)
+    const background = runAfterTasks()
+    await vi.waitFor(() => expect(storeExtractedChunks).toHaveBeenCalled())
+
+    const dup = await complete()
+    expect(dup.status).toBe(202)
+    await expect(dup.json()).resolves.toEqual({ status: 'processing' })
+    expect(after).toHaveBeenCalledTimes(1)
+
+    finishEmbed()
+    await background
+    expect(storeExtractedChunks).toHaveBeenCalledTimes(1)
+    expect(markFileReady).toHaveBeenCalledTimes(1)
+
+    // Once that embed is over, a later completion is handled again.
+    vi.mocked(storeExtractedChunks).mockResolvedValue(undefined)
+    expect((await complete()).status).toBe(202)
+    expect(after).toHaveBeenCalledTimes(2)
   })
 })
