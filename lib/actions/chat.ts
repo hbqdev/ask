@@ -424,6 +424,28 @@ export async function shareChat(chatId: string) {
   return updatedChat
 }
 
+// Inverse of shareChat: sets the chat back to private. Resolves the user
+// itself; returns the updated chat, or null when there is no user or the chat
+// is missing or not theirs. Setting an already-private chat is a no-op success.
+export async function unshareChat(chatId: string) {
+  const userId = await getCurrentUserId()
+  if (!userId) {
+    return null
+  }
+
+  const updatedChat = await dbActions.updateChatVisibility(
+    chatId,
+    userId,
+    'private'
+  )
+
+  if (updatedChat) {
+    revalidateTag(`chat-${chatId}`, 'max')
+  }
+
+  return updatedChat
+}
+
 /**
  * Delete messages from a specific message index
  */
