@@ -646,6 +646,35 @@ describe('Composer dictation', () => {
     expect(onSend).not.toHaveBeenCalled()
   })
 
+  it('Attach is off from the moment the mic opens until the words are back', async () => {
+    const user = userEvent.setup()
+    const attach = () => screen.getByRole('button', { name: 'Attach' })
+    let open!: (recording: Recording) => void
+    vi.mocked(startRecording).mockReturnValueOnce(
+      new Promise(resolve => (open = resolve))
+    )
+    let finish!: (text: string) => void
+    vi.mocked(transcribe).mockReturnValueOnce(
+      new Promise(resolve => (finish = resolve))
+    )
+    setup()
+    expect(attach()).toBeEnabled()
+
+    await user.click(micButton())
+    expect(attach()).toBeDisabled()
+    await act(async () => open(recording as Recording))
+    expect(attach()).toBeDisabled()
+    speak()
+    await user.click(screen.getByRole('button', { name: 'Stop recording' }))
+    expect(await screen.findByRole('status')).toHaveTextContent('Transcribing…')
+    expect(attach()).toBeDisabled()
+
+    await act(async () => finish(''))
+    // "Didn't catch that": the mic is at rest again, and so is Attach.
+    expect(screen.getByRole('alert')).toBeInTheDocument()
+    expect(attach()).toBeEnabled()
+  })
+
   it('shows the mic opening while the permission prompt is up', async () => {
     const user = userEvent.setup()
     let open!: (recording: Recording) => void

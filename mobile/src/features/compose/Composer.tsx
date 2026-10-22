@@ -169,9 +169,10 @@ export function Composer({
   })
   const dictating =
     dictation.state === 'recording' || dictation.state === 'transcribing'
+  // From the mic opening until the words are back ('error' is at rest).
+  const dictationUnderWay = dictating || dictation.state === 'starting'
   const showMic =
-    dictating ||
-    dictation.state === 'starting' ||
+    dictationUnderWay ||
     (!busy && text.trim().length === 0 && attachments.items.length === 0)
 
   // A draft (an ask:// link) ends any dictation, so a link is never merged
@@ -265,8 +266,10 @@ export function Composer({
               type="button"
               aria-label="Attach"
               aria-haspopup="dialog"
+              // No picker opens over a recording.
+              disabled={dictationUnderWay}
               onClick={() => setAttachOpen(true)}
-              className="flex size-9 shrink-0 touch-manipulation items-center justify-center rounded-full text-foreground/70 active:bg-foreground/10"
+              className="flex size-9 shrink-0 touch-manipulation items-center justify-center rounded-full text-foreground/70 active:bg-foreground/10 disabled:opacity-25"
             >
               <Paperclip />
             </button>
