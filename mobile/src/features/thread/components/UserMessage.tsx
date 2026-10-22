@@ -279,18 +279,27 @@ export type UserMessageProps = {
   baseUrl: string
 }
 
-export function UserMessage({ message, baseUrl }: UserMessageProps) {
-  const [viewing, setViewing] = useState<number | null>(null)
+/** Whether the message shows anything: UserMessage renders nothing if not. */
+export function hasVisibleContent(
+  message: UIMessage,
+  baseUrl: string
+): boolean {
   const { text, photos, files, quotes, sources } = readParts(
     message.parts,
     baseUrl
   )
-  if (
-    !text &&
-    photos.length + files.length + quotes.length + sources.length === 0
-  ) {
-    return null
-  }
+  return (
+    !!text || photos.length + files.length + quotes.length + sources.length > 0
+  )
+}
+
+export function UserMessage({ message, baseUrl }: UserMessageProps) {
+  const [viewing, setViewing] = useState<number | null>(null)
+  if (!hasVisibleContent(message, baseUrl)) return null
+  const { text, photos, files, quotes, sources } = readParts(
+    message.parts,
+    baseUrl
+  )
 
   return (
     <div className="ml-auto flex max-w-[85%] flex-col items-end gap-2">

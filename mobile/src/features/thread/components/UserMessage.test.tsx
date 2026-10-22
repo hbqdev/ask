@@ -7,6 +7,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import {
   attachmentUrl,
   fileTypeLabel,
+  hasVisibleContent,
   UserMessage
 } from '@/features/thread/components/UserMessage'
 import { clippingAncestors } from '@/test/clipping'
@@ -103,6 +104,24 @@ describe('UserMessage: text', () => {
       { type: 'step-start' }
     ])
     expect(container).toBeEmptyDOMElement()
+  })
+})
+
+describe('hasVisibleContent', () => {
+  it('is false for a message that renders nothing', () => {
+    expect(
+      hasVisibleContent(
+        message([{ type: 'text', text: '' }, { type: 'step-start' }]),
+        BASE
+      )
+    ).toBe(false)
+  })
+
+  it('is true for text, or for an attachment alone', () => {
+    expect(
+      hasVisibleContent(message([{ type: 'text', text: 'Hi' }]), BASE)
+    ).toBe(true)
+    expect(hasVisibleContent(message([PDF]), BASE)).toBe(true)
   })
 })
 

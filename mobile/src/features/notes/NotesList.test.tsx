@@ -310,10 +310,14 @@ describe('NotesList', () => {
 })
 
 describe('NotesList windowing', () => {
-  // A phone's worth of list: 300 px, rows 72 px high.
+  // A phone's worth of list: 300 px, headers 38 px and rows 88 px high (as
+  // measured at the default text size, so the estimates hold).
   beforeEach(() => {
     restoreLayout()
-    restoreLayout = installVirtualLayout({ viewport: 300, item: 72 })
+    restoreLayout = installVirtualLayout({
+      viewport: 300,
+      item: el => (el.querySelector('h2') ? 38 : 88)
+    })
   })
 
   /** `n` notes, all saved 10 days ago: one section of n rows. */
@@ -323,7 +327,7 @@ describe('NotesList windowing', () => {
     )
 
   // The section's header comes first: row i is item i + 1.
-  const rowTop = (i: number) => (i + 1) * 72
+  const rowTop = (i: number) => 38 + i * 88
   const rowCount = () => document.querySelectorAll('.swipe-row').length
 
   function scrollList(top: number) {

@@ -533,7 +533,7 @@ describe('ThreadScreen', () => {
     expect(screen.getByText(/The fact/)).toBeInTheDocument()
   })
 
-  it('lets the browser skip laying out past turns off screen, never the latest question and answer', () => {
+  it('lets the browser skip laying out past answers off screen, never a question or the latest answer', () => {
     renderScreen(
       session({
         messages: [
@@ -550,17 +550,37 @@ describe('ThreadScreen', () => {
       ...screen.getByTestId('thread-content').firstElementChild!.children
     ] as HTMLElement[]
     expect(turns).toHaveLength(6)
+    // Questions are cheap to lay out, and contained they would clip their
+    // chips' hit areas and hold a 480 px placeholder: never skipped.
     expect(turns.map(t => t.style.contentVisibility)).toEqual([
+      '',
       'auto',
-      'auto',
-      'auto',
+      '',
       'auto',
       '',
       ''
     ])
-    expect(turns[0].style.containIntrinsicSize).toBe('auto 480px')
+    expect(turns[1].style.containIntrinsicSize).toBe('auto 480px')
     expect(turns[0]).toHaveTextContent('First?')
     expect(turns[5]).toHaveTextContent('Three.')
+  })
+
+  it('leaves no gap for a question with nothing to show', () => {
+    renderScreen(
+      session({
+        messages: [
+          user('u1', 'First?'),
+          assistant('a1', 'One.'),
+          { id: 'u2', role: 'user', parts: [{ type: 'step-start' }] },
+          assistant('a2', 'Two.')
+        ]
+      })
+    )
+    const turns = [
+      ...screen.getByTestId('thread-content').firstElementChild!.children
+    ]
+    expect(turns).toHaveLength(3)
+    expect(turns.every(t => t.childElementCount > 0)).toBe(true)
   })
 
   it('heads the screen with the chat title', () => {

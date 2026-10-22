@@ -10,11 +10,29 @@ import { isShown } from '@/core/nav/scroll-to-top'
 /**
  * On unmount, give focus back to the element that had it when the calling
  * component first rendered (before anything inside it could take focus),
- * without scrolling the page to it.
+ * without scrolling the page to it. When that element is gone (a list row
+ * windowed out or deleted) and focus went with the layer, the front screen's
+ * title takes it, as on a pop (core/nav/stack).
  */
 export function useReturnFocus(): void {
   const [opener] = useState(() => document.activeElement as HTMLElement | null)
-  useEffect(() => () => opener?.focus({ preventScroll: true }), [opener])
+  useEffect(
+    () => () => {
+      if (!opener) return
+      if (opener.isConnected) {
+        opener.focus({ preventScroll: true })
+        return
+      }
+      const active = document.activeElement
+      if (active && active !== document.body) return
+      const layers = document.querySelectorAll<HTMLElement>(
+        '.stack-layer:not(.stack-leave)'
+      )
+      const top = layers[layers.length - 1]
+      if (top) focusHeading(top)
+    },
+    [opener]
+  )
 }
 
 const FOCUSABLE =

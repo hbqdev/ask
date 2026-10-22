@@ -1,9 +1,13 @@
 // jsdom has no layout: every box is 0 high, so a virtualized list sees no
 // viewport and mounts nothing. This gives the boxes a virtualizer reads a
 // height: a scroller (`data-scroll-root`) is `viewport` high and a list item
-// (`data-index`) is `item` high; anything else keeps jsdom's zeros.
+// (`data-index`) is `item` high (or `item(el)`, for rows of several
+// heights); anything else keeps jsdom's zeros.
 
-type Layout = { viewport: number; item: number }
+type Layout = {
+  viewport: number
+  item: number | ((el: HTMLElement) => number)
+}
 
 const PROPS = ['offsetHeight', 'clientHeight', 'getBoundingClientRect'] as const
 
@@ -24,7 +28,9 @@ export function installVirtualLayout({ viewport, item }: Layout): () => void {
     el.hasAttribute('data-scroll-root')
       ? viewport
       : el.hasAttribute('data-index')
-        ? item
+        ? typeof item === 'number'
+          ? item
+          : item(el)
         : null
 
   Object.defineProperty(proto, 'offsetHeight', {

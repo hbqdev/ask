@@ -58,6 +58,19 @@ describe('installVirtualLayout', () => {
     ).toBeUndefined()
   })
 
+  it('can size each item by a function of the element', () => {
+    restore = installVirtualLayout({
+      viewport: 300,
+      item: el => (el.textContent === 'tall' ? 150 : 72)
+    })
+    const tall = el({ 'data-index': '0' })
+    tall.textContent = 'tall'
+    const short = el({ 'data-index': '1' })
+    expect(tall.offsetHeight).toBe(150)
+    expect(tall.getBoundingClientRect().height).toBe(150)
+    expect(short.clientHeight).toBe(72)
+  })
+
   it('can be installed again with other sizes', () => {
     installVirtualLayout({ viewport: 300, item: 72 })()
     restore = installVirtualLayout({ viewport: 500, item: 100 })

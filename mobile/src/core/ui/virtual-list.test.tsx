@@ -1,10 +1,11 @@
 import { defaultRangeExtractor } from '@tanstack/react-virtual'
 import { act, fireEvent, render, screen } from '@testing-library/react'
-import { useRef } from 'react'
+import { useRef, useState } from 'react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import {
   flattenGroups,
+  itemEstimate,
   sectionHeader,
   stickyRangeExtractor,
   VirtualList,
@@ -94,7 +95,12 @@ describe('stickyRangeExtractor', () => {
 
 // --- The list -------------------------------------------------------------------
 
-const ROW = 72
+// Rows and headers as tall as they measure at the default text size (the
+// estimates), and a "tall" row for mixed heights.
+const ROW = 88
+const HEAD = 38
+const sized = (el: HTMLElement) =>
+  el.querySelector('h2') ? HEAD : el.textContent!.includes('tall') ? 150 : ROW
 
 function List({ items }: { items: VirtualItem<string>[] }) {
   const scroller = useRef<HTMLDivElement>(null)
@@ -142,7 +148,7 @@ afterEach(() => {
 
 describe('VirtualList', () => {
   it('mounts only the window', () => {
-    restore = installVirtualLayout({ viewport: 300, item: ROW })
+    restore = installVirtualLayout({ viewport: 300, item: sized })
     render(<List items={flattenGroups(null, rows(200), keyOf)} />)
     expect(screen.getByText('Row 0')).toBeInTheDocument()
     expect(screen.queryByText('Row 199')).toBeNull()
@@ -153,13 +159,13 @@ describe('VirtualList', () => {
   })
 
   it('holds the whole list’s height, so the scroller scrolls it all', () => {
-    restore = installVirtualLayout({ viewport: 300, item: ROW })
+    restore = installVirtualLayout({ viewport: 300, item: sized })
     render(<List items={flattenGroups(null, rows(200), keyOf)} />)
     expect(item(0)!.parentElement!.style.height).toBe(`${200 * ROW}px`)
   })
 
   it('mounts the rows scrolled to and lets go of those scrolled past', () => {
-    restore = installVirtualLayout({ viewport: 300, item: ROW })
+    restore = installVirtualLayout({ viewport: 300, item: sized })
     render(<List items={flattenGroups(null, rows(200), keyOf)} />)
     scrollTo(150 * ROW)
     expect(screen.getByText('Row 150')).toBeInTheDocument()
@@ -169,7 +175,7 @@ describe('VirtualList', () => {
   })
 
   it('passes each row its separator, and marks every item with its index', () => {
-    restore = installVirtualLayout({ viewport: 300, item: ROW })
+    restore = installVirtualLayout({ viewport: 300, item: sized })
     render(
       <List
         items={flattenGroups(
@@ -189,7 +195,7 @@ describe('VirtualList', () => {
   })
 
   it('has no list role, and keeps each header a heading with its own id', () => {
-    restore = installVirtualLayout({ viewport: 300, item: ROW })
+    restore = installVirtualLayout({ viewport: 300, item: sized })
     render(
       <List
         items={flattenGroups(
@@ -232,7 +238,7 @@ describe('VirtualList', () => {
     }
 
     it('keeps the active header sticky', () => {
-      restore = installVirtualLayout({ viewport: 300, item: ROW })
+      restore = installVirtualLayout({ viewport: 300, item: sized })
       render(<List items={GROUPED} />)
       // At the top, A is the active header.
       expectSticky(item(0)!)
@@ -252,7 +258,7 @@ describe('VirtualList', () => {
     })
 
     it('makes the header sticky once its rows reach the top, even while it is in the range', () => {
-      restore = installVirtualLayout({ viewport: 300, item: ROW })
+      restore = installVirtualLayout({ viewport: 300, item: sized })
       render(<List items={GROUPED} />)
       scrollTo(55 * ROW)
       expectSticky(item(51)!)
@@ -262,27 +268,27 @@ describe('VirtualList', () => {
     })
 
     it('places a header that is not at the top like any row', () => {
-      restore = installVirtualLayout({ viewport: 300, item: ROW })
+      restore = installVirtualLayout({ viewport: 300, item: sized })
       render(<List items={GROUPED} />)
       scrollTo(48 * ROW)
       const b = item(51)!
       expect(b.style.position).toBe('absolute')
-      expect(b.style.transform).toBe(`translateY(${51 * ROW}px)`)
+      expect(b.style.transform).toBe(`translateY(${HEAD + 50 * ROW}px)`)
       expect(b).toHaveClass('bg-background')
     })
   })
 
   it('counts the content above the list in the scroller (scrollMargin)', () => {
-    restore = installVirtualLayout({ viewport: 300, item: ROW })
+    restore = installVirtualLayout({ viewport: 300, item: sized })
     // The list starts 1000 px down its scroller (a banner, a header).
     vi.spyOn(HTMLElement.prototype, 'offsetTop', 'get').mockImplementation(
       function (this: HTMLElement) {
-        return this.querySelector(':scope > [data-index]') ? 1000 : 0
+        return this.parentElement?.dataset.testid === 'scroller' ? 1000 : 0
       }
     )
     render(<List items={flattenGroups(null, rows(200), keyOf)} />)
     // Scrolled to the list's own row 100: the window is about row 100, not
-    // about row 100 + 1000 / 72.
+    // about row 100 + 1000 / 88.
     scrollTo(1000 + 100 * ROW)
     expect(item(100)).not.toBeNull()
     expect(item(91)).not.toBeNull()
@@ -291,8 +297,39 @@ describe('VirtualList', () => {
     expect(item(100)!.parentElement!.style.height).toBe(`${200 * ROW}px`)
   })
 
+  it('measures the content above it again when the content around it changes size', () => {
+    restore = installVirtualLayout({ viewport: 300, item: sized })
+    let above = 0
+    vi.spyOn(HTMLElement.prototype, 'offsetTop', 'get').mockImplementation(
+      function (this: HTMLElement) {
+        return this.parentElement?.dataset.testid === 'scroller' ? above : 0
+      }
+    )
+    render(<List items={flattenGroups(null, rows(200), keyOf)} />)
+    const list = item(0)!.parentElement!
+
+    // A banner above the list grows (a larger text size): nothing in the
+    // list renders, but the content around it resizes.
+    above = 1000
+    act(() => resize(list.parentElement!))
+
+    scrollTo(1000 + 100 * ROW)
+    expect(item(91)).not.toBeNull()
+    expect(item(100)!.style.transform).toBe(`translateY(${100 * ROW}px)`)
+  })
+
+  it('reads the content above it on a resize, not on each scroll', () => {
+    restore = installVirtualLayout({ viewport: 300, item: sized })
+    const offsetTop = vi.spyOn(HTMLElement.prototype, 'offsetTop', 'get')
+    render(<List items={flattenGroups(null, rows(200), keyOf)} />)
+    offsetTop.mockClear()
+    for (const n of [20, 60, 120]) scrollTo(n * ROW)
+    expect(item(120)).not.toBeNull()
+    expect(offsetTop).not.toHaveBeenCalled()
+  })
+
   it('measures each row, and measures again when one changes size (the text size)', () => {
-    restore = installVirtualLayout({ viewport: 300, item: ROW })
+    restore = installVirtualLayout({ viewport: 300, item: sized })
     render(<List items={flattenGroups(null, rows(200), keyOf)} />)
     expect(item(1)!.style.transform).toBe(`translateY(${ROW}px)`)
 
@@ -307,9 +344,86 @@ describe('VirtualList', () => {
   })
 })
 
+describe('itemEstimate', () => {
+  it('is a row’s and a header’s measured size at the default text size', () => {
+    expect(itemEstimate('row', 16)).toBe(88)
+    expect(itemEstimate('header', 16)).toBe(38)
+  })
+
+  it('grows with the text size', () => {
+    expect(itemEstimate('row', 20)).toBe(110)
+    expect(itemEstimate('header', 20)).toBe(48)
+  })
+})
+
+describe('VirtualList estimates', () => {
+  const ITEMS = flattenGroups(
+    [{ label: 'A', rows: ['a', 'b', 'c'] }],
+    [],
+    keyOf
+  )
+  // With no scroller nothing is measured: the box is the estimates' sum.
+  const height = () =>
+    render(
+      <VirtualList
+        scroller={{ current: null }}
+        items={ITEMS}
+        renderRow={row => <p>{row}</p>}
+        renderHeader={label => <h2>{label}</h2>}
+      />
+    ).container.firstElementChild as HTMLElement
+
+  afterEach(() => {
+    document.documentElement.style.fontSize = ''
+  })
+
+  it('sizes items not yet measured as rows and headers measure', () => {
+    expect(height().style.height).toBe(`${38 + 3 * 88}px`)
+  })
+
+  it('takes the text size at mount', () => {
+    document.documentElement.style.fontSize = '20px'
+    expect(height().style.height).toBe(`${48 + 3 * 110}px`)
+  })
+})
+
+describe('VirtualList keeps each row’s measured height', () => {
+  let setRows: (rows: string[]) => void = () => {}
+  function Live({ initial }: { initial: string[] }) {
+    const [rows, set] = useState(initial)
+    setRows = set
+    return <List items={flattenGroups(null, rows, keyOf)} />
+  }
+
+  it('closes the gap of a deleted tall row with the rows after it', () => {
+    restore = installVirtualLayout({ viewport: 300, item: sized })
+    const all = Array.from({ length: 100 }, (_, i) =>
+      i % 3 === 0 ? `tall ${i}` : `r ${i}`
+    )
+    render(<Live initial={all} />)
+    scrollTo(40 * 100)
+    act(() => {
+      for (const el of document.querySelectorAll('[data-index]')) resize(el)
+    })
+    const at = (text: string) => screen.getByText(text).parentElement!
+    const top = (text: string) =>
+      Number(at(text).style.transform.match(/^translateY\((\d+)px\)$/)![1])
+    const was = top('tall 51')
+    expect(top('r 52') - was).toBe(150)
+
+    act(() => setRows(all.filter(r => r !== 'tall 51')))
+
+    expect(screen.queryByText('tall 51')).toBeNull()
+    expect(top('r 52')).toBe(was)
+    expect(at('r 52').dataset.index).toBe('51')
+    expect(top('r 53') - top('r 52')).toBe(ROW)
+    expect(top('r 55') - top('tall 54')).toBe(150)
+  })
+})
+
 describe('VirtualList without its scroller', () => {
   it('mounts nothing, and stops asking for its scroller', () => {
-    restore = installVirtualLayout({ viewport: 300, item: ROW })
+    restore = installVirtualLayout({ viewport: 300, item: sized })
     render(
       <VirtualList
         scroller={{ current: null }}

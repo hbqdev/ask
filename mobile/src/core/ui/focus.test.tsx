@@ -51,6 +51,45 @@ describe('useReturnFocus', () => {
     expect(focus).toHaveBeenCalledWith({ preventScroll: true })
   })
 
+  describe('when the opener is gone (a row windowed out, or deleted)', () => {
+    function Screen({ row, open }: { row: boolean; open: boolean }) {
+      return (
+        <div className="stack-layer">
+          <h1>Library</h1>
+          <button type="button">elsewhere</button>
+          {row && <button type="button">row</button>}
+          {open && <Modal />}
+        </div>
+      )
+    }
+
+    it('gives focus to the front screen’s title, as a pop would', () => {
+      const view = render(<Screen row open={false} />)
+      screen.getByRole('button', { name: 'row' }).focus()
+      view.rerender(<Screen row open />)
+      view.rerender(<Screen row={false} open={false} />)
+      expect(screen.getByRole('heading', { name: 'Library' })).toHaveFocus()
+    })
+
+    it('leaves focus where it went meanwhile', () => {
+      const view = render(<Screen row open={false} />)
+      screen.getByRole('button', { name: 'row' }).focus()
+      view.rerender(<Screen row open />)
+      const elsewhere = screen.getByRole('button', { name: 'elsewhere' })
+      elsewhere.focus()
+      view.rerender(<Screen row={false} open={false} />)
+      expect(elsewhere).toHaveFocus()
+    })
+
+    it('does nothing outside a screen', () => {
+      const view = render(<Host open={false} />)
+      screen.getByRole('button', { name: 'opener' }).focus()
+      view.rerender(<Host open />)
+      expect(() => view.unmount()).not.toThrow()
+      expect(document.body).toHaveFocus()
+    })
+  })
+
   it('does nothing when nothing had focus', () => {
     vi.spyOn(Document.prototype, 'activeElement', 'get').mockReturnValue(null)
     const view = render(<Host open />)

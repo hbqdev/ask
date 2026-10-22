@@ -661,10 +661,14 @@ describe('LibraryScreen swipe actions', () => {
 // --- Windowing ------------------------------------------------------------------
 
 describe('LibraryScreen windowing', () => {
-  // A phone's worth of list: 300 px, rows 72 px high.
+  // A phone's worth of list: 300 px, headers 38 px and rows 88 px high (as
+  // measured at the default text size, so the estimates hold).
   beforeEach(() => {
     restoreLayout()
-    restoreLayout = installVirtualLayout({ viewport: 300, item: 72 })
+    restoreLayout = installVirtualLayout({
+      viewport: 300,
+      item: el => (el.querySelector('h2') ? 38 : 88)
+    })
   })
 
   /** `n` chats, all viewed 10 days ago: one section of n rows. */
@@ -674,7 +678,7 @@ describe('LibraryScreen windowing', () => {
     )
 
   // The section's header comes first: row i is item i + 1.
-  const rowTop = (i: number) => (i + 1) * 72
+  const rowTop = (i: number) => 38 + i * 88
 
   it('mounts only the rows on screen, however long the list', async () => {
     await renderScreen(library({ chats: many(500), total: 500 }))
@@ -763,7 +767,7 @@ describe('LibraryScreen windowing', () => {
 
   it('deletes and renames a row far down the list', async () => {
     const lib = library({ chats: many(300), total: 300 })
-    await renderScreen(lib)
+    const { update } = await renderScreen(lib)
     scrollList(rowTop(150))
 
     swipeAction('Many 150', 'Delete')
@@ -773,6 +777,13 @@ describe('LibraryScreen windowing', () => {
       ).getByRole('button', { name: 'Delete' })
     )
     expect(lib.remove).toHaveBeenCalledExactlyOnceWith('m150')
+    // The row leaves the list: the next one takes its place.
+    const item = (title: string) =>
+      rowButton(title).closest<HTMLElement>('[data-index]')!
+    const place = item('Many 150').style.transform
+    update({ lib: { ...lib, chats: many(300).filter(c => c.id !== 'm150') } })
+    expect(screen.queryByText('Many 150')).toBeNull()
+    expect(item('Many 151').style.transform).toBe(place)
 
     swipeAction('Many 151', 'Rename')
     const field = screen.getByRole('textbox', { name: 'Rename chat' })

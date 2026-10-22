@@ -136,7 +136,14 @@ describe('layoutAssistantMessage', () => {
 })
 
 describe('pastTurnStyle', () => {
-  const PAST = { contentVisibility: 'auto', containIntrinsicSize: 'auto 480px' }
+  const PAST = {
+    contentVisibility: 'auto',
+    containIntrinsicSize: 'auto 480px',
+    // Room inside the contained (clipped) box for hit areas and focus rings
+    // at its edges, the box's place in the layout unchanged.
+    padding: '8px 12px',
+    margin: '-8px -12px'
+  }
 
   it('lets the browser skip laying out a past message while off screen', () => {
     expect(pastTurnStyle(0, 5)).toEqual(PAST)

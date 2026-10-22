@@ -31,9 +31,25 @@ export type VirtualItem<T> =
   | { kind: 'header'; key: string; label: string }
   | { kind: 'row'; key: string; row: T; separator: boolean }
 
-/** Sizes to assume until an item is measured. */
-const HEADER_ESTIMATE = 36
-const ROW_ESTIMATE = 72
+// What a header and a (two-line) row measure at the default text size, 16 px
+// (the Library's; a note row is as tall).
+const ESTIMATES = { header: 38, row: 88 }
+
+/**
+ * The size to assume for an item until it is measured: its size at the
+ * default text size, scaled to the text size `rootPx` (the root font size,
+ * which follows the iOS text size).
+ */
+export function itemEstimate(
+  kind: VirtualItem<unknown>['kind'],
+  rootPx: number
+): number {
+  return Math.round((ESTIMATES[kind] * rootPx) / 16)
+}
+
+/** The root font size in px (16 when it cannot be read). */
+const rootFontPx = () =>
+  parseFloat(getComputedStyle(document.documentElement).fontSize) || 16
 
 /** Items mounted beyond each end of the window. */
 const OVERSCAN = 10
@@ -124,6 +140,8 @@ export function VirtualList<T>({
   const idPrefix = useId()
   // How far down the scroller the list starts (what is above it: a banner).
   const [margin, setMargin] = useState(0)
+  // The text size at mount; measuring corrects any later change.
+  const [rootPx] = useState(rootFontPx)
 
   const headers = useMemo(
     () => items.flatMap((item, i) => (item.kind === 'header' ? [i] : [])),
@@ -131,9 +149,8 @@ export function VirtualList<T>({
   )
   const rangeExtractor = useMemo(() => stickyRangeExtractor(headers), [headers])
   const estimateSize = useCallback(
-    (i: number) =>
-      items[i].kind === 'header' ? HEADER_ESTIMATE : ROW_ESTIMATE,
-    [items]
+    (i: number) => itemEstimate(items[i].kind, rootPx),
+    [items, rootPx]
   )
   const getItemKey = useCallback((i: number) => items[i].key, [items])
 
@@ -150,22 +167,26 @@ export function VirtualList<T>({
   // Mounted with its scroller, the list runs its layout effects before the
   // scroller (an ancestor) has its ref: the virtualizer finds no element to
   // watch. One more render, before paint, finds it.
-  const [, retry] = useReducer((n: number) => n + 1, 0)
-  const retried = useRef(false)
+  const [tries, retry] = useReducer((n: number) => n + 1, 0)
 
-  // Measured after each render, as what is above the list may have changed.
+  // Measured at mount, then whenever the content around the list changes
+  // size (a banner above it comes, goes or reflows), not on every render: a
+  // read of offsetTop forces a layout.
   useLayoutEffect(() => {
     const el = scroller.current
     if (!el) {
-      if (!retried.current) {
-        retried.current = true
-        retry()
-      }
+      if (tries === 0) retry()
       return
     }
-    const next = offsetWithin(list.current!, el)
-    if (next !== margin) setMargin(next)
-  })
+    const node = list.current!
+    const measure = () => setMargin(offsetWithin(node, el))
+    measure()
+    const observer = new ResizeObserver(measure)
+    observer.observe(
+      (node.offsetParent as HTMLElement | null) ?? node.parentElement!
+    )
+    return () => observer.disconnect()
+  }, [scroller, tries])
 
   const virtualItems = virtualizer.getVirtualItems()
   const range = virtualizer.range

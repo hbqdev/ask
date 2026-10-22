@@ -36,7 +36,10 @@ import {
   type AnswerNotes
 } from '@/features/thread/components/AssistantTurn'
 import { SourcesSheet } from '@/features/thread/components/SourcesSheet'
-import { UserMessage } from '@/features/thread/components/UserMessage'
+import {
+  hasVisibleContent,
+  UserMessage
+} from '@/features/thread/components/UserMessage'
 import type { ChatErrorView } from '@/features/thread/model/chat-errors'
 import { listSources } from '@/features/thread/model/citations'
 import { pastTurnStyle } from '@/features/thread/model/layout'
@@ -428,12 +431,13 @@ export function ThreadScreen({
             ) : (
               <div className="flex flex-col gap-5">
                 {messages.map((message, i) => {
-                  // Past turns skip layout while off screen. Every message is
-                  // wrapped alike, so none mounts again as the thread grows.
-                  const style = pastTurnStyle(i, messages.length)
+                  // Every message has a wrapper, so none mounts again as the
+                  // thread grows. A question with nothing to show has none,
+                  // so it leaves no gap.
                   if (message.role === 'user') {
+                    if (!hasVisibleContent(message, baseUrl)) return null
                     return (
-                      <div key={message.id} style={style}>
+                      <div key={message.id}>
                         <UserMessage message={message} baseUrl={baseUrl} />
                       </div>
                     )
@@ -441,7 +445,11 @@ export function ThreadScreen({
                   const isLatest = i === messages.length - 1
                   const prev = messages[i - 1]
                   return (
-                    <div key={message.id} style={style}>
+                    // A past answer skips layout while off screen.
+                    <div
+                      key={message.id}
+                      style={pastTurnStyle(i, messages.length)}
+                    >
                       <AssistantTurn
                         message={message}
                         streaming={isTurnStreaming(isLatest, status)}
