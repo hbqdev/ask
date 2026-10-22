@@ -12,6 +12,11 @@ import type { ReactNode } from 'react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { AuthProvider, useAuth, type Auth } from '@/core/auth/AuthProvider'
+import {
+  BROWSER_CLOSED_GRACE_MS,
+  deliverAuthCallback,
+  googleSignInPending
+} from '@/core/auth/oauth'
 import type { AuthStorage } from '@/core/auth/preferences-storage'
 import { AUTH_STORAGE_KEY } from '@/core/auth/supabase'
 import { createApiClient } from '@/core/api/client'
@@ -642,7 +647,12 @@ describe('AuthProvider: signInWithGoogle', () => {
 
   afterEach(async () => {
     // Settle a sign-in a test left waiting, so the next starts clean.
-    await act(async () => browserFinished.forEach(l => l()))
+    vi.useRealTimers()
+    if (googleSignInPending()) {
+      await act(async () =>
+        deliverAuthCallback('ask://auth-callback?error=access_denied')
+      )
+    }
   })
 
   /** Starts a Google sign-in and waits until the browser is open. */
@@ -682,10 +692,13 @@ describe('AuthProvider: signInWithGoogle', () => {
     const { done } = await startGoogle(result)
 
     let ok: boolean | undefined
+    vi.useFakeTimers()
     await act(async () => {
       browserFinished.forEach(l => l())
+      await vi.advanceTimersByTimeAsync(BROWSER_CLOSED_GRACE_MS)
       ok = await done
     })
+    vi.useRealTimers()
 
     expect(ok).toBe(false)
     expect(auth.exchangeCodeForSession).not.toHaveBeenCalled()
@@ -707,7 +720,8 @@ describe('AuthProvider: signInWithGoogle', () => {
 
     expect(ok).toBe(false)
     expect(auth.exchangeCodeForSession).not.toHaveBeenCalled()
-    expect(result.current.error).toBe('Email link is invalid')
+    // The app's own words, never the link's error_description.
+    expect(result.current.error).toBe('Sign-in was cancelled.')
     expect(result.current.status).toBe('signedOut')
   })
 

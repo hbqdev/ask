@@ -19,10 +19,23 @@ export const AUTH_CALLBACK_URL = 'ask://auth-callback'
 /** How long a sign-in waits for the browser to come back. */
 export const GOOGLE_SIGN_IN_TIMEOUT_MS = 3 * 60 * 1000
 
-const FAILED = 'Google sign-in failed'
+/**
+ * How long a closed browser waits for the callback before the sign-in counts
+ * as cancelled: iOS may report the browser closed before it hands the app
+ * the ask://auth-callback URL.
+ */
+export const BROWSER_CLOSED_GRACE_MS = 1500
+
+export const GOOGLE_SIGN_IN_FAILED = 'Google sign-in failed. Try again.'
+export const SIGN_IN_CANCELLED = 'Sign-in was cancelled.'
 const TIMED_OUT = 'Sign-in timed out'
 const NO_BROWSER = "Couldn't open the browser"
-const MAX_ERROR_CHARS = 200
+
+// What the user is told for an OAuth error code (RFC 6749 §4.1.2.1); any
+// other code gets GOOGLE_SIGN_IN_FAILED. Supabase's error_description is
+// never shown: any app can open ask://auth-callback while a sign-in is
+// pending, so it is text an attacker chooses.
+const ERROR_MESSAGES = new Map([['access_denied', SIGN_IN_CANCELLED]])
 
 export type AuthCallback = { code: string } | { error: string }
 
@@ -44,8 +57,8 @@ let settlePending: ((result: Settled) => void) | null = null
 
 /**
  * The code, or a user-facing error, in an ask://auth-callback URL; null for
- * any other URL. The error is Supabase's error_description (query or
- * fragment), trimmed to 200 characters.
+ * any other URL. The error is the app's own message for the `error` code
+ * (query or fragment).
  */
 export function parseAuthCallback(url: string): AuthCallback | null {
   let parsed: URL
@@ -62,14 +75,8 @@ export function parseAuthCallback(url: string): AuthCallback | null {
   const code = query.get('code')
   if (code) return { code }
   const fragment = new URLSearchParams(parsed.hash.slice(1))
-  const description = (
-    query.get('error_description') ??
-    fragment.get('error_description') ??
-    ''
-  )
-    .trim()
-    .slice(0, MAX_ERROR_CHARS)
-  return { error: description || FAILED }
+  const errorCode = query.get('error') ?? fragment.get('error') ?? ''
+  return { error: ERROR_MESSAGES.get(errorCode) ?? GOOGLE_SIGN_IN_FAILED }
 }
 
 /** Whether a Google sign-in is under way. */
@@ -118,6 +125,7 @@ export async function runGoogleSignIn(
     closeBrowser()
   }, GOOGLE_SIGN_IN_TIMEOUT_MS)
   let finished: PluginListenerHandle | undefined
+  let grace: ReturnType<typeof setTimeout> | undefined
   try {
     const { data, error } = await client.auth.signInWithOAuth({
       provider: 'google',
@@ -125,10 +133,15 @@ export async function runGoogleSignIn(
     })
     if (error) throw error
     // Fires when the user closes the browser, or after it is closed here; a
-    // callback that came first has already settled the sign-in by then.
-    finished = await Browser.addListener('browserFinished', () =>
-      settle({ cancelled: true })
-    )
+    // callback that came first has already settled the sign-in by then, and
+    // one that comes within the grace period still wins.
+    finished = await Browser.addListener('browserFinished', () => {
+      clearTimeout(grace)
+      grace = setTimeout(
+        () => settle({ cancelled: true }),
+        BROWSER_CLOSED_GRACE_MS
+      )
+    })
     const opened = await Browser.open({ url: data.url }).then(
       () => true,
       () => false
@@ -143,6 +156,7 @@ export async function runGoogleSignIn(
     return { outcome: 'signedIn', session: exchanged.data.session }
   } finally {
     clearTimeout(timer)
+    clearTimeout(grace)
     settlePending = null
     finished?.remove().catch(ignore)
   }

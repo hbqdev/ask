@@ -4,11 +4,14 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import {
   AUTH_CALLBACK_URL,
+  BROWSER_CLOSED_GRACE_MS,
   deliverAuthCallback,
+  GOOGLE_SIGN_IN_FAILED,
   GOOGLE_SIGN_IN_TIMEOUT_MS,
   googleSignInPending,
   parseAuthCallback,
-  runGoogleSignIn
+  runGoogleSignIn,
+  SIGN_IN_CANCELLED
 } from '@/core/auth/oauth'
 import { AUTH_STORAGE_KEY, createSupabase } from '@/core/auth/supabase'
 import { memoryStorage } from '@/test/memory-storage'
@@ -80,36 +83,43 @@ describe('parseAuthCallback', () => {
     })
   })
 
-  it('reads a URL-decoded, trimmed error_description', () => {
+  it('says a denied sign-in was cancelled, never showing error_description', () => {
     expect(
       parseAuthCallback(
-        'ask://auth-callback?error=access_denied&error_description=%20The+user%20denied%20access%20'
+        'ask://auth-callback?error=access_denied&error_description=Call+us+at+555-0100'
       )
-    ).toEqual({ error: 'The user denied access' })
+    ).toEqual({ error: 'Sign-in was cancelled.' })
+    expect(SIGN_IN_CANCELLED).toBe('Sign-in was cancelled.')
   })
 
-  it('reads an error_description from the fragment', () => {
+  it('reads the error code from the fragment too', () => {
     expect(
       parseAuthCallback(
-        'ask://auth-callback#error=server_error&error_description=Unable+to+exchange'
+        'ask://auth-callback#error=access_denied&error_description=whatever'
       )
-    ).toEqual({ error: 'Unable to exchange' })
-  })
-
-  it('trims a long error_description to 200 characters', () => {
-    const long = 'x'.repeat(500)
-    expect(
-      parseAuthCallback(`ask://auth-callback?error_description=${long}`)
-    ).toEqual({ error: 'x'.repeat(200) })
+    ).toEqual({ error: 'Sign-in was cancelled.' })
   })
 
   it.each([
+    [
+      'another error code',
+      'ask://auth-callback?error=server_error&error_description=Unable+to+exchange'
+    ],
+    [
+      'an error code in the fragment',
+      'ask://auth-callback#error=server_error&error_description=Unable+to+exchange'
+    ],
+    [
+      'a description with no code',
+      'ask://auth-callback?error_description=Visit+evil.example+to+fix'
+    ],
     ['an error without a description', 'ask://auth-callback?error=oops'],
-    ['a blank description', 'ask://auth-callback?error_description=%20'],
+    ['a code-like key on the prototype', 'ask://auth-callback?error=toString'],
     ['no code and no error', 'ask://auth-callback'],
     ['an empty code', 'ask://auth-callback?code=']
   ])('says Google sign-in failed for %s', (_label, url) => {
-    expect(parseAuthCallback(url)).toEqual({ error: 'Google sign-in failed' })
+    expect(parseAuthCallback(url)).toEqual({ error: GOOGLE_SIGN_IN_FAILED })
+    expect(GOOGLE_SIGN_IN_FAILED).toBe('Google sign-in failed. Try again.')
   })
 
   it.each([
@@ -131,7 +141,9 @@ describe('runGoogleSignIn', () => {
   afterEach(async () => {
     // Settle any sign-in a test left waiting, so the next starts clean.
     vi.useRealTimers()
-    finishBrowser()
+    if (googleSignInPending()) {
+      deliverAuthCallback('ask://auth-callback?error=access_denied')
+    }
     await settle()
   })
 
@@ -161,15 +173,41 @@ describe('runGoogleSignIn', () => {
     expect(browser.remove).toHaveBeenCalledTimes(1)
   })
 
-  it('a closed browser with no callback is a cancel', async () => {
+  it('a closed browser with no callback is a cancel, after a grace period', async () => {
     const { auth, client } = fakeClient()
     const { result } = await started(client)
+    vi.useFakeTimers()
+    let outcome: unknown
+    void result.then(r => (outcome = r))
 
     finishBrowser()
+    await vi.advanceTimersByTimeAsync(BROWSER_CLOSED_GRACE_MS - 1)
+    expect(outcome).toBeUndefined()
+    expect(googleSignInPending()).toBe(true)
+    await vi.advanceTimersByTimeAsync(1)
 
     await expect(result).resolves.toEqual({ outcome: 'cancelled' })
     expect(auth.exchangeCodeForSession).not.toHaveBeenCalled()
     expect(googleSignInPending()).toBe(false)
+    expect(BROWSER_CLOSED_GRACE_MS).toBe(1500)
+  })
+
+  it('a callback just after the browser closed still signs in', async () => {
+    const { auth, client } = fakeClient()
+    const { result } = await started(client)
+    vi.useFakeTimers()
+
+    // iOS may report the browser closed before it hands over the callback.
+    finishBrowser()
+    await vi.advanceTimersByTimeAsync(BROWSER_CLOSED_GRACE_MS - 100)
+    deliverAuthCallback('ask://auth-callback?code=the-code')
+
+    await expect(result).resolves.toEqual({ outcome: 'signedIn', session })
+    expect(auth.exchangeCodeForSession).toHaveBeenCalledExactlyOnceWith(
+      'the-code'
+    )
+    // The grace timer is gone: nothing settles later.
+    expect(vi.getTimerCount()).toBe(0)
   })
 
   it('an error callback fails with its message', async () => {
@@ -177,12 +215,12 @@ describe('runGoogleSignIn', () => {
     const { result } = await started(client)
 
     deliverAuthCallback(
-      'ask://auth-callback?error=access_denied&error_description=Access+denied'
+      'ask://auth-callback?error=server_error&error_description=Access+denied'
     )
 
     await expect(result).resolves.toEqual({
       outcome: 'failed',
-      error: 'Access denied'
+      error: 'Google sign-in failed. Try again.'
     })
     expect(auth.exchangeCodeForSession).not.toHaveBeenCalled()
     expect(Browser.close).toHaveBeenCalledTimes(1)
@@ -191,9 +229,11 @@ describe('runGoogleSignIn', () => {
   it('the browser closing after the callback does not undo it', async () => {
     const { client } = fakeClient()
     const { result } = await started(client)
+    vi.useFakeTimers()
 
     deliverAuthCallback('ask://auth-callback?code=the-code')
     finishBrowser()
+    await vi.advanceTimersByTimeAsync(BROWSER_CLOSED_GRACE_MS)
 
     await expect(result).resolves.toMatchObject({ outcome: 'signedIn' })
   })
@@ -285,8 +325,11 @@ describe('runGoogleSignIn', () => {
     browser.remove.mockRejectedValueOnce(new Error('gone'))
     const { client } = fakeClient()
     const { result } = await started(client)
+    vi.useFakeTimers()
 
     finishBrowser()
+    await vi.advanceTimersByTimeAsync(BROWSER_CLOSED_GRACE_MS)
+    vi.useRealTimers()
 
     await expect(result).resolves.toEqual({ outcome: 'cancelled' })
     await settle()
@@ -335,7 +378,10 @@ describe('deliverAuthCallback', () => {
       expect(googleSignInPending()).toBe(true)
     } finally {
       warn.mockRestore()
+      vi.useFakeTimers()
       finishBrowser()
+      await vi.advanceTimersByTimeAsync(BROWSER_CLOSED_GRACE_MS)
+      vi.useRealTimers()
     }
     await expect(result).resolves.toEqual({ outcome: 'cancelled' })
     expect(auth.exchangeCodeForSession).not.toHaveBeenCalled()
