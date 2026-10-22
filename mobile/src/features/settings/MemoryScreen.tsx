@@ -16,7 +16,12 @@ import { ApiError } from '@/core/api/errors'
 import { haptic } from '@/core/haptics'
 import { useScreenActive, useStack, type Stack } from '@/core/nav/stack'
 import { BackHeader } from '@/core/ui/BackHeader'
-import { GROUP, READABLE, SECTION_TITLE, SEPARATOR } from '@/core/ui/classes'
+import {
+  CARD_SEPARATOR,
+  GROUP,
+  READABLE,
+  SECTION_TITLE
+} from '@/core/ui/classes'
 import { ConfirmSheet } from '@/core/ui/ConfirmSheet'
 import { Sheet } from '@/core/ui/Sheet'
 import { SwipeRow } from '@/core/ui/SwipeRow'
@@ -519,7 +524,7 @@ export function MemoryScreen() {
                   >
                     <div
                       className={`relative flex min-h-14 flex-col justify-center gap-1 px-4 py-3 ${
-                        i < shown.length - 1 ? SEPARATOR : ''
+                        i < shown.length - 1 ? CARD_SEPARATOR : ''
                       }`}
                     >
                       <span className="line-clamp-3 text-base leading-snug">

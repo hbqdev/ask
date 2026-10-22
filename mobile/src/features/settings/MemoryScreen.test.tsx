@@ -825,6 +825,12 @@ describe('MemoryScreen: memories', () => {
           .firstElementChild!.className.includes('after:h-px')
       )
     expect(separated).toEqual([true, true, false])
+    // On the card, the card's own hairline colour.
+    const first = within(list)
+      .getAllByRole('listitem')[0]
+      .querySelector('.after\\:h-px')!
+    expect(first).toHaveClass('after:bg-foreground/10')
+    expect(first).not.toHaveClass('after:bg-border')
   })
 
   it('its destructive actions read as destructive', async () => {

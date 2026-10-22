@@ -87,6 +87,48 @@ function sourceMatches(pattern: RegExp): string[] {
   )
 }
 
+/**
+ * Each finding of `check` (given a file's text) in the app's sources, as
+ * "file: finding".
+ */
+function sourceFindings(check: (text: string) => string[]): string[] {
+  return sources(__dirname).flatMap(path =>
+    check(readFileSync(path, 'utf8')).map(
+      found => `${path.slice(__dirname.length + 1)}: ${found}`
+    )
+  )
+}
+
+/**
+ * The class strings in `text`: quoted strings on one line, and template
+ * literals whole (so a class picked by a ternary inside counts as theirs).
+ */
+function classStrings(text: string): string[] {
+  return [...text.matchAll(/`[^`]*`|'[^'\n]*'|"[^"\n]*"/g)].map(m => m[0])
+}
+
+// A fill white text is under 4.5:1 on, in any opacity or as an arbitrary hex.
+const LOW_FILL =
+  /(?:\bbg-(?:mark-blue|red-500)(?:\/\d+)?|\bbg-\[#[0-9a-f]{3,8}\])(?![\w/-])/i
+
+/** Class strings that put white text on a fill under 4.5:1. */
+function whiteOnLowFill(text: string): string[] {
+  return classStrings(text).filter(
+    s => LOW_FILL.test(s) && /\btext-white\b/.test(s)
+  )
+}
+
+/** Class strings with text under 4.5:1 (foreground/40-50), not on an icon. */
+function faintText(text: string): string[] {
+  return classStrings(text).filter(
+    s => /\btext-foreground\/(?:40|45|50)\b/.test(s) && !/\bsize-/.test(s)
+  )
+}
+
+/** A pulse, however spelled, that does not honour reduced motion. */
+const BARE_PULSE =
+  /(?<!motion-safe:)\banimate-(?:pulse\b|\[pulse)|(?<!motion-safe:)\[animation:pulse|\banimation:\s*pulse\b/g
+
 describe('safe areas', () => {
   it('.app-root pads top, left and right with env(safe-area-inset-*)', () => {
     const root = rule('.app-root')
@@ -317,20 +359,54 @@ describe('one colour system in the sources', () => {
 
   it('no white text on a fill under 4.5:1 (bg-mark-blue, bg-red-500)', () => {
     // Use bg-accent-fill (4.94:1) and bg-red-600 (4.76:1).
-    const fill = String.raw`\bbg-(?:mark-blue|red-500)(?![\w/-])`
-    const white = String.raw`\btext-white\b`
-    const inOneString = (a: string, b: string) =>
-      new RegExp(String.raw`['"\`][^'"\`]*${a}[^'"\`]*${b}`, 'g')
-    expect(sourceMatches(inOneString(fill, white))).toEqual([])
-    expect(sourceMatches(inOneString(white, fill))).toEqual([])
+    expect(sourceFindings(whiteOnLowFill)).toEqual([])
+  })
+
+  it('the white-on-fill scan catches every spelling, and passes the AA fills', () => {
+    for (const bad of [
+      `'bg-red-500 text-white'`,
+      `"text-white px-2 bg-mark-blue"`,
+      '`rounded bg-red-500/90 text-white`',
+      '`px-2 ${on ? \'bg-red-500\' : \'bg-muted\'} text-white`',
+      '`${on ? \'text-white\' : \'\'} p-1 bg-[#3694f2]`'
+    ]) {
+      expect(whiteOnLowFill(bad)).toHaveLength(1)
+    }
+    for (const good of [
+      `'bg-red-600 text-white'`,
+      `'bg-accent-fill text-white'`,
+      `'bg-red-500/10 text-destructive'`,
+      `'size-2 rounded-full bg-red-500'`,
+      `'bg-mark-blue'`
+    ]) {
+      expect(whiteOnLowFill(good)).toEqual([])
+    }
   })
 
   it('no faint text: placeholders and notes are at least 4.5:1', () => {
-    // placeholder:text-muted-foreground is 2.80:1 and text-foreground/50 is
+    // placeholder:text-foreground/40 is 2.80:1 and text-foreground/50 is
     // 3.95:1 on the light page: use placeholder:text-muted-foreground and
-    // text-foreground/60 (5.69:1). Lower opacities stay for icons only.
+    // text-foreground/60 (5.69:1). Lower opacities stay for icons only (a
+    // sized svg or icon box: non-text, 3:1).
     expect(sourceMatches(/\bplaceholder:text-foreground\/\d+/g)).toEqual([])
-    expect(sourceMatches(/\btext-foreground\/50\b/g)).toEqual([])
+    expect(sourceFindings(faintText)).toEqual([])
+  })
+
+  it('the faint-text scan catches /40, /45 and /50 on text, not on icons', () => {
+    for (const bad of [
+      `'text-sm text-foreground/40'`,
+      `"text-foreground/45"`,
+      '`mt-1 ${x} text-foreground/50`'
+    ]) {
+      expect(faintText(bad)).toHaveLength(1)
+    }
+    for (const good of [
+      `'size-5 shrink-0 text-foreground/40'`,
+      `'text-sm text-foreground/60'`,
+      `'text-foreground/20 size-full'`
+    ]) {
+      expect(faintText(good)).toEqual([])
+    }
   })
 
   it('no text-red-500/600 or text-mark-blue text classes remain', () => {
@@ -342,10 +418,24 @@ describe('one colour system in the sources', () => {
 
   it('no bare animate-pulse remains', () => {
     // Pulses honour reduced motion: motion-safe:animate-pulse.
-    expect(sourceMatches(/(?<!motion-safe:)\banimate-pulse\b/g)).toEqual([])
-    // Nor a pulse spelled another way.
-    expect(sourceMatches(/\banimation:\s*pulse\b|\[animation:pulse/g)).toEqual(
-      []
-    )
+    expect(sourceMatches(BARE_PULSE)).toEqual([])
+  })
+
+  it('the pulse scan catches every spelling without motion-safe:', () => {
+    for (const bad of [
+      'animate-pulse',
+      'animate-[pulse_2s_infinite]',
+      '[animation:pulse_1s]',
+      'animation: pulse 2s'
+    ]) {
+      expect(bad.match(BARE_PULSE)).toHaveLength(1)
+    }
+    for (const good of [
+      'motion-safe:animate-pulse',
+      'motion-safe:animate-[pulse_2s_infinite]',
+      'motion-safe:[animation:pulse_1s]'
+    ]) {
+      expect(good.match(BARE_PULSE)).toBeNull()
+    }
   })
 })

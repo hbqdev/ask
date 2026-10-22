@@ -21,10 +21,17 @@ export const SECTION_TITLE =
 /**
  * A list row's inset hairline along its bottom, from its text to the edge.
  * Drawn on the row's positioned content, so it moves with a swipe; every row
- * but the last of its group has one.
+ * but the last of its group has one. This is for rows on the page.
  */
 export const SEPARATOR =
   'after:absolute after:bottom-0 after:left-4 after:right-0 after:h-px after:bg-border'
+
+/**
+ * SEPARATOR for rows on a card (GROUP): the border colour is barely there on
+ * a card (about 1.1:1), foreground/10 reads as the page's hairline does.
+ */
+export const CARD_SEPARATOR =
+  'after:absolute after:bottom-0 after:left-4 after:right-0 after:h-px after:bg-foreground/10'
 
 /** The track a segmented control's segments sit in. */
 export const SEGMENT_TRACK = 'flex gap-1 rounded-xl bg-muted p-1'

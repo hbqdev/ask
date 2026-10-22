@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 
 import {
+  CARD_SEPARATOR,
   chipClass,
   GROUP,
   READABLE,
@@ -24,6 +25,12 @@ describe('the shared class names', () => {
   it('a row separator is an inset hairline along the bottom', () => {
     expect(SEPARATOR).toBe(
       'after:absolute after:bottom-0 after:left-4 after:right-0 after:h-px after:bg-border'
+    )
+  })
+
+  it('on a card, the hairline is foreground/10, which reads on the card (border is ~1.1:1 there)', () => {
+    expect(CARD_SEPARATOR).toBe(
+      'after:absolute after:bottom-0 after:left-4 after:right-0 after:h-px after:bg-foreground/10'
     )
   })
 
