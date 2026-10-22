@@ -61,10 +61,12 @@ export type ComposerProps = {
   /** Nothing can be sent yet (the chat is loading); typing still works. */
   disabled?: boolean
   /**
-   * Text to put in the box, focused, for the user to send (an ask:// link).
-   * Each new object fills the box again, even with the same text.
+   * Text to put in the box, focused, for the user to send (an ask:// link,
+   * or an item shared to Ask). Each new object fills the box again, even with
+   * the same text. With `append`, text already in the box is kept and the
+   * draft goes on a new line under it.
    */
-  draft?: { text: string }
+  draft?: { text: string; append?: boolean }
 }
 
 function ArrowUp() {
@@ -175,15 +177,19 @@ export function Composer({
     dictationUnderWay ||
     (!busy && text.trim().length === 0 && attachments.items.length === 0)
 
-  // A draft (an ask:// link) ends any dictation, so a link is never merged
-  // into words that send themselves; it waits in the box, focused, once the
-  // box is back from under the recording.
+  // A draft (an ask:// link, a shared item) ends any dictation, so it is
+  // never merged into words that send themselves; it waits in the box,
+  // focused, once the box is back from under the recording.
   const { cancel: cancelDictation } = dictation
   const focusWhenShown = useRef(false)
   useEffect(() => {
     if (!draft) return
     cancelDictation()
-    setText(draft.text)
+    setText(typed =>
+      draft.append && typed.trim()
+        ? `${typed.trimEnd()}\n${draft.text}`
+        : draft.text
+    )
     focusWhenShown.current = true
   }, [draft, cancelDictation])
   useEffect(() => {

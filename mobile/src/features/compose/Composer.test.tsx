@@ -290,6 +290,39 @@ describe('Composer', () => {
     expect(input).toHaveFocus()
   })
 
+  it('adds an appending draft on a new line under the text in the box', () => {
+    const { input, onSend, rerender } = setup()
+    const props = {
+      placeholder: 'Ask anything',
+      busy: false,
+      onSend,
+      settings: BALANCED,
+      onSettings: vi.fn()
+    }
+    fireEvent.change(input, { target: { value: 'Summarise this:  ' } })
+    input.blur()
+    rerender(
+      <Composer
+        {...props}
+        draft={{ text: 'https://a.example', append: true }}
+      />
+    )
+
+    expect(input).toHaveValue('Summarise this:\nhttps://a.example')
+    expect(input).toHaveFocus()
+    expect(onSend).not.toHaveBeenCalled()
+
+    // An empty (or blank) box just takes the draft.
+    fireEvent.change(input, { target: { value: '  ' } })
+    rerender(
+      <Composer
+        {...props}
+        draft={{ text: 'https://b.example', append: true }}
+      />
+    )
+    expect(input).toHaveValue('https://b.example')
+  })
+
   it('grows with its text', () => {
     Object.defineProperty(HTMLTextAreaElement.prototype, 'scrollHeight', {
       configurable: true,

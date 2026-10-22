@@ -68,6 +68,9 @@ final class AskBridgeViewController: CAPBridgeViewController, WKScriptMessageHan
 
     override func capacitorDidLoad() {
         super.capacitorDidLoad()
+        // Share to Ask: what the share extension left in the App Group inbox
+        // (src/core/shared-inbox.ts).
+        bridge?.registerPluginInstance(SharedInboxPlugin())
         guard let web = webView else { return }
         // No WKWebView back/forward swipes: the app's own navigation stack
         // (src/core/nav/stack.tsx) owns the edge swipe-back, and a native

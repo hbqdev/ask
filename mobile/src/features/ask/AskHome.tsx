@@ -1,6 +1,6 @@
 // The Ask tab: the mark, "Ask anything" and the composer. A typed question
 // (with any attached files) opens a new thread that asks it; an ask:// link
-// only fills the box. The next chat's id is made up front, so attachments
+// or an item shared from another app (Share to Ask) only fills the box. The next chat's id is made up front, so attachments
 // upload under the chat they will be asked in, as on the web.
 
 import { useCallback, useState } from 'react'
@@ -10,6 +10,7 @@ import { isE2eAutoSend } from '@/core/config'
 import { useAskDeepLink } from '@/core/deep-link'
 import { newId } from '@/core/ids'
 import { useStack } from '@/core/nav/stack'
+import { useSharedItem } from '@/core/shared-inbox'
 import { OrbitMark } from '@/core/ui/OrbitMark'
 import { useE2eAsk } from '@/features/ask/e2e-ask'
 import { Composer } from '@/features/compose/Composer'
@@ -21,7 +22,7 @@ export function AskHome() {
   const { push, screens, reset } = useStack()
   const selectTab = useSelectTab()
   const [settings, setSettings, settingsLoaded] = useSharedSearchSettings()
-  const [draft, setDraft] = useState<{ text: string }>()
+  const [draft, setDraft] = useState<{ text: string; append?: boolean }>()
   const [chatId, setChatId] = useState(newId)
 
   const ask = useCallback(
@@ -36,12 +37,19 @@ export function AskHome() {
   // `remember` tool), so any app or QR code could plant one. It brings the
   // user back to this screen with the question in the box, for them to send.
   // Simulator E2E builds send at once.
-  useAskDeepLink(question => {
-    if (isE2eAutoSend()) return ask(question)
+  // Back to this screen, on the Ask tab, with the text in the box.
+  const fill = (text: string, append = false) => {
     if (screens.length > 1) reset(screens[0])
     selectTab?.('ask')
-    setDraft({ text: question })
+    setDraft({ text, append })
+  }
+  useAskDeepLink(question => {
+    if (isE2eAutoSend()) return ask(question)
+    fill(question)
   })
+  // The same for an item shared to Ask (never sent, even in an E2E build),
+  // added under any question already being typed rather than replacing it.
+  useSharedItem(text => fill(text, true))
   useE2eAsk(ask, { ready: settingsLoaded })
 
   return (

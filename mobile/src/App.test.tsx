@@ -34,7 +34,9 @@ vi.mock('@capacitor/preferences', () => ({
 }))
 
 vi.mock('@capacitor/core', () => ({
-  Capacitor: { isNativePlatform: () => true }
+  Capacitor: { isNativePlatform: () => true },
+  // The Share to Ask inbox (core/shared-inbox): always empty here.
+  registerPlugin: () => ({ take: async () => ({}) })
 }))
 
 vi.mock('@capacitor/splash-screen', () => ({

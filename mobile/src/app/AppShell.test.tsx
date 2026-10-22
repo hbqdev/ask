@@ -18,7 +18,9 @@ import { resetModelChoice } from '@/features/compose/model-choice'
 import { memoryStorage } from '@/test/memory-storage'
 
 vi.mock('@capacitor/core', () => ({
-  Capacitor: { isNativePlatform: vi.fn(() => true) }
+  Capacitor: { isNativePlatform: vi.fn(() => true) },
+  // The Share to Ask inbox (core/shared-inbox): always empty here.
+  registerPlugin: () => ({ take: async () => ({}) })
 }))
 
 vi.mock('@capacitor/splash-screen', () => ({

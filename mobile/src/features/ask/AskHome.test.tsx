@@ -1,4 +1,4 @@
-import { act, render, screen, waitFor } from '@testing-library/react'
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
@@ -20,20 +20,38 @@ vi.mock('@/core/api/ApiProvider', () => ({ useApi: vi.fn() }))
 vi.mock('@/core/ids', () => ({ newId: vi.fn(() => 'new-chat-id') }))
 vi.mock('@/features/compose/upload', () => ({ uploadFile: vi.fn() }))
 
-type UrlOpenListener = (event: { url: string }) => void
+type AppListener = (event: { url?: string; isActive?: boolean }) => void
 
 const app = vi.hoisted(() => ({
-  listeners: [] as Array<(event: { url: string }) => void>
+  listeners: [] as Array<{ event: string; listener: AppListener }>
 }))
 
 vi.mock('@capacitor/app', () => ({
   App: {
-    addListener: vi.fn(async (_event: string, listener: UrlOpenListener) => {
-      app.listeners.push(listener)
+    addListener: vi.fn(async (event: string, listener: AppListener) => {
+      app.listeners.push({ event, listener })
       return { remove: vi.fn(async () => {}) }
     })
   }
 }))
+
+// The Share extension's inbox (the native SharedInbox plugin): one item that
+// take() hands over once.
+const inbox = vi.hoisted(() => ({
+  item: null as null | { text: string; createdAt: number },
+  take: vi.fn()
+}))
+
+vi.mock('@capacitor/core', async importOriginal => {
+  const core = await importOriginal<typeof import('@capacitor/core')>()
+  return {
+    ...core,
+    registerPlugin: ((name: string, options?: object) =>
+      name === 'SharedInbox'
+        ? { take: inbox.take }
+        : core.registerPlugin(name, options)) as typeof core.registerPlugin
+  }
+})
 
 const prefs = vi.hoisted(() => ({ data: new Map<string, string>() }))
 
@@ -70,7 +88,23 @@ function renderHome() {
 }
 
 const openLink = (url: string) =>
-  act(() => app.listeners.forEach(l => l({ url })))
+  act(() =>
+    app.listeners
+      .filter(l => l.event === 'appUrlOpen')
+      .forEach(l => l.listener({ url }))
+  )
+
+/** The app coming back to the foreground. */
+const resume = () =>
+  act(async () =>
+    app.listeners
+      .filter(l => l.event === 'appStateChange')
+      .forEach(l => l.listener({ isActive: true }))
+  )
+
+const share = (text: string, ageMs = 0) => {
+  inbox.item = { text, createdAt: Date.now() - ageMs }
+}
 
 const homeBox = () => screen.getByRole('textbox', { name: 'Ask a question' })
 
@@ -83,6 +117,12 @@ beforeEach(() => {
   vi.mocked(newId).mockImplementation(() => 'new-chat-id')
   app.listeners.length = 0
   prefs.data.clear()
+  inbox.item = null
+  inbox.take.mockImplementation(async () => {
+    const item = inbox.item
+    inbox.item = null
+    return item ?? {}
+  })
   vi.mocked(useThread).mockReturnValue({
     messages: [],
     status: 'ready',
@@ -272,6 +312,91 @@ describe('AskHome', () => {
         'tabs,thread:new-chat-id'
       )
       expect(send).toHaveBeenCalledExactlyOnceWith('from a link', undefined)
+    })
+  })
+
+  describe('an item shared from another app (the Share extension)', () => {
+    it('consumes the shared item once and prefills the box, focused, unsent', async () => {
+      share('Look at this\nhttps://example.com/a')
+      renderHome()
+      await act(async () => {})
+
+      expect(homeBox()).toHaveValue('Look at this\nhttps://example.com/a')
+      expect(homeBox()).toHaveFocus()
+      expect(screen.getByTestId('keys')).toHaveTextContent(/^tabs$/)
+      expect(send).not.toHaveBeenCalled()
+
+      // Taken once: coming back again finds the inbox empty.
+      fireEvent.change(homeBox(), { target: { value: '' } })
+      await resume()
+      expect(homeBox()).toHaveValue('')
+      expect(inbox.take).toHaveBeenCalledTimes(2)
+    })
+
+    it('ignores an item shared more than 24 hours ago', async () => {
+      share('yesterday’s news', 24 * 60 * 60 * 1000 + 1)
+      renderHome()
+      await act(async () => {})
+
+      expect(inbox.take).toHaveBeenCalledOnce()
+      expect(homeBox()).toHaveValue('')
+    })
+
+    it('picks up a new item when the app comes back to the foreground', async () => {
+      renderHome()
+      await act(async () => {})
+      expect(homeBox()).toHaveValue('')
+
+      share('https://example.com/later')
+      await resume()
+
+      expect(homeBox()).toHaveValue('https://example.com/later')
+      expect(homeBox()).toHaveFocus()
+      expect(send).not.toHaveBeenCalled()
+    })
+
+    it('adds it on a new line under a question already in the box', async () => {
+      const user = userEvent.setup()
+      renderHome()
+      await act(async () => {})
+      await user.type(homeBox(), 'Summarise this:')
+
+      share('https://example.com/article')
+      await resume()
+
+      expect(homeBox()).toHaveValue(
+        'Summarise this:\nhttps://example.com/article'
+      )
+      expect(send).not.toHaveBeenCalled()
+    })
+
+    it('goes back to the Ask home from an open thread', async () => {
+      const user = userEvent.setup()
+      renderHome()
+      await user.type(homeBox(), 'First{Enter}')
+      expect(screen.getByTestId('keys')).toHaveTextContent(
+        'tabs,thread:new-chat-id'
+      )
+      send.mockClear()
+
+      share('shared text')
+      await resume()
+
+      expect(screen.getByTestId('keys')).toHaveTextContent(/^tabs$/)
+      expect(homeBox()).toHaveValue('shared text')
+      expect(send).not.toHaveBeenCalled()
+    })
+
+    it('never sends, even in a simulator E2E build', async () => {
+      vi.stubEnv('VITE_E2E_AUTOSEND', 'true')
+      share('shared text')
+      renderHome()
+      await act(async () => {})
+      await act(async () => {})
+
+      expect(homeBox()).toHaveValue('shared text')
+      expect(screen.getByTestId('keys')).toHaveTextContent(/^tabs$/)
+      expect(send).not.toHaveBeenCalled()
     })
   })
 
