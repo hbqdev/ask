@@ -248,6 +248,8 @@ describe('the privacy manifests', () => {
     )
     expect(m.NSPrivacyCollectedDataTypes).toEqual(
       [
+        // Google sign-in has Supabase keep the Google profile, name included.
+        'Name',
         'EmailAddress',
         'UserID',
         'PhotosorVideos',
@@ -319,7 +321,45 @@ describe('the privacy manifests', () => {
   })
 })
 
+/**
+ * A PNG's size and whether it has an alpha channel: from its IHDR (width and
+ * height big-endian at bytes 16 and 20, the colour type at byte 25: 4 and 6
+ * carry alpha) and any tRNS chunk (transparency without an alpha channel).
+ */
+function pngInfo(path: string) {
+  const png = readFileSync(resolve(__dirname, '../ios/App', path))
+  expect(png.subarray(1, 4).toString('latin1')).toBe('PNG')
+  expect(png.subarray(12, 16).toString('latin1')).toBe('IHDR')
+  const chunks: string[] = []
+  for (let at = 8; at < png.length; at += 12 + png.readUInt32BE(at)) {
+    chunks.push(png.subarray(at + 4, at + 8).toString('latin1'))
+  }
+  const colourType = png[25]
+  return {
+    width: png.readUInt32BE(16),
+    height: png.readUInt32BE(20),
+    alpha: colourType === 4 || colourType === 6 || chunks.includes('tRNS')
+  }
+}
+
 describe('the app icon', () => {
+  const icon = (file: string) =>
+    pngInfo(`App/Assets.xcassets/AppIcon.appiconset/${file}`)
+
+  it('the primary icon is 1024 x 1024 with no alpha (App Store Connect rejects one, ITMS-90717)', () => {
+    expect(icon('AppIcon-512@2x.png')).toEqual({
+      width: 1024,
+      height: 1024,
+      alpha: false
+    })
+  })
+
+  it('the dark and tinted icons are 1024 x 1024 with alpha (iOS draws their background)', () => {
+    for (const file of ['AppIcon-dark-1024.png', 'AppIcon-tinted-1024.png']) {
+      expect(icon(file)).toEqual({ width: 1024, height: 1024, alpha: true })
+    }
+  })
+
   it('the icon has dark and tinted 1024 appearances', () => {
     const { images } = JSON.parse(
       read('App/Assets.xcassets/AppIcon.appiconset/Contents.json')
