@@ -1,14 +1,20 @@
 import { NextRequest } from 'next/server'
 
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import type { User } from '@supabase/supabase-js'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 // Auto-mocked; each test configures the resolved values it needs.
 vi.mock('@/lib/actions/chat')
 vi.mock('@/lib/db/actions')
-vi.mock('@/lib/auth/get-current-user')
+// Real isBearerAuthorization; the user resolution is stubbed.
+vi.mock('@/lib/auth/get-current-user', async importOriginal => ({
+  ...(await importOriginal<typeof import('@/lib/auth/get-current-user')>()),
+  getCurrentUser: vi.fn(),
+  getCurrentUserId: vi.fn()
+}))
 
 import { deleteChat, renameChat } from '@/lib/actions/chat'
-import { getCurrentUserId } from '@/lib/auth/get-current-user'
+import { getCurrentUser, getCurrentUserId } from '@/lib/auth/get-current-user'
 import { touchChat, updateChatTitle } from '@/lib/db/actions'
 import { CHAT_TITLE_MAX_LENGTH } from '@/lib/db/schema'
 
@@ -18,14 +24,26 @@ import { POST } from '../[chatId]/touch/route'
 beforeEach(() => {
   vi.clearAllMocks()
   vi.mocked(touchChat).mockResolvedValue(undefined)
+  vi.stubEnv('ENABLE_AUTH', 'true')
+})
+
+afterEach(() => {
+  vi.unstubAllEnvs()
 })
 
 function context(chatId: string) {
   return { params: Promise.resolve({ chatId }) }
 }
 
-function makeRequest(path: string, method: string): NextRequest {
-  return new NextRequest(`http://localhost:3000/api/chats/${path}`, { method })
+function makeRequest(
+  path: string,
+  method: string,
+  headers: Record<string, string> = {}
+): NextRequest {
+  return new NextRequest(`http://localhost:3000/api/chats/${path}`, {
+    method,
+    headers
+  })
 }
 
 function patchRequest(body: string): NextRequest {
@@ -105,6 +123,33 @@ describe('DELETE /api/chats/[chatId]', () => {
 describe('POST /api/chats/[chatId]/touch', () => {
   it('returns 204 and calls touchChat with the id', async () => {
     const res = await POST(makeRequest('c1/touch', 'POST'), context('c1'))
+
+    expect(touchChat).toHaveBeenCalledWith('c1')
+    expect(res.status).toBe(204)
+    expect(await res.text()).toBe('')
+    expect(getCurrentUser).not.toHaveBeenCalled()
+  })
+
+  it('401 for an invalid bearer', async () => {
+    vi.mocked(getCurrentUser).mockResolvedValue(null)
+
+    const res = await POST(
+      makeRequest('c1/touch', 'POST', { authorization: 'Bearer bad' }),
+      context('c1')
+    )
+
+    expect(res.status).toBe(401)
+    expect(await res.json()).toEqual({ error: 'Unauthorized' })
+    expect(touchChat).not.toHaveBeenCalled()
+  })
+
+  it('a valid bearer touches the chat and answers 204 as before', async () => {
+    vi.mocked(getCurrentUser).mockResolvedValue({ id: 'user-1' } as User)
+
+    const res = await POST(
+      makeRequest('c1/touch', 'POST', { authorization: 'Bearer good' }),
+      context('c1')
+    )
 
     expect(touchChat).toHaveBeenCalledWith('c1')
     expect(res.status).toBe(204)

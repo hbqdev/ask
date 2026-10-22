@@ -1,11 +1,18 @@
 import { NextRequest } from 'next/server'
 
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import type { User } from '@supabase/supabase-js'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 // Auto-mocked; each test configures the resolved values it needs.
 vi.mock('@/lib/actions/chat')
+// Real isBearerAuthorization; only the user resolution is stubbed.
+vi.mock('@/lib/auth/get-current-user', async importOriginal => ({
+  ...(await importOriginal<typeof import('@/lib/auth/get-current-user')>()),
+  getCurrentUser: vi.fn()
+}))
 
 import { clearChats, countChats, getChatsPage } from '@/lib/actions/chat'
+import { getCurrentUser } from '@/lib/auth/get-current-user'
 
 import { DELETE, GET } from '../route'
 
@@ -17,10 +24,20 @@ beforeEach(() => {
     badges: {}
   })
   vi.mocked(countChats).mockResolvedValue(0)
+  vi.stubEnv('ENABLE_AUTH', 'true')
 })
 
-function getRequest(query: string): NextRequest {
-  return new NextRequest(`http://localhost:3000/api/chats${query}`)
+afterEach(() => {
+  vi.unstubAllEnvs()
+})
+
+function getRequest(
+  query: string,
+  headers: Record<string, string> = {}
+): NextRequest {
+  return new NextRequest(`http://localhost:3000/api/chats${query}`, {
+    headers
+  })
 }
 
 function deleteRequest(): NextRequest {
@@ -60,6 +77,51 @@ describe('GET /api/chats paging', () => {
     await GET(getRequest(`?offset=${offset}&limit=10`))
 
     expect(getChatsPage).toHaveBeenCalledWith(10, 0, 'recent')
+  })
+})
+
+describe('GET /api/chats bearer', () => {
+  it('401 for an invalid bearer', async () => {
+    vi.mocked(getCurrentUser).mockResolvedValue(null)
+
+    const res = await GET(
+      getRequest('?withCount=1', { authorization: 'Bearer bad' })
+    )
+
+    expect(res.status).toBe(401)
+    expect(await res.json()).toEqual({ error: 'Unauthorized' })
+    expect(getChatsPage).not.toHaveBeenCalled()
+    expect(countChats).not.toHaveBeenCalled()
+  })
+
+  it('a valid bearer gets the page as before', async () => {
+    vi.mocked(getCurrentUser).mockResolvedValue({ id: 'user-1' } as User)
+    vi.mocked(countChats).mockResolvedValue(3)
+
+    const res = await GET(
+      getRequest('?withCount=1', { authorization: 'Bearer good' })
+    )
+
+    expect(res.status).toBe(200)
+    expect(await res.json()).toEqual({
+      chats: [],
+      nextOffset: null,
+      badges: {},
+      total: 3
+    })
+    expect(getChatsPage).toHaveBeenCalledWith(20, 0, 'recent')
+  })
+
+  it('a request without Authorization keeps the guest 200 body and never resolves the bearer', async () => {
+    const res = await GET(getRequest(''))
+
+    expect(res.status).toBe(200)
+    expect(await res.json()).toEqual({
+      chats: [],
+      nextOffset: null,
+      badges: {}
+    })
+    expect(getCurrentUser).not.toHaveBeenCalled()
   })
 })
 
