@@ -32,31 +32,7 @@ vi.mock('next/headers', () => ({
   headers: headersMock
 }))
 
-// React's cache() memoizes per request only on the server (react-server);
-// this stand-in does the same with an explicit request scope: `requests.next()`
-// starts a new one.
-const requests = vi.hoisted(() => {
-  const results = new Map<unknown, unknown>()
-  return {
-    next: () => results.clear(),
-    cache:
-      <T extends (...args: never[]) => unknown>(fn: T) =>
-      (...args: Parameters<T>) => {
-        if (!results.has(fn)) results.set(fn, fn(...args))
-        return results.get(fn)
-      }
-  }
-})
-vi.mock('react', async importOriginal => ({
-  ...(await importOriginal<typeof import('react')>()),
-  cache: requests.cache
-}))
-
-import {
-  bearerToken,
-  getCurrentUser,
-  getCurrentUserId
-} from '../get-current-user'
+import { bearerToken, getCurrentUser } from '../get-current-user'
 
 const withHeaders = (init: Record<string, string> = {}) =>
   headersMock.mockResolvedValue(new Headers(init))
@@ -79,7 +55,6 @@ const expectNoAuthCall = () => {
 
 beforeEach(() => {
   vi.clearAllMocks()
-  requests.next()
   headersMock.mockReset()
   cookieGetUser.mockReset()
   bearerGetUser.mockReset()
@@ -200,31 +175,5 @@ describe('getCurrentUser', () => {
     cookieGetUser.mockResolvedValue({ data: { user: { id: 'u-cookie' } } })
 
     expectCookiePath('u-cookie', await getCurrentUser())
-  })
-
-  it('validates the bearer once per request, however often it is asked', async () => {
-    withHeaders({ authorization: 'Bearer jwt-1' })
-    bearerGetUser.mockResolvedValue({ data: { user: { id: 'u-bearer' } } })
-
-    expect(await getCurrentUser()).toEqual({ id: 'u-bearer' })
-    expect(await getCurrentUser()).toEqual({ id: 'u-bearer' })
-    expect(await getCurrentUserId()).toBe('u-bearer')
-
-    expect(bearerGetUser).toHaveBeenCalledTimes(1)
-    expect(jsCreateClient).toHaveBeenCalledTimes(1)
-  })
-
-  it('validates again in the next request', async () => {
-    withHeaders({ authorization: 'Bearer jwt-1' })
-    bearerGetUser.mockResolvedValue({ data: { user: { id: 'u-bearer' } } })
-    await getCurrentUser()
-
-    requests.next()
-    withHeaders({ authorization: 'Bearer jwt-2' })
-    bearerGetUser.mockResolvedValue({ data: { user: { id: 'u-other' } } })
-
-    expect(await getCurrentUser()).toEqual({ id: 'u-other' })
-    expect(bearerGetUser).toHaveBeenCalledTimes(2)
-    expect(bearerGetUser).toHaveBeenLastCalledWith('jwt-2')
   })
 })

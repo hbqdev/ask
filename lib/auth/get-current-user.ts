@@ -1,4 +1,3 @@
-import { cache } from 'react'
 import { headers } from 'next/headers'
 
 import { createClient as createSupabaseClient } from '@supabase/supabase-js'
@@ -51,10 +50,7 @@ async function getUserFromBearer(token: string) {
   return data.user ?? null
 }
 
-// Once per request (React cache() is request-scoped on the server): a route
-// whose actions each resolve the user validates the bearer, a Supabase round
-// trip, only once. Outside a request it is a plain call.
-export const getCurrentUser = cache(async function getCurrentUser() {
+export async function getCurrentUser() {
   if (!hasSupabasePublicConfig()) {
     return null // Supabase is not configured
   }
@@ -73,7 +69,7 @@ export const getCurrentUser = cache(async function getCurrentUser() {
   const supabase = await createClient()
   const { data } = await supabase.auth.getUser()
   return data.user ?? null
-})
+}
 
 export async function getCurrentUserId() {
   const count = incrementAuthCallCount()
