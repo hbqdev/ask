@@ -12,7 +12,12 @@ import { haptic } from '@/core/haptics'
 import { useStack } from '@/core/nav/stack'
 import type { ThemePref } from '@/core/theme'
 import { useTheme } from '@/core/ThemeProvider'
-import { SECTION_TITLE, SEGMENT_TRACK, segmentClass } from '@/core/ui/classes'
+import {
+  GROUP,
+  SECTION_TITLE,
+  SEGMENT_TRACK,
+  segmentClass
+} from '@/core/ui/classes'
 import { ConfirmSheet } from '@/core/ui/ConfirmSheet'
 import { ModelPicker } from '@/features/compose/ModelPicker'
 import {
@@ -40,7 +45,6 @@ import { TTS_SPEEDS, TTS_VOICES } from '@/lib/voice/voices'
 export const INSTRUCTIONS_SAVE_ERROR = 'Couldn’t save. Try again.'
 export const DELETE_ALL_ERROR = 'Couldn’t delete your chats. Try again.'
 
-const GROUP = 'rounded-2xl bg-card'
 const ROW_BUTTON = `${GROUP} min-h-12 w-full touch-manipulation px-4 text-base font-medium active:opacity-60`
 const NOTE = 'px-4 pt-2 text-sm'
 
@@ -212,7 +216,7 @@ export function VoiceSection() {
             />
           </span>
         </button>
-        <p className={`${NOTE} text-foreground/50`}>
+        <p className={`${NOTE} text-foreground/60`}>
           Reads each new answer aloud when it finishes.
         </p>
       </div>
@@ -375,10 +379,10 @@ export function PersonalizationSection() {
             setStatus('idle')
           }}
           onBlur={save}
-          className="mt-1 block w-full resize-none bg-transparent text-base placeholder:text-foreground/40 focus:outline-none"
+          className="mt-1 block w-full resize-none bg-transparent text-base placeholder:text-muted-foreground focus:outline-none"
         />
       </div>
-      <div className={`${NOTE} flex gap-3 text-foreground/50`}>
+      <div className={`${NOTE} flex gap-3 text-foreground/60`}>
         <p className="flex-1">Sent with every question.</p>
         {status === 'saved' && (
           <p role="status" className="text-foreground/60">
@@ -425,7 +429,7 @@ export function MemorySection() {
           <path d="M9 5l7 7-7 7" />
         </svg>
       </button>
-      <p className={`${NOTE} text-foreground/50`}>
+      <p className={`${NOTE} text-foreground/60`}>
         What Ask remembers about you, and whether it uses your past chats.
       </p>
     </section>
@@ -512,7 +516,7 @@ export function DataSection() {
         {status === 'deleting' ? 'Deleting…' : 'Delete all chats'}
       </button>
       {status === 'done' && (
-        <p role="status" className={`${NOTE} text-foreground/50`}>
+        <p role="status" className={`${NOTE} text-foreground/60`}>
           All chats deleted.
         </p>
       )}

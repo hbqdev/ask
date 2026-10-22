@@ -41,7 +41,7 @@ export class ErrorBoundary extends Component<{ children: ReactNode }, State> {
           <button
             type="button"
             onClick={this.retry}
-            className="mt-3 h-12 touch-manipulation rounded-xl bg-mark-blue px-8 text-base font-semibold text-white active:opacity-80"
+            className="mt-3 h-12 touch-manipulation rounded-xl bg-accent-fill px-8 text-base font-semibold text-white active:opacity-80"
           >
             Try again
           </button>

@@ -39,8 +39,18 @@
   --thumb: oklch(1 0 0);
   /* A sheet's surface: the page in light, raised above it in dark. */
   --elevated: var(--background);
-  /* A grouped card: 5% foreground over the page. */
-  --card: color-mix(in oklch, var(--foreground) 5%, var(--background));
+  /* A grouped card, about iOS's secondary grouped background. Plain values,
+     not color-mix, so the build adds no solid-colour fallback for them. */
+  --card: oklch(0.94 0 0);
+  /* A fill under white text: 4.94:1 in both themes (the mark's blue is
+     3.15:1 under white). */
+  --accent-fill: #1f6fd1;
+  /* A sheet's own card, muted surface and thumb (.sheet-panel below): the
+     page's in light, where a sheet is the page colour; raised with the sheet
+     in dark, so they stay above it. */
+  --sheet-card: var(--card);
+  --sheet-muted: var(--muted);
+  --sheet-thumb: var(--thumb);
   color-scheme: light dark;
 }
 
@@ -60,6 +70,11 @@
   --destructive: #ff6467;
   --thumb: oklch(0.3 0.02 289);
   --elevated: oklch(0.18 0.02 289);
+  --card: oklch(0.21 0.02 289);
+  --accent-fill: #1f6fd1;
+  --sheet-card: oklch(0.24 0.02 289);
+  --sheet-muted: oklch(0.26 0.02 289);
+  --sheet-thumb: oklch(0.36 0.02 289);
 }
 
 @media (prefers-color-scheme: dark) {
@@ -77,6 +92,11 @@
     --destructive: #ff6467;
     --thumb: oklch(0.3 0.02 289);
     --elevated: oklch(0.18 0.02 289);
+    --card: oklch(0.21 0.02 289);
+    --accent-fill: #1f6fd1;
+    --sheet-card: oklch(0.24 0.02 289);
+    --sheet-muted: oklch(0.26 0.02 289);
+    --sheet-thumb: oklch(0.36 0.02 289);
   }
 }
 
@@ -98,6 +118,7 @@
   --color-thumb: var(--thumb);
   --color-elevated: var(--elevated);
   --color-card: var(--card);
+  --color-accent-fill: var(--accent-fill);
   /* System UI stack only: no web fonts, so launch never waits on a download. */
   --font-sans:
     system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto,
@@ -267,10 +288,13 @@ body {
   padding-bottom: max(16px, env(safe-area-inset-bottom));
 }
 
-/* A card in a sheet tints the sheet's own surface (raised in dark), not the
-   page below it. */
+/* In a sheet, cards, muted surfaces (fields, Cancel, a segment track, an off
+   chip) and the chosen segment are the sheet's own: in dark they sit above
+   the raised panel, not at the page's level below it. */
 .sheet-panel {
-  --card: color-mix(in oklch, var(--foreground) 5%, var(--elevated));
+  --card: var(--sheet-card);
+  --muted: var(--sheet-muted);
+  --thumb: var(--sheet-thumb);
 }
 
 @keyframes sheet-in {

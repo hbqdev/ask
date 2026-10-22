@@ -94,7 +94,7 @@ export function MicButton({ dictation }: { dictation: Dictation }) {
       ? {
           label: 'Stop recording',
           onClick: dictation.stop,
-          look: 'bg-red-500 text-white active:opacity-50',
+          look: 'bg-red-600 text-white active:opacity-50',
           icon: <StopSquare />
         }
       : state === 'starting'

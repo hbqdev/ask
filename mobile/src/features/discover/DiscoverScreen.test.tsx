@@ -314,6 +314,12 @@ describe('DiscoverScreen feed', () => {
       expect.stringContaining('tech story 4')
     ])
     expect(screen.queryByText('What happened in tech story 2.')).toBeNull()
+    // An inset hairline between rows, none after the last.
+    expect(rows.map(r => r.className.includes('after:h-px'))).toEqual([
+      true,
+      true,
+      false
+    ])
   })
 
   it('has no rows for a single story', async () => {

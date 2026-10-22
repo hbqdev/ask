@@ -277,10 +277,11 @@ const Feed = memo(function Feed({
       <DiscoverLeadCard item={lead} onOpen={onOpen} onSummarize={onSummarize} />
       {rest.length > 0 && (
         <ul aria-label="More stories">
-          {rest.map(item => (
+          {rest.map((item, i) => (
             <DiscoverRow
               key={item.url}
               item={item}
+              separator={i < rest.length - 1}
               onOpen={onOpen}
               onSummarize={onSummarize}
             />

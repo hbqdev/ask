@@ -15,7 +15,7 @@ import { useApi } from '@/core/api/ApiProvider'
 import { ApiError } from '@/core/api/errors'
 import { haptic } from '@/core/haptics'
 import { useScreenActive, useStack, type Stack } from '@/core/nav/stack'
-import { SECTION_TITLE } from '@/core/ui/classes'
+import { GROUP, SECTION_TITLE, SEPARATOR } from '@/core/ui/classes'
 import { ConfirmSheet } from '@/core/ui/ConfirmSheet'
 import { Sheet } from '@/core/ui/Sheet'
 import { SwipeRow } from '@/core/ui/SwipeRow'
@@ -74,7 +74,6 @@ const BACK_ICON = 'M15 5l-7 7 7 7'
  */
 const PAUSED = Symbol('paused')
 
-const GROUP = 'rounded-2xl bg-card'
 const NOTE = 'px-4 pt-2 text-sm'
 const PILL =
   'min-h-11 flex-1 touch-manipulation rounded-xl px-4 text-sm font-medium active:opacity-60 disabled:opacity-40'
@@ -138,14 +137,14 @@ function Switch({
           />
         </span>
       </button>
-      <p className={`${NOTE} text-foreground/50`}>{note}</p>
+      <p className={`${NOTE} text-foreground/60`}>{note}</p>
     </div>
   )
 }
 
 function LearningBadge() {
   return (
-    <span className="rounded-full bg-mark-blue/15 px-2 py-0.5 text-[0.6875rem] font-semibold text-accent">
+    <span className="rounded-full bg-accent-fill px-2 py-0.5 text-[0.6875rem] font-semibold text-white">
       Learning
     </span>
   )
@@ -486,7 +485,7 @@ export function MemoryScreen() {
                   ? 'Indexing your chats…'
                   : `Indexed ${plural(recall.chats, 'chat', 'chats')}…`}
               </p>
-              <p className={`${NOTE} text-foreground/50`}>
+              <p className={`${NOTE} text-foreground/60`}>
                 Keep this screen open: going back stops indexing, and leaving
                 the app pauses it.
               </p>
@@ -526,9 +525,9 @@ export function MemoryScreen() {
           ) : (
             <ul
               aria-labelledby={listLabel}
-              className={`${GROUP} divide-y divide-foreground/10 overflow-hidden`}
+              className={`${GROUP} overflow-hidden`}
             >
-              {shown.map(memory => (
+              {shown.map((memory, i) => (
                 <li key={memory.id}>
                   <SwipeRow
                     actions={[
@@ -541,7 +540,11 @@ export function MemoryScreen() {
                     onPress={() => setViewing(memory)}
                     surface="card"
                   >
-                    <div className="flex min-h-14 flex-col justify-center gap-1 px-4 py-3">
+                    <div
+                      className={`relative flex min-h-14 flex-col justify-center gap-1 px-4 py-3 ${
+                        i < shown.length - 1 ? SEPARATOR : ''
+                      }`}
+                    >
                       <span className="line-clamp-3 text-base leading-snug">
                         {memory.content}
                       </span>
@@ -638,7 +641,7 @@ export function MemoryScreen() {
                   void remove(viewing)
                   setViewing(null)
                 }}
-                className={`${SHEET_BUTTON} bg-red-500 text-white`}
+                className={`${SHEET_BUTTON} bg-red-600 text-white`}
               >
                 Delete memory
               </button>

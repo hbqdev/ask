@@ -5,6 +5,7 @@
 
 import { memo, useId, useState } from 'react'
 
+import { SEPARATOR } from '@/core/ui/classes'
 import type { DiscoverItem } from '@/features/discover/discover-api'
 
 export type DiscoverCardProps = {
@@ -131,10 +132,16 @@ export const DiscoverLeadCard = memo(function DiscoverLeadCard({
 export const DiscoverRow = memo(function DiscoverRow({
   item,
   onOpen,
-  onSummarize
-}: DiscoverCardProps) {
+  onSummarize,
+  separator = false
+}: DiscoverCardProps & {
+  /** Draws an inset hairline under the row (all but the list's last). */
+  separator?: boolean
+}) {
   return (
-    <li className="flex items-center border-b border-border last:border-b-0">
+    <li
+      className={`flex items-center ${separator ? `relative ${SEPARATOR}` : ''}`}
+    >
       <button
         type="button"
         onClick={() => onOpen(item.url)}

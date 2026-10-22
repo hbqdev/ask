@@ -175,7 +175,7 @@ describe('AccountSection', () => {
     expect(auth.signOut).not.toHaveBeenCalled()
     const dialog = screen.getByRole('dialog', { name: 'Sign out?' })
     const confirm = within(dialog).getByRole('button', { name: 'Sign out' })
-    expect(confirm).toHaveClass('bg-red-500')
+    expect(confirm).toHaveClass('bg-red-600')
 
     fireEvent.click(confirm)
     expect(auth.signOut).toHaveBeenCalledTimes(1)
@@ -459,6 +459,17 @@ describe('PersonalizationSection', () => {
 // --- Memory -----------------------------------------------------------------
 
 describe('MemorySection', () => {
+  it('its note is 60% foreground (AA on the page), not 50%', () => {
+    render(
+      <StackProvider root={{ key: 'tabs', render: () => null }}>
+        <MemorySection />
+      </StackProvider>
+    )
+    expect(screen.getByText(/What Ask remembers about you/)).toHaveClass(
+      'text-foreground/60'
+    )
+  })
+
   it('opens the Memory screen', () => {
     render(
       <StackProvider root={{ key: 'tabs', render: () => null }}>
@@ -728,7 +739,7 @@ describe('DataSection', () => {
     deleteAll()
     expect(fetchImpl).not.toHaveBeenCalled()
     const dialog = screen.getByRole('dialog', { name: 'Delete all chats?' })
-    expect(confirm()).toHaveClass('bg-red-500')
+    expect(confirm()).toHaveClass('bg-red-600')
     expect(dialog).toBeInTheDocument()
 
     await act(async () => fireEvent.click(confirm()))

@@ -76,6 +76,18 @@ describe('SignInScreen', () => {
     expect(screen.getByRole('main')).toHaveClass('safe-bottom')
   })
 
+  it('reads at AA: Sign in is white on the accent fill, placeholders are muted', () => {
+    fakeAuth()
+    render(<SignInScreen apiBaseUrl={API} />)
+    expect(screen.getByRole('button', { name: 'Sign in' })).toHaveClass(
+      'bg-accent-fill',
+      'text-white'
+    )
+    for (const field of [emailField(), passwordField()]) {
+      expect(field).toHaveClass('placeholder:text-muted-foreground')
+    }
+  })
+
   it('keeps Sign in disabled until both fields are filled', async () => {
     fakeAuth()
     const user = userEvent.setup()

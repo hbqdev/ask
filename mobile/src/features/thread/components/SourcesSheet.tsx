@@ -33,7 +33,7 @@ export function SourcesSheet({ open, onClose, sources }: SourcesSheetProps) {
                 <span className="line-clamp-2 block text-sm font-medium">
                   {snippetText(source.title) || source.host}
                 </span>
-                <span className="block truncate text-xs text-foreground/50">
+                <span className="block truncate text-xs text-foreground/60">
                   {source.host}
                 </span>
               </span>

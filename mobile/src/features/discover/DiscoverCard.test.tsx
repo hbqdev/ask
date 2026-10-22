@@ -84,6 +84,15 @@ describe('DiscoverRow', () => {
     expect(screen.getByTestId('discover-thumb')).not.toHaveClass('aspect-video')
   })
 
+  it('draws an inset hairline under it only with a separator', () => {
+    const { rerender } = render(<DiscoverRow item={ITEM} {...handlers()} />)
+    const row = screen.getByRole('listitem')
+    expect(row.className).not.toContain('border-b')
+    expect(row.className).not.toContain('after:')
+    rerender(<DiscoverRow item={ITEM} {...handlers()} separator />)
+    expect(row).toHaveClass('relative', 'after:h-px', 'after:left-4')
+  })
+
   it('sizes the title in rem, so it follows the text size', () => {
     render(<DiscoverRow item={ITEM} {...handlers()} />)
     // 15px at the default 16px root.

@@ -3,6 +3,9 @@
 // speed, the theme, the Library's sections) raises the chosen segment as a
 // thumb on a muted track. A chip (a topic, a source) inverts when it is on.
 
+/** A group: a rounded card of rows or controls. */
+export const GROUP = 'rounded-2xl bg-card'
+
 /** A section's title, over its group. */
 export const SECTION_TITLE =
   'px-4 pb-2 text-xs font-medium uppercase tracking-wide text-foreground/60'

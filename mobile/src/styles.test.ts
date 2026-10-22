@@ -166,7 +166,18 @@ describe('colour tokens', () => {
     // The chosen segment of a segmented control.
     ['--thumb', 'oklch(1 0 0)', 'oklch(0.3 0.02 289)'],
     // Sheets: the page in light, a raised surface in dark.
-    ['--elevated', 'var(--background)', 'oklch(0.18 0.02 289)']
+    ['--elevated', 'var(--background)', 'oklch(0.18 0.02 289)'],
+    // A grouped card: about iOS's secondary grouped background. Plain values
+    // (no color-mix), so the build adds no solid-colour fallback.
+    ['--card', 'oklch(0.94 0 0)', 'oklch(0.21 0.02 289)'],
+    // A fill under white text: 4.94:1 in both themes (the mark's blue is
+    // 3.15:1 under white).
+    ['--accent-fill', '#1f6fd1', '#1f6fd1'],
+    // A sheet's own card, muted surface and thumb: the page's in light,
+    // raised with the sheet in dark.
+    ['--sheet-card', 'var(--card)', 'oklch(0.24 0.02 289)'],
+    ['--sheet-muted', 'var(--muted)', 'oklch(0.26 0.02 289)'],
+    ['--sheet-thumb', 'var(--thumb)', 'oklch(0.36 0.02 289)']
   ] as const
 
   it.each(TOKENS)('%s is %s in light', (token, light) => {
@@ -181,24 +192,38 @@ describe('colour tokens', () => {
     }
   )
 
-  it('the card tint is 5% foreground over the page, in every theme', () => {
-    expect(merged(':root')['--card']).toBe(
-      'color-mix(in oklch, var(--foreground) 5%, var(--background))'
-    )
-  })
-
-  it('a card in a sheet tints the sheet’s own surface', () => {
+  it('in a sheet, cards, muted surfaces and the thumb are the sheet’s own', () => {
     expect(declarations('.sheet-panel')).toContainEqual({
-      '--card': 'color-mix(in oklch, var(--foreground) 5%, var(--elevated))'
+      '--card': 'var(--sheet-card)',
+      '--muted': 'var(--sheet-muted)',
+      '--thumb': 'var(--sheet-thumb)'
     })
   })
 
-  it.each(['accent', 'destructive', 'thumb', 'elevated', 'card'])(
-    '@theme inline maps --color-%s to its token',
-    name => {
-      expect(rule('@theme inline')[`--color-${name}`]).toBe(`var(--${name})`)
-    }
-  )
+  it('dark surfaces step up clearly: page < card, muted < thumb; in a sheet, elevated < card, muted < thumb', () => {
+    const dark = rule(':root.dark')
+    /** The lightness of a dark token's oklch value. */
+    const L = (token: string) =>
+      Number(/^oklch\(([\d.]+)/.exec(dark[token])![1])
+    // A card reads against the page (iOS: #1c1c1e on black).
+    expect(L('--card') - L('--background')).toBeGreaterThanOrEqual(0.1)
+    expect(L('--thumb')).toBeGreaterThan(L('--muted'))
+    // In a sheet, each surface sits above the raised panel, not below it.
+    expect(L('--sheet-card') - L('--elevated')).toBeGreaterThanOrEqual(0.05)
+    expect(L('--sheet-muted') - L('--elevated')).toBeGreaterThanOrEqual(0.08)
+    expect(L('--sheet-thumb') - L('--sheet-muted')).toBeGreaterThanOrEqual(0.08)
+  })
+
+  it.each([
+    'accent',
+    'destructive',
+    'thumb',
+    'elevated',
+    'card',
+    'accent-fill'
+  ])('@theme inline maps --color-%s to its token', name => {
+    expect(rule('@theme inline')[`--color-${name}`]).toBe(`var(--${name})`)
+  })
 
   it('links in an answer use the accent', () => {
     const link = rule('.answer-prose .answer-link')
@@ -210,6 +235,28 @@ describe('colour tokens', () => {
 })
 
 describe('one colour system in the sources', () => {
+  it('scans the app’s sources (not an empty list)', () => {
+    expect(sources(__dirname).length).toBeGreaterThan(50)
+  })
+
+  it('no white text on a fill under 4.5:1 (bg-mark-blue, bg-red-500)', () => {
+    // Use bg-accent-fill (4.94:1) and bg-red-600 (4.76:1).
+    const fill = String.raw`\bbg-(?:mark-blue|red-500)(?![\w/-])`
+    const white = String.raw`\btext-white\b`
+    const inOneString = (a: string, b: string) =>
+      new RegExp(String.raw`['"\`][^'"\`]*${a}[^'"\`]*${b}`, 'g')
+    expect(sourceMatches(inOneString(fill, white))).toEqual([])
+    expect(sourceMatches(inOneString(white, fill))).toEqual([])
+  })
+
+  it('no faint text: placeholders and notes are at least 4.5:1', () => {
+    // placeholder:text-muted-foreground is 2.80:1 and text-foreground/50 is
+    // 3.95:1 on the light page: use placeholder:text-muted-foreground and
+    // text-foreground/60 (5.69:1). Lower opacities stay for icons only.
+    expect(sourceMatches(/\bplaceholder:text-foreground\/\d+/g)).toEqual([])
+    expect(sourceMatches(/\btext-foreground\/50\b/g)).toEqual([])
+  })
+
   it('no text-red-500/600 or text-mark-blue text classes remain', () => {
     // Text uses the AA tokens: text-destructive and text-accent. Fills
     // (bg-red-500, bg-mark-blue, fill-mark-*) stay.
@@ -220,5 +267,9 @@ describe('one colour system in the sources', () => {
   it('no bare animate-pulse remains', () => {
     // Pulses honour reduced motion: motion-safe:animate-pulse.
     expect(sourceMatches(/(?<!motion-safe:)\banimate-pulse\b/g)).toEqual([])
+    // Nor a pulse spelled another way.
+    expect(sourceMatches(/\banimation:\s*pulse\b|\[animation:pulse/g)).toEqual(
+      []
+    )
   })
 })

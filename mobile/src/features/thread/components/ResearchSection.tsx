@@ -57,7 +57,7 @@ function StepRow({ step }: { step: ResearchStep }) {
       <div className="min-w-0 flex-1">
         <p className="truncate text-sm text-foreground/80">{step.label}</p>
         {step.detail && (
-          <p className="line-clamp-2 text-xs text-foreground/50">
+          <p className="line-clamp-2 text-xs text-foreground/60">
             {step.detail}
           </p>
         )}

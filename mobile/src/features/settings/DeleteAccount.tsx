@@ -179,7 +179,7 @@ function DeleteAccountPanel({ onClose }: { onClose: () => void }) {
           onClick={() => void confirmDelete()}
           aria-disabled={deleting || undefined}
           aria-busy={deleting || undefined}
-          className={`${BUTTON} bg-red-500 text-white active:opacity-50 disabled:opacity-25 aria-disabled:opacity-50`}
+          className={`${BUTTON} bg-red-600 text-white active:opacity-50 disabled:opacity-25 aria-disabled:opacity-50`}
         >
           {deleting ? 'Deleting…' : 'Delete my account'}
         </button>

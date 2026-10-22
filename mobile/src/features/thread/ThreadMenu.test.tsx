@@ -560,6 +560,12 @@ describe('ThreadMenu', () => {
       expect(await fail()).toHaveTextContent('Couldn’t delete the chat. boom')
     })
 
+    it('floats on the raised surface, like a sheet', async () => {
+      const alert = await fail()
+      expect(alert).toHaveClass('bg-elevated')
+      expect(alert).not.toHaveClass('bg-background')
+    })
+
     it('is dismissed with its button', async () => {
       const alert = await fail()
       await userEvent.click(

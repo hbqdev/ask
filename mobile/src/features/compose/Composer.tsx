@@ -278,7 +278,7 @@ export function Composer({
           aria-label={placeholder}
           autoFocus={autoFocus}
           enterKeyHint="send"
-          className="block w-full resize-none bg-transparent py-2 text-base outline-none placeholder:text-foreground/40"
+          className="block w-full resize-none bg-transparent py-2 text-base outline-none placeholder:text-muted-foreground"
         />
         <div className="flex items-center justify-between gap-2">
           <div className="flex min-w-0 items-center gap-1">

@@ -58,6 +58,11 @@ describe('ErrorBoundary', () => {
     ).toBeInTheDocument()
     expect(screen.getByText('render exploded')).toBeInTheDocument()
     expect(SplashScreen.hide).toHaveBeenCalledTimes(1)
+    // White on the accent fill: 4.94:1 in both themes.
+    expect(screen.getByRole('button', { name: 'Try again' })).toHaveClass(
+      'bg-accent-fill',
+      'text-white'
+    )
     // Outside the app root, so it clears the safe area itself.
     expect(screen.getByRole('main').parentElement).toHaveClass(
       'app-root',

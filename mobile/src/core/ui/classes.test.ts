@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 
 import {
   chipClass,
+  GROUP,
   SECTION_TITLE,
   SEPARATOR,
   SEGMENT_TRACK,
@@ -13,6 +14,10 @@ describe('the shared class names', () => {
     expect(SECTION_TITLE).toBe(
       'px-4 pb-2 text-xs font-medium uppercase tracking-wide text-foreground/60'
     )
+  })
+
+  it('a group is a rounded card', () => {
+    expect(GROUP).toBe('rounded-2xl bg-card')
   })
 
   it('a row separator is an inset hairline along the bottom', () => {

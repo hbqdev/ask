@@ -201,7 +201,7 @@ export function ThreadMenu({
       {failure && (
         <div
           role="alert"
-          className="absolute inset-x-3 top-full z-10 mt-2 overflow-hidden rounded-2xl bg-background shadow-lg"
+          className="absolute inset-x-3 top-full z-10 mt-2 overflow-hidden rounded-2xl bg-elevated shadow-lg"
         >
           <div className="flex items-center gap-3 bg-red-500/10 px-4 py-1 text-sm text-destructive">
             <p className="min-w-0 flex-1">{failure}</p>

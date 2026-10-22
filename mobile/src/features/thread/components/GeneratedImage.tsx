@@ -46,7 +46,7 @@ export function GeneratedImage({ part, baseUrl }: GeneratedImageProps) {
       >
         <div className="aspect-square w-full motion-safe:animate-pulse rounded-xl bg-foreground/10" />
         {input?.prompt && (
-          <p className="mt-2 truncate text-xs text-foreground/50">
+          <p className="mt-2 truncate text-xs text-foreground/60">
             {input.prompt}
           </p>
         )}
@@ -79,7 +79,7 @@ export function GeneratedImage({ part, baseUrl }: GeneratedImageProps) {
           className="selectable h-auto max-w-full rounded-2xl"
         />
       </button>
-      <figcaption className="mt-1.5 truncate text-xs text-foreground/50">
+      <figcaption className="mt-1.5 truncate text-xs text-foreground/60">
         {output.prompt}
       </figcaption>
     </figure>

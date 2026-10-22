@@ -113,7 +113,7 @@ function releaseOpen(row: OpenRow) {
 }
 
 const ACTION_COLOURS = {
-  destructive: 'bg-red-500 text-white',
+  destructive: 'bg-red-600 text-white',
   plain: 'bg-muted-foreground text-background'
 }
 
@@ -129,11 +129,23 @@ type Drag = {
 
 const pastOpen = (pos: number) => -pos > OPEN_AT
 
-const SURFACES = { page: 'bg-background', card: 'bg-card' }
+// The content's colour, and pressed, a step off it. In dark, muted is the
+// card's own lightness, so a card row presses to the thumb instead.
+const SURFACES = {
+  page: 'bg-background active:bg-muted',
+  card: 'bg-card active:bg-muted dark:active:bg-thumb'
+}
 
-/** Whether the stylesheet animates this element's settling (motion allowed). */
-const slides = (el: HTMLElement) =>
-  parseFloat(getComputedStyle(el).transitionDuration) > 0
+/**
+ * How long, in ms, the stylesheet's settle transition takes on this element
+ * (0 with reduced motion). Computed durations are in seconds.
+ */
+const slideMs = (el: HTMLElement) =>
+  (parseFloat(getComputedStyle(el).transitionDuration) || 0) * 1000
+
+// Past a slide's time, a closed row is covered even if no transition event
+// came (a close and a hide in one style recalc make no transition at all).
+const SLIDE_GRACE_MS = 50
 
 /** Runs a swipe action, with its haptic. */
 function run(action: SwipeAction) {
@@ -158,6 +170,9 @@ export function SwipeRow({
   const [exposed, setExposed] = useState(false)
   // Where the content was last put (0 = closed), to know if a settle moves it.
   const at = useRef(0)
+  // Covers a closed row once its slide's time is up (the fallback for a
+  // missing transition event).
+  const coverTimer = useRef<ReturnType<typeof setTimeout>>(undefined)
   const openWidth = actions.length * ACTION_WIDTH
 
   // This row in the registry, created once: the registry compares by identity.
@@ -184,12 +199,27 @@ export function SwipeRow({
     } else {
       releaseOpen(handle)
       // Closed where it already was, or without a slide: covered at once.
-      // Otherwise the colour stays until the slide ends (onTransitionEnd).
-      if (!moved || !slides(el)) setExposed(false)
+      // Otherwise the colour stays until the slide ends (onTransitionEnd),
+      // or its time is up.
+      const ms = moved ? slideMs(el) : 0
+      if (ms > 0) {
+        clearTimeout(coverTimer.current)
+        coverTimer.current = setTimeout(() => {
+          if (at.current === 0) setExposed(false)
+        }, ms + SLIDE_GRACE_MS)
+      } else {
+        setExposed(false)
+      }
     }
   }
 
-  useEffect(() => () => releaseOpen(handle), [handle])
+  useEffect(
+    () => () => {
+      releaseOpen(handle)
+      clearTimeout(coverTimer.current)
+    },
+    [handle]
+  )
 
   const current = (e: PointerEvent<Element>) => {
     const d = drag.current
@@ -226,6 +256,7 @@ export function SwipeRow({
         swiped.current = true
         e.currentTarget.setPointerCapture?.(e.pointerId)
         claimOpen(handle)
+        clearTimeout(coverTimer.current)
         setExposed(true)
         content.current!.style.transition = 'none'
       }
@@ -282,8 +313,17 @@ export function SwipeRow({
   // The content's own slide closed has ended (or was cut short, as by the
   // screen going away): nothing shows behind it now. A new drag that cuts it
   // short has moved the content off 0 and exposed the row again.
+  // Only the transform's: another property's transition (a colour) is not
+  // the slide. Read from the native event: React's synthetic event for
+  // transitioncancel carries no propertyName.
   const onTransitionEnd = (e: TransitionEvent<HTMLDivElement>) => {
-    if (e.target === e.currentTarget && at.current === 0) setExposed(false)
+    if (
+      e.target === e.currentTarget &&
+      e.nativeEvent.propertyName === 'transform' &&
+      at.current === 0
+    ) {
+      setExposed(false)
+    }
   }
 
   const first = actions[0]
@@ -327,7 +367,7 @@ export function SwipeRow({
         onKeyDown={onKeyDown}
         onTransitionEnd={onTransitionEnd}
         onTransitionCancel={onTransitionEnd}
-        className={`swipe-row-content relative ${SURFACES[surface]} text-foreground active:bg-muted`}
+        className={`swipe-row-content relative ${SURFACES[surface]} text-foreground`}
         {...handlers}
       >
         {children}

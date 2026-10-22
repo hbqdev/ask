@@ -193,7 +193,7 @@ function FileChip({ file }: { file: FileItem }) {
       </span>
       <span className="min-w-0">
         <span className="block truncate text-sm font-medium">{file.name}</span>
-        <span className="block text-xs text-foreground/50">{file.type}</span>
+        <span className="block text-xs text-foreground/60">{file.type}</span>
       </span>
     </>
   )

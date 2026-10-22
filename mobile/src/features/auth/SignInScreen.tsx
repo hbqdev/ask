@@ -16,7 +16,7 @@ export function forgotPasswordUrl(apiBaseUrl: string): string {
 
 // 16px text keeps iOS from zooming into a focused field.
 const FIELD =
-  'h-12 w-full rounded-xl border border-foreground/15 bg-foreground/5 px-4 text-base text-foreground outline-none placeholder:text-foreground/40 focus:border-mark-blue'
+  'h-12 w-full rounded-xl border border-foreground/15 bg-foreground/5 px-4 text-base text-foreground outline-none placeholder:text-muted-foreground focus:border-mark-blue'
 
 // Google's "G" in its own colours, as its sign-in branding asks.
 function GoogleMark() {
@@ -121,7 +121,7 @@ export function SignInScreen({ apiBaseUrl }: { apiBaseUrl: string }) {
         </button>
 
         <div
-          className="mt-6 flex w-full items-center gap-3 text-sm text-foreground/50"
+          className="mt-6 flex w-full items-center gap-3 text-sm text-foreground/60"
           aria-hidden="true"
         >
           <span className="h-px flex-1 bg-foreground/15" />
@@ -181,7 +181,7 @@ export function SignInScreen({ apiBaseUrl }: { apiBaseUrl: string }) {
           <button
             type="submit"
             disabled={!canSubmit}
-            className="mt-2 h-12 w-full touch-manipulation rounded-xl bg-mark-blue text-base font-semibold text-white active:opacity-80 disabled:opacity-40"
+            className="mt-2 h-12 w-full touch-manipulation rounded-xl bg-accent-fill text-base font-semibold text-white active:opacity-80 disabled:opacity-40"
           >
             {submitting ? 'Signing in…' : 'Sign in'}
           </button>

@@ -788,7 +788,31 @@ describe('MemoryScreen: memories', () => {
     const row = rowButton('Prefers metric units')
     expect(row).toHaveClass('bg-card')
     // Nothing red behind the content: no red at the rounded corners.
-    expect(row.parentElement!.className).not.toContain('bg-red-500')
+    expect(row.parentElement!.className).not.toContain('bg-red-600')
+  })
+
+  it('the Learning badge is white on the accent fill (4.94:1 in both themes)', async () => {
+    await renderScreen()
+    const list = screen.getByRole('list', { name: 'What Ask remembers' })
+    expect(within(list).getAllByText('Learning')[0]).toHaveClass(
+      'bg-accent-fill',
+      'text-white'
+    )
+  })
+
+  it('separates every memory but the last with an inset hairline', async () => {
+    await renderScreen()
+    const list = screen.getByRole('list', { name: 'What Ask remembers' })
+    expect(list.className).not.toContain('divide-y')
+    const separated = within(list)
+      .getAllByRole('listitem')
+      .map(item =>
+        within(item)
+          .getAllByRole('button')
+          .at(-1)!
+          .firstElementChild!.className.includes('after:h-px')
+      )
+    expect(separated).toEqual([true, true, false])
   })
 
   it('its destructive actions read as destructive', async () => {
@@ -875,6 +899,10 @@ describe('MemoryScreen: memories', () => {
     const sheet = screen.getByRole('dialog', { name: 'Interest' })
     expect(sheet).toHaveTextContent('Into astronomy')
     expect(sheet).toHaveTextContent('Learning')
+    // White on the AA red fill.
+    expect(
+      within(sheet).getByRole('button', { name: 'Delete memory' })
+    ).toHaveClass('bg-red-600', 'text-white')
 
     fireEvent.click(
       within(sheet).getByRole('button', { name: 'Delete memory' })

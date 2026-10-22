@@ -30,7 +30,7 @@ export function ConfirmSheet({
 }: ConfirmSheetProps) {
   const confirmColour =
     tone === 'destructive'
-      ? 'bg-red-500 text-white'
+      ? 'bg-red-600 text-white'
       : 'bg-foreground text-background'
   return (
     <Sheet open={open} onClose={onClose} title={title}>

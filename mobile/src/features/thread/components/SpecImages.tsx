@@ -25,7 +25,7 @@ export function SpecImages({ images }: { images: SpecImage[] }) {
             />
           </button>
           {image.title && (
-            <figcaption className="mt-1 truncate text-xs text-foreground/50">
+            <figcaption className="mt-1 truncate text-xs text-foreground/60">
               {image.title}
             </figcaption>
           )}

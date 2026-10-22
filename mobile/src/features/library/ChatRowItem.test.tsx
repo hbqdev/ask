@@ -155,7 +155,7 @@ describe('ChatRowItem', () => {
       .getAllByRole('button')
       .filter(b => b !== content)
     expect(del).toHaveTextContent('Delete')
-    expect(del.className).toContain('bg-red-500')
+    expect(del.className).toContain('bg-red-600')
     expect(rename).toHaveTextContent('Rename')
 
     fireEvent.click(del)

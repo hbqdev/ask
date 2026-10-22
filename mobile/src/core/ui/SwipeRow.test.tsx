@@ -1,4 +1,4 @@
-import { fireEvent, render, screen } from '@testing-library/react'
+import { act, fireEvent, render, screen } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { haptic } from '@/core/haptics'
@@ -439,12 +439,13 @@ describe('SwipeRow', () => {
     setup()
     const del = screen.getByRole('button', { name: 'Delete' })
     const rename = screen.getByRole('button', { name: 'Rename' })
-    expect(del.className).toContain('bg-red-500')
-    expect(rename.className).not.toContain('bg-red-500')
+    expect(del.className).toContain('bg-red-600')
+    expect(rename.className).not.toContain('bg-red-600')
   })
 })
 
 describe('SwipeRow colour', () => {
+  const TRANSFORM = { propertyName: 'transform' }
   // The stylesheet's settle transition (styles.css, with motion allowed).
   let motion: HTMLStyleElement | undefined
   function withMotion() {
@@ -460,7 +461,7 @@ describe('SwipeRow colour', () => {
 
   it('paints no action colour at rest', () => {
     setup()
-    expect(rootOf('Chat A').className).not.toContain('bg-red-500')
+    expect(rootOf('Chat A').className).not.toContain('bg-red-600')
     // Nor do the buttons behind the content: hidden, so none of their
     // colour shows at the edge of a rounded card's corner.
     expect(actionsOf('Chat A')).toHaveClass('invisible')
@@ -482,18 +483,18 @@ describe('SwipeRow colour', () => {
     const { content } = setup()
     fireEvent.pointerDown(content, at({ x: 300 }))
     fireEvent.pointerMove(content, at({ x: 270 }))
-    expect(rootOf('Chat A')).toHaveClass('bg-red-500')
+    expect(rootOf('Chat A')).toHaveClass('bg-red-600')
     fireEvent.pointerMove(content, at({ x: 200 }))
     fireEvent.pointerUp(content, at({ x: 200 }))
     expect(isOpen('Chat A')).toBe(true)
-    expect(rootOf('Chat A')).toHaveClass('bg-red-500')
+    expect(rootOf('Chat A')).toHaveClass('bg-red-600')
   })
 
   it('a press that has not moved paints nothing', () => {
     const { content } = setup()
     fireEvent.pointerDown(content, at({ x: 300 }))
     fireEvent.pointerMove(content, at({ x: 295 }))
-    expect(rootOf('Chat A').className).not.toContain('bg-red-500')
+    expect(rootOf('Chat A').className).not.toContain('bg-red-600')
   })
 
   it('clears it once closed', () => {
@@ -501,10 +502,10 @@ describe('SwipeRow colour', () => {
     drag(content, [{ x: 300 }, { x: 200 }])
     tap(content)
     expect(isOpen('Chat A')).toBe(false)
-    expect(rootOf('Chat A').className).not.toContain('bg-red-500')
+    expect(rootOf('Chat A').className).not.toContain('bg-red-600')
     // And after a swipe that snaps back closed.
     drag(content, [{ x: 300 }, { x: 260 }])
-    expect(rootOf('Chat A').className).not.toContain('bg-red-500')
+    expect(rootOf('Chat A').className).not.toContain('bg-red-600')
   })
 
   it('keeps it while the row slides closed, and clears it when the slide ends', () => {
@@ -513,12 +514,12 @@ describe('SwipeRow colour', () => {
     const { content } = setup()
     drag(content, [{ x: 300 }, { x: 200 }])
     tap(content)
-    expect(rootOf('Chat A')).toHaveClass('bg-red-500')
+    expect(rootOf('Chat A')).toHaveClass('bg-red-600')
     // A transition ending inside the content is not the row's own.
-    fireEvent.transitionEnd(content.firstElementChild!)
-    expect(rootOf('Chat A')).toHaveClass('bg-red-500')
-    fireEvent.transitionEnd(content)
-    expect(rootOf('Chat A').className).not.toContain('bg-red-500')
+    fireEvent.transitionEnd(content.firstElementChild!, TRANSFORM)
+    expect(rootOf('Chat A')).toHaveClass('bg-red-600')
+    fireEvent.transitionEnd(content, TRANSFORM)
+    expect(rootOf('Chat A').className).not.toContain('bg-red-600')
   })
 
   it('clears it when the slide closed is cut short (the row went out of view)', () => {
@@ -526,17 +527,70 @@ describe('SwipeRow colour', () => {
     const { content } = setup()
     drag(content, [{ x: 300 }, { x: 200 }])
     tap(content)
-    expect(rootOf('Chat A')).toHaveClass('bg-red-500')
-    fireEvent(content, new Event('transitioncancel', { bubbles: true }))
-    expect(rootOf('Chat A').className).not.toContain('bg-red-500')
+    expect(rootOf('Chat A')).toHaveClass('bg-red-600')
+    fireEvent.transitionCancel(content, TRANSFORM)
+    expect(rootOf('Chat A').className).not.toContain('bg-red-600')
+  })
+
+  it('a transition of another property (a colour) does not clear it', () => {
+    withMotion()
+    const { content } = setup()
+    drag(content, [{ x: 300 }, { x: 200 }])
+    tap(content)
+    fireEvent.transitionEnd(content, { propertyName: 'background-color' })
+    expect(rootOf('Chat A')).toHaveClass('bg-red-600')
+  })
+
+  it('clears it once the slide’s time is up, should no transition event come', () => {
+    vi.useFakeTimers()
+    try {
+      withMotion()
+      const { content } = setup()
+      drag(content, [{ x: 300 }, { x: 200 }])
+      tap(content)
+      vi.advanceTimersByTime(280)
+      expect(rootOf('Chat A')).toHaveClass('bg-red-600')
+      act(() => vi.advanceTimersByTime(60))
+      expect(rootOf('Chat A').className).not.toContain('bg-red-600')
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('a swipe started before that time keeps it', () => {
+    vi.useFakeTimers()
+    try {
+      withMotion()
+      const { content } = setup()
+      drag(content, [{ x: 300 }, { x: 200 }])
+      tap(content)
+      // Swiping again mid-slide: the row is exposed by the new swipe.
+      fireEvent.pointerDown(content, at({ x: 300 }))
+      fireEvent.pointerMove(content, at({ x: 270 }))
+      act(() => vi.advanceTimersByTime(1000))
+      expect(rootOf('Chat A')).toHaveClass('bg-red-600')
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('clears it on a row closed because another opened', () => {
+    setup('Chat A')
+    setup('Chat B')
+    drag(content('Chat A'), [{ x: 300 }, { x: 200 }])
+    expect(rootOf('Chat A')).toHaveClass('bg-red-600')
+    drag(content('Chat B'), [{ x: 300 }, { x: 200 }])
+    expect(isOpen('Chat A')).toBe(false)
+    expect(rootOf('Chat A').className).not.toContain('bg-red-600')
+    expect(rootOf('Chat B')).toHaveClass('bg-red-600')
   })
 
   it('keeps it when the slide that ends is an opening one', () => {
     withMotion()
     const { content } = setup()
     drag(content, [{ x: 300 }, { x: 200 }])
-    fireEvent.transitionEnd(content)
-    expect(rootOf('Chat A')).toHaveClass('bg-red-500')
+    fireEvent.transitionEnd(content, TRANSFORM)
+    expect(rootOf('Chat A')).toHaveClass('bg-red-600')
   })
 
   it('clears it at once when a cancelled drag ends where it began (nothing to slide)', () => {
@@ -547,7 +601,7 @@ describe('SwipeRow colour', () => {
     // Back to its start, then cancelled: no transform change, no slide.
     fireEvent.pointerMove(content, at({ x: 310 }))
     fireEvent.pointerCancel(content, at({ x: 310 }))
-    expect(rootOf('Chat A').className).not.toContain('bg-red-500')
+    expect(rootOf('Chat A').className).not.toContain('bg-red-600')
   })
 
   it('the content is the page colour by default, and the card tint on a card', () => {
@@ -566,6 +620,13 @@ describe('SwipeRow colour', () => {
     expect(content('On page')).not.toHaveClass('bg-card')
     expect(content('On card')).toHaveClass('bg-card')
     expect(content('On card')).not.toHaveClass('bg-background')
+    // Pressed: a step off its surface (in dark, muted is the card's own
+    // colour, so a card row presses to the thumb).
+    expect(content('On page')).toHaveClass('active:bg-muted')
+    expect(content('On card')).toHaveClass(
+      'active:bg-muted',
+      'dark:active:bg-thumb'
+    )
   })
 })
 

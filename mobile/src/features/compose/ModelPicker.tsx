@@ -9,7 +9,7 @@ import { useEffect, useId, useState, useSyncExternalStore } from 'react'
 import { useTabActive } from '@/app/Tabs'
 import { useApi } from '@/core/api/ApiProvider'
 import { haptic } from '@/core/haptics'
-import { SECTION_TITLE } from '@/core/ui/classes'
+import { GROUP, SECTION_TITLE } from '@/core/ui/classes'
 import {
   getModelChoice,
   modelListLoaded,
@@ -22,8 +22,6 @@ import type { ModelSelectorData } from '@/lib/types/model-selector'
 
 export const MODEL_LOAD_ERROR = 'Couldn’t load the models.'
 export const MODEL_SAVE_ERROR = 'Couldn’t change the model. Try again.'
-
-const GROUP = 'rounded-2xl bg-card'
 
 /**
  * The model picker. It loads the list when it mounts and again each time its
@@ -92,7 +90,7 @@ export function ModelPicker() {
       >
         {providers.map(([provider, models]) => (
           <div key={provider}>
-            <h4 className="px-4 pb-1 text-xs text-foreground/50">{provider}</h4>
+            <h4 className="px-4 pb-1 text-xs text-foreground/60">{provider}</h4>
             <div className={`${GROUP} overflow-hidden`}>
               {models.map(model => {
                 const checked = modelKey(model) === selected

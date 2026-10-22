@@ -68,14 +68,14 @@ describe('ConfirmSheet', () => {
   it('paints a destructive confirm red', () => {
     setup({ tone: 'destructive' })
     expect(screen.getByRole('button', { name: 'Delete' }).className).toContain(
-      'bg-red-500'
+      'bg-red-600'
     )
   })
 
   it('paints a plain confirm in the foreground colour', () => {
     setup({ confirmLabel: 'OK' })
     const ok = screen.getByRole('button', { name: 'OK' })
-    expect(ok.className).not.toContain('bg-red-500')
+    expect(ok.className).not.toContain('bg-red-600')
     expect(ok.className).toContain('bg-foreground')
   })
 })
