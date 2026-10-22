@@ -92,6 +92,38 @@ describe('AttachmentChips', () => {
     ).toBeInTheDocument()
   })
 
+  it('announces a failure, naming the file', () => {
+    const { rerender, onRemove, onRetry } = setup([
+      item({ status: 'uploading' })
+    ])
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument()
+    rerender(
+      <AttachmentChips
+        items={[item({ status: 'error', error: 'Network error.' })]}
+        onRemove={onRemove}
+        onRetry={onRetry}
+      />
+    )
+    expect(screen.getByRole('alert')).toHaveTextContent(
+      'photo.jpg: Network error.'
+    )
+  })
+
+  it('does not announce an indexing note as an alert', () => {
+    setup([item({ status: 'done', ingestStatus: 'processing' })])
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument()
+  })
+
+  it('gives Retry and Remove a 44-point hit area', () => {
+    setup([item({ status: 'error', error: 'Network error.', retryable: true })])
+    for (const name of ['Retry photo.jpg', 'Remove photo.jpg']) {
+      expect(screen.getByRole('button', { name })).toHaveClass(
+        'min-h-11',
+        'min-w-11'
+      )
+    }
+  })
+
   it('offers Retry only on a failed attachment', () => {
     setup([item({ status: 'uploading' })])
     expect(

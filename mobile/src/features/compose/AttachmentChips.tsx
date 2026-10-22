@@ -2,6 +2,8 @@
 // an image or an icon for any other file, the name, a ring while it is being
 // prepared or uploaded, why it failed (with Retry when another try may
 // help), what the server's indexing said, and × to take it off the question.
+// A failure is announced (VoiceOver reads it as it appears), and Retry and ×
+// each get a 44-point hit area.
 
 import { ingestNote, type Attachment } from '@/features/compose/useAttachments'
 
@@ -90,7 +92,7 @@ function Chip({
   const note = failed ? item.error : ingestNote(item)
   return (
     <li
-      className={`relative flex w-48 shrink-0 items-center gap-2 rounded-2xl bg-foreground/8 p-1.5 pr-8 ${
+      className={`relative flex w-48 shrink-0 items-center gap-2 rounded-2xl bg-foreground/8 p-1.5 pr-10 ${
         failed ? 'ring-1 ring-red-500/70' : ''
       }`}
     >
@@ -110,10 +112,12 @@ function Chip({
         <p className="truncate text-sm leading-5 font-medium">{item.name}</p>
         {note && (
           <p
+            role={failed ? 'alert' : undefined}
             className={`truncate text-xs leading-4 ${
               failed ? 'text-red-500' : 'text-foreground/50'
             }`}
           >
+            {failed && <span className="sr-only">{item.name}: </span>}
             {note}
           </p>
         )}
@@ -122,7 +126,8 @@ function Chip({
             type="button"
             aria-label={`Retry ${item.name}`}
             onClick={() => onRetry(item.id)}
-            className="touch-manipulation text-xs leading-5 font-semibold text-foreground underline active:opacity-50"
+            // The hit area reaches past the text without growing the chip much.
+            className="-my-2 -ml-2 flex min-h-11 min-w-11 touch-manipulation items-center px-2 text-xs leading-5 font-semibold text-foreground underline active:opacity-50"
           >
             Retry
           </button>
@@ -132,19 +137,21 @@ function Chip({
         type="button"
         aria-label={`Remove ${item.name}`}
         onClick={() => onRemove(item.id)}
-        className="absolute top-0.5 right-0.5 flex size-7 touch-manipulation items-center justify-center rounded-full text-foreground/60 active:bg-foreground/10"
+        className="group absolute top-0 right-0 flex min-h-11 min-w-11 touch-manipulation items-start justify-end p-0.5 text-foreground/60"
       >
-        <svg
-          aria-hidden="true"
-          viewBox="0 0 24 24"
-          className="size-4"
-          fill="none"
-          stroke="currentColor"
-          strokeWidth={2.2}
-          strokeLinecap="round"
-        >
-          <path d="M6 6l12 12M18 6L6 18" />
-        </svg>
+        <span className="flex size-7 items-center justify-center rounded-full group-active:bg-foreground/10">
+          <svg
+            aria-hidden="true"
+            viewBox="0 0 24 24"
+            className="size-4"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth={2.2}
+            strokeLinecap="round"
+          >
+            <path d="M6 6l12 12M18 6L6 18" />
+          </svg>
+        </span>
       </button>
     </li>
   )
