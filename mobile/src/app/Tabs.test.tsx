@@ -47,6 +47,24 @@ describe('Tabs', () => {
     expect(screen.getByRole('tabpanel', { name: 'Ask' })).toBeVisible()
   })
 
+  it('renders its children inside the shell, where useSelectTab works', () => {
+    function GoToSettings() {
+      const select = useSelectTab()
+      return (
+        <button type="button" onClick={() => select?.('settings')}>
+          Go to settings
+        </button>
+      )
+    }
+    render(
+      <Tabs tabs={makeTabs()}>
+        <GoToSettings />
+      </Tabs>
+    )
+    fireEvent.click(screen.getByRole('button', { name: 'Go to settings' }))
+    expect(tab('Settings')).toHaveAttribute('aria-selected', 'true')
+  })
+
   it('starts on the initial tab when given', () => {
     render(<Tabs tabs={makeTabs()} initial="settings" />)
     expect(tab('Settings')).toHaveAttribute('aria-selected', 'true')

@@ -19,7 +19,12 @@ export type TabSpec = {
   render(): ReactNode
 }
 
-export type TabsProps = { tabs: TabSpec[]; initial?: TabId }
+export type TabsProps = {
+  tabs: TabSpec[]
+  initial?: TabId
+  /** Non-visual helpers that switch tabs (they can use useSelectTab). */
+  children?: ReactNode
+}
 
 const SelectTabContext = createContext<((id: TabId) => void) | undefined>(
   undefined
@@ -51,7 +56,7 @@ const TabContent = memo(function TabContent({ tab }: { tab: TabSpec }) {
  * the first time it is opened and then stays mounted (hidden when inactive),
  * so its state and scroll position survive switching away and back.
  */
-export function Tabs({ tabs, initial }: TabsProps) {
+export function Tabs({ tabs, initial, children }: TabsProps) {
   const idPrefix = useId()
   const [active, setActive] = useState<TabId>(() => initial ?? tabs[0].id)
   const [opened, setOpened] = useState<ReadonlySet<TabId>>(
@@ -69,6 +74,7 @@ export function Tabs({ tabs, initial }: TabsProps) {
 
   return (
     <SelectTabContext.Provider value={select}>
+      {children}
       <div className="flex h-full min-h-0 flex-1 flex-col">
         <div className="relative min-h-0 flex-1">
           {tabs.map(tab => {

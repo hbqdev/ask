@@ -45,8 +45,8 @@ remote() { ssh -o BatchMode=yes "$MAC" "export PATH=/opt/homebrew/bin:\$PATH; cd
 # elsewhere (e.g. staging). The API origin is printed first (it is not secret).
 #
 # build_local e2e makes the simulator E2E bundle (VITE_E2E_AUTOSEND=true): an
-# ask:// link sends at once and a question seeded in Preferences (e2e-ask) is
-# asked at launch. Every other build sets it false explicitly, so a value in
+# ask:// link sends at once, a question seeded in Preferences (e2e-ask) is
+# asked at launch and a seeded screen (e2e-screen) is opened. Every other build sets it false explicitly, so a value in
 # the caller's environment can never leak into a device build, where a link
 # from any app must only fill the box (a turn can write a lasting memory).
 build_local() {

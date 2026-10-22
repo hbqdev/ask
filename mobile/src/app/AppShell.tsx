@@ -4,6 +4,7 @@ import { useHideSplash } from '@/app/splash'
 import { Tabs, type TabSpec } from '@/app/Tabs'
 import { ApiProvider } from '@/core/api/ApiProvider'
 import { useAuth } from '@/core/auth/AuthProvider'
+import { useE2eScreen } from '@/core/e2e-screen'
 import { StackProvider, StackView, type ScreenEntry } from '@/core/nav/stack'
 import { useTheme } from '@/core/ThemeProvider'
 import { OrbitMark } from '@/core/ui/OrbitMark'
@@ -84,9 +85,19 @@ const TABS: TabSpec[] = [
   }
 ]
 
+/** Simulator E2E builds: opens the screen a run seeded (see e2e-screen). */
+function E2eScreenOpener() {
+  useE2eScreen()
+  return null
+}
+
 const TABS_SCREEN: ScreenEntry = {
   key: 'tabs',
-  render: () => <Tabs tabs={TABS} />
+  render: () => (
+    <Tabs tabs={TABS}>
+      <E2eScreenOpener />
+    </Tabs>
+  )
 }
 
 /** What launch shows until the session is known: the native splash's look. */

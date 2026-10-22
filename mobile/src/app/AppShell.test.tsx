@@ -261,6 +261,51 @@ describe('AppShell', () => {
     )
   })
 
+  describe('simulator screen hook', () => {
+    // Capacitor Preferences on the web keeps its keys in localStorage.
+    const SEEDED = 'CapacitorStorage.e2e-screen'
+
+    afterEach(() => {
+      vi.unstubAllEnvs()
+      localStorage.removeItem(SEEDED)
+    })
+
+    it('opens the seeded tab in an E2E build', async () => {
+      vi.stubEnv('VITE_E2E_AUTOSEND', 'true')
+      localStorage.setItem(SEEDED, 'settings')
+      const { client } = fakeClient(async () => ({
+        data: { session },
+        error: null
+      }))
+      renderShell(client)
+
+      await waitFor(() =>
+        expect(screen.getByRole('tab', { name: 'Settings' })).toHaveAttribute(
+          'aria-selected',
+          'true'
+        )
+      )
+      expect(localStorage.getItem(SEEDED)).toBeNull()
+    })
+
+    it('leaves the seeded key alone in any other build', async () => {
+      localStorage.setItem(SEEDED, 'settings')
+      const { client } = fakeClient(async () => ({
+        data: { session },
+        error: null
+      }))
+      renderShell(client)
+
+      await screen.findByRole('heading', { name: 'Ask anything' })
+      await act(async () => {})
+      expect(screen.getByRole('tab', { name: 'Ask' })).toHaveAttribute(
+        'aria-selected',
+        'true'
+      )
+      expect(localStorage.getItem(SEEDED)).toBe('settings')
+    })
+  })
+
   it('signing in shows the tabs', async () => {
     const { client, auth } = fakeClient()
     const user = userEvent.setup()
