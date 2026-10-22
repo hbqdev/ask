@@ -1,4 +1,4 @@
-import { readFileSync } from 'node:fs'
+import { existsSync, readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 
 import { describe, expect, it } from 'vitest'
@@ -6,7 +6,7 @@ import { describe, expect, it } from 'vitest'
 import config from '../capacitor.config'
 
 // Launch shows, in order: the native launch screen (LaunchScreen.storyboard:
-// the Splash image over the LaunchBackground colour), the SplashScreen
+// the 96-pt SplashMark centred on the LaunchBackground colour), the SplashScreen
 // plugin's copy of that storyboard, the native container behind the web view
 // (MainViewController), then the web LaunchView (bg-splash). Each must be the
 // page background of the current appearance, or launch flashes:
@@ -18,13 +18,6 @@ const DARK = '#030309'
 const root = resolve(__dirname, '..')
 const read = (path: string) => readFileSync(resolve(root, path), 'utf8')
 const assets = 'ios/App/App/Assets.xcassets'
-
-/** The `fill` of the full-bleed background <rect> in a splash SVG. */
-function svgBackground(path: string): string | undefined {
-  return read(path).match(
-    /<rect width="2732" height="2732" fill="(#[0-9a-f]{6})"/i
-  )?.[1]
-}
 
 type ColourEntry = {
   appearances?: { appearance: string; value: string }[]
@@ -44,33 +37,6 @@ const isDark = (entry: { appearances?: { value: string }[] }) =>
   entry.appearances?.some(a => a.value === 'dark') ?? false
 
 describe('launch colours', () => {
-  it('splash SVG sources use the page background of each appearance', () => {
-    expect(svgBackground('assets/splash-light.svg')).toBe(LIGHT)
-    expect(svgBackground('assets/splash.svg')).toBe(DARK)
-  })
-
-  it('the Splash image set has a light and a dark variant', () => {
-    const { images } = JSON.parse(
-      read(`${assets}/Splash.imageset/Contents.json`)
-    ) as {
-      images: {
-        filename: string
-        appearances?: { appearance: string; value: string }[]
-      }[]
-    }
-    const dark = images.filter(isDark)
-    const light = images.filter(i => !isDark(i))
-    expect(dark.length).toBeGreaterThan(0)
-    expect(light.length).toBeGreaterThan(0)
-    for (const image of dark) {
-      expect(image.appearances).toEqual([
-        { appearance: 'luminosity', value: 'dark' }
-      ])
-      expect(image.filename).toMatch(/dark/)
-    }
-    for (const image of light) expect(image.filename).toMatch(/light/)
-  })
-
   it('LaunchBackground is #fcfcfc in light and #030309 in dark', () => {
     const { colors } = JSON.parse(
       read(`${assets}/LaunchBackground.colorset/Contents.json`)
@@ -111,6 +77,95 @@ describe('launch colours', () => {
     expect(config).not.toHaveProperty('backgroundColor')
     expect(config.ios).not.toHaveProperty('backgroundColor')
     expect(config.plugins?.SplashScreen).not.toHaveProperty('backgroundColor')
+  })
+})
+
+// The launch mark is the web LaunchView's: OrbitMark at size-24 (96 pt),
+// centred, so the hand-off from the native splash to the web view is still.
+describe('the launch mark', () => {
+  it('the launch screen centres a 96-pt SplashMark on LaunchBackground', () => {
+    const storyboard = read('ios/App/App/Base.lproj/LaunchScreen.storyboard')
+    const root = storyboard.match(
+      /<view key="view"[^>]*id="([^"]+)"[^>]*>([\s\S]*?)\n {20}<\/view>/
+    )
+    expect(root).not.toBeNull()
+    const [, rootId, body] = root!
+    // The root view's own background (after its subviews).
+    expect(body).toMatch(
+      /<\/subviews>[\s\S]*<color key="backgroundColor" name="LaunchBackground"\/>/
+    )
+    const image = body.match(
+      /<imageView [^>]*image="SplashMark"[^>]*id="([^"]+)"[^>]*>([\s\S]*?)<\/imageView>/
+    )
+    expect(image).not.toBeNull()
+    const [, imageId, imageBody] = image!
+    // 96 x 96 on the image itself.
+    expect(imageBody).toMatch(
+      /<constraint firstAttribute="width" constant="96" id="[^"]+"\/>/
+    )
+    expect(imageBody).toMatch(
+      /<constraint firstAttribute="height" constant="96" id="[^"]+"\/>/
+    )
+    // Centred on the root view's safe area: MainViewController pins the web
+    // view to the safe area, so that is where the web LaunchView centres its
+    // mark too.
+    const safeArea = body.match(
+      /<viewLayoutGuide key="safeArea" id="([^"]+)"\/>/
+    )
+    expect(safeArea).not.toBeNull()
+    const guideId = safeArea![1]
+    expect(rootId).not.toBe(imageId)
+    const constraints = [...body.matchAll(/<constraint [^>]*\/>/g)].map(
+      m => m[0]
+    )
+    for (const axis of ['centerX', 'centerY']) {
+      expect(constraints).toContainEqual(
+        expect.stringMatching(
+          new RegExp(
+            `firstItem="${imageId}" firstAttribute="${axis}" secondItem="${guideId}" secondAttribute="${axis}"`
+          )
+        )
+      )
+    }
+    expect(storyboard).toMatch(
+      /<image name="SplashMark" width="96" height="96"\/>/
+    )
+    expect(storyboard).not.toMatch(/image="Splash"/)
+    expect(storyboard).not.toMatch(/<image name="Splash"/)
+  })
+
+  it('SplashMark is the in-app mark', () => {
+    const svg = read('assets/splash-mark.svg')
+    expect(svg).toMatch(/viewBox="20 24 60 54"/)
+    const circles = [...svg.matchAll(/<circle ([^>]*)\/>/g)].map(m => m[1])
+    expect(circles).toEqual([
+      'cx="39" cy="43" r="17" fill="#3694f2" ',
+      'cx="66" cy="39" r="12" fill="#944fee" ',
+      'cx="53" cy="67" r="9" fill="#f4882a" '
+    ])
+    // The same geometry as the web mark.
+    const mark = read('src/core/ui/OrbitMark.tsx')
+    expect(mark).toContain('viewBox="20 24 60 54"')
+    for (const c of circles) {
+      expect(mark).toContain(c.replace(/ fill="[^"]+" $/, ''))
+    }
+    expect(svg).not.toMatch(/<rect/)
+  })
+
+  it('SplashMark ships @2x and @3x', () => {
+    const set = `${assets}/SplashMark.imageset`
+    const { images } = JSON.parse(read(`${set}/Contents.json`)) as {
+      images: { filename?: string; idiom: string; scale: string }[]
+    }
+    const files = images.filter(i => i.filename)
+    expect(files.map(i => [i.scale, i.filename])).toEqual([
+      ['2x', 'splash-mark@2x.png'],
+      ['3x', 'splash-mark@3x.png']
+    ])
+    for (const { filename } of files) {
+      expect(existsSync(resolve(root, set, filename!))).toBe(true)
+    }
+    expect(existsSync(resolve(root, `${assets}/Splash.imageset`))).toBe(false)
   })
 })
 

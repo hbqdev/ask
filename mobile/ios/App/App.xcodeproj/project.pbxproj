@@ -24,6 +24,8 @@
 		8F17F391AEF4F10279A770A2 /* SharedInboxPlugin.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4CA193C5E5A3E9EEBC98C69B /* SharedInboxPlugin.swift */; };
 		F36684ABA7C87254D79C7AFA /* SharedItemTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = FAF7CE4B01326A9C8E50154D /* SharedItemTests.swift */; };
 		2A665CC6792142EBD5509965 /* AskShare.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = D4F2A6B484A0913FD65EFF49 /* AskShare.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
+		8978251E2EC286F593965495 /* PrivacyInfo.xcprivacy in Resources */ = {isa = PBXBuildFile; fileRef = 81D3517256A79E9D63B373E6 /* PrivacyInfo.xcprivacy */; };
+		F50C9843F4FB4D1575701FF4 /* PrivacyInfo.xcprivacy in Resources */ = {isa = PBXBuildFile; fileRef = AAE3C778FB83F28A68AEBED3 /* PrivacyInfo.xcprivacy */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -72,6 +74,8 @@
 		FAF7CE4B01326A9C8E50154D /* SharedItemTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SharedItemTests.swift; sourceTree = "<group>"; };
 		D4F2A6B484A0913FD65EFF49 /* AskShare.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = AskShare.appex; sourceTree = BUILT_PRODUCTS_DIR; };
 		ACF6A2CD72EC77CBE9989C8D /* AskShareTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = AskShareTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+		81D3517256A79E9D63B373E6 /* PrivacyInfo.xcprivacy */ = {isa = PBXFileReference; lastKnownFileType = text.xml; path = PrivacyInfo.xcprivacy; sourceTree = "<group>"; };
+		AAE3C778FB83F28A68AEBED3 /* PrivacyInfo.xcprivacy */ = {isa = PBXFileReference; lastKnownFileType = text.xml; path = PrivacyInfo.xcprivacy; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -134,6 +138,7 @@
 				504EC30E1FED79650016851F /* Assets.xcassets */,
 				504EC3101FED79650016851F /* LaunchScreen.storyboard */,
 				504EC3131FED79650016851F /* Info.plist */,
+				81D3517256A79E9D63B373E6 /* PrivacyInfo.xcprivacy */,
 				2FAD9762203C412B000D30F8 /* config.xml */,
 				50B271D01FEDC1A000F3C39B /* public */,
 			);
@@ -147,6 +152,7 @@
 				C71496D404CE62BEB0FFAC13 /* SharedItem.swift */,
 				862341EBDFD6F1C8E1CAC0AA /* Info.plist */,
 				FE4095D3747445E9AE80931F /* AskShare.entitlements */,
+				AAE3C778FB83F28A68AEBED3 /* PrivacyInfo.xcprivacy */,
 			);
 			path = AskShare;
 			sourceTree = "<group>";
@@ -276,6 +282,7 @@
 				50379B232058CBB4000EE86E /* capacitor.config.json in Resources */,
 				504EC30D1FED79650016851F /* Main.storyboard in Resources */,
 				2FAD9763203C412B000D30F8 /* config.xml in Resources */,
+				8978251E2EC286F593965495 /* PrivacyInfo.xcprivacy in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -283,6 +290,7 @@
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				F50C9843F4FB4D1575701FF4 /* PrivacyInfo.xcprivacy in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

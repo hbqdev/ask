@@ -107,23 +107,29 @@ Mac, and enable Developer Mode under Settings → Privacy & Security).
 - `ios/App/App/MainViewController.swift`: safe-area container, theme colour
   (swipe-back is the app's own, in `src/core/nav/stack.tsx`; the web view's
   back/forward gestures stay off).
-- `ios/App/App/Info.plist`: permission prompts, background audio.
-- `assets/icon.svg`: source for the app icon in
-  `ios/App/App/Assets.xcassets`.
-- `assets/splash-light.svg` / `assets/splash.svg` (dark): sources for the
-  launch image's light and dark variants (`Splash.imageset`, 2732x2732). Their
-  backgrounds are the page's own: light `#fcfcfc` (`oklch(0.99 0 0)`), dark
-  `#030309` (`oklch(0.1 0.022 289)`); the same pair is the `LaunchBackground`
-  colour set (behind the launch image), `MainViewController`'s first colour
-  and `--splash` in `src/styles.css`, and `src/launch-colours.test.ts` checks
-  they agree. Render on the Mac with `sips` (hex colours only; `sips` misreads
-  `hsl()`), then flatten the alpha channel with a JPEG round trip:
+- `ios/App/App/Info.plist`: permission prompts; portrait-only on iPhone,
+  arm64, no background modes.
+- `ios/App/App/PrivacyInfo.xcprivacy` and `ios/App/AskShare/PrivacyInfo.xcprivacy`:
+  the privacy manifests (UserDefaults reasons; the app's lists the data it
+  collects). Each is a resource of its own target.
+- `assets/icon.svg`, `assets/icon-dark.svg`, `assets/icon-tinted.svg`: sources
+  for the app icon's default, dark and tinted appearances in
+  `ios/App/App/Assets.xcassets/AppIcon.appiconset` (1024x1024). The default
+  has a full-bleed background and no alpha; the dark and tinted ones are the
+  mark on transparent (tinted in greys, which iOS tints).
+- `assets/splash-mark.svg`: the launch mark (`SplashMark.imageset`, 96 pt at
+  @2x and @3x), the in-app `OrbitMark` at the web `LaunchView`'s size. The
+  launch storyboard centres it on the safe area over the `LaunchBackground`
+  colour set: light `#fcfcfc` (`oklch(0.99 0 0)`), dark `#030309`
+  (`oklch(0.1 0.022 289)`), the page's own background; the same pair is
+  `MainViewController`'s first colour and `--splash` in `src/styles.css`, and
+  `src/launch-colours.test.ts` checks they agree.
+
+  Render on the Mac with `sips` (hex colours only; `sips` misreads `hsl()`):
 
   ```bash
-  sips -s format png splash-light.svg --out raw.png
-  sips -s format jpeg -s formatOptions best raw.png --out flat.jpg
-  sips -s format png flat.jpg --out splash-2732x2732-light.png
+  sips -s format png icon-dark.svg --out AppIcon-dark-1024.png
+  sips -s format png splash-mark.svg --out splash-mark@3x.png
+  cp splash-mark@3x.png splash-mark@2x.png && sips -z 192 192 splash-mark@2x.png
+  sips -g hasAlpha *.png   # yes, except the default icon
   ```
-
-  The JPEG step can move a channel by one step (dark renders `#040309`),
-  which is not visible.

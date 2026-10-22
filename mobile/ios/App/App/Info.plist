@@ -41,12 +41,8 @@
 	<string>Ask uses the camera so you can take a photo and ask about it.</string>
 	<key>NSPhotoLibraryUsageDescription</key>
 	<string>Ask uses your photo library so you can attach pictures to a question.</string>
-	<key>NSLocationWhenInUseUsageDescription</key>
-	<string>Ask uses your location for local weather and nearby results.</string>
-	<key>UIBackgroundModes</key>
-	<array>
-		<string>audio</string>
-	</array>
+	<key>NSPhotoLibraryAddUsageDescription</key>
+	<string>Ask saves an image to your photo library when you choose Save to Photos.</string>
 	<key>LSRequiresIPhoneOS</key>
 	<true/>
 	<key>UIApplicationSceneManifest</key>
@@ -74,13 +70,11 @@
 	<string>Main</string>
 	<key>UIRequiredDeviceCapabilities</key>
 	<array>
-		<string>armv7</string>
+		<string>arm64</string>
 	</array>
 	<key>UISupportedInterfaceOrientations</key>
 	<array>
 		<string>UIInterfaceOrientationPortrait</string>
-		<string>UIInterfaceOrientationLandscapeLeft</string>
-		<string>UIInterfaceOrientationLandscapeRight</string>
 	</array>
 	<key>UISupportedInterfaceOrientations~ipad</key>
 	<array>

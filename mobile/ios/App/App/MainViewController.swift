@@ -13,7 +13,7 @@ import WebKit
 final class MainViewController: UIViewController {
     /// The page background per appearance until the page reports its own:
     /// light oklch(0.99 0 0) = #fcfcfc, dark oklch(0.1 0.022 289) = #030309,
-    /// the same as the launch screen (LaunchBackground, Splash).
+    /// the same as the launch screen (LaunchBackground, behind the SplashMark).
     private static let launchBackground = UIColor { traits in
         traits.userInterfaceStyle == .dark
             ? UIColor(red: 0x03 / 255, green: 0x03 / 255, blue: 0x09 / 255, alpha: 1)

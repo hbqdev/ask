@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 100 100">
+  <!-- Dark Home-screen icon: icon.svg's mark on transparent. iOS puts its own
+       dark backdrop behind it. -->
+  <g transform="translate(50 50) scale(1.32) translate(-50 -51)">
+    <circle cx="39" cy="43" r="17" fill="#3694f2" />
+    <circle cx="66" cy="39" r="12" fill="#944fee" />
+    <circle cx="53" cy="67" r="9" fill="#f4882a" />
+  </g>
+</svg>

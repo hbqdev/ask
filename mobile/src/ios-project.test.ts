@@ -1,4 +1,4 @@
-import { readFileSync } from 'node:fs'
+import { existsSync, readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 
 import { describe, expect, it } from 'vitest'
@@ -144,5 +144,222 @@ describe('the Share to Ask extension', () => {
     expect(read('App/SharedInboxPlugin.swift')).toContain(
       'jsName = "SharedInbox"'
     )
+  })
+})
+
+/** A plist's XML as a JS value (dict, array, string, true/false, numbers). */
+function parsePlist(xml: string): unknown {
+  const doc = new DOMParser().parseFromString(xml, 'application/xml')
+  const value = (el: Element): unknown => {
+    const kids = [...el.children]
+    switch (el.tagName) {
+      case 'dict': {
+        const out: Record<string, unknown> = {}
+        for (let i = 0; i < kids.length; i += 2) {
+          out[kids[i].textContent ?? ''] = value(kids[i + 1])
+        }
+        return out
+      }
+      case 'array':
+        return kids.map(value)
+      case 'true':
+        return true
+      case 'false':
+        return false
+      case 'integer':
+      case 'real':
+        return Number(el.textContent)
+      default:
+        return el.textContent
+    }
+  }
+  return value(doc.documentElement.children[0])
+}
+
+describe('the iOS app’s capabilities', () => {
+  const plist = parsePlist(read('App/Info.plist')) as Record<string, unknown>
+
+  it('has no background modes', () => {
+    // Read-aloud stops when the app leaves the screen; App Review rejects a
+    // background mode the app does not use.
+    expect(plist).not.toHaveProperty('UIBackgroundModes')
+  })
+
+  it('runs on arm64 only', () => {
+    expect(plist.UIRequiredDeviceCapabilities).toEqual(['arm64'])
+  })
+
+  it('is portrait-only on iPhone and keeps all four orientations on iPad', () => {
+    expect(plist.UISupportedInterfaceOrientations).toEqual([
+      'UIInterfaceOrientationPortrait'
+    ])
+    expect(plist['UISupportedInterfaceOrientations~ipad']).toEqual([
+      'UIInterfaceOrientationPortrait',
+      'UIInterfaceOrientationPortraitUpsideDown',
+      'UIInterfaceOrientationLandscapeLeft',
+      'UIInterfaceOrientationLandscapeRight'
+    ])
+  })
+
+  it('asks for no location', () => {
+    expect(plist).not.toHaveProperty('NSLocationWhenInUseUsageDescription')
+  })
+
+  it('explains saving to Photos', () => {
+    expect(plist.NSPhotoLibraryAddUsageDescription).toBe(
+      'Ask saves an image to your photo library when you choose Save to Photos.'
+    )
+  })
+})
+
+// Apple requires a privacy manifest in every bundle that uses a
+// required-reason API (UserDefaults here: Capacitor Preferences in the app,
+// the App Group's defaults in both), and the app's lists the data it collects.
+describe('the privacy manifests', () => {
+  type Manifest = {
+    NSPrivacyTracking: boolean
+    NSPrivacyTrackingDomains: string[]
+    NSPrivacyAccessedAPITypes: {
+      NSPrivacyAccessedAPIType: string
+      NSPrivacyAccessedAPITypeReasons: string[]
+    }[]
+    NSPrivacyCollectedDataTypes: {
+      NSPrivacyCollectedDataType: string
+      NSPrivacyCollectedDataTypeLinked: boolean
+      NSPrivacyCollectedDataTypeTracking: boolean
+      NSPrivacyCollectedDataTypePurposes: string[]
+    }[]
+  }
+  const manifest = (path: string) => parsePlist(read(path)) as Manifest
+
+  const userDefaults = (reasons: string[]) => [
+    {
+      NSPrivacyAccessedAPIType: 'NSPrivacyAccessedAPICategoryUserDefaults',
+      NSPrivacyAccessedAPITypeReasons: reasons
+    }
+  ]
+
+  it('the app’s privacy manifest declares UserDefaults for the app and the App Group', () => {
+    const m = manifest('App/PrivacyInfo.xcprivacy')
+    expect(m.NSPrivacyTracking).toBe(false)
+    expect(m.NSPrivacyTrackingDomains).toEqual([])
+    expect(m.NSPrivacyAccessedAPITypes).toEqual(
+      userDefaults(['CA92.1', '1C8F.1'])
+    )
+    expect(m.NSPrivacyCollectedDataTypes).toEqual(
+      [
+        'EmailAddress',
+        'UserID',
+        'PhotosorVideos',
+        'OtherUserContent',
+        'SearchHistory'
+      ].map(type => ({
+        NSPrivacyCollectedDataType: `NSPrivacyCollectedDataType${type}`,
+        NSPrivacyCollectedDataTypeLinked: true,
+        NSPrivacyCollectedDataTypeTracking: false,
+        NSPrivacyCollectedDataTypePurposes: [
+          'NSPrivacyCollectedDataTypePurposeAppFunctionality'
+        ]
+      }))
+    )
+  })
+
+  it('the extension’s privacy manifest declares UserDefaults for the App Group', () => {
+    const m = manifest('AskShare/PrivacyInfo.xcprivacy')
+    expect(m.NSPrivacyTracking).toBe(false)
+    expect(m.NSPrivacyTrackingDomains).toEqual([])
+    expect(m.NSPrivacyAccessedAPITypes).toEqual(userDefaults(['1C8F.1']))
+    expect(m.NSPrivacyCollectedDataTypes).toEqual([])
+  })
+
+  it('each manifest is a resource of its own target', () => {
+    const pbxproj = read('App.xcodeproj/project.pbxproj')
+    /** The build-file ids in one Resources phase that are privacy manifests. */
+    const manifestsIn = (phase: string) => {
+      const files = pbxproj.match(
+        new RegExp(
+          `${phase} /\\* Resources \\*/ = \\{[^}]*files = \\(([^)]*)\\)`
+        )
+      )?.[1]
+      expect(files).toBeDefined()
+      return [
+        ...files!.matchAll(
+          /([0-9A-F]{24}) \/\* PrivacyInfo\.xcprivacy in Resources \*\//g
+        )
+      ].map(m => m[1])
+    }
+    const app = manifestsIn('504EC3021FED79650016851F')
+    const share = manifestsIn('25B87410552A0EC2E9FAC073')
+    expect(app).toHaveLength(1)
+    expect(share).toHaveLength(1)
+    expect(manifestsIn('407CDBEEA6C043423D4E2999')).toEqual([])
+    // Each build file points at a different file reference, in its target's
+    // own folder.
+    const ref = (buildFile: string) =>
+      pbxproj.match(
+        new RegExp(
+          `${buildFile} /\\* PrivacyInfo\\.xcprivacy in Resources \\*/ = \\{isa = PBXBuildFile; fileRef = ([0-9A-F]{24})`
+        )
+      )?.[1]
+    const appRef = ref(app[0])
+    const shareRef = ref(share[0])
+    expect(appRef).toBeDefined()
+    expect(shareRef).toBeDefined()
+    expect(appRef).not.toBe(shareRef)
+    const group = (name: string) =>
+      pbxproj.match(
+        new RegExp(
+          `/\\* ${name} \\*/ = \\{\\s*isa = PBXGroup;\\s*children = \\(([^)]*)\\);\\s*path = ${name};`
+        )
+      )?.[1]
+    expect(group('App')).toContain(`${appRef} /* PrivacyInfo.xcprivacy */`)
+    expect(group('AskShare')).toContain(
+      `${shareRef} /* PrivacyInfo.xcprivacy */`
+    )
+  })
+})
+
+describe('the app icon', () => {
+  it('the icon has dark and tinted 1024 appearances', () => {
+    const { images } = JSON.parse(
+      read('App/Assets.xcassets/AppIcon.appiconset/Contents.json')
+    ) as {
+      images: {
+        filename: string
+        idiom: string
+        platform: string
+        size: string
+        appearances?: { appearance: string; value: string }[]
+      }[]
+    }
+    expect(images).toHaveLength(3)
+    for (const image of images) {
+      expect(image).toMatchObject({
+        idiom: 'universal',
+        platform: 'ios',
+        size: '1024x1024'
+      })
+    }
+    expect(images.map(i => i.appearances)).toEqual([
+      undefined,
+      [{ appearance: 'luminosity', value: 'dark' }],
+      [{ appearance: 'luminosity', value: 'tinted' }]
+    ])
+    expect(images.map(i => i.filename)).toEqual([
+      'AppIcon-512@2x.png',
+      'AppIcon-dark-1024.png',
+      'AppIcon-tinted-1024.png'
+    ])
+    for (const { filename } of images) {
+      expect(
+        existsSync(
+          resolve(
+            __dirname,
+            '../ios/App/App/Assets.xcassets/AppIcon.appiconset',
+            filename
+          )
+        )
+      ).toBe(true)
+    }
   })
 })

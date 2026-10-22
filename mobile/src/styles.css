@@ -18,9 +18,9 @@
   --mark-blue: #3694f2;
   --mark-violet: #944fee;
   --mark-orange: #f4882a;
-  /* The native launch screen's colour per theme (LaunchBackground and the
-     Splash image in ios/App/App/Assets.xcassets): the page background, in
-     hex so it matches the PNG exactly. */
+  /* The native launch screen's colour per theme (LaunchBackground in
+     ios/App/App/Assets.xcassets, behind the SplashMark): the page
+     background, in hex so the hand-off is seamless. */
   --splash: #fcfcfc;
   /* The web's surface tokens, which the answer renderer (Streamdown) styles
      code blocks, tables and quotes with. */

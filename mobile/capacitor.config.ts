@@ -8,8 +8,8 @@ import { KeyboardResize } from '@capacitor/keyboard'
 // No backgroundColor anywhere: Capacitor would paint the web view, and the
 // SplashScreen plugin the launch storyboard's view, with that one colour in
 // BOTH appearances. Unset, the web view keeps systemBackground and the splash
-// keeps its adaptive LaunchBackground + Splash image (light #fcfcfc, dark
-// #030309, the page background), and MainViewController colours the
+// keeps its adaptive LaunchBackground behind the SplashMark (light #fcfcfc,
+// dark #030309, the page background), and MainViewController colours the
 // safe-area strips the same way (src/launch-colours.test.ts checks them all).
 
 const config: CapacitorConfig = {
