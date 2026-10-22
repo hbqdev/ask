@@ -28,6 +28,7 @@ import type { ChatErrorView } from '@/features/thread/model/chat-errors'
 import { openThread, ThreadScreen } from '@/features/thread/ThreadScreen'
 import { useThread, type ThreadSession } from '@/features/thread/useThread'
 import { playingOwner, stop as stopPlayer } from '@/features/voice/speech'
+import { clippingAncestors } from '@/test/clipping'
 import { installFakeAudio, objectUrls, resetFakeAudio } from '@/test/fake-audio'
 import { memoryStorage } from '@/test/memory-storage'
 import { resize } from '@/test/resize-observer'
@@ -1157,6 +1158,49 @@ describe('ThreadScreen', () => {
       m.grow(450)
       act(() => resize(content()))
       expect(jump()).not.toBeInTheDocument()
+    })
+
+    it('"Jump to latest" is 44 pt tall, and nothing clips a hit area up to the screen', () => {
+      const { view, m } = pinned()
+      m.scrollTo(0)
+      const button = jump()!
+      expect(button).toHaveClass('min-h-11')
+      expect(button).not.toHaveClass('min-h-9')
+      // The question's own controls, the answer's citation chip, and the
+      // composer's controls, in the screen as it is shown.
+      view.update(
+        session({
+          status: 'streaming',
+          messages: [
+            {
+              id: 'u0',
+              role: 'user',
+              parts: [
+                { type: 'text', text: 'Look' },
+                { type: 'data-pastedContent', data: { text: 'Pasted' } },
+                {
+                  type: 'data-sourceUrl',
+                  data: { url: 'https://example.test/a' }
+                }
+              ]
+            } as UIMessage,
+            ...TURN
+          ]
+        })
+      )
+      const controls = [
+        jump()!,
+        screen.getByRole('button', { name: /Pasted content/ }),
+        screen.getByRole('button', { name: 'Open https://example.test/a' }),
+        view.container.querySelector<HTMLElement>('[data-citation]')!,
+        screen.getByRole('button', { name: 'Attach' }),
+        screen.getByRole('button', { name: /^Search mode/ }),
+        screen.getByRole('button', { name: 'Stop' })
+      ]
+      for (const control of controls) {
+        expect(control).not.toBeNull()
+        expect(clippingAncestors(control, view.container)).toEqual([])
+      }
     })
 
     it('jumps back on request', () => {

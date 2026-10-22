@@ -289,7 +289,7 @@ export function Composer({
               // No picker opens over a recording.
               disabled={dictationUnderWay}
               onClick={() => setAttachOpen(true)}
-              className="flex size-9 shrink-0 touch-manipulation items-center justify-center rounded-full text-foreground/70 active:bg-foreground/10 disabled:opacity-25"
+              className="hit-target flex size-9 shrink-0 touch-manipulation items-center justify-center rounded-full text-foreground/70 active:bg-foreground/10 disabled:opacity-25"
             >
               <Paperclip />
             </button>
@@ -298,7 +298,7 @@ export function Composer({
               aria-label={`Search mode: ${modeLabel}`}
               aria-haspopup="dialog"
               onClick={() => setOptionsOpen(true)}
-              className="flex min-h-9 touch-manipulation items-center gap-1 rounded-full bg-foreground/8 px-3 text-sm font-medium text-foreground/70 active:opacity-50"
+              className="hit-target flex min-h-9 touch-manipulation items-center gap-1 rounded-full bg-foreground/8 px-3 text-sm font-medium text-foreground/70 active:opacity-50"
             >
               {modeLabel}
               <svg
@@ -322,7 +322,7 @@ export function Composer({
               type="button"
               aria-label="Stop"
               onClick={onStop}
-              className="flex size-9 touch-manipulation items-center justify-center rounded-full bg-foreground text-background active:opacity-50"
+              className="hit-target flex size-9 touch-manipulation items-center justify-center rounded-full bg-foreground text-background active:opacity-50"
             >
               <StopSquare />
             </button>
@@ -331,7 +331,7 @@ export function Composer({
               type="submit"
               aria-label="Send"
               disabled={!canSend}
-              className="flex size-9 touch-manipulation items-center justify-center rounded-full bg-foreground text-background active:opacity-50 disabled:opacity-25"
+              className="hit-target flex size-9 touch-manipulation items-center justify-center rounded-full bg-foreground text-background active:opacity-50 disabled:opacity-25"
             >
               <ArrowUp />
             </button>

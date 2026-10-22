@@ -9,6 +9,7 @@ import {
   renderableAnswer
 } from '@/features/thread/model/citations'
 import { extractCitationMaps } from '@/lib/utils/citation'
+import { clippingAncestors } from '@/test/clipping'
 
 vi.mock('@capacitor/browser', () => ({
   Browser: { open: vi.fn(async () => {}) }
@@ -87,6 +88,21 @@ describe('AnswerMarkdown', () => {
     const chip = await screen.findByRole('button', { name: /example\.com/ })
     expect(chip).toHaveAttribute('data-citation', 'https://example.com/a')
     expect(screen.queryByRole('link')).not.toBeInTheDocument()
+  })
+
+  it('a chip’s hit area sits in .answer-prose (one line tall there), unclipped up to the answer', async () => {
+    // A list item and a table cell too: the renderer wraps a table in a
+    // scroller (overflow-x auto), which scrolls the chip with it, not a clip.
+    const { container } = answer(
+      'Fact [1](#call_a).\n\n- Item [2](#call_a)\n\n| A |\n| - |\n| Cell [1](#call_a) |'
+    )
+    const chips = await screen.findAllByRole('button', { name: /example\./ })
+    expect(chips).toHaveLength(3)
+    for (const chip of chips) {
+      expect(chip).toHaveClass('citation-chip', 'hit-target')
+      expect(chip.closest('.answer-prose')).not.toBeNull()
+      expect(clippingAncestors(chip, container)).toEqual([])
+    }
   })
 
   it('renders a citation to a bare origin as a chip', async () => {

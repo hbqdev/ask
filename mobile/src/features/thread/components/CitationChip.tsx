@@ -45,11 +45,13 @@ export function CitationChip({ source }: { source: Source }) {
 
   return (
     <>
+      {/* A small pill in the text; .hit-target makes its tap area wider and
+          as tall as the answer's line (styles.css). */}
       <button
         type="button"
         data-citation={source.url}
         onClick={() => setOpen(true)}
-        className="citation-chip mx-0.5 inline-flex h-[1.25rem] max-w-[10rem] touch-manipulation items-center gap-1 rounded-full bg-foreground/8 px-1.5 text-[0.7rem] leading-none font-medium text-foreground/70 active:opacity-50"
+        className="citation-chip hit-target mx-0.5 inline-flex h-[1.25rem] max-w-[10rem] touch-manipulation items-center gap-1 rounded-full bg-foreground/8 px-1.5 text-[0.7rem] leading-none font-medium text-foreground/70 active:opacity-50"
       >
         <SourceIcon source={source} className="size-3 shrink-0" />
         <span className="truncate leading-tight">{source.host}</span>

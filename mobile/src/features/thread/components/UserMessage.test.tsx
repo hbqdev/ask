@@ -9,6 +9,7 @@ import {
   fileTypeLabel,
   UserMessage
 } from '@/features/thread/components/UserMessage'
+import { clippingAncestors } from '@/test/clipping'
 
 vi.mock('@capacitor/browser', () => ({
   Browser: { open: vi.fn(async () => {}) }
@@ -402,5 +403,35 @@ describe('UserMessage: pasted and quoted content', () => {
     expect(
       screen.getByRole('button', { name: /Pasted content · 10 chars/ })
     ).toBeVisible()
+  })
+})
+
+describe('UserMessage: tap targets', () => {
+  it('the quote toggle and link chips keep their look, with a 44-pt hit area, unclipped', () => {
+    const { container } = renderMessage([
+      { type: 'text', text: 'Explain' },
+      { type: 'data-pastedContent', data: { text: 'Pasted' } },
+      { type: 'data-quotedContext', data: { text: 'Quoted' } },
+      { type: 'data-sourceUrl', data: { url: 'https://example.test/a' } },
+      { type: 'data-sourceUrl', data: { url: 'https://example.test/b' } }
+    ])
+    const toggles = [
+      screen.getByRole('button', { name: /Pasted content/ }),
+      screen.getByRole('button', { name: /Quoted context/ })
+    ]
+    const chips = [
+      screen.getByRole('button', { name: 'Open https://example.test/a' }),
+      screen.getByRole('button', { name: 'Open https://example.test/b' })
+    ]
+    for (const toggle of toggles) expect(toggle).toHaveClass('min-h-9')
+    for (const chip of chips) expect(chip).toHaveClass('py-1.5')
+    // Wrapped rows of 34 px chips sit 44 px centre to centre (a 10 px row
+    // gap), so their hit areas meet halfway instead of the lower row's
+    // reaching over the gap.
+    expect(chips[0].parentElement).toHaveClass('gap-x-1.5', 'gap-y-2.5')
+    for (const control of [...toggles, ...chips]) {
+      expect(control).toHaveClass('hit-target')
+      expect(clippingAncestors(control, container)).toEqual([])
+    }
   })
 })

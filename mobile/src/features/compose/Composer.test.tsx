@@ -24,6 +24,7 @@ import type { SearchSettings } from '@/features/thread/chat-body'
 import { startRecording, type Recording } from '@/features/voice/recorder'
 import { transcribe } from '@/features/voice/transcribe'
 import { ACCEPT_ATTRIBUTE } from '@/lib/config/upload-allowlist'
+import { clippingAncestors } from '@/test/clipping'
 
 // The real sheet loads the model list from the server; here it is a stand-in
 // that shows whether it is open and can change the settings.
@@ -383,6 +384,39 @@ describe('Composer', () => {
   it('takes focus when asked to', () => {
     const { input } = setup({ autoFocus: true })
     expect(input).toHaveFocus()
+  })
+
+  it('Attach, the mode chip, Send and Stop keep their size, with a 44-pt hit area, unclipped', async () => {
+    const user = userEvent.setup()
+    const { container, input, rerender, onSend, onSettings } = setup()
+    const hitTarget = (control: HTMLElement) => {
+      expect(control).toHaveClass('hit-target')
+      expect(clippingAncestors(control, container)).toEqual([])
+    }
+    await user.type(input, 'hi')
+    // The look stays as it was: 36 px round buttons and a 36 px chip.
+    const attach = screen.getByRole('button', { name: 'Attach' })
+    hitTarget(attach)
+    expect(attach).toHaveClass('size-9')
+    const mode = screen.getByRole('button', { name: 'Search mode: Balanced' })
+    hitTarget(mode)
+    expect(mode).toHaveClass('min-h-9')
+    hitTarget(sendButton())
+    expect(sendButton()).toHaveClass('size-9')
+
+    rerender(
+      <Composer
+        placeholder="Ask anything"
+        busy
+        onSend={onSend}
+        onStop={vi.fn()}
+        settings={BALANCED}
+        onSettings={onSettings}
+      />
+    )
+    const stop = screen.getByRole('button', { name: 'Stop' })
+    hitTarget(stop)
+    expect(stop).toHaveClass('size-9')
   })
 
   it('clears the home indicator with a safe-area bottom padding', () => {

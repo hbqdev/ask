@@ -12,6 +12,7 @@ import { AskHome } from '@/features/ask/AskHome'
 import { uploadFile } from '@/features/compose/upload'
 import { SearchSettingsProvider } from '@/features/compose/SearchSettingsProvider'
 import { useThread, type ThreadSession } from '@/features/thread/useThread'
+import { clippingAncestors } from '@/test/clipping'
 import { memoryStorage } from '@/test/memory-storage'
 
 vi.mock('@/features/thread/useThread', () => ({ useThread: vi.fn() }))
@@ -154,6 +155,17 @@ describe('AskHome', () => {
     expect(
       screen.getByRole('button', { name: 'Search mode: Balanced' })
     ).toBeInTheDocument()
+  })
+
+  it('nothing clips the composer’s hit areas, up to the screen', () => {
+    renderHome()
+    for (const name of ['Attach', 'Search mode: Balanced', 'Dictate']) {
+      const control = screen.getByRole('button', { name })
+      expect(control, name).toHaveClass('hit-target')
+      const root = control.closest('.stack-layer')!
+      expect(root, name).not.toBeNull()
+      expect(clippingAncestors(control, root), name).toEqual([])
+    }
   })
 
   it('opens a new thread that asks the submitted question', async () => {

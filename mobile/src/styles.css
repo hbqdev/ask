@@ -400,6 +400,35 @@ body {
   vertical-align: 0.1em;
 }
 
+/* Its hit area (.hit-target below) is one line of the answer tall: the font
+   size × the line height of .answer-prose above. 44 px would reach 12 px into
+   the lines above and below and, painted later, take taps on a chip or link
+   there (WCAG 2.5.8 exempts targets in a line of text). It is still at least
+   44 px wide. */
+.answer-prose .citation-chip.hit-target::after {
+  height: min(44px, 1.65rem);
+}
+
+/* --- Tap targets ---------------------------------------------------------------
+   A control smaller than 44 pt keeps its look and gets a 44 pt hit area,
+   centred on it: a pseudo-element that takes its taps. Nothing between a
+   control and its screen clips its overflow (src/test/clipping.ts), so the
+   area is never cut off. The area is position: relative's, so a control that
+   is itself absolute, fixed or sticky uses min-h-11 / min-w-11 instead. */
+.hit-target {
+  position: relative;
+}
+
+.hit-target::after {
+  content: '';
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: max(100%, 44px);
+  height: max(100%, 44px);
+  transform: translate(-50%, -50%);
+}
+
 /* --- Image viewer -------------------------------------------------------------
    The full-screen viewer fades in over the page. */
 .image-viewer {

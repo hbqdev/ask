@@ -471,7 +471,7 @@ export function ThreadScreen({
           <button
             type="button"
             onClick={jumpToLatest}
-            className="absolute bottom-3 left-1/2 min-h-9 -translate-x-1/2 touch-manipulation rounded-full bg-foreground px-4 text-sm font-medium text-background shadow-lg active:opacity-80"
+            className="absolute bottom-3 left-1/2 min-h-11 -translate-x-1/2 touch-manipulation rounded-full bg-foreground px-4 text-sm font-medium text-background shadow-lg active:opacity-80"
           >
             Jump to latest
           </button>

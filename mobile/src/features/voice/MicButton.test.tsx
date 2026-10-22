@@ -9,6 +9,7 @@ import {
   MicButton
 } from '@/features/voice/MicButton'
 import type { Dictation } from '@/features/voice/useDictation'
+import { clippingAncestors } from '@/test/clipping'
 
 function dictation(over: Partial<Dictation> = {}): Dictation {
   return {
@@ -95,6 +96,26 @@ describe('MicButton', () => {
     expect(d.cancel).not.toHaveBeenCalled()
   })
 
+  it('keeps its 36 px look in every state, with a 44-pt hit area over its rings, unclipped', () => {
+    const { container, rerender } = render(
+      <MicButton dictation={dictation()} />
+    )
+    for (const state of [
+      'idle',
+      'starting',
+      'recording',
+      'transcribing',
+      'error'
+    ] as const) {
+      rerender(<MicButton dictation={dictation({ state })} />)
+      const button = screen.getByRole('button')
+      expect(button, state).toHaveClass('hit-target', 'size-9')
+      expect(clippingAncestors(button, container), state).toEqual([])
+      // After the rings, so it and its hit area are over them.
+      expect(button.parentElement!.lastElementChild, state).toBe(button)
+    }
+  })
+
   it('is one button throughout, so VoiceOver focus stays on it', () => {
     const { rerender } = render(<MicButton dictation={dictation()} />)
     const button = screen.getByRole('button', { name: 'Dictate' })
@@ -134,6 +155,23 @@ describe('DictationBar', () => {
     await user.click(screen.getByRole('button', { name: 'Cancel recording' }))
     expect(d.cancel).toHaveBeenCalledTimes(1)
     expect(d.stop).not.toHaveBeenCalled()
+  })
+
+  it('each cancel keeps its 36 px look, with a 44-pt hit area layered over the row below', () => {
+    // The bar is 40 px tall, so the hit area reaches 2 px into the button
+    // row under it, where Attach (off while dictating) reaches 4 px up: the
+    // cancel is raised (z-index 1) so the overlap is the live cancel's.
+    const { container, rerender } = render(
+      <DictationBar dictation={dictation({ state: 'recording' })} />
+    )
+    const check = (name: string) => {
+      const cancel = screen.getByRole('button', { name })
+      expect(cancel).toHaveClass('hit-target', 'size-9', 'z-[1]')
+      expect(clippingAncestors(cancel, container)).toEqual([])
+    }
+    check('Cancel recording')
+    rerender(<DictationBar dictation={dictation({ state: 'transcribing' })} />)
+    check('Cancel transcription')
   })
 
   it('while transcribing shows a spinner and a cancel that abandons it', async () => {

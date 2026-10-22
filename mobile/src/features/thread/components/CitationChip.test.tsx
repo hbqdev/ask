@@ -30,6 +30,8 @@ describe('CitationChip', () => {
     // The pill grows with its text (rem), and the host keeps its descenders.
     expect(chip).toHaveClass('h-[1.25rem]')
     expect(chip).not.toHaveClass('h-5')
+    // A small pill, with a larger hit area around it (styles.css).
+    expect(chip).toHaveClass('hit-target')
     expect(within(chip).getByText('example.com')).toHaveClass('leading-tight')
     expect(container.querySelector('img')).toHaveAttribute(
       'src',

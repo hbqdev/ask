@@ -226,7 +226,8 @@ function SourceChip({ source }: { source: Source }) {
       type="button"
       aria-label={`Open ${href}`}
       onClick={() => openLink(href)}
-      className={`${look} touch-manipulation active:opacity-60`}
+      // 34 px to the eye; .hit-target makes the tap area 44 pt.
+      className={`${look} hit-target touch-manipulation active:opacity-60`}
     >
       <FallbackImage
         src={faviconUrl(host)}
@@ -251,7 +252,7 @@ function QuoteBlock({ quote }: { quote: Quote }) {
         aria-expanded={open}
         aria-controls={open ? id : undefined}
         onClick={() => setOpen(!open)}
-        className="flex min-h-9 touch-manipulation items-center gap-1.5 rounded-xl px-2 text-xs font-medium text-foreground/60 active:bg-foreground/10"
+        className="hit-target flex min-h-9 touch-manipulation items-center gap-1.5 rounded-xl px-2 text-xs font-medium text-foreground/60 active:bg-foreground/10"
       >
         <Icon d={QUOTE_ICON} className="size-4 shrink-0" />
         {quote.label} · {quote.text.length.toLocaleString()} chars
@@ -309,7 +310,9 @@ export function UserMessage({ message, baseUrl }: UserMessageProps) {
         <QuoteBlock key={i} quote={quote} />
       ))}
       {sources.length > 0 && (
-        <div className="flex max-w-full flex-wrap justify-end gap-1.5">
+        // Wrapped rows sit 44 px centre to centre, so the chips' hit areas
+        // meet halfway between them.
+        <div className="flex max-w-full flex-wrap justify-end gap-x-1.5 gap-y-2.5">
           {sources.map((source, i) => (
             <SourceChip key={i} source={source} />
           ))}

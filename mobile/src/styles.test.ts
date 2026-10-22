@@ -152,6 +152,47 @@ describe('Dynamic Type: line heights', () => {
   })
 })
 
+describe('tap targets', () => {
+  it('.hit-target is the box its hit area is centred on', () => {
+    expect(rule('.hit-target')).toEqual({ position: 'relative' })
+  })
+
+  it('.hit-target::after is a hit area at least 44 px each way, centred on the control', () => {
+    expect(rule('.hit-target::after')).toEqual({
+      content: "''",
+      position: 'absolute',
+      left: '50%',
+      top: '50%',
+      width: 'max(100%, 44px)',
+      height: 'max(100%, 44px)',
+      transform: 'translate(-50%, -50%)'
+    })
+  })
+
+  it('a citation chip’s hit area is one line of the answer tall, so the lines above and below keep theirs', () => {
+    // Inline in the text (WCAG 2.5.8's inline exception): a 44 px area would
+    // reach 12 px into the next line and, painted later, take taps on the
+    // chip or link there. One line of the answer: its font size × its
+    // line height.
+    const prose = rule('.answer-prose')
+    expect(prose['font-size']).toBe('1rem')
+    expect(prose['line-height']).toBe('1.65')
+    expect(rule('.answer-prose .citation-chip.hit-target::after')).toEqual({
+      height: 'min(44px, 1.65rem)'
+    })
+  })
+
+  it('no control both positions itself and is a .hit-target, whose position: relative would win', () => {
+    // .hit-target is plain CSS, after Tailwind's layered utilities. (Class
+    // strings in the components; styles.css's own prose is not one.)
+    expect(
+      sourceMatches(
+        /['"`][^'"`]*\bhit-target\b[^'"`]*\b(?:absolute|fixed|sticky)\b[^'"`]*['"`]|['"`][^'"`]*\b(?:absolute|fixed|sticky)\b[^'"`]*\bhit-target\b[^'"`]*['"`]/g
+      ).filter(match => !match.startsWith('styles.css:'))
+    ).toEqual([])
+  })
+})
+
 describe('colour tokens', () => {
   /** Every declaration of the rules for this selector, merged. */
   const merged = (selector: string) =>

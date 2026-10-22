@@ -81,8 +81,9 @@ function Spinner() {
   )
 }
 
+// 36 px to the eye; .hit-target (styles.css) makes the tap area 44 pt.
 const ROUND_BUTTON =
-  'flex size-9 shrink-0 touch-manipulation items-center justify-center rounded-full'
+  'hit-target flex size-9 shrink-0 touch-manipulation items-center justify-center rounded-full'
 
 export function MicButton({ dictation }: { dictation: Dictation }) {
   const { state, level } = dictation
@@ -141,7 +142,7 @@ export function MicButton({ dictation }: { dictation: Dictation }) {
         aria-busy={state === 'starting' || undefined}
         aria-disabled={state === 'transcribing' || undefined}
         onClick={control.onClick}
-        className={`relative ${control.look} ${ROUND_BUTTON}`}
+        className={`${control.look} ${ROUND_BUTTON}`}
       >
         {control.icon}
       </button>
@@ -149,8 +150,12 @@ export function MicButton({ dictation }: { dictation: Dictation }) {
   )
 }
 
+// The bar is 40 px tall, so the cancel's 44-pt hit area reaches 2 px into
+// the composer's button row below, where Attach's reaches 4 px up. Attach is
+// off while dictating, so the cancel is raised over it (z-[1]): a tap meant
+// for the cancel's lower edge cancels instead of landing on a disabled Attach.
 const CANCEL_BUTTON =
-  '-ml-1 flex size-9 shrink-0 touch-manipulation items-center justify-center rounded-full text-foreground/70 active:bg-foreground/10'
+  'hit-target z-[1] -ml-1 flex size-9 shrink-0 touch-manipulation items-center justify-center rounded-full text-foreground/70 active:bg-foreground/10'
 
 export function DictationBar({ dictation }: { dictation: Dictation }) {
   if (dictation.state === 'recording') {
