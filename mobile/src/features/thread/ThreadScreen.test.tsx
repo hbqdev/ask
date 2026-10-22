@@ -292,9 +292,16 @@ describe('openThread', () => {
     renderStack({ chatId: 'saved-1', title: 'Facts, explained' })
     await act(async () => screen.getByRole('button', { name: 'Open' }).click())
 
-    expect(
-      screen.getByRole('heading', { level: 1, name: 'Facts, explained' })
-    ).toBeInTheDocument()
+    const heading = screen.getByRole('heading', {
+      level: 1,
+      name: 'Facts, explained'
+    })
+    expect(heading).toBeInTheDocument()
+    // The side columns hold two 44px buttons: px, not rem, so a larger iOS
+    // text size leaves the title its room.
+    expect(heading.closest('header')).toHaveClass(
+      'grid-cols-[88px_minmax(0,1fr)_88px]'
+    )
     expect(useThread).toHaveBeenCalledWith(
       expect.objectContaining({ chatId: 'saved-1', isNew: false })
     )

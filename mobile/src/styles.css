@@ -80,6 +80,14 @@
     'Helvetica Neue', Arial, sans-serif;
 }
 
+/* Dynamic Type (src/core/text-size.ts) moves the root font size with the iOS
+   text size, so every rem size of type follows it. The spacing step is fixed
+   in px, so padding, sizes and hit areas stay where they are: at the default
+   16px root, 4px is Tailwind's own 0.25rem, and nothing moves. */
+@theme {
+  --spacing: 4px;
+}
+
 html,
 body {
   background-color: var(--background);

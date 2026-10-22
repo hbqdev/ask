@@ -140,6 +140,15 @@ describe('Tabs', () => {
       /\.tab-bar\s*{[^}]*padding-bottom:\s*max\(8px,\s*env\(safe-area-inset-bottom\)\)/
     )
   })
+
+  it('labels follow the text size, capped at 13px so the bar keeps its height', () => {
+    render(<Tabs tabs={makeTabs()} />)
+    for (const name of ['Ask', 'Library', 'Settings']) {
+      // 11px at the default 16px root; 13px from a 19px root up.
+      expect(tab(name)).toHaveClass('text-[min(0.6875rem,13px)]')
+      expect(tab(name).className).not.toContain('text-[11px]')
+    }
+  })
 })
 
 describe('navigation styles', () => {

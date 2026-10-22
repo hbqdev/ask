@@ -146,7 +146,7 @@ function Switch({
 
 function LearningBadge() {
   return (
-    <span className="rounded-full bg-mark-blue/15 px-2 py-0.5 text-[11px] font-semibold text-mark-blue">
+    <span className="rounded-full bg-mark-blue/15 px-2 py-0.5 text-[0.6875rem] font-semibold text-mark-blue">
       Learning
     </span>
   )
@@ -373,7 +373,7 @@ export function MemoryScreen() {
   const shown = memories.filter(m => !removed.has(m.id))
 
   const header = (
-    <header className="grid grid-cols-[3rem_minmax(0,1fr)_3rem] items-center border-b border-foreground/10 px-1 py-1">
+    <header className="grid grid-cols-[48px_minmax(0,1fr)_48px] items-center border-b border-foreground/10 px-1 py-1">
       <button
         type="button"
         aria-label="Back"

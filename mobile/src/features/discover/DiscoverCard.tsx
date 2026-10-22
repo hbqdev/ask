@@ -141,7 +141,7 @@ export const DiscoverRow = memo(function DiscoverRow({
         className="flex min-h-[88px] min-w-0 flex-1 touch-manipulation items-center gap-3 py-3 pl-4 text-left active:bg-muted"
       >
         <Thumb src={item.thumbnail} className="h-16 w-24 rounded-lg" />
-        <span className="line-clamp-3 min-w-0 flex-1 text-[15px] leading-snug font-medium">
+        <span className="line-clamp-3 min-w-0 flex-1 text-[0.9375rem] leading-snug font-medium">
           {item.title}
         </span>
       </button>

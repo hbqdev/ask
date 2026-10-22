@@ -248,9 +248,15 @@ describe('openMemory', () => {
     const entry = push.mock.calls[0][0] as ScreenEntry
     expect(entry.key).toBe('settings:memory')
     render(<>{entry.render()}</>)
-    expect(
-      await screen.findByRole('heading', { level: 1, name: 'Memory' })
-    ).toBeInTheDocument()
+    const heading = await screen.findByRole('heading', {
+      level: 1,
+      name: 'Memory'
+    })
+    // The side columns hold a 44px button: px, not rem, so a larger iOS
+    // text size leaves the title its room.
+    expect(heading.closest('header')).toHaveClass(
+      'grid-cols-[48px_minmax(0,1fr)_48px]'
+    )
   })
 })
 
@@ -769,6 +775,10 @@ describe('MemoryScreen: memories', () => {
     expect(items[1]).toHaveTextContent('Fact')
     expect(items[2]).toHaveTextContent('Interest')
     expect(items[2]).toHaveTextContent('Learning')
+    // 11px at the default 16px root, and it follows the text size.
+    expect(within(items[2]).getByText('Learning')).toHaveClass(
+      'text-[0.6875rem]'
+    )
   })
 
   it('says when there are none, and offers no Clear all', async () => {

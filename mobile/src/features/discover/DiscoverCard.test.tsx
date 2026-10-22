@@ -83,4 +83,10 @@ describe('DiscoverRow', () => {
     expect(screen.queryByText('A new process node arrives.')).toBeNull()
     expect(screen.getByTestId('discover-thumb')).not.toHaveClass('aspect-video')
   })
+
+  it('sizes the title in rem, so it follows the text size', () => {
+    render(<DiscoverRow item={ITEM} {...handlers()} />)
+    // 15px at the default 16px root.
+    expect(screen.getByText('Chips get faster')).toHaveClass('text-[0.9375rem]')
+  })
 })

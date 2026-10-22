@@ -380,7 +380,7 @@ export function ThreadScreen({
       {/* Like an iOS navigation bar: the side columns are one width (room
           for two buttons), so the title sits on the screen's centre line
           however many buttons each side has, and truncates between them. */}
-      <header className="relative grid grid-cols-[5.5rem_minmax(0,1fr)_5.5rem] items-center gap-1 border-b border-foreground/10 px-1 py-1">
+      <header className="relative grid grid-cols-[88px_minmax(0,1fr)_88px] items-center gap-1 border-b border-foreground/10 px-1 py-1">
         <div className="flex justify-start">
           <HeaderButton label="Back" onClick={pop} d={BACK_ICON} />
         </div>

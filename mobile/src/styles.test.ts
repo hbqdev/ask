@@ -111,3 +111,12 @@ describe('selection and zoom', () => {
     expect(rule('.image-viewer img')['-webkit-touch-callout']).toBe('default')
   })
 })
+
+describe('Dynamic Type', () => {
+  it('@theme fixes the spacing step at 4px, so only type follows the text size', () => {
+    // src/core/text-size.ts moves the root font size with the iOS text size;
+    // a px step keeps padding, sizes and hit areas where they are (and equal
+    // to Tailwind's 0.25rem default at the 16px default root).
+    expect(rule('@theme')['--spacing']).toBe('4px')
+  })
+})
