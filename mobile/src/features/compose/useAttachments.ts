@@ -34,6 +34,8 @@ export type Attachment = {
   status: AttachmentStatus
   /** Why it failed, for its chip. */
   error?: string
+  /** A failure another try may fix (a lost connection, a server error). */
+  retryable?: boolean
   /** The uploaded file, once done. */
   result?: UploadResult
   /** The server's indexing of the uploaded file (pending, processing, ready, failed, expired). */
@@ -49,6 +51,11 @@ export type Attachments = {
   retry(id: string): void
   /** Nothing is attached, or everything attached is uploaded. */
   ready: boolean
+  /**
+   * The last pick went over MAX_ATTACHMENTS, so only the first files were
+   * kept; until there is room again (or the list is cleared).
+   */
+  overLimit: boolean
   /** The uploaded files, for the chat request. */
   parts(): FilePart[]
   clear(): void
@@ -60,6 +67,9 @@ export const INGEST_POLL_MS = 3000
 const MAX_STATUS_KEYS = 20
 export const UNSUPPORTED_MESSAGE = "This type of file can't be attached"
 export const UPLOAD_FAILED_MESSAGE = "Couldn't upload this file"
+export const OVER_LIMIT_MESSAGE = `You can attach up to ${MAX_ATTACHMENTS} files`
+/** The upload route's 400 for a body cut short: the bytes, not the file. */
+const UPLOAD_INCOMPLETE = 'Upload incomplete'
 
 const OCTET_STREAM = 'application/octet-stream'
 
@@ -79,13 +89,28 @@ const isIndexing = (item: Attachment) =>
   item.status === 'done' &&
   (item.ingestStatus === 'pending' || item.ingestStatus === 'processing')
 
-function failureMessage(err: unknown): string {
-  if (err instanceof ApiError) return err.message
-  if (err instanceof Error && err.message === CONVERT_FAILED_MESSAGE) {
-    return err.message
+type Failure = { error: string; retryable: boolean }
+
+/**
+ * What the chip says about a failure, and whether another try may fix it: a
+ * lost connection, a server error, a cut-off upload or a failed conversion
+ * may; a refused file (type, size, any other 4xx) never will.
+ */
+function describeFailure(err: unknown): Failure {
+  if (err instanceof ApiError) {
+    return {
+      error: err.message,
+      retryable:
+        err.retryable || err.status >= 500 || err.message === UPLOAD_INCOMPLETE
+    }
   }
-  return UPLOAD_FAILED_MESSAGE
+  if (err instanceof Error && err.message === CONVERT_FAILED_MESSAGE) {
+    return { error: err.message, retryable: true }
+  }
+  return { error: UPLOAD_FAILED_MESSAGE, retryable: true }
 }
+
+const UNSUPPORTED: Failure = { error: UNSUPPORTED_MESSAGE, retryable: false }
 
 /** What the chip says about an uploaded file's indexing, if anything. */
 export function ingestNote(item: Attachment): string | undefined {
@@ -105,6 +130,7 @@ export function ingestNote(item: Attachment): string | undefined {
 export function useAttachments(chatId?: string): Attachments {
   const { client, baseUrl, getToken } = useApi()
   const [items, setItems] = useState<Attachment[]>([])
+  const [overLimit, setOverLimit] = useState(false)
   // The picked files by id, kept for a retry; their count is the cap's.
   const files = useRef(new Map<string, File>())
   const uploads = useRef(new Map<string, AbortController>())
@@ -125,9 +151,9 @@ export function useAttachments(chatId?: string): Attachments {
   }, [])
 
   const fail = useCallback(
-    (id: string, error: string) => {
+    (id: string, failure: Failure) => {
       haptic('error')
-      update(id, { status: 'error', error })
+      update(id, { status: 'error', ...failure })
     },
     [update]
   )
@@ -137,7 +163,12 @@ export function useAttachments(chatId?: string): Attachments {
       const controller = new AbortController()
       uploads.current.set(id, controller)
       const { signal } = controller
-      update(id, { status: 'converting', progress: 0, error: undefined })
+      update(id, {
+        status: 'converting',
+        progress: 0,
+        error: undefined,
+        retryable: undefined
+      })
       try {
         const file = await toUploadable(picked)
         if (signal.aborted) return
@@ -171,7 +202,7 @@ export function useAttachments(chatId?: string): Attachments {
           ingestStatus: result.status
         })
       } catch (err) {
-        if (!signal.aborted) fail(id, failureMessage(err))
+        if (!signal.aborted) fail(id, describeFailure(err))
       } finally {
         if (uploads.current.get(id) === controller) uploads.current.delete(id)
       }
@@ -181,8 +212,10 @@ export function useAttachments(chatId?: string): Attachments {
 
   const add = useCallback(
     (list: FileList | File[]) => {
-      const room = MAX_ATTACHMENTS - files.current.size
-      const picked = Array.from(list).slice(0, Math.max(0, room))
+      const all = Array.from(list)
+      const room = Math.max(0, MAX_ATTACHMENTS - files.current.size)
+      const picked = all.slice(0, room)
+      if (all.length > room) setOverLimit(true)
       const added = picked.map(file => {
         const id = newId()
         files.current.set(id, file)
@@ -202,7 +235,7 @@ export function useAttachments(chatId?: string): Attachments {
       ])
       for (const { id, file, allowed } of added) {
         if (allowed) void upload(id, file)
-        else fail(id, UNSUPPORTED_MESSAGE)
+        else fail(id, UNSUPPORTED)
       }
     },
     [upload, fail]
@@ -212,11 +245,10 @@ export function useAttachments(chatId?: string): Attachments {
     (id: string) => {
       const file = files.current.get(id)
       const item = itemsRef.current.find(i => i.id === id)
-      if (!file || item?.status !== 'error') return
-      if (isAttachable(file)) void upload(id, file)
-      else fail(id, UNSUPPORTED_MESSAGE)
+      if (!file || item?.status !== 'error' || !item.retryable) return
+      void upload(id, file)
     },
-    [upload, fail]
+    [upload]
   )
 
   /** Cancels the upload of `id` and frees its preview. */
@@ -232,6 +264,8 @@ export function useAttachments(chatId?: string): Attachments {
   const remove = useCallback(
     (id: string) => {
       discard(id)
+      // One fewer than the limit at most: there is room again.
+      setOverLimit(false)
       setItems(current => current.filter(item => item.id !== id))
     },
     [discard]
@@ -239,6 +273,7 @@ export function useAttachments(chatId?: string): Attachments {
 
   const clear = useCallback(() => {
     for (const id of [...files.current.keys()]) discard(id)
+    setOverLimit(false)
     setItems([])
   }, [discard])
 
@@ -304,6 +339,7 @@ export function useAttachments(chatId?: string): Attachments {
     remove,
     retry,
     ready: items.every(item => item.status === 'done'),
+    overLimit,
     parts,
     clear
   }

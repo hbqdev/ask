@@ -21,7 +21,10 @@ import { Sheet } from '@/core/ui/Sheet'
 import { AttachmentChips } from '@/features/compose/AttachmentChips'
 import { OptionsSheet } from '@/features/compose/OptionsSheet'
 import { SEARCH_MODE_LABELS } from '@/features/compose/SearchOptionFields'
-import { useAttachments } from '@/features/compose/useAttachments'
+import {
+  OVER_LIMIT_MESSAGE,
+  useAttachments
+} from '@/features/compose/useAttachments'
 import type { FilePart, SearchSettings } from '@/features/thread/chat-body'
 import { ACCEPT_ATTRIBUTE } from '@/lib/config/upload-allowlist'
 
@@ -193,6 +196,11 @@ export function Composer({
           onRemove={attachments.remove}
           onRetry={attachments.retry}
         />
+        {attachments.overLimit && (
+          <p role="status" className="pt-1 text-xs text-foreground/60">
+            {OVER_LIMIT_MESSAGE}
+          </p>
+        )}
         <textarea
           ref={field}
           rows={1}

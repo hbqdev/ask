@@ -68,15 +68,28 @@ describe('AttachmentChips', () => {
     expect(screen.queryByRole('progressbar')).not.toBeInTheDocument()
   })
 
-  it('shows a failure with Retry', async () => {
+  it('shows a failure retrying can fix with Retry', async () => {
     const user = userEvent.setup()
     const { onRetry } = setup([
-      item({ status: 'error', error: 'File too large' })
+      item({ status: 'error', error: 'Network error.', retryable: true })
     ])
-    expect(screen.getByText('File too large')).toBeInTheDocument()
+    expect(screen.getByText('Network error.')).toBeInTheDocument()
 
     await user.click(screen.getByRole('button', { name: 'Retry photo.jpg' }))
     expect(onRetry).toHaveBeenCalledExactlyOnceWith('a1')
+  })
+
+  it('shows a failure retrying cannot fix with Remove only', () => {
+    setup([
+      item({ status: 'error', error: 'File too large', retryable: false })
+    ])
+    expect(screen.getByText('File too large')).toBeInTheDocument()
+    expect(
+      screen.queryByRole('button', { name: /^Retry/ })
+    ).not.toBeInTheDocument()
+    expect(
+      screen.getByRole('button', { name: 'Remove photo.jpg' })
+    ).toBeInTheDocument()
   })
 
   it('offers Retry only on a failed attachment', () => {

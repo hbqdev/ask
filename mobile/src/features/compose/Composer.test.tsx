@@ -382,8 +382,10 @@ describe('Composer attachments', () => {
     await user.type(input, '{Enter}')
     expect(onSend).not.toHaveBeenCalled()
 
-    await act(async () => upload.reject(new ApiError(400, 'File too large')))
-    expect(await screen.findByText('File too large')).toBeInTheDocument()
+    await act(async () =>
+      upload.reject(new ApiError(503, 'Service unavailable'))
+    )
+    expect(await screen.findByText('Service unavailable')).toBeInTheDocument()
     expect(sendButton()).toBeDisabled()
 
     // Retried and uploaded: it can go.
@@ -404,6 +406,27 @@ describe('Composer attachments', () => {
     expect(sendButton()).toBeEnabled()
     await user.click(sendButton())
     expect(onSend).toHaveBeenCalledExactlyOnceWith('Hi', [])
+  })
+
+  it('says when picks go over the limit, until a file is removed or the question sent', async () => {
+    const user = userEvent.setup()
+    const notice = () => screen.queryByText('You can attach up to 10 files')
+    setup()
+    await user.upload(
+      filePicker(),
+      Array.from({ length: 11 }, (_, i) => pdf(`${i}.pdf`))
+    )
+    expect(screen.getAllByRole('listitem')).toHaveLength(10)
+    expect(notice()).toBeInTheDocument()
+
+    await user.click(screen.getByRole('button', { name: 'Remove 0.pdf' }))
+    expect(notice()).not.toBeInTheDocument()
+
+    await user.upload(filePicker(), [pdf('x.pdf'), pdf('y.pdf')])
+    expect(notice()).toBeInTheDocument()
+    await waitFor(() => expect(sendButton()).toBeEnabled())
+    await user.click(sendButton())
+    expect(notice()).not.toBeInTheDocument()
   })
 
   it('attachments alone can be sent, which clears them', async () => {

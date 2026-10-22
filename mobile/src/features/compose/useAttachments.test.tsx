@@ -235,22 +235,67 @@ describe('useAttachments', () => {
     expect(createObjectURL).toHaveBeenCalledTimes(1)
   })
 
-  it('retry of a disallowed file fails again at once; retry of a good one does nothing', async () => {
+  it('retry does nothing for a failure retrying cannot fix, or a file that did not fail', async () => {
+    vi.mocked(uploadFile)
+      .mockRejectedValueOnce(new ApiError(400, 'File too large'))
+      .mockImplementation(async ({ file }) => resultFor(file as File))
     const { result } = render()
     act(() =>
-      result.current.add([new File(['x'], 'a.exe', { type: 'x/y' }), pdf()])
+      result.current.add([
+        new File(['x'], 'a.exe', { type: 'x/y' }),
+        pdf('big.pdf'),
+        pdf()
+      ])
     )
-    await waitFor(() => expect(result.current.items[1].status).toBe('done'))
-    const [bad, good] = result.current.items
+    await waitFor(() => expect(result.current.items[2].status).toBe('done'))
+    const [bad, tooLarge, good] = result.current.items
+    expect(bad).toMatchObject({ error: UNSUPPORTED_MESSAGE, retryable: false })
+    expect(tooLarge).toMatchObject({
+      error: 'File too large',
+      retryable: false
+    })
 
     act(() => result.current.retry(bad.id))
+    act(() => result.current.retry(tooLarge.id))
     act(() => result.current.retry(good.id))
     act(() => result.current.retry('missing'))
-    expect(result.current.items[0]).toMatchObject({
-      status: 'error',
-      error: UNSUPPORTED_MESSAGE
-    })
-    expect(uploadFile).toHaveBeenCalledTimes(1)
+    expect(result.current.items.map(i => i.status)).toEqual([
+      'error',
+      'error',
+      'done'
+    ])
+    expect(uploadFile).toHaveBeenCalledTimes(2)
+  })
+
+  it.each([
+    ['a lost connection', new ApiError(0, 'Network error.'), true],
+    ['a server error', new ApiError(500, 'Upload failed'), true],
+    ['a gateway error', new ApiError(502, 'Bad gateway'), true],
+    ['a cut-off upload', new ApiError(400, 'Upload incomplete'), true],
+    ['an unexpected failure', new TypeError('boom'), true],
+    ['a refused type', new ApiError(400, 'Unsupported file type'), false],
+    ['a file too large', new ApiError(400, 'File too large'), false],
+    ['being signed out', new ApiError(401, 'Signed out'), false]
+  ])('decides whether %s can be retried', async (_name, error, retryable) => {
+    vi.mocked(uploadFile).mockRejectedValue(error)
+    const { result } = render()
+    act(() => result.current.add([pdf()]))
+    await waitFor(() => expect(result.current.items[0].status).toBe('error'))
+    expect(result.current.items[0].retryable).toBe(retryable)
+  })
+
+  it('a failed conversion can be retried', async () => {
+    vi.mocked(toUploadable).mockRejectedValueOnce(
+      new Error(CONVERT_FAILED_MESSAGE)
+    )
+    const { result } = render()
+    act(() => result.current.add([jpeg()]))
+    await waitFor(() => expect(result.current.items[0].status).toBe('error'))
+    expect(result.current.items[0].retryable).toBe(true)
+
+    act(() => result.current.retry(result.current.items[0].id))
+    await waitFor(() => expect(result.current.items[0].status).toBe('done'))
+    expect(result.current.items[0].retryable).toBeUndefined()
   })
 
   it('remove cancels the upload and revokes the preview URL', async () => {
@@ -314,6 +359,7 @@ describe('useAttachments', () => {
         Array.from({ length: 4 }, (_, i) => pdf(`more${i}.pdf`))
       )
     )
+    expect(result.current.overLimit).toBe(true)
     expect(result.current.items.map(i => i.name)).toEqual([
       ...Array.from({ length: 8 }, (_, i) => `doc${i}.pdf`),
       'more0.pdf',
@@ -322,6 +368,27 @@ describe('useAttachments', () => {
     act(() => result.current.add([pdf('one-too-many.pdf')]))
     expect(result.current.items).toHaveLength(10)
     await waitFor(() => expect(result.current.ready).toBe(true))
+  })
+  it('says so when picks go over the limit, until there is room again', async () => {
+    const { result } = render()
+    act(() =>
+      result.current.add(Array.from({ length: 10 }, (_, i) => pdf(`${i}.pdf`)))
+    )
+    // Exactly at the limit is not over it.
+    expect(result.current.overLimit).toBe(false)
+
+    act(() => result.current.add([pdf('eleven.pdf')]))
+    expect(result.current.overLimit).toBe(true)
+    expect(result.current.items).toHaveLength(10)
+
+    act(() => result.current.remove(result.current.items[0].id))
+    expect(result.current.overLimit).toBe(false)
+
+    act(() => result.current.add([pdf('a.pdf'), pdf('b.pdf')]))
+    expect(result.current.overLimit).toBe(true)
+    act(() => result.current.clear())
+    expect(result.current.overLimit).toBe(false)
+    await act(async () => {})
   })
 
   it('takes a FileList as the input hands it over', async () => {

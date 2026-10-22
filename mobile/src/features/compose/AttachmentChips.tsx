@@ -1,7 +1,7 @@
 // The composer's attachments, in a row above the text field: a thumbnail for
 // an image or an icon for any other file, the name, a ring while it is being
-// prepared or uploaded, why it failed (with Retry), what the server's
-// indexing said, and × to take it off the question.
+// prepared or uploaded, why it failed (with Retry when another try may
+// help), what the server's indexing said, and × to take it off the question.
 
 import { ingestNote, type Attachment } from '@/features/compose/useAttachments'
 
@@ -117,7 +117,7 @@ function Chip({
             {note}
           </p>
         )}
-        {failed && (
+        {failed && item.retryable && (
           <button
             type="button"
             aria-label={`Retry ${item.name}`}
