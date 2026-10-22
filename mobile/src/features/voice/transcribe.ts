@@ -7,6 +7,8 @@ import { ApiError, toApiError } from '@/core/api/errors'
 
 export const TOO_LONG_MESSAGE = 'Recording too long'
 export const UNAVAILABLE_MESSAGE = 'Voice is unavailable right now'
+/** A transcription not back by now (answer and body) is given up on. */
+export const TRANSCRIBE_TIMEOUT_MS = 45_000
 
 export type TranscribeOptions = {
   baseUrl: string
@@ -30,26 +32,48 @@ export async function transcribe({
   const form = new FormData()
   form.append('file', audio, audioFilename(audio.type))
 
-  let res: Response
+  // The request follows the caller's signal and gives up at the deadline
+  // (AbortSignal.any is newer than the iOS versions the app supports).
+  const request = new AbortController()
+  const follow = () => request.abort(signal!.reason)
+  signal?.addEventListener('abort', follow)
+  let timedOut = false
+  const deadline = setTimeout(() => {
+    timedOut = true
+    request.abort()
+  }, TRANSCRIBE_TIMEOUT_MS)
+  const unavailable = () => new ApiError(0, UNAVAILABLE_MESSAGE)
+
   try {
-    res = await fetch(`${baseUrl}/api/voice/transcribe`, {
-      method: 'POST',
-      headers: { Authorization: `Bearer ${token}` },
-      body: form,
-      signal
-    })
-  } catch (error) {
-    if (signal?.aborted) throw error
-    throw new ApiError(0, NETWORK_ERROR_MESSAGE, { retryable: true })
-  }
+    let res: Response
+    try {
+      res = await fetch(`${baseUrl}/api/voice/transcribe`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token}` },
+        body: form,
+        signal: request.signal
+      })
+    } catch (error) {
+      if (timedOut) throw unavailable()
+      if (signal?.aborted) throw error
+      throw new ApiError(0, NETWORK_ERROR_MESSAGE, { retryable: true })
+    }
 
-  if (res.status === 413) throw new ApiError(413, TOO_LONG_MESSAGE)
-  // 503: the speech service is down; 404: voice is turned off on the server.
-  if (res.status === 503 || res.status === 404) {
-    throw new ApiError(res.status, UNAVAILABLE_MESSAGE)
-  }
-  if (!res.ok) throw await toApiError(res)
+    if (res.status === 413) throw new ApiError(413, TOO_LONG_MESSAGE)
+    // 503: the speech service is down; 404: voice is turned off on the server.
+    if (res.status === 503 || res.status === 404) {
+      throw new ApiError(res.status, UNAVAILABLE_MESSAGE)
+    }
+    if (!res.ok) throw await toApiError(res)
 
-  const body = (await res.json().catch(() => ({}))) as { text?: unknown }
-  return typeof body.text === 'string' ? body.text.trim() : ''
+    const body = (await res.json().catch((error: unknown) => {
+      if (timedOut) throw unavailable()
+      if (signal?.aborted) throw error
+      return {}
+    })) as { text?: unknown }
+    return typeof body.text === 'string' ? body.text.trim() : ''
+  } finally {
+    clearTimeout(deadline)
+    signal?.removeEventListener('abort', follow)
+  }
 }

@@ -6,6 +6,7 @@ import {
   audioFilename,
   TOO_LONG_MESSAGE,
   transcribe,
+  TRANSCRIBE_TIMEOUT_MS,
   UNAVAILABLE_MESSAGE
 } from '@/features/voice/transcribe'
 
@@ -145,8 +146,73 @@ describe('transcribe', () => {
         signal: controller.signal
       })
     ).rejects.toBe(abort)
-    expect((fetchMock.mock.calls[0][1] as RequestInit).signal).toBe(
-      controller.signal
+    // The request follows the caller's signal.
+    expect((fetchMock.mock.calls[0][1] as RequestInit).signal?.aborted).toBe(
+      true
     )
+  })
+
+  describe('a request that never answers', () => {
+    beforeEach(() => vi.useFakeTimers())
+    afterEach(() => vi.useRealTimers())
+
+    const hang = (_url: string, init: RequestInit) =>
+      new Promise<Response>((_resolve, reject) => {
+        init.signal!.addEventListener('abort', () =>
+          reject(new DOMException('Aborted', 'AbortError'))
+        )
+      })
+
+    it('gives up after 45 s: voice is unavailable', async () => {
+      fetchMock.mockImplementationOnce(hang)
+      const pending = transcribe({ baseUrl: BASE, token: 't', audio: mp4 })
+      const settled = vi.fn()
+      pending.catch(settled)
+      await vi.advanceTimersByTimeAsync(TRANSCRIBE_TIMEOUT_MS - 1)
+      expect(settled).not.toHaveBeenCalled()
+      await vi.advanceTimersByTimeAsync(1)
+      const error = await failure(pending)
+      expect(error.message).toBe(UNAVAILABLE_MESSAGE)
+      expect(TRANSCRIBE_TIMEOUT_MS).toBe(45_000)
+    })
+
+    it('also when the answer starts but its body never finishes', async () => {
+      fetchMock.mockImplementationOnce(
+        async (_url: string, init: RequestInit) => ({
+          ok: true,
+          status: 200,
+          json: () => hang(_url, init)
+        })
+      )
+      const pending = transcribe({ baseUrl: BASE, token: 't', audio: mp4 })
+      const settled = vi.fn()
+      pending.catch(settled)
+      await vi.advanceTimersByTimeAsync(TRANSCRIBE_TIMEOUT_MS - 1)
+      expect(settled).not.toHaveBeenCalled()
+      await vi.advanceTimersByTimeAsync(1)
+      expect((await failure(pending)).message).toBe(UNAVAILABLE_MESSAGE)
+    })
+
+    it('an answer in time clears the timer', async () => {
+      fetchMock.mockResolvedValueOnce(json({ text: 'hi' }))
+      expect(await transcribe({ baseUrl: BASE, token: 't', audio: mp4 })).toBe(
+        'hi'
+      )
+      expect(vi.getTimerCount()).toBe(0)
+    })
+
+    it("a caller's abort still rejects with the abort, not unavailable", async () => {
+      fetchMock.mockImplementationOnce(hang)
+      const controller = new AbortController()
+      const pending = transcribe({
+        baseUrl: BASE,
+        token: 't',
+        audio: mp4,
+        signal: controller.signal
+      })
+      controller.abort()
+      await expect(pending).rejects.toHaveProperty('name', 'AbortError')
+      expect(vi.getTimerCount()).toBe(0)
+    })
   })
 })
