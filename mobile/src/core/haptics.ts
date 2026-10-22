@@ -18,9 +18,14 @@ const PLAY: Record<HapticKind, () => Promise<unknown>> = {
   light: () => Haptics.impact({ style: ImpactStyle.Light }),
   medium: () => Haptics.impact({ style: ImpactStyle.Medium }),
   // On iOS a selection tick needs a generator, which only selectionStart
-  // makes: selectionChanged alone does nothing. Both calls queue in order.
+  // makes: selectionChanged alone does nothing. selectionEnd then releases
+  // it. The three calls queue in order.
   selection: () =>
-    Promise.all([Haptics.selectionStart(), Haptics.selectionChanged()]),
+    Promise.all([
+      Haptics.selectionStart(),
+      Haptics.selectionChanged(),
+      Haptics.selectionEnd()
+    ]),
   success: () => Haptics.notification({ type: NotificationType.Success }),
   warning: () => Haptics.notification({ type: NotificationType.Warning }),
   error: () => Haptics.notification({ type: NotificationType.Error })

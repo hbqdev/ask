@@ -9,9 +9,9 @@
 // it leaves drags that start in the stack's back-swipe edge zone alone.
 //
 // Haptics: a selection tick each time a drag crosses OPEN_AT (once going
-// past it, once more coming back, never on every move), and running an
-// action, by a full swipe or its button, warns for a destructive one and
-// taps light otherwise.
+// past it, once more coming back, never on every move), and a light tap when
+// an action runs, by a full swipe or its button. Even Delete taps light: the
+// warning belongs to the point of no return, its confirmation (ConfirmSheet).
 
 import {
   useEffect,
@@ -119,7 +119,7 @@ const pastOpen = (pos: number) => -pos > OPEN_AT
 
 /** Runs a swipe action, with its haptic. */
 function run(action: SwipeAction) {
-  haptic(action.tone === 'destructive' ? 'warning' : 'light')
+  haptic('light')
   action.onAction()
 }
 

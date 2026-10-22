@@ -490,11 +490,11 @@ describe('SwipeRow haptics', () => {
     expect(kinds()).toEqual(['selection'])
   })
 
-  it('a full swipe running a destructive action ends with a warning', () => {
+  it('a full swipe running a destructive action taps light (the warning is its confirmation’s)', () => {
     const { content, del } = setup()
     drag(content, [{ x: 340 }, { x: 200 }, { x: 340 - 0.6 * WIDTH - 1 }])
     expect(del).toHaveBeenCalledTimes(1)
-    expect(kinds()).toEqual(['selection', 'warning'])
+    expect(kinds()).toEqual(['selection', 'light'])
   })
 
   it('a full swipe running a plain action ends with a light tap', () => {
@@ -512,14 +512,14 @@ describe('SwipeRow haptics', () => {
     expect(kinds()).toEqual(['selection', 'light'])
   })
 
-  it('tapping an action button: warning for Delete, light for Rename', () => {
+  it('tapping an action button taps light, Delete included', () => {
     const { del, rename } = setup()
     fireEvent.click(screen.getByRole('button', { name: 'Delete' }))
     expect(del).toHaveBeenCalledTimes(1)
-    expect(kinds()).toEqual(['warning'])
+    expect(kinds()).toEqual(['light'])
     fireEvent.click(screen.getByRole('button', { name: 'Rename' }))
     expect(rename).toHaveBeenCalledTimes(1)
-    expect(kinds()).toEqual(['warning', 'light'])
+    expect(kinds()).toEqual(['light', 'light'])
   })
 
   it('a full swipe on a row with no actions runs nothing and closes', () => {

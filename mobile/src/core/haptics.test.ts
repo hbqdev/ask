@@ -14,7 +14,8 @@ vi.mock('@capacitor/haptics', async importOriginal => ({
     impact: vi.fn(async () => {}),
     notification: vi.fn(async () => {}),
     selectionStart: vi.fn(async () => {}),
-    selectionChanged: vi.fn(async () => {})
+    selectionChanged: vi.fn(async () => {}),
+    selectionEnd: vi.fn(async () => {})
   }
 }))
 
@@ -23,7 +24,13 @@ const plugin = vi.mocked(Haptics)
 /** Every plugin call made, as [method, ...args]. */
 function calls() {
   return (
-    ['impact', 'notification', 'selectionStart', 'selectionChanged'] as const
+    [
+      'impact',
+      'notification',
+      'selectionStart',
+      'selectionChanged',
+      'selectionEnd'
+    ] as const
   ).flatMap(method =>
     plugin[method].mock.calls.map(args => [method, ...args] as unknown[])
   )
@@ -46,12 +53,17 @@ describe('haptic', () => {
     expect(calls()).toEqual(expected)
   })
 
-  it('selection ticks the selection generator, starting it first (iOS ignores a tick without a start)', () => {
+  it('selection starts a generator (iOS ignores a tick without one), ticks it, then releases it, in that order', () => {
     haptic('selection')
-    expect(calls()).toEqual([['selectionStart'], ['selectionChanged']])
-    expect(plugin.selectionStart.mock.invocationCallOrder[0]).toBeLessThan(
-      plugin.selectionChanged.mock.invocationCallOrder[0]
-    )
+    expect(calls()).toEqual([
+      ['selectionStart'],
+      ['selectionChanged'],
+      ['selectionEnd']
+    ])
+    const order = (
+      ['selectionStart', 'selectionChanged', 'selectionEnd'] as const
+    ).map(method => plugin[method].mock.invocationCallOrder[0])
+    expect(order).toEqual([...order].sort((x, y) => x - y))
   })
 
   it('maps to the plugin values iOS reads', () => {
@@ -82,6 +94,7 @@ describe('haptic', () => {
       plugin.impact.mockRejectedValueOnce(new Error('no haptics'))
       plugin.selectionStart.mockRejectedValueOnce(new Error('no haptics'))
       plugin.selectionChanged.mockRejectedValueOnce(new Error('no haptics'))
+      plugin.selectionEnd.mockRejectedValueOnce(new Error('no haptics'))
       expect(haptic('light')).toBeUndefined()
       expect(haptic('selection')).toBeUndefined()
       // Let the rejections settle (and any unhandled one be reported).
