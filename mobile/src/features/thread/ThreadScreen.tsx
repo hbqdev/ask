@@ -26,6 +26,7 @@ import {
   Thinking
 } from '@/features/thread/components/AssistantTurn'
 import { SourcesSheet } from '@/features/thread/components/SourcesSheet'
+import { UserMessage } from '@/features/thread/components/UserMessage'
 import type { ChatErrorView } from '@/features/thread/model/chat-errors'
 import { listSources } from '@/features/thread/model/citations'
 import { ThreadMenu } from '@/features/thread/ThreadMenu'
@@ -343,12 +344,11 @@ export function ThreadScreen({
                 {messages.map((message, i) => {
                   if (message.role === 'user') {
                     return (
-                      <p
+                      <UserMessage
                         key={message.id}
-                        className="ml-auto max-w-[85%] rounded-3xl bg-foreground/8 px-4 py-2.5 text-base whitespace-pre-wrap"
-                      >
-                        {textOf(message)}
-                      </p>
+                        message={message}
+                        baseUrl={baseUrl}
+                      />
                     )
                   }
                   const isLatest = i === messages.length - 1

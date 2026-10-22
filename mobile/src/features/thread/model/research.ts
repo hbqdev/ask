@@ -15,6 +15,7 @@ export type ResearchStep = {
     | 'classify'
     | 'recall'
     | 'documents'
+    | 'attachments'
     | 'tool'
   label: string
   detail?: string
@@ -152,6 +153,18 @@ export function describeResearchStep(part: Part): ResearchStep | null {
       return {
         kind: 'classify',
         label: 'Understanding the question',
+        done: data?.state === 'done'
+      }
+    }
+    case 'data-attachments': {
+      const data = part.data as { state?: string; count?: number } | undefined
+      const count = data?.count
+      return {
+        kind: 'attachments',
+        label:
+          typeof count === 'number'
+            ? `Reading ${plural(count, 'attachment', 'attachments')}`
+            : 'Reading attachments',
         done: data?.state === 'done'
       }
     }

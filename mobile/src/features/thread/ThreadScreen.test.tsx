@@ -431,6 +431,34 @@ describe('ThreadScreen', () => {
     )
   })
 
+  it('shows a question asked with files alone as its attachments, with no empty bubble', () => {
+    const question = {
+      id: 'u1',
+      role: 'user',
+      parts: [
+        {
+          type: 'file',
+          mediaType: 'image/png',
+          filename: 'fox.png',
+          url: '/uploads/u/fox.png?sig=1'
+        },
+        {
+          type: 'file',
+          mediaType: 'application/pdf',
+          filename: 'b.pdf',
+          url: 'https://ask.test.invalid/uploads/u/b.pdf?sig=2'
+        }
+      ]
+    } as UIMessage
+    renderScreen(session({ messages: [question, assistant('a1', 'A fox.')] }))
+    expect(screen.getByRole('img', { name: 'fox.png' })).toHaveAttribute(
+      'src',
+      `${BASE}/uploads/u/fox.png?sig=1`
+    )
+    expect(screen.getByRole('button', { name: 'Open b.pdf' })).toBeVisible()
+    expect(screen.queryByTestId('user-bubble')).not.toBeInTheDocument()
+  })
+
   it('shares an answer with no question before it untitled', async () => {
     const userEv = userEvent.setup()
     renderScreen(session({ messages: [assistant('a1', 'Hello.')] }))

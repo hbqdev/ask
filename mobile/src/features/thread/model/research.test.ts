@@ -266,15 +266,44 @@ describe('describeResearchStep: recall', () => {
   })
 })
 
+describe('describeResearchStep: attachments', () => {
+  it.each([
+    [1, 'Reading 1 attachment'],
+    [2, 'Reading 2 attachments']
+  ])('reads %i attachment(s)', (count, label) => {
+    expect(
+      describeResearchStep(
+        asPart({ type: 'data-attachments', data: { state: 'running', count } })
+      )
+    ).toEqual({ kind: 'attachments', label, done: false })
+  })
+
+  it('is done once the attachments are read', () => {
+    expect(
+      describeResearchStep(
+        asPart({ type: 'data-attachments', data: { state: 'done', count: 2 } })
+      )
+    ).toEqual({
+      kind: 'attachments',
+      label: 'Reading 2 attachments',
+      done: true
+    })
+  })
+
+  it('reads attachments without a count', () => {
+    expect(describeResearchStep(asPart({ type: 'data-attachments' }))).toEqual({
+      kind: 'attachments',
+      label: 'Reading attachments',
+      done: false
+    })
+  })
+})
+
 describe('describeResearchStep: parts it does not show', () => {
   it.each([
     ['text', { type: 'text', text: 'hi' }],
     ['step-start', { type: 'step-start' }],
     ['data-title', { type: 'data-title', data: { title: 'T' } }],
-    [
-      'data-attachments',
-      { type: 'data-attachments', data: { state: 'done', count: 1 } }
-    ],
     [
       'live generated image',
       {
@@ -330,8 +359,15 @@ describe('researchSummary', () => {
     )
   })
 
-  it('skips parts that are not shown as steps', () => {
+  it('counts reading attachments as a step', () => {
     expect(researchSummary([search, attachments, reasoning], false)).toBe(
+      'Completed 3 steps'
+    )
+  })
+
+  it('skips parts that are not shown as steps', () => {
+    const title = asPart({ type: 'data-title', data: { title: 'T' } })
+    expect(researchSummary([search, title, reasoning], false)).toBe(
       'Completed 2 steps'
     )
   })

@@ -64,6 +64,22 @@ describe('ResearchSection', () => {
     expect(rows[1]).toHaveTextContent('In progress')
   })
 
+  it('shows reading the attachments, active while live and done after', () => {
+    const attachments = (state: string) =>
+      ({ type: 'data-attachments', data: { state, count: 2 } }) as Part
+    const { rerender } = render(
+      <ResearchSection parts={[attachments('running')]} live />
+    )
+    const row = screen.getByRole('listitem')
+    expect(row).toHaveTextContent('Reading 2 attachments')
+    expect(row).toHaveTextContent('In progress')
+
+    rerender(
+      <ResearchSection parts={[attachments('done'), RUNNING_SEARCH]} live />
+    )
+    expect(screen.getAllByRole('listitem')[0]).toHaveTextContent('Done')
+  })
+
   it('stays expanded while live even when the header is tapped', () => {
     render(<ResearchSection parts={[RUNNING_SEARCH]} live />)
     fireEvent.click(screen.getByRole('button', { name: /Researching…/ }))
