@@ -4,7 +4,9 @@
 // regenerates an answer, and a turn cut off by backgrounding the app is
 // resumed (or reloaded once saved) when the app comes back. Opening a saved
 // chat marks it viewed, and each finished turn tells the chat list
-// (chats-changed) so the Library stays current.
+// (chats-changed) so the Library stays current. With auto-read on, each
+// question asks for the spoken answer, and an answer to a question sent here
+// that finishes with the app in front is named fresh, to be read aloud.
 import { useChat } from '@ai-sdk/react'
 import { App } from '@capacitor/app'
 import type { ChatStatus, UIMessage } from 'ai'
@@ -27,6 +29,7 @@ import {
   type ChatErrorView
 } from '@/features/thread/model/chat-errors'
 import { titleOf } from '@/features/thread/model/research'
+import { loadVoiceSettings } from '@/features/voice/voice-settings'
 import {
   ResumableChatTransport,
   type ResumeHooks
@@ -68,6 +71,13 @@ export type ThreadSession = {
    * turn finished or was stopped.
    */
   saved: boolean
+  /**
+   * The id of the answer to a question sent (or retried) from this screen,
+   * once it has finished whole with the app in front; undefined again when
+   * the next turn starts. Never a saved answer, nor one brought back after
+   * the app was away.
+   */
+  freshAnswerId?: string
 }
 
 /** Tries at the saved copy after a resume finds nothing live, 1 s apart. */
@@ -82,6 +92,9 @@ const textOf = (message: UIMessage) =>
 
 const isBusy = (status: ChatStatus) =>
   status === 'submitted' || status === 'streaming'
+
+/** How a turn started: asked here, or resumed after the app was away. */
+type TurnKind = 'sent' | 'resumed'
 
 type MessagesResponse = { messages?: UIMessage[]; title?: string }
 
@@ -116,24 +129,31 @@ export function useThread({
             if (!token) throw new Error('Signed out')
             return { Authorization: `Bearer ${token}` }
           },
-          // The custom instructions are read for each request, so a change
-          // made in Settings applies to the next question.
+          // The custom instructions and auto-read are read for each request,
+          // so a change made in Settings applies to the next question.
           prepareSendMessagesRequest: async ({
             id,
             messages,
             trigger,
             messageId
-          }) => ({
-            body: buildChatBody({
-              trigger,
-              chatId: id,
-              messageId,
-              messages,
-              isNewChat: live.current.isNew,
-              settings: live.current.settings,
-              systemInstructions: await loadCustomInstructions()
-            })
-          })
+          }) => {
+            const [systemInstructions, voiceSettings] = await Promise.all([
+              loadCustomInstructions(),
+              loadVoiceSettings()
+            ])
+            return {
+              body: buildChatBody({
+                trigger,
+                chatId: id,
+                messageId,
+                messages,
+                isNewChat: live.current.isNew,
+                settings: live.current.settings,
+                systemInstructions,
+                voice: voiceSettings.autoRead
+              })
+            }
+          }
         },
         {
           onReplayStart: id => hooks.current.onReplayStart?.(id),
@@ -145,6 +165,11 @@ export function useThread({
   // Whether the last turn ended in an error (a dropped connection) rather than
   // finishing or being stopped; set by useChat's onFinish.
   const turnErroredRef = useRef(false)
+  // How the turn under way started, and whether the app is in front (its
+  // answer is only fresh if it was asked here and finished in sight).
+  const turnKindRef = useRef<TurnKind>('sent')
+  const inFrontRef = useRef(true)
+  const [freshAnswerId, setFreshAnswerId] = useState<string>()
 
   // A new chat exists on the server once a turn of it ends there (finished
   // or stopped); the first such turn creates it in the chat list, later ones
@@ -172,10 +197,14 @@ export function useThread({
     generateId: newId,
     experimental_throttle: 100,
     transport,
-    onFinish: ({ isError, isAbort }) => {
+    onFinish: ({ message, isError, isAbort }) => {
       turnErroredRef.current = isError
       // A stop is told by stop(); leaving mid-turn tells nothing.
-      if (!isError && !isAbort) turnSaved()
+      if (isError || isAbort) return
+      turnSaved()
+      if (turnKindRef.current === 'sent' && inFrontRef.current) {
+        setFreshAnswerId(message.id)
+      }
     }
   })
 
@@ -219,19 +248,26 @@ export function useThread({
     resumeStreamRef.current = resumeStream
   }, [resumeStream])
 
-  const runTurn = useCallback((turn: () => Promise<void>) => {
-    turnRef.current = true
-    turnErroredRef.current = false
-    setLoadError(undefined)
-    setResumeError(undefined)
-    void turn().finally(() => {
-      turnRef.current = false
-      if (!resumeWhenSettledRef.current) return
-      resumeWhenSettledRef.current = false
-      // Only a dropped turn is resumed; one that simply finished is whole.
-      if (turnErroredRef.current) runTurn(() => resumeStreamRef.current())
-    })
-  }, [])
+  const runTurn = useCallback(
+    (turn: () => Promise<void>, kind: TurnKind = 'sent') => {
+      turnRef.current = true
+      turnErroredRef.current = false
+      turnKindRef.current = kind
+      setFreshAnswerId(undefined)
+      setLoadError(undefined)
+      setResumeError(undefined)
+      void turn().finally(() => {
+        turnRef.current = false
+        if (!resumeWhenSettledRef.current) return
+        resumeWhenSettledRef.current = false
+        // Only a dropped turn is resumed; one that simply finished is whole.
+        if (turnErroredRef.current) {
+          runTurn(() => resumeStreamRef.current(), 'resumed')
+        }
+      })
+    },
+    []
+  )
 
   // Bumped when this thread goes away (unmount or another chat id), so async
   // work started for it stops writing into whatever is shown next.
@@ -353,6 +389,7 @@ export function useThread({
   useEffect(() => {
     let leftMidTurn = false
     const handle = App.addListener('appStateChange', ({ isActive }) => {
+      inFrontRef.current = isActive
       if (!isActive) {
         leftMidTurn = inFlight()
         return
@@ -361,7 +398,7 @@ export function useThread({
       leftMidTurn = false
       // Still looks connected (or already resuming): resume when it ends.
       if (inFlight()) resumeWhenSettledRef.current = true
-      else runTurn(() => resumeStreamRef.current())
+      else runTurn(() => resumeStreamRef.current(), 'resumed')
     })
     return () => {
       void handle.then(h => h.remove())
@@ -449,6 +486,7 @@ export function useThread({
     reload,
     retryLast,
     loading,
-    saved
+    saved,
+    freshAnswerId
   }
 }

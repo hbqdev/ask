@@ -1,11 +1,15 @@
 // One answer in the thread: its research, answer text (with the images its
 // spec fences carry) and generated images in order, then the related
 // questions and the actions. Laid out by layoutAssistantMessage, the same
-// rules as the web's render-message.
+// rules as the web's render-message. A fresh answer (to the question just
+// sent) that carries a spoken answer is read aloud once, if its screen is
+// shown, as the web's SpeakButton auto-plays the data-spokenGist part.
 
 import type { UIMessage } from 'ai'
-import { lazy, memo, Suspense, useMemo } from 'react'
+import { lazy, memo, Suspense, useEffect, useMemo, useRef } from 'react'
 
+import { useTabActive } from '@/app/Tabs'
+import { useScreenActive } from '@/core/nav/stack'
 import { GeneratedImage } from '@/features/thread/components/GeneratedImage'
 import { MessageActions } from '@/features/thread/components/MessageActions'
 import { RelatedQuestions } from '@/features/thread/components/RelatedQuestions'
@@ -20,6 +24,7 @@ import {
   type Block
 } from '@/features/thread/model/layout'
 import { extractSpecContent } from '@/features/thread/model/spec'
+import { useReadAloud } from '@/features/voice/useReadAloud'
 import { extractCitationMaps } from '@/lib/utils/citation'
 
 export type AssistantTurnProps = {
@@ -36,9 +41,24 @@ export type AssistantTurnProps = {
   onRetry: (messageId: string) => void
   /** The API base, which generated image paths are relative to. */
   baseUrl: string
+  /**
+   * This answer is fresh: just given to a question sent from this screen.
+   * Its spoken answer is then read aloud by itself.
+   */
+  autoRead?: boolean
 }
 
 type AnswerBlock = Extract<Block, { kind: 'answer' }>
+
+/** The answer cleaned for speech that the server streams with voice on. */
+function spokenAnswerOf(message: UIMessage): string {
+  for (const part of message.parts) {
+    if (part.type !== 'data-spokenGist') continue
+    const text = (part.data as { text?: unknown } | undefined)?.text
+    return typeof text === 'string' ? text : ''
+  }
+  return ''
+}
 
 // The markdown renderer (Streamdown, KaTeX) is most of the app's JS, so it
 // loads in its own chunk: launch to the home composer never waits on it.
@@ -88,7 +108,8 @@ export const AssistantTurn = memo(function AssistantTurn({
   question,
   onAsk,
   onRetry,
-  baseUrl
+  baseUrl,
+  autoRead = false
 }: AssistantTurnProps) {
   const blocks = useMemo(
     () => layoutAssistantMessage(message, streaming),
@@ -104,6 +125,21 @@ export const AssistantTurn = memo(function AssistantTurn({
     [finalAnswer]
   )
   const showActions = !(isLatest && streaming)
+
+  // Read aloud from the actions, or by itself once when fresh. An answer
+  // that becomes fresh while its screen is hidden is never read by itself.
+  const readAloud = useReadAloud(message.id)
+  const { read } = readAloud
+  const tabShown = useTabActive()
+  const screenShown = useScreenActive()
+  const shown = tabShown && screenShown
+  const spoken = spokenAnswerOf(message)
+  const autoReadDone = useRef(false)
+  useEffect(() => {
+    if (!autoRead || !spoken || autoReadDone.current) return
+    autoReadDone.current = true
+    if (shown) read(spoken)
+  }, [autoRead, spoken, shown, read])
 
   return (
     <article className="flex flex-col gap-3" style={TURN_STYLE}>
@@ -139,6 +175,7 @@ export const AssistantTurn = memo(function AssistantTurn({
           question={question}
           sources={sources}
           onRetry={() => onRetry(message.id)}
+          readAloud={readAloud}
         />
       )}
     </article>

@@ -9,6 +9,10 @@ import { onChatsChanged } from '@/core/chats-events'
 import { saveCustomInstructions } from '@/features/settings/custom-instructions'
 import type { SearchSettings } from '@/features/thread/chat-body'
 import { useThread } from '@/features/thread/useThread'
+import {
+  DEFAULT_VOICE_SETTINGS,
+  saveVoiceSettings
+} from '@/features/voice/voice-settings'
 
 // --- Mocks ------------------------------------------------------------------
 
@@ -1096,6 +1100,8 @@ describe('useThread', () => {
       await waitFor(() => expect(result.current.status).toBe('ready'))
       expect(result.current.messages[1].id).toBe('a1')
       expect(result.current.error).toBeUndefined()
+      // A resumed answer is never read aloud by itself.
+      expect(result.current.freshAnswerId).toBeUndefined()
     })
 
     it('reloads persisted messages when there is nothing to resume', async () => {
@@ -1532,6 +1538,133 @@ describe('useThread', () => {
       unmount()
 
       await waitFor(() => expect(app.remove).toHaveBeenCalledTimes(1))
+    })
+  })
+
+  describe('auto-read', () => {
+    afterEach(async () => {
+      await saveVoiceSettings(DEFAULT_VOICE_SETTINGS)
+    })
+
+    it('asks for the spoken answer while auto-read is on, read afresh for each question', async () => {
+      serve({
+        chat: [
+          () => sse(answerChunks('a1', 'One', 'Title')),
+          () => sse(answerChunks('a2', 'Two'))
+        ]
+      })
+      await saveVoiceSettings({ ...DEFAULT_VOICE_SETTINGS, autoRead: true })
+      const { result } = renderThread()
+
+      act(() => result.current.send('first'))
+      await waitFor(() => expect(result.current.messages).toHaveLength(2))
+      await waitFor(() => expect(result.current.status).toBe('ready'))
+
+      // Turned off in Settings mid-chat: the next question goes without it.
+      await saveVoiceSettings(DEFAULT_VOICE_SETTINGS)
+      act(() => result.current.send('second'))
+      await waitFor(() => expect(result.current.messages).toHaveLength(4))
+      await waitFor(() => expect(result.current.status).toBe('ready'))
+
+      expect(chatBodies().map(b => b.voice)).toEqual([true, undefined])
+    })
+
+    it('names the answer to a question sent here once it has finished', async () => {
+      const live = liveSse()
+      serve({
+        chat: [() => live.response, () => sse(answerChunks('a2', 'Two'))]
+      })
+      const { result } = renderThread()
+      expect(result.current.freshAnswerId).toBeUndefined()
+
+      act(() => result.current.send('Q'))
+      live.push({ type: 'start', messageId: 'a1' })
+      live.push({ type: 'text-start', id: 't1' })
+      live.push({ type: 'text-delta', id: 't1', delta: 'One' })
+      await waitFor(() => expect(result.current.status).toBe('streaming'))
+      expect(result.current.freshAnswerId).toBeUndefined()
+
+      live.push({ type: 'text-end', id: 't1' })
+      live.push({ type: 'finish' })
+      live.close()
+      await waitFor(() => expect(result.current.freshAnswerId).toBe('a1'))
+
+      // The next question: nothing is fresh until its answer has finished.
+      act(() => result.current.send('Q2'))
+      expect(result.current.freshAnswerId).toBeUndefined()
+      await waitFor(() => expect(result.current.freshAnswerId).toBe('a2'))
+    })
+
+    it('a retried answer is fresh too', async () => {
+      serve({
+        chat: [
+          () => sse(answerChunks('a1', 'One', 'Title')),
+          () => sse(answerChunks('a1b', 'One again'))
+        ]
+      })
+      const { result } = renderThread()
+      act(() => result.current.send('Q'))
+      await waitFor(() => expect(result.current.freshAnswerId).toBe('a1'))
+
+      act(() => result.current.retry('a1'))
+      await waitFor(() => expect(result.current.freshAnswerId).toBe('a1b'))
+    })
+
+    it('never names a saved answer loaded from the history', async () => {
+      serve({
+        messages: [
+          () => json({ messages: [user('u1', 'Q'), assistant('a1', 'A')] })
+        ]
+      })
+      const { result } = renderThread(false)
+      await waitFor(() => expect(result.current.messages).toHaveLength(2))
+      expect(result.current.freshAnswerId).toBeUndefined()
+    })
+
+    it('does not name an answer that failed', async () => {
+      serve({ chat: [() => new Response('Internal error', { status: 500 })] })
+      const { result } = renderThread()
+      act(() => result.current.send('Q'))
+      await waitFor(() => expect(result.current.status).toBe('error'))
+      expect(result.current.freshAnswerId).toBeUndefined()
+    })
+
+    it('does not name an answer that was stopped', async () => {
+      const live = liveSse()
+      serve({
+        chat: [
+          init => {
+            init.signal?.addEventListener('abort', () =>
+              live.fail(new DOMException('Aborted', 'AbortError'))
+            )
+            return live.response
+          }
+        ],
+        stop: [() => new Response(null, { status: 204 })]
+      })
+      const { result } = renderThread()
+      act(() => result.current.send('Q'))
+      live.push({ type: 'start', messageId: 'a1' })
+      await waitFor(() => expect(result.current.status).toBe('streaming'))
+      await act(() => result.current.stop())
+      await waitFor(() => expect(result.current.status).toBe('ready'))
+      expect(result.current.freshAnswerId).toBeUndefined()
+    })
+
+    it('does not name an answer that finished while the app was away', async () => {
+      const live = liveSse()
+      serve({ chat: [() => live.response] })
+      const { result } = renderThread()
+      await waitFor(() => expect(app.listeners).toHaveLength(1))
+      act(() => result.current.send('Q'))
+      live.push({ type: 'start', messageId: 'a1' })
+      await waitFor(() => expect(result.current.status).toBe('streaming'))
+
+      setAppActive(false)
+      for (const chunk of answerChunks('a1', 'One').slice(1)) live.push(chunk)
+      live.close()
+      await waitFor(() => expect(result.current.status).toBe('ready'))
+      expect(result.current.freshAnswerId).toBeUndefined()
     })
   })
 

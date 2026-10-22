@@ -152,6 +152,32 @@ describe('buildChatBody', () => {
 
     expect(body).not.toHaveProperty('systemInstructions')
   })
+  it('asks for the spoken answer (voice: true) when auto-read is on', () => {
+    const body = buildChatBody({
+      trigger: 'submit-message',
+      chatId: 'c1',
+      messages: [user('u1', 'Q')],
+      isNewChat: true,
+      settings,
+      voice: true
+    })
+    expect(body.voice).toBe(true)
+  })
+
+  it.each([
+    ['off', false],
+    ['not given', undefined]
+  ])('leaves out voice when auto-read is %s', (_name, voice) => {
+    const body = buildChatBody({
+      trigger: 'submit-message',
+      chatId: 'c1',
+      messages: [user('u1', 'Q')],
+      isNewChat: true,
+      settings,
+      voice
+    })
+    expect(body).not.toHaveProperty('voice')
+  })
 })
 
 const PHOTO = {

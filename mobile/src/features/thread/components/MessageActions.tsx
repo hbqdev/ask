@@ -1,7 +1,9 @@
 // The actions under an answer: copy it, share it with the native share sheet,
-// retry the turn, and list its sources. Copy and Share use the same text as
-// the web's Copy (citations as source links, spec fences gone); Share adds
-// the cited URLs.
+// read it aloud, retry the turn, and list its sources. Copy and Share use the
+// same text as the web's Copy (citations as source links, spec fences gone);
+// Share adds the cited URLs. Read aloud is a speaker that turns into a
+// spinner while the audio loads and a stop button while it plays; a tap on
+// either stops.
 
 import { Clipboard } from '@capacitor/clipboard'
 import { Share } from '@capacitor/share'
@@ -14,6 +16,7 @@ import {
   type CitationMaps,
   type Source
 } from '@/features/thread/model/citations'
+import type { ReadAloud } from '@/features/voice/useReadAloud'
 
 /** How long Copy reads "Copied" after a copy. */
 export const COPIED_MS = 1500
@@ -31,6 +34,8 @@ export type MessageActionsProps = {
   question: string
   sources: Source[]
   onRetry: () => void
+  /** This answer's read-aloud (its turn owns it, for auto-read). */
+  readAloud: ReadAloud
 }
 
 /** The answer as shared: the copied text, then the cited URLs, if any. */
@@ -45,16 +50,19 @@ function shareText(text: string, maps: CitationMaps, sources: Source[]) {
 function ActionButton({
   label,
   onClick,
+  busy,
   children
 }: {
   label: string
   onClick: () => void
+  busy?: boolean
   children: ReactNode
 }) {
   return (
     <button
       type="button"
       aria-label={label}
+      aria-busy={busy || undefined}
       onClick={onClick}
       className="flex min-h-11 min-w-11 touch-manipulation items-center justify-center gap-1.5 rounded-full px-2 text-sm text-foreground/60 active:opacity-50"
     >
@@ -84,7 +92,63 @@ const ICONS = {
   copy: 'M9 9h10v10H9zM5 15V5h10',
   check: 'M5 12.5l4.5 4.5L19 7.5',
   share: 'M12 3v12M7 8l5-5 5 5M5 13v6h14v-6',
-  retry: 'M4 4v6h6M20 12a8 8 0 1 1-2.34-5.66L20 8.5'
+  retry: 'M4 4v6h6M20 12a8 8 0 1 1-2.34-5.66L20 8.5',
+  speaker:
+    'M4 9.5v5h3.5L12 18.5v-13L7.5 9.5H4zM15.5 9a4 4 0 0 1 0 6M18 6.5a7.5 7.5 0 0 1 0 11'
+}
+
+function Spinner() {
+  return (
+    <svg
+      aria-hidden="true"
+      viewBox="0 0 24 24"
+      className="size-5 animate-spin"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth={2}
+      strokeLinecap="round"
+    >
+      <path d="M12 3a9 9 0 0 1 9 9" />
+    </svg>
+  )
+}
+
+function StopIcon() {
+  return (
+    <svg aria-hidden="true" viewBox="0 0 24 24" className="size-5">
+      <rect x="6" y="6" width="12" height="12" rx="2.5" fill="currentColor" />
+    </svg>
+  )
+}
+
+/** The read-aloud control, by its state. */
+function ReadAloudButton({
+  readAloud,
+  text
+}: {
+  readAloud: ReadAloud
+  text: string
+}) {
+  const onClick = () => readAloud.toggle(text)
+  if (readAloud.state === 'loading') {
+    return (
+      <ActionButton label="Loading audio" onClick={onClick} busy>
+        <Spinner />
+      </ActionButton>
+    )
+  }
+  if (readAloud.state === 'playing') {
+    return (
+      <ActionButton label="Stop reading" onClick={onClick}>
+        <StopIcon />
+      </ActionButton>
+    )
+  }
+  return (
+    <ActionButton label="Read aloud" onClick={onClick}>
+      <Icon d={ICONS.speaker} />
+    </ActionButton>
+  )
 }
 
 export function MessageActions({
@@ -92,7 +156,8 @@ export function MessageActions({
   maps,
   question,
   sources,
-  onRetry
+  onRetry,
+  readAloud
 }: MessageActionsProps) {
   const [copied, setCopied] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -140,6 +205,7 @@ export function MessageActions({
         <ActionButton label="Share" onClick={share}>
           <Icon d={ICONS.share} />
         </ActionButton>
+        {text.trim() && <ReadAloudButton readAloud={readAloud} text={text} />}
         <ActionButton label="Retry" onClick={onRetry}>
           <Icon d={ICONS.retry} />
         </ActionButton>
@@ -152,9 +218,9 @@ export function MessageActions({
           </ActionButton>
         )}
       </div>
-      {error && (
+      {(error ?? readAloud.error) && (
         <p role="alert" className="pt-1 text-sm text-red-500">
-          {error}
+          {error ?? readAloud.error}
         </p>
       )}
       <SourcesSheet

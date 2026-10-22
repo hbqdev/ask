@@ -23,8 +23,14 @@ import {
   DataSection,
   DELETE_ALL_ERROR,
   INSTRUCTIONS_SAVE_ERROR,
-  PersonalizationSection
+  PersonalizationSection,
+  VOICE_SAMPLE_TEXT,
+  VoiceSection
 } from '@/features/settings/SettingsSections'
+import { playingOwner, stop as stopPlayer } from '@/features/voice/speech'
+import { VOICE_SETTINGS_KEY } from '@/features/voice/voice-settings'
+import { TTS_SPEEDS, TTS_VOICES } from '@/lib/voice/voices'
+import { installFakeAudio, resetFakeAudio } from '@/test/fake-audio'
 import type { ModelSelectorData } from '@/lib/types/model-selector'
 import { memoryStorage } from '@/test/memory-storage'
 
@@ -417,6 +423,177 @@ describe('PersonalizationSection', () => {
     unmount()
     await flush()
     expect(app.remove).toHaveBeenCalled()
+  })
+})
+
+// --- Voice ------------------------------------------------------------------
+
+describe('VoiceSection', () => {
+  const speakMock = vi.fn<typeof fetch>()
+
+  beforeEach(() => {
+    serve()
+    installFakeAudio()
+    resetFakeAudio()
+    speakMock.mockReset()
+    speakMock.mockImplementation(
+      async () =>
+        new Response('mp3', { headers: { 'Content-Type': 'audio/mpeg' } })
+    )
+    vi.stubGlobal('fetch', speakMock)
+  })
+
+  afterEach(() => {
+    stopPlayer()
+    vi.unstubAllGlobals()
+  })
+
+  const stored = () => JSON.parse(prefs.get(VOICE_SETTINGS_KEY) ?? 'null')
+
+  async function renderVoice() {
+    const utils = render(<VoiceSection />)
+    await flush()
+    return utils
+  }
+
+  it('has auto-read off, Ask’s voice and speed checked, by default', async () => {
+    await renderVoice()
+    expect(
+      screen.getByRole('heading', { level: 2, name: 'Voice' })
+    ).toBeInTheDocument()
+    expect(
+      screen.getByRole('switch', { name: 'Read answers aloud' })
+    ).toHaveAttribute('aria-checked', 'false')
+    expect(
+      screen.getByRole('radio', { name: 'Heart — US, warm (default)' })
+    ).toHaveAttribute('aria-checked', 'true')
+    expect(
+      screen.getByRole('radio', { name: 'A bit faster (1.2×)' })
+    ).toHaveAttribute('aria-checked', 'true')
+  })
+
+  it('lists every voice and speed', async () => {
+    await renderVoice()
+    const voices = within(screen.getByRole('radiogroup', { name: 'Voice' }))
+    expect(voices.getAllByRole('radio').map(r => r.textContent)).toEqual(
+      TTS_VOICES.map(v => v.label)
+    )
+    const speeds = within(screen.getByRole('radiogroup', { name: 'Speed' }))
+    expect(
+      speeds.getAllByRole('radio').map(r => r.getAttribute('aria-label'))
+    ).toEqual(TTS_SPEEDS.map(s => s.label))
+    expect(speeds.getAllByRole('radio').map(r => r.textContent)).toEqual(
+      TTS_SPEEDS.map(s => `${s.value}×`)
+    )
+  })
+
+  it('shows the stored settings', async () => {
+    prefs.set(
+      VOICE_SETTINGS_KEY,
+      JSON.stringify({ voice: 'bm_george', speed: 0.9, autoRead: true })
+    )
+    await renderVoice()
+    expect(
+      screen.getByRole('switch', { name: 'Read answers aloud' })
+    ).toHaveAttribute('aria-checked', 'true')
+    expect(
+      screen.getByRole('radio', { name: 'George — UK male' })
+    ).toHaveAttribute('aria-checked', 'true')
+    expect(
+      screen.getByRole('radio', { name: 'Slower (0.9×)' })
+    ).toHaveAttribute('aria-checked', 'true')
+  })
+
+  it('turns auto-read on and off, and saves it', async () => {
+    await renderVoice()
+    const toggle = screen.getByRole('switch', { name: 'Read answers aloud' })
+    fireEvent.click(toggle)
+    expect(toggle).toHaveAttribute('aria-checked', 'true')
+    await flush()
+    expect(stored()).toEqual({ voice: 'af_heart', speed: 1.2, autoRead: true })
+    fireEvent.click(toggle)
+    await flush()
+    expect(stored().autoRead).toBe(false)
+  })
+
+  it('picks a voice and a speed, and saves them', async () => {
+    await renderVoice()
+    fireEvent.click(screen.getByRole('radio', { name: 'Emma — UK female' }))
+    fireEvent.click(screen.getByRole('radio', { name: 'Fast (1.4×)' }))
+    await flush()
+    expect(stored()).toEqual({ voice: 'bf_emma', speed: 1.4, autoRead: false })
+    expect(
+      screen.getByRole('radio', { name: 'Emma — UK female' })
+    ).toHaveAttribute('aria-checked', 'true')
+  })
+
+  it('picking the voice already chosen changes nothing', async () => {
+    await renderVoice()
+    fireEvent.click(
+      screen.getByRole('radio', { name: 'Heart — US, warm (default)' })
+    )
+    fireEvent.click(screen.getByRole('radio', { name: 'A bit faster (1.2×)' }))
+    await flush()
+    expect(Preferences.set).not.toHaveBeenCalled()
+  })
+
+  it('plays a sample in the chosen voice and speed, and stops it', async () => {
+    await renderVoice()
+    fireEvent.click(screen.getByRole('radio', { name: 'Adam — US male' }))
+    fireEvent.click(screen.getByRole('radio', { name: 'Faster (1.6×)' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Play sample' }))
+    expect(
+      screen.getByRole('button', { name: 'Loading sample' })
+    ).toBeInTheDocument()
+    const stopButton = await screen.findByRole('button', {
+      name: 'Stop sample'
+    })
+
+    const [url, init] = speakMock.mock.calls[0]
+    expect(String(url)).toBe(`${BASE}/api/voice/speak`)
+    expect(JSON.parse(String(init?.body))).toEqual({
+      text: VOICE_SAMPLE_TEXT,
+      voice: 'am_adam',
+      speed: 1.6
+    })
+
+    fireEvent.click(stopButton)
+    expect(playingOwner()).toBeNull()
+    expect(screen.getByRole('button', { name: 'Play sample' })).toBeVisible()
+  })
+
+  it('says why a sample could not play', async () => {
+    speakMock.mockImplementation(
+      async () => new Response('TTS unavailable', { status: 503 })
+    )
+    await renderVoice()
+    fireEvent.click(screen.getByRole('button', { name: 'Play sample' }))
+    expect(await screen.findByRole('alert')).toHaveTextContent(
+      'Voice is unavailable right now'
+    )
+  })
+
+  it('leaving the Settings tab stops the sample', async () => {
+    const tabs: TabSpec[] = [
+      {
+        id: 'ask',
+        label: 'Ask',
+        icon: <svg />,
+        render: () => <p>Ask</p>
+      },
+      {
+        id: 'settings',
+        label: 'Settings',
+        icon: <svg />,
+        render: () => <VoiceSection />
+      }
+    ]
+    render(<Tabs tabs={tabs} initial="settings" />)
+    await flush()
+    fireEvent.click(screen.getByRole('button', { name: 'Play sample' }))
+    await screen.findByRole('button', { name: 'Stop sample' })
+    fireEvent.click(screen.getByRole('tab', { name: 'Ask' }))
+    expect(playingOwner()).toBeNull()
   })
 })
 

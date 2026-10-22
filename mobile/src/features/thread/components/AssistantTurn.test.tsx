@@ -1,11 +1,14 @@
 import type { UIMessage } from 'ai'
-import { fireEvent, render, screen } from '@testing-library/react'
-import { describe, expect, it, vi } from 'vitest'
+import { act, fireEvent, render, screen } from '@testing-library/react'
+import { useState } from 'react'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
 
+import { Tabs } from '@/app/Tabs'
 import {
   AssistantTurn,
   type AssistantTurnProps
 } from '@/features/thread/components/AssistantTurn'
+import { useReadAloud, type ReadAloud } from '@/features/voice/useReadAloud'
 
 vi.mock('@capacitor/clipboard', () => ({
   Clipboard: { write: vi.fn(async () => {}) }
@@ -16,6 +19,22 @@ vi.mock('@capacitor/share', () => ({
 vi.mock('@capacitor/browser', () => ({
   Browser: { open: vi.fn(async () => {}) }
 }))
+vi.mock('@/features/voice/useReadAloud', () => ({ useReadAloud: vi.fn() }))
+
+const reader = vi.hoisted(() => ({
+  state: 'idle',
+  toggle: vi.fn(),
+  read: vi.fn()
+}))
+
+beforeEach(() => {
+  reader.state = 'idle'
+  reader.toggle.mockClear()
+  reader.read.mockClear()
+  vi.mocked(useReadAloud)
+    .mockReset()
+    .mockReturnValue(reader as ReadAloud)
+})
 
 type Part = UIMessage['parts'][number]
 
@@ -270,5 +289,110 @@ describe('AssistantTurn', () => {
     const turn = container.firstElementChild as HTMLElement
     expect(turn.style.contentVisibility).toBe('auto')
     expect(turn.style.containIntrinsicSize).toBe('auto 600px')
+  })
+})
+
+describe('AssistantTurn read-aloud', () => {
+  const gist = (value: string) =>
+    ({ type: 'data-spokenGist', data: { text: value } }) as Part
+  const withGist = assistant([text(ANSWER), gist('The fact.')])
+
+  it('reads aloud the message it shows, from the speaker button', () => {
+    renderTurn()
+    expect(useReadAloud).toHaveBeenCalledWith('a1')
+    fireEvent.click(screen.getByRole('button', { name: 'Read aloud' }))
+    expect(reader.toggle).toHaveBeenCalledWith(
+      `${ANSWER}\n\n${relatedFence(['Why?', 'How?'])}`
+    )
+  })
+
+  it('reads the spoken answer of a fresh turn aloud, once', () => {
+    const { rerender } = renderTurn({ message: withGist, autoRead: true })
+    expect(reader.read).toHaveBeenCalledExactlyOnceWith('The fact.')
+
+    rerender(
+      <AssistantTurn
+        message={{ ...withGist }}
+        streaming={false}
+        isLatest
+        question="Q"
+        onAsk={vi.fn()}
+        onRetry={vi.fn()}
+        baseUrl={BASE}
+        autoRead
+      />
+    )
+    expect(reader.read).toHaveBeenCalledTimes(1)
+  })
+
+  it('reads nothing by itself for an answer that is not fresh', () => {
+    renderTurn({ message: withGist })
+    expect(reader.read).not.toHaveBeenCalled()
+  })
+
+  it('reads a fresh answer once its spoken answer arrives', () => {
+    const props = {
+      streaming: false,
+      isLatest: true,
+      question: 'Q',
+      onAsk: vi.fn(),
+      onRetry: vi.fn(),
+      baseUrl: BASE,
+      autoRead: true
+    }
+    const { rerender } = render(
+      <AssistantTurn message={assistant([text(ANSWER)])} {...props} />
+    )
+    expect(reader.read).not.toHaveBeenCalled()
+    rerender(<AssistantTurn message={withGist} {...props} />)
+    expect(reader.read).toHaveBeenCalledExactlyOnceWith('The fact.')
+  })
+
+  it('ignores a spoken answer without text', () => {
+    renderTurn({
+      message: assistant([
+        text(ANSWER),
+        { type: 'data-spokenGist', data: {} } as Part
+      ]),
+      autoRead: true
+    })
+    expect(reader.read).not.toHaveBeenCalled()
+  })
+
+  it('never reads an answer that became fresh while its screen was hidden', async () => {
+    let makeFresh!: () => void
+    function Turn() {
+      const [fresh, setFresh] = useState(false)
+      makeFresh = () => setFresh(true)
+      return (
+        <AssistantTurn
+          message={withGist}
+          streaming={false}
+          isLatest
+          question="Q"
+          onAsk={vi.fn()}
+          onRetry={vi.fn()}
+          baseUrl={BASE}
+          autoRead={fresh}
+        />
+      )
+    }
+    render(
+      <Tabs
+        tabs={[
+          { id: 'ask', label: 'Ask', icon: <svg />, render: () => <Turn /> },
+          {
+            id: 'library',
+            label: 'Library',
+            icon: <svg />,
+            render: () => <p>Library</p>
+          }
+        ]}
+      />
+    )
+    fireEvent.click(screen.getByRole('tab', { name: 'Library' }))
+    act(() => makeFresh())
+    fireEvent.click(screen.getByRole('tab', { name: 'Ask' }))
+    expect(reader.read).not.toHaveBeenCalled()
   })
 })

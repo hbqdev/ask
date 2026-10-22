@@ -1,7 +1,9 @@
 // One chat: a header (back, title, sources, and the chat menu once the chat
 // is saved), the turns, and a composer for follow-ups. The list follows the
 // answer as it streams unless the user has scrolled up to read, when "Jump to
-// latest" brings them back.
+// latest" brings them back. Its answers are read aloud only while it is shown:
+// leaving it (another tab, a screen pushed over it, going back) or the app
+// going to the background stops the reading.
 
 import type { UIMessage } from 'ai'
 import {
@@ -13,10 +15,11 @@ import {
   useState
 } from 'react'
 
+import { useTabActive } from '@/app/Tabs'
 import { useApi } from '@/core/api/ApiProvider'
 import { useAuth } from '@/core/auth/AuthProvider'
 import { newId } from '@/core/ids'
-import { useStack, type Stack } from '@/core/nav/stack'
+import { useScreenActive, useStack, type Stack } from '@/core/nav/stack'
 import { Composer } from '@/features/compose/Composer'
 import { useSharedSearchSettings } from '@/features/compose/SearchSettingsProvider'
 import type { FilePart } from '@/features/thread/chat-body'
@@ -31,6 +34,7 @@ import type { ChatErrorView } from '@/features/thread/model/chat-errors'
 import { listSources } from '@/features/thread/model/citations'
 import { ThreadMenu } from '@/features/thread/ThreadMenu'
 import { useThread } from '@/features/thread/useThread'
+import { useStopReadingOnLeave } from '@/features/voice/useReadAloud'
 import { isTurnStreaming } from '@/lib/render/message-parts'
 
 /** How far above the bottom the user may be and still be followed. */
@@ -195,6 +199,13 @@ export function ThreadScreen({
   const thread = useThread({ chatId, isNew, settings })
   const { messages, status, send } = thread
   const busy = status === 'submitted' || status === 'streaming'
+
+  // Readings of this chat's answers stop when the screen is left.
+  const tabShown = useTabActive()
+  const screenShown = useScreenActive()
+  useStopReadingOnLeave(tabShown && screenShown, owner =>
+    messages.some(m => m.id === owner)
+  )
 
   // The answer renderer is a separate chunk: fetch it while the question is
   // on its way, so the first answer renders at once. A failed preload is
@@ -363,6 +374,7 @@ export function ThreadScreen({
                       onAsk={send}
                       onRetry={thread.retry}
                       baseUrl={baseUrl}
+                      autoRead={message.id === thread.freshAnswerId}
                     />
                   )
                 })}

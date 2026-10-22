@@ -115,6 +115,7 @@ describe('SettingsScreen', () => {
     ).toEqual([
       'Account',
       'Answers',
+      'Voice',
       'Personalization',
       'Appearance',
       'Data',

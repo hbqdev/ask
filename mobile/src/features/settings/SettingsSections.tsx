@@ -1,4 +1,4 @@
-// The Settings tab's sections, top to bottom: Account, Answers,
+// The Settings tab's sections, top to bottom: Account, Answers, Voice,
 // Personalization, Appearance, Data and About.
 
 import { App } from '@capacitor/app'
@@ -8,6 +8,7 @@ import { useTabActive } from '@/app/Tabs'
 import { useApi } from '@/core/api/ApiProvider'
 import { useAuth } from '@/core/auth/AuthProvider'
 import { emitChatsChanged } from '@/core/chats-events'
+import { haptic } from '@/core/haptics'
 import type { ThemePref } from '@/core/theme'
 import { useTheme } from '@/core/ThemeProvider'
 import { ConfirmSheet } from '@/core/ui/ConfirmSheet'
@@ -25,6 +26,12 @@ import {
   normalizeCustomInstructions,
   saveCustomInstructions
 } from '@/features/settings/custom-instructions'
+import {
+  useReadAloud,
+  useStopReadingOnLeave
+} from '@/features/voice/useReadAloud'
+import { useVoiceSettings } from '@/features/voice/voice-settings'
+import { TTS_SPEEDS, TTS_VOICES } from '@/lib/voice/voices'
 
 export const INSTRUCTIONS_SAVE_ERROR = 'Couldn’t save. Try again.'
 export const DELETE_ALL_ERROR = 'Couldn’t delete your chats. Try again.'
@@ -92,6 +99,180 @@ export function AnswersSection() {
       <SearchModeField settings={settings} onSettings={setSettings} />
       <SourcesField settings={settings} onSettings={setSettings} />
       <ModelPicker />
+    </section>
+  )
+}
+
+// --- Voice ------------------------------------------------------------------
+
+/** What "Play sample" reads, in the chosen voice and speed. */
+export const VOICE_SAMPLE_TEXT =
+  'Hi, I’m Ask. This is how your answers will sound when I read them aloud.'
+
+/** The sample's reading, apart from any message's. */
+const SAMPLE_OWNER = 'voice-sample'
+const ownsSample = (owner: string) => owner === SAMPLE_OWNER
+
+const SAMPLE_LABELS = {
+  idle: 'Play sample',
+  error: 'Play sample',
+  loading: 'Loading sample',
+  playing: 'Stop sample'
+} as const
+
+function Check() {
+  return (
+    <svg
+      aria-hidden="true"
+      viewBox="0 0 24 24"
+      className="size-5 shrink-0 text-mark-blue"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth={2.5}
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    >
+      <path d="M5 12.5l4.5 4.5L19 7.5" />
+    </svg>
+  )
+}
+
+/**
+ * How answers are read aloud: auto-read, the voice, the speed, and a sample
+ * to hear them. Each change is saved at once and applies to the next
+ * reading; leaving the tab stops the sample.
+ */
+export function VoiceSection() {
+  const [settings, setSettings] = useVoiceSettings()
+  const sample = useReadAloud(SAMPLE_OWNER)
+  useStopReadingOnLeave(useTabActive(), ownsSample)
+  const autoReadLabel = useId()
+  const voiceLabel = useId()
+  const speedLabel = useId()
+
+  const pickVoice = (voice: string) => {
+    if (voice === settings.voice) return
+    haptic('selection')
+    setSettings({ ...settings, voice })
+  }
+  const pickSpeed = (speed: number) => {
+    if (speed === settings.speed) return
+    haptic('selection')
+    setSettings({ ...settings, speed })
+  }
+
+  return (
+    <section className="flex flex-col gap-5">
+      <h2 className={`${SECTION_TITLE} pb-0`}>Voice</h2>
+      <div>
+        <button
+          type="button"
+          role="switch"
+          aria-checked={settings.autoRead}
+          aria-labelledby={autoReadLabel}
+          onClick={() => {
+            haptic('selection')
+            setSettings({ ...settings, autoRead: !settings.autoRead })
+          }}
+          className={`${GROUP} flex min-h-12 w-full touch-manipulation items-center gap-3 px-4 text-left active:opacity-60`}
+        >
+          <span id={autoReadLabel} className="flex-1 text-base">
+            Read answers aloud
+          </span>
+          <span
+            aria-hidden="true"
+            className={`flex h-7 w-12 shrink-0 items-center rounded-full p-0.5 transition-colors ${
+              settings.autoRead ? 'bg-mark-blue' : 'bg-foreground/20'
+            }`}
+          >
+            <span
+              className={`size-6 rounded-full bg-white shadow-sm transition-transform ${
+                settings.autoRead ? 'translate-x-5' : ''
+              }`}
+            />
+          </span>
+        </button>
+        <p className={`${NOTE} text-foreground/50`}>
+          Reads each new answer aloud when it finishes.
+        </p>
+      </div>
+
+      <div>
+        <h3 id={voiceLabel} className={SECTION_TITLE}>
+          Voice
+        </h3>
+        <div
+          role="radiogroup"
+          aria-labelledby={voiceLabel}
+          className={`${GROUP} overflow-hidden`}
+        >
+          {TTS_VOICES.map(voice => {
+            const checked = voice.id === settings.voice
+            return (
+              <button
+                key={voice.id}
+                type="button"
+                role="radio"
+                aria-checked={checked}
+                onClick={() => pickVoice(voice.id)}
+                className="flex min-h-11 w-full touch-manipulation items-center gap-3 px-4 text-left text-base active:opacity-50"
+              >
+                <span className="min-w-0 flex-1 truncate">{voice.label}</span>
+                {checked && <Check />}
+              </button>
+            )
+          })}
+        </div>
+      </div>
+
+      <div>
+        <h3 id={speedLabel} className={SECTION_TITLE}>
+          Speed
+        </h3>
+        <div
+          role="radiogroup"
+          aria-labelledby={speedLabel}
+          className={`${GROUP} flex gap-1 p-1`}
+        >
+          {TTS_SPEEDS.map(speed => {
+            const value = Number(speed.value)
+            const checked = value === settings.speed
+            return (
+              <button
+                key={speed.value}
+                type="button"
+                role="radio"
+                aria-checked={checked}
+                aria-label={speed.label}
+                onClick={() => pickSpeed(value)}
+                className={`min-h-11 flex-1 touch-manipulation rounded-xl text-sm font-medium tabular-nums ${
+                  checked
+                    ? 'bg-background text-foreground shadow-sm'
+                    : 'text-foreground/60 active:opacity-50'
+                }`}
+              >
+                {speed.value}×
+              </button>
+            )
+          })}
+        </div>
+      </div>
+
+      <div>
+        <button
+          type="button"
+          aria-busy={sample.state === 'loading' || undefined}
+          onClick={() => sample.toggle(VOICE_SAMPLE_TEXT)}
+          className={ROW_BUTTON}
+        >
+          {SAMPLE_LABELS[sample.state]}
+        </button>
+        {sample.error && (
+          <p role="alert" className={`${NOTE} text-red-500`}>
+            {sample.error}
+          </p>
+        )}
+      </div>
     </section>
   )
 }

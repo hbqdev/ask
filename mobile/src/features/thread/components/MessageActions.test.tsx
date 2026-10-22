@@ -12,6 +12,7 @@ import {
   SHARE_ERROR
 } from '@/features/thread/components/MessageActions'
 import { listSources } from '@/features/thread/model/citations'
+import type { ReadAloud } from '@/features/voice/useReadAloud'
 import { extractCitationMaps } from '@/lib/utils/citation'
 
 vi.mock('@capacitor/clipboard', () => ({
@@ -54,7 +55,17 @@ const message = {
 const maps = extractCitationMaps(message)
 const sources = listSources(message)
 
-function actions(onRetry = vi.fn(), text = TEXT, list = sources) {
+/** A read-aloud in a given state, recording its taps. */
+function reader(state: ReadAloud['state'] = 'idle', error?: string): ReadAloud {
+  return { state, error, toggle: vi.fn(), read: vi.fn() }
+}
+
+function actions(
+  onRetry = vi.fn(),
+  text = TEXT,
+  list = sources,
+  readAloud = reader()
+) {
   render(
     <MessageActions
       text={text}
@@ -62,6 +73,7 @@ function actions(onRetry = vi.fn(), text = TEXT, list = sources) {
       question="What are the facts?"
       sources={list}
       onRetry={onRetry}
+      readAloud={readAloud}
     />
   )
   return onRetry
@@ -199,6 +211,7 @@ describe('MessageActions', () => {
         question="q"
         sources={sources}
         onRetry={() => {}}
+        readAloud={reader()}
       />
     )
     await act(async () => {
@@ -206,6 +219,58 @@ describe('MessageActions', () => {
     })
     unmount()
     expect(vi.getTimerCount()).toBe(0)
+  })
+})
+
+describe('MessageActions read-aloud', () => {
+  it('reads the answer aloud from the speaker button', () => {
+    const readAloud = reader()
+    actions(vi.fn(), TEXT, sources, readAloud)
+    fireEvent.click(screen.getByRole('button', { name: 'Read aloud' }))
+    expect(readAloud.toggle).toHaveBeenCalledExactlyOnceWith(TEXT)
+  })
+
+  it('shows a spinner while the audio loads, and a tap cancels', () => {
+    const readAloud = reader('loading')
+    actions(vi.fn(), TEXT, sources, readAloud)
+    const button = screen.getByRole('button', { name: 'Loading audio' })
+    expect(button).toHaveAttribute('aria-busy', 'true')
+    expect(button.querySelector('.animate-spin')).not.toBeNull()
+    fireEvent.click(button)
+    expect(readAloud.toggle).toHaveBeenCalledTimes(1)
+  })
+
+  it('is a stop button while reading', () => {
+    const readAloud = reader('playing')
+    actions(vi.fn(), TEXT, sources, readAloud)
+    fireEvent.click(screen.getByRole('button', { name: 'Stop reading' }))
+    expect(readAloud.toggle).toHaveBeenCalledTimes(1)
+    expect(
+      screen.queryByRole('button', { name: 'Read aloud' })
+    ).not.toBeInTheDocument()
+  })
+
+  it('has no speaker for a turn without answer text', () => {
+    actions(vi.fn(), '  ', sources, reader())
+    expect(
+      screen.queryByRole('button', { name: 'Read aloud' })
+    ).not.toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Retry' })).toBeInTheDocument()
+  })
+
+  it('shows why the answer could not be read', () => {
+    actions(
+      vi.fn(),
+      TEXT,
+      sources,
+      reader('error', 'Voice is unavailable right now')
+    )
+    expect(screen.getByRole('alert')).toHaveTextContent(
+      'Voice is unavailable right now'
+    )
+    expect(
+      screen.getByRole('button', { name: 'Read aloud' })
+    ).toBeInTheDocument()
   })
 })
 

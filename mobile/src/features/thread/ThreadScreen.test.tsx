@@ -10,7 +10,7 @@ import {
 import userEvent from '@testing-library/user-event'
 import { StrictMode, type ReactNode } from 'react'
 import { Share } from '@capacitor/share'
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { useApi, type Api } from '@/core/api/ApiProvider'
 import { useAuth, type Auth } from '@/core/auth/AuthProvider'
@@ -22,6 +22,8 @@ import { deleteChat, renameChat } from '@/features/library/library-api'
 import type { ChatErrorView } from '@/features/thread/model/chat-errors'
 import { openThread, ThreadScreen } from '@/features/thread/ThreadScreen'
 import { useThread, type ThreadSession } from '@/features/thread/useThread'
+import { playingOwner, stop as stopPlayer } from '@/features/voice/speech'
+import { installFakeAudio, objectUrls, resetFakeAudio } from '@/test/fake-audio'
 import { memoryStorage } from '@/test/memory-storage'
 import { resize } from '@/test/resize-observer'
 
@@ -957,5 +959,93 @@ describe('ThreadScreen', () => {
       view.update(more(3))
       expect(m.top()).toBe(1100)
     })
+  })
+})
+
+// --- Read-aloud ---------------------------------------------------------------
+
+describe('ThreadScreen read-aloud', () => {
+  const fetchMock = vi.fn<typeof fetch>()
+  const gist = { type: 'data-spokenGist', data: { text: 'The fact.' } } as Part
+  const FRESH = [
+    user('u1', 'What is the fact?'),
+    assistant('a1', '## Answer\n\nThe fact [1](#call_a).', [searchPart, gist])
+  ]
+
+  const speakTexts = () =>
+    fetchMock.mock.calls
+      .filter(([url]) => String(url) === `${BASE}/api/voice/speak`)
+      .map(([, init]) => JSON.parse(String(init?.body)).text as string)
+
+  beforeEach(() => {
+    vi.mocked(useApi).mockReturnValue({
+      baseUrl: BASE,
+      getToken: async () => 'tok'
+    } as unknown as Api)
+    installFakeAudio()
+    resetFakeAudio()
+    fetchMock.mockReset()
+    fetchMock.mockImplementation(
+      async () =>
+        new Response('mp3', { headers: { 'Content-Type': 'audio/mpeg' } })
+    )
+    vi.stubGlobal('fetch', fetchMock)
+  })
+
+  afterEach(() => {
+    stopPlayer()
+    vi.unstubAllGlobals()
+  })
+
+  it('reads the answer to the question just sent aloud', async () => {
+    renderScreen(session({ messages: FRESH, freshAnswerId: 'a1' }))
+    expect(
+      await screen.findByRole('button', { name: 'Stop reading' })
+    ).toBeInTheDocument()
+    expect(speakTexts()).toEqual(['The fact.'])
+    expect(playingOwner()).toBe('a1')
+  })
+
+  it('never reads a saved answer by itself', async () => {
+    renderScreen(session({ messages: FRESH }))
+    await act(async () => {})
+    expect(fetchMock).not.toHaveBeenCalled()
+  })
+
+  /** A saved chat opened over Home, reading its answer aloud. */
+  async function readingInStack() {
+    let stack!: ReturnType<typeof useStack>
+    function Grab() {
+      stack = useStack()
+      return null
+    }
+    vi.mocked(useThread).mockReturnValue(session({ messages: FRESH }))
+    render(
+      <SearchSettingsProvider storage={memoryStorage()}>
+        <StackProvider root={HOME}>
+          <Grab />
+          <StackView />
+        </StackProvider>
+      </SearchSettingsProvider>
+    )
+    act(() => openThread(stack.push, { chatId: 'saved-1' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Read aloud' }))
+    await screen.findByRole('button', { name: 'Stop reading' })
+    expect(playingOwner()).toBe('a1')
+    return stack
+  }
+
+  it('leaving the screen stops playback and revokes the URL', async () => {
+    const stack = await readingInStack()
+    act(() => stack.pop())
+    expect(playingOwner()).toBeNull()
+    expect(objectUrls.revoked).toEqual(objectUrls.made)
+  })
+
+  it('a screen pushed over it stops playback', async () => {
+    const stack = await readingInStack()
+    act(() => stack.push({ key: 'other', render: () => <p>Other</p> }))
+    expect(playingOwner()).toBeNull()
+    expect(objectUrls.revoked).toEqual(objectUrls.made)
   })
 })

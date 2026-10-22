@@ -1,7 +1,7 @@
 // The /api/chat request body, built as the web builds it (components/chat.tsx
-// prepareSendMessagesRequest; code map §1) plus the mobile's search settings
-// and custom instructions, except that isNewChat survives a first submit that
-// failed (see below). Never the conversation (the server loads it), a model
+// prepareSendMessagesRequest; code map §1) plus the mobile's search settings,
+// custom instructions and auto-read, except that isNewChat survives a first
+// submit that failed (see below). Never the conversation (the server loads it), a model
 // (signed-in users get their saved preference) or an analytics id.
 import type { FileUIPart, UIMessage } from 'ai'
 
@@ -57,6 +57,11 @@ export type ChatBodyInput = {
   settings: SearchSettings
   /** The user's custom instructions; sent only when there are some. */
   systemInstructions?: string
+  /**
+   * Auto-read is on: the server then streams the answer cleaned for speech
+   * (a data-spokenGist part, code map §7). Sent only when on.
+   */
+  voice?: boolean
 }
 
 export function buildChatBody({
@@ -66,7 +71,8 @@ export function buildChatBody({
   messages,
   isNewChat,
   settings,
-  systemInstructions
+  systemInstructions,
+  voice
 }: ChatBodyInput): Record<string, unknown> {
   const instructions = systemInstructions?.trim()
   const target =
@@ -95,6 +101,7 @@ export function buildChatBody({
       !messages.some(m => m.role === 'assistant'),
     searchMode: settings.searchMode,
     sources: settings.sources,
-    ...(instructions ? { systemInstructions: instructions } : {})
+    ...(instructions ? { systemInstructions: instructions } : {}),
+    ...(voice ? { voice: true } : {})
   }
 }
