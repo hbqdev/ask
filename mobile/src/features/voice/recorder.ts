@@ -89,7 +89,12 @@ export async function startRecording(): Promise<Recording> {
     release()
     onFinished?.()
   }
-  recorder.start()
+  try {
+    recorder.start()
+  } catch (error) {
+    release()
+    throw error
+  }
 
   return {
     level: () => (released ? 0 : meter.level()),

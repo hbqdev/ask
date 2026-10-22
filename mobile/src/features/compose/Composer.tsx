@@ -18,7 +18,9 @@ import {
   type RefObject
 } from 'react'
 
+import { useTabActive } from '@/app/Tabs'
 import { haptic } from '@/core/haptics'
+import { useScreenActive } from '@/core/nav/stack'
 import { Sheet } from '@/core/ui/Sheet'
 import { AttachmentChips } from '@/features/compose/AttachmentChips'
 import { OptionsSheet } from '@/features/compose/OptionsSheet'
@@ -131,19 +133,14 @@ export function Composer({
   const cameraInput = useRef<HTMLInputElement>(null)
   const fileInput = useRef<HTMLInputElement>(null)
 
-  useEffect(() => {
-    if (!draft) return
-    setText(draft.text)
-    field.current!.focus()
-  }, [draft])
-
   // Nothing goes while a file is still uploading or has failed.
   const sendable = !busy && !disabled && attachments.ready
   const canSend =
     sendable && (text.trim().length > 0 || attachments.items.length > 0)
 
-  const submit = (body: string) => {
-    haptic('light')
+  /** Sends; `tapped` is false for dictation, whose stop already tapped. */
+  const submit = (body: string, tapped = true) => {
+    if (tapped) haptic('light')
     onSend(body, attachments.parts())
     setText('')
     attachments.clear()
@@ -155,18 +152,40 @@ export function Composer({
 
   // The words go as soon as they are back, as the web's push-to-talk does,
   // with any files attached; when nothing can go yet they wait in the box.
+  // Dictation ends when this screen is left: another tab, or a screen pushed
+  // over it.
+  const tabShown = useTabActive()
+  const screenShown = useScreenActive()
   const dictation = useDictation({
     onText: words => {
-      const body = [text.trim(), words].filter(Boolean).join(' ')
-      if (sendable) submit(body)
-      else setText(body)
-    }
+      if (sendable) submit(words, false)
+      else setText(words)
+    },
+    active: tabShown && screenShown
   })
   const dictating =
     dictation.state === 'recording' || dictation.state === 'transcribing'
   const showMic =
     dictating ||
+    dictation.state === 'starting' ||
     (!busy && text.trim().length === 0 && attachments.items.length === 0)
+
+  // A draft (an ask:// link) ends any dictation, so a link is never merged
+  // into words that send themselves; it waits in the box, focused, once the
+  // box is back from under the recording.
+  const { cancel: cancelDictation } = dictation
+  const focusWhenShown = useRef(false)
+  useEffect(() => {
+    if (!draft) return
+    cancelDictation()
+    setText(draft.text)
+    focusWhenShown.current = true
+  }, [draft, cancelDictation])
+  useEffect(() => {
+    if (!focusWhenShown.current || dictating) return
+    focusWhenShown.current = false
+    field.current!.focus()
+  })
 
   // Fit the field to its text, up to six lines (again once it is back from
   // under the recording).

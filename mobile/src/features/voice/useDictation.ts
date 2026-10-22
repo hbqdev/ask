@@ -1,10 +1,15 @@
 // Dictation's state machine, as the web's push-to-talk (hooks/
 // use-voice-dictation.ts): start records, stop transcribes and hands the text
-// to onText, cancel throws the take away. A take stops itself at 120 s; one
-// under 0.6 s, or silent, is dropped without a request. A failure shows for
-// 4 s, then the mic is idle again. Leaving the screen stops the microphone and
-// abandons any transcription.
+// to onText, cancel throws the take (or its transcription) away. A take stops
+// itself at 120 s; one under 0.6 s, or silent, is dropped without a request.
+// A failure shows for 4 s, then the mic is idle again.
+//
+// Dictation belongs to the screen it started on. Tabs and stacked screens stay
+// mounted when left, so leaving it (`active` false), the app going to the
+// background, or unmounting all cancel: the microphone closes and any
+// transcription is abandoned, so nothing is sent from a screen out of sight.
 
+import { App } from '@capacitor/app'
 import { useCallback, useEffect, useRef, useState } from 'react'
 
 import { useApi } from '@/core/api/ApiProvider'
@@ -27,7 +32,13 @@ export const NOTHING_HEARD_MESSAGE = "Didn't catch that"
 /** getUserMedia's names for a refused microphone. */
 const REFUSALS = new Set(['NotAllowedError', 'SecurityError'])
 
-export type DictationState = 'idle' | 'recording' | 'transcribing' | 'error'
+export type DictationState =
+  | 'idle'
+  /** The microphone is opening (the permission prompt may be up). */
+  | 'starting'
+  | 'recording'
+  | 'transcribing'
+  | 'error'
 
 export type Dictation = {
   state: DictationState
@@ -35,11 +46,18 @@ export type Dictation = {
   error?: string
   start(): void
   stop(): void
+  /** Abandons whatever is under way: opening, recording or transcribing. */
   cancel(): void
   /** The input level now, 0 to 1, while recording. */
   level: number
   /** Whole seconds recorded so far. */
   seconds: number
+}
+
+export type DictationOptions = {
+  onText(text: string): void
+  /** Whether the screen holding the composer is shown; leaving it cancels. */
+  active?: boolean
 }
 
 type Take = {
@@ -55,28 +73,26 @@ const isRefusal = (error: unknown) =>
   REFUSALS.has((error as { name?: string }).name ?? '')
 
 export function useDictation({
-  onText
-}: {
-  onText(text: string): void
-}): Dictation {
+  onText,
+  active = true
+}: DictationOptions): Dictation {
   const { baseUrl, getToken } = useApi()
   const [state, setState] = useState<DictationState>('idle')
   const [error, setError] = useState<string>()
   const [level, setLevel] = useState(0)
   const [seconds, setSeconds] = useState(0)
 
-  const live = useRef({ onText, baseUrl, getToken })
+  const live = useRef({ onText, baseUrl, getToken, active })
   useEffect(() => {
-    live.current = { onText, baseUrl, getToken }
-  }, [onText, baseUrl, getToken])
+    live.current = { onText, baseUrl, getToken, active }
+  }, [onText, baseUrl, getToken, active])
 
   // The phase, read synchronously so double taps and late callbacks are safe.
-  const phase = useRef<'idle' | 'starting' | 'recording' | 'transcribing'>(
-    'idle'
-  )
-  // Bumped by a cancel or unmount, so a start still opening the mic gives up.
+  // A failure leaves it idle (the error is only shown).
+  const phase = useRef<Exclude<DictationState, 'error'>>('idle')
+  // Bumped by every cancel (and unmount): an await that finds it changed
+  // gives up, so a late microphone is closed and a late transcript dropped.
   const attempt = useRef(0)
-  const mounted = useRef(true)
   const take = useRef<Take | null>(null)
   const request = useRef<AbortController | null>(null)
   const errorTimer = useRef<ReturnType<typeof setTimeout>>(undefined)
@@ -102,9 +118,27 @@ export function useDictation({
     }, ERROR_VISIBLE_MS)
   }, [])
 
+  /** Abandons what is under way; nothing it started will send. */
+  const abandon = useCallback(() => {
+    attempt.current++
+    if (take.current) endTake().recording.cancel()
+    request.current?.abort()
+    request.current = null
+  }, [])
+
+  const cancel = useCallback(() => {
+    if (phase.current === 'idle') return
+    abandon()
+    phase.current = 'idle'
+    setLevel(0)
+    setSeconds(0)
+    setState('idle')
+  }, [abandon])
+
   const stop = useCallback(async () => {
     if (phase.current !== 'recording') return
     haptic('light')
+    const mine = attempt.current
     const { recording, startedAt } = endTake()
     setLevel(0)
 
@@ -118,7 +152,7 @@ export function useDictation({
     phase.current = 'transcribing'
     setState('transcribing')
     const audio = await recording.stop()
-    if (!mounted.current) return
+    if (attempt.current !== mine) return
     if (audio.size === 0) {
       phase.current = 'idle'
       setState('idle')
@@ -129,7 +163,7 @@ export function useDictation({
     request.current = controller
     try {
       const token = await live.current.getToken().catch(() => null)
-      if (controller.signal.aborted) return
+      if (attempt.current !== mine) return
       if (!token) return fail(SIGNED_OUT_MESSAGE)
       const text = await transcribe({
         baseUrl: live.current.baseUrl,
@@ -137,25 +171,26 @@ export function useDictation({
         audio,
         signal: controller.signal
       })
+      if (attempt.current !== mine) return
       if (!text) return fail(NOTHING_HEARD_MESSAGE)
       phase.current = 'idle'
       setState('idle')
       live.current.onText(text)
     } catch (e) {
-      if (controller.signal.aborted) return
+      if (attempt.current !== mine) return
       fail((e as Error).message)
     } finally {
-      request.current = null
+      if (request.current === controller) request.current = null
     }
   }, [fail])
 
   const start = useCallback(async () => {
-    if (phase.current !== 'idle') return
+    if (phase.current !== 'idle' || !live.current.active) return
     phase.current = 'starting'
     const mine = ++attempt.current
     clearTimeout(errorTimer.current)
     setError(undefined)
-    setState('idle')
+    setState('starting')
     haptic('medium')
 
     let recording: Recording
@@ -166,7 +201,7 @@ export function useDictation({
       fail(isRefusal(e) ? PERMISSION_MESSAGE : MIC_FAILED_MESSAGE)
       return
     }
-    // Cancelled, or the screen left, while the microphone was opening.
+    // Cancelled, left, or unmounted while the microphone was opening.
     if (attempt.current !== mine) return recording.cancel()
 
     phase.current = 'recording'
@@ -185,30 +220,32 @@ export function useDictation({
     setState('recording')
   }, [fail, stop])
 
-  const cancel = useCallback(() => {
-    if (phase.current === 'starting') {
-      attempt.current++
-      phase.current = 'idle'
-      return
-    }
-    if (phase.current !== 'recording') return
-    endTake().recording.cancel()
-    phase.current = 'idle'
-    setLevel(0)
-    setSeconds(0)
-    setState('idle')
-  }, [])
-
+  // Leaving the screen (another tab, or a screen pushed over it) cancels.
   useEffect(() => {
-    mounted.current = true
+    if (!active) cancel()
+  }, [active, cancel])
+
+  // So does the app going to the background. Not while the microphone opens:
+  // iOS's first-use permission alert makes the app inactive too.
+  useEffect(() => {
+    const handle = App.addListener('appStateChange', ({ isActive }) => {
+      if (isActive) return
+      if (phase.current === 'recording' || phase.current === 'transcribing') {
+        cancel()
+      }
+    })
     return () => {
-      mounted.current = false
-      attempt.current++
-      if (take.current) endTake().recording.cancel()
-      request.current?.abort()
-      clearTimeout(errorTimer.current)
+      void handle.then(h => h.remove())
     }
-  }, [])
+  }, [cancel])
+
+  useEffect(
+    () => () => {
+      abandon()
+      clearTimeout(errorTimer.current)
+    },
+    [abandon]
+  )
 
   return {
     state,

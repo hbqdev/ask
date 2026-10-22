@@ -1,6 +1,8 @@
 // Dictation's controls in the composer. MicButton sits where Send does while
-// the box is empty: tap to record; while recording it is a stop button inside
-// a ring that swells with the voice; while transcribing it rests. DictationBar
+// the box is empty: tap to record; while the microphone opens (the permission
+// prompt may be up) a ring pulses and a tap gives up; while recording it is a
+// stop button inside a ring that swells with the voice; while transcribing it
+// rests. DictationBar
 // takes the text field's place meanwhile: a cancel, a pulsing dot and the
 // time recorded, then a spinner while the words come back.
 
@@ -101,6 +103,27 @@ export function MicButton({ dictation }: { dictation: Dictation }) {
           className={`relative bg-red-500 text-white active:opacity-50 ${ROUND_BUTTON}`}
         >
           <StopSquare />
+        </button>
+      </span>
+    )
+  }
+
+  if (state === 'starting') {
+    return (
+      <span className="relative flex size-9 shrink-0">
+        <span
+          aria-hidden="true"
+          data-testid="starting-ring"
+          className="absolute -inset-1 rounded-full border-2 border-red-500/60 motion-safe:animate-pulse"
+        />
+        <button
+          type="button"
+          aria-label="Starting microphone"
+          aria-busy="true"
+          onClick={dictation.cancel}
+          className={`relative bg-foreground text-background opacity-60 active:opacity-40 ${ROUND_BUTTON}`}
+        >
+          <MicIcon />
         </button>
       </span>
     )

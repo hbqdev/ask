@@ -21,6 +21,7 @@ class FakeRecorder {
   static supported = new Set(['audio/mp4', 'audio/webm'])
   static last: FakeRecorder | undefined
   static throwOnCreate = false
+  static throwOnStart = false
   static isTypeSupported(type: string) {
     return FakeRecorder.supported.has(type)
   }
@@ -41,6 +42,7 @@ class FakeRecorder {
     FakeRecorder.last = this
   }
   start() {
+    if (FakeRecorder.throwOnStart) throw new Error('cannot start')
     this.state = 'recording'
   }
   stop() {
@@ -106,6 +108,7 @@ beforeEach(() => {
   FakeRecorder.supported = new Set(['audio/mp4', 'audio/webm'])
   FakeRecorder.last = undefined
   FakeRecorder.throwOnCreate = false
+  FakeRecorder.throwOnStart = false
   FakeAudioContext.last = undefined
   FakeAudioContext.throwOnCreate = false
   FakeAudioContext.sample = 0
@@ -168,6 +171,13 @@ describe('startRecording', () => {
     FakeRecorder.throwOnCreate = true
     await expect(startRecording()).rejects.toThrow('not supported')
     expect(allStopped()).toBe(true)
+  })
+
+  it('stops the tracks and closes the meter when the recorder cannot start', async () => {
+    FakeRecorder.throwOnStart = true
+    await expect(startRecording()).rejects.toThrow('cannot start')
+    expect(allStopped()).toBe(true)
+    expect(FakeAudioContext.last!.closed).toBe(1)
   })
 
   it('tracks are stopped after recording: stop gives the audio in its type', async () => {

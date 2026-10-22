@@ -20,6 +20,28 @@ vi.mock('@/core/api/ApiProvider', () => ({ useApi: vi.fn() }))
 vi.mock('@/features/voice/recorder', () => ({ startRecording: vi.fn() }))
 vi.mock('@/features/voice/transcribe', () => ({ transcribe: vi.fn() }))
 
+type AppStateListener = (state: { isActive: boolean }) => void
+const app = vi.hoisted(() => ({
+  listeners: [] as Array<(state: { isActive: boolean }) => void>
+}))
+vi.mock('@capacitor/app', () => ({
+  App: {
+    addListener: vi.fn(async (_event: string, listener: AppStateListener) => {
+      app.listeners.push(listener)
+      return {
+        remove: async () => {
+          const i = app.listeners.indexOf(listener)
+          if (i >= 0) app.listeners.splice(i, 1)
+        }
+      }
+    })
+  }
+}))
+
+/** The app going to the background (false) or coming back (true). */
+const appActive = (isActive: boolean) =>
+  act(async () => app.listeners.forEach(l => l({ isActive })))
+
 const BASE = 'https://ask.test.invalid'
 const getToken = vi.fn<() => Promise<string | null>>()
 
@@ -46,6 +68,7 @@ function fakeRecording(audio: Blob = voice) {
 let recording: ReturnType<typeof fakeRecording>
 
 beforeEach(() => {
+  app.listeners.length = 0
   vi.useFakeTimers()
   vi.mocked(haptic).mockClear()
   getToken.mockReset()
@@ -69,9 +92,11 @@ afterEach(() => {
 function setup() {
   const onText = vi.fn()
   const hook = renderHook(props => useDictation(props), {
-    initialProps: { onText }
+    initialProps: { onText, active: true }
   })
-  return { ...hook, onText }
+  /** The screen being left (false) or shown again (true). */
+  const setActive = (active: boolean) => hook.rerender({ onText, active })
+  return { ...hook, onText, setActive }
 }
 
 const flush = () => act(async () => {})
@@ -276,11 +301,25 @@ describe('useDictation', () => {
     vi.mocked(startRecording).mockReturnValueOnce(opening.promise)
     const { result } = setup()
     act(() => result.current.start())
+    expect(result.current.state).toBe('starting')
     act(() => result.current.cancel())
+    expect(result.current.state).toBe('idle')
     await act(async () => opening.resolve(recording))
 
     expect(recording.cancel).toHaveBeenCalledTimes(1)
     expect(result.current.state).toBe('idle')
+  })
+
+  it('shows that the microphone is opening until it records', async () => {
+    const opening = deferred<Recording>()
+    vi.mocked(startRecording).mockReturnValueOnce(opening.promise)
+    const { result } = setup()
+    act(() => result.current.start())
+    expect(result.current.state).toBe('starting')
+    expect(haptic).toHaveBeenCalledExactlyOnceWith('medium')
+
+    await act(async () => opening.resolve(recording))
+    expect(result.current.state).toBe('recording')
   })
 
   it('ignores a second start, and stop or cancel with nothing recording', async () => {
@@ -300,15 +339,14 @@ describe('useDictation', () => {
     expect(startRecording).toHaveBeenCalledTimes(1)
   })
 
-  it('ignores stop, cancel and start while transcribing', async () => {
+  it('ignores stop and start while transcribing', async () => {
     const pending = deferred<string>()
     vi.mocked(transcribe).mockReturnValueOnce(pending.promise)
-    const { result } = setup()
+    const { result, onText } = setup()
     await startIt(result)
     await advance(1_000)
     await stopIt(result)
     await stopIt(result)
-    act(() => result.current.cancel())
     await startIt(result)
 
     expect(result.current.state).toBe('transcribing')
@@ -316,6 +354,31 @@ describe('useDictation', () => {
     expect(startRecording).toHaveBeenCalledTimes(1)
     await act(async () => pending.resolve('done'))
     expect(result.current.state).toBe('idle')
+    expect(onText).toHaveBeenCalledExactlyOnceWith('done')
+  })
+
+  it('cancel while transcribing abandons it: nothing is handed over', async () => {
+    const pending = deferred<string>()
+    vi.mocked(transcribe).mockReturnValueOnce(pending.promise)
+    const { result, onText } = setup()
+    await startIt(result)
+    await advance(1_000)
+    await stopIt(result)
+    const { signal } = vi.mocked(transcribe).mock.calls[0][0] as {
+      signal: AbortSignal
+    }
+
+    act(() => result.current.cancel())
+    expect(signal.aborted).toBe(true)
+    expect(result.current.state).toBe('idle')
+
+    // A late answer is dropped, and the mic is free again.
+    await act(async () => pending.resolve('too late'))
+    expect(onText).not.toHaveBeenCalled()
+    expect(result.current.state).toBe('idle')
+    expect(haptic).not.toHaveBeenCalledWith('error')
+    await startIt(result)
+    expect(result.current.state).toBe('recording')
   })
 
   it('a new recording after an error clears it and outlives its timer', async () => {
@@ -338,7 +401,7 @@ describe('useDictation', () => {
     const { result, rerender, onText } = setup()
     const later = vi.fn()
     await startIt(result)
-    rerender({ onText: later })
+    rerender({ onText: later, active: true })
     await advance(1_000)
     await stopIt(result)
 
@@ -420,5 +483,123 @@ describe('useDictation', () => {
     expect(onText).not.toHaveBeenCalled()
     expect(haptic).not.toHaveBeenCalledWith('error')
     await flush()
+  })
+
+  describe('leaving the screen or the app', () => {
+    it('leaving the screen mid-recording stops the mic and sends nothing', async () => {
+      const { result, setActive, onText } = setup()
+      await startIt(result)
+      await advance(2_000)
+      setActive(false)
+
+      expect(recording.cancel).toHaveBeenCalledTimes(1)
+      expect(result.current.state).toBe('idle')
+      await advance(MAX_RECORDING_MS)
+      expect(recording.stop).not.toHaveBeenCalled()
+      expect(transcribe).not.toHaveBeenCalled()
+      expect(onText).not.toHaveBeenCalled()
+
+      setActive(true)
+      expect(result.current.state).toBe('idle')
+    })
+
+    it('leaving the screen mid-transcription aborts it and drops the text', async () => {
+      const pending = deferred<string>()
+      vi.mocked(transcribe).mockReturnValueOnce(pending.promise)
+      const { result, setActive, onText } = setup()
+      await startIt(result)
+      await advance(1_000)
+      await stopIt(result)
+      const { signal } = vi.mocked(transcribe).mock.calls[0][0] as {
+        signal: AbortSignal
+      }
+      setActive(false)
+      expect(signal.aborted).toBe(true)
+      expect(result.current.state).toBe('idle')
+
+      await act(async () => pending.resolve('why is the sky blue'))
+      expect(onText).not.toHaveBeenCalled()
+    })
+
+    it('leaving the screen while the audio is gathered sends nothing', async () => {
+      const gathered = deferred<Blob>()
+      recording.stop.mockReturnValueOnce(gathered.promise)
+      const { result, setActive } = setup()
+      await startIt(result)
+      await advance(1_000)
+      await stopIt(result)
+      setActive(false)
+      await act(async () => gathered.resolve(voice))
+      expect(getToken).not.toHaveBeenCalled()
+      expect(transcribe).not.toHaveBeenCalled()
+      expect(result.current.state).toBe('idle')
+    })
+
+    it('leaving the screen while the mic opens closes it once ready', async () => {
+      const opening = deferred<Recording>()
+      vi.mocked(startRecording).mockReturnValueOnce(opening.promise)
+      const { result, setActive } = setup()
+      act(() => result.current.start())
+      setActive(false)
+      await act(async () => opening.resolve(recording))
+      expect(recording.cancel).toHaveBeenCalledTimes(1)
+      expect(result.current.state).toBe('idle')
+    })
+
+    it('a screen that is not shown cannot start', async () => {
+      const { result, setActive } = setup()
+      setActive(false)
+      await startIt(result)
+      expect(startRecording).not.toHaveBeenCalled()
+      expect(result.current.state).toBe('idle')
+    })
+
+    it('the app going to the background mid-recording stops the mic', async () => {
+      const { result, onText } = setup()
+      await startIt(result)
+      await advance(2_000)
+      await appActive(false)
+
+      expect(recording.cancel).toHaveBeenCalledTimes(1)
+      expect(result.current.state).toBe('idle')
+      await appActive(true)
+      await advance(MAX_RECORDING_MS)
+      expect(transcribe).not.toHaveBeenCalled()
+      expect(onText).not.toHaveBeenCalled()
+    })
+
+    it('the app going to the background mid-transcription drops the text', async () => {
+      const pending = deferred<string>()
+      vi.mocked(transcribe).mockReturnValueOnce(pending.promise)
+      const { result, onText } = setup()
+      await startIt(result)
+      await advance(1_000)
+      await stopIt(result)
+      await appActive(false)
+      await act(async () => pending.resolve('why is the sky blue'))
+      expect(onText).not.toHaveBeenCalled()
+      expect(result.current.state).toBe('idle')
+    })
+
+    it('the permission prompt (the app inactive while the mic opens) does not stop it', async () => {
+      const opening = deferred<Recording>()
+      vi.mocked(startRecording).mockReturnValueOnce(opening.promise)
+      const { result } = setup()
+      act(() => result.current.start())
+      await appActive(false)
+      await appActive(true)
+      await act(async () => opening.resolve(recording))
+      expect(result.current.state).toBe('recording')
+      expect(recording.cancel).not.toHaveBeenCalled()
+    })
+
+    it('stops listening to the app when unmounted', async () => {
+      const { unmount } = setup()
+      await flush()
+      expect(app.listeners).toHaveLength(1)
+      unmount()
+      await flush()
+      expect(app.listeners).toHaveLength(0)
+    })
   })
 })

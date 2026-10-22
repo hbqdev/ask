@@ -68,6 +68,20 @@ describe('MicButton', () => {
     expect(d.start).not.toHaveBeenCalled()
   })
 
+  it('shows a pending ring while the microphone opens; a tap cancels', async () => {
+    const user = userEvent.setup()
+    const d = dictation({ state: 'starting' })
+    render(<MicButton dictation={d} />)
+    expect(screen.getByTestId('starting-ring')).toBeInTheDocument()
+    expect(screen.queryByTestId('level-ring')).not.toBeInTheDocument()
+
+    await user.click(
+      screen.getByRole('button', { name: 'Starting microphone' })
+    )
+    expect(d.cancel).toHaveBeenCalledTimes(1)
+    expect(d.start).not.toHaveBeenCalled()
+  })
+
   it('cannot be tapped while transcribing', () => {
     render(<MicButton dictation={dictation({ state: 'transcribing' })} />)
     expect(screen.getByRole('button', { name: 'Transcribing' })).toBeDisabled()
@@ -82,6 +96,8 @@ describe('DictationBar', () => {
     )
     expect(container).toBeEmptyDOMElement()
     rerender(<DictationBar dictation={dictation({ state: 'error' })} />)
+    expect(container).toBeEmptyDOMElement()
+    rerender(<DictationBar dictation={dictation({ state: 'starting' })} />)
     expect(container).toBeEmptyDOMElement()
   })
 

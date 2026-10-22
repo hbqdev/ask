@@ -106,6 +106,17 @@ export function StackProvider({
   return <StackContext.Provider value={value}>{children}</StackContext.Provider>
 }
 
+const ScreenActiveContext = createContext(true)
+
+/**
+ * Whether this screen is the top of its stack, the one shown (true outside a
+ * stack). Covered screens stay mounted, so this is how their content knows it
+ * was covered or shown again.
+ */
+export function useScreenActive(): boolean {
+  return useContext(ScreenActiveContext)
+}
+
 export function useStack(): Stack {
   const stack = useContext(StackContext)
   if (!stack) throw new Error('useStack must be used inside a StackProvider')
@@ -227,7 +238,9 @@ export function StackView() {
             onTransitionEnd={isLeaving ? onLeaveEnd : undefined}
             {...(isTop && topIndex > 0 ? swipe : undefined)}
           >
-            <ScreenContent entry={entry} />
+            <ScreenActiveContext.Provider value={isTop}>
+              <ScreenContent entry={entry} />
+            </ScreenActiveContext.Provider>
           </div>
         )
       })}

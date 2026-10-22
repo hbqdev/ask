@@ -12,9 +12,11 @@ import {
 import userEvent from '@testing-library/user-event'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
+import { Tabs } from '@/app/Tabs'
 import { useApi, type Api } from '@/core/api/ApiProvider'
 import { ApiError } from '@/core/api/errors'
 import { haptic } from '@/core/haptics'
+import { StackProvider, StackView, useStack } from '@/core/nav/stack'
 import {
   Composer,
   COMPOSER_MAX_HEIGHT_PX,
@@ -52,6 +54,24 @@ vi.mock('@/core/api/ApiProvider', () => ({ useApi: vi.fn() }))
 vi.mock('@/features/compose/upload', () => ({ uploadFile: vi.fn() }))
 vi.mock('@/features/voice/recorder', () => ({ startRecording: vi.fn() }))
 vi.mock('@/features/voice/transcribe', () => ({ transcribe: vi.fn() }))
+
+type AppStateListener = (state: { isActive: boolean }) => void
+const app = vi.hoisted(() => ({
+  listeners: [] as Array<(state: { isActive: boolean }) => void>
+}))
+vi.mock('@capacitor/app', () => ({
+  App: {
+    addListener: vi.fn(async (_event: string, listener: AppStateListener) => {
+      app.listeners.push(listener)
+      return {
+        remove: async () => {
+          const i = app.listeners.indexOf(listener)
+          if (i >= 0) app.listeners.splice(i, 1)
+        }
+      }
+    })
+  }
+}))
 
 const uploaded = (name: string): UploadResult => ({
   url: `https://ask.test.invalid/uploads/u1/chats/c1/1-${name}`,
@@ -583,6 +603,27 @@ describe('Composer dictation', () => {
     const input = screen.getByRole('textbox', { name: 'Ask anything' })
     expect(input).toHaveValue('')
     expect(micButton()).toBeInTheDocument()
+    // One tap at the start and one at the stop; the send adds none.
+    expect(vi.mocked(haptic).mock.calls).toEqual([['medium'], ['light']])
+  })
+
+  it('shows the mic opening while the permission prompt is up', async () => {
+    const user = userEvent.setup()
+    let open!: (recording: Recording) => void
+    vi.mocked(startRecording).mockReturnValueOnce(
+      new Promise(resolve => (open = resolve))
+    )
+    setup()
+    await user.click(micButton())
+    expect(
+      screen.getByRole('button', { name: 'Starting microphone' })
+    ).toBeInTheDocument()
+    expect(screen.getByTestId('starting-ring')).toBeInTheDocument()
+
+    await act(async () => open(recording as Recording))
+    expect(
+      screen.getByRole('button', { name: 'Stop recording' })
+    ).toBeInTheDocument()
   })
 
   it('sends the text with files attached while recording', async () => {
@@ -648,5 +689,183 @@ describe('Composer dictation', () => {
     setup({ busy: true })
     expect(micQuery()).not.toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Stop' })).toBeInTheDocument()
+  })
+
+  describe('leaving mid-dictation', () => {
+    beforeEach(() => {
+      app.listeners.length = 0
+    })
+
+    function inTabs() {
+      const onSend = vi.fn()
+      render(
+        <Tabs
+          tabs={[
+            {
+              id: 'ask',
+              label: 'Ask',
+              icon: <svg />,
+              render: () => (
+                <Composer
+                  placeholder="Ask anything"
+                  busy={false}
+                  onSend={onSend}
+                  settings={BALANCED}
+                  onSettings={vi.fn()}
+                />
+              )
+            },
+            {
+              id: 'library',
+              label: 'Library',
+              icon: <svg />,
+              render: () => <p>Your library</p>
+            }
+          ]}
+        />
+      )
+      const tab = (name: string) => screen.getByRole('tab', { name })
+      return { onSend, tab }
+    }
+
+    it('a tab switch mid-recording stops the mic and sends nothing', async () => {
+      const user = userEvent.setup()
+      const { onSend, tab } = inTabs()
+      await record(user)
+      await user.click(tab('Library'))
+
+      expect(recording.cancel).toHaveBeenCalledTimes(1)
+      await user.click(tab('Ask'))
+      expect(micButton()).toBeInTheDocument()
+      expect(screen.getByRole('textbox', { name: 'Ask anything' })).toHaveValue(
+        ''
+      )
+      expect(transcribe).not.toHaveBeenCalled()
+      expect(onSend).not.toHaveBeenCalled()
+    })
+
+    it('a tab switch mid-transcription drops the text', async () => {
+      const user = userEvent.setup()
+      let finish!: (text: string) => void
+      vi.mocked(transcribe).mockReturnValueOnce(
+        new Promise(resolve => (finish = resolve))
+      )
+      const { onSend, tab } = inTabs()
+      const stop = await record(user)
+      speak()
+      await user.click(stop)
+      await screen.findByText('Transcribing…')
+      const { signal } = vi.mocked(transcribe).mock.calls[0][0] as {
+        signal: AbortSignal
+      }
+
+      await user.click(tab('Library'))
+      expect(signal.aborted).toBe(true)
+      await act(async () => finish('why is the sky blue'))
+      await user.click(tab('Ask'))
+
+      expect(onSend).not.toHaveBeenCalled()
+      expect(screen.getByRole('textbox', { name: 'Ask anything' })).toHaveValue(
+        ''
+      )
+      expect(micButton()).toBeInTheDocument()
+    })
+
+    it('a screen pushed over it mid-recording stops the mic', async () => {
+      const user = userEvent.setup()
+      const onSend = vi.fn()
+      let stack!: ReturnType<typeof useStack>
+      function Grab() {
+        stack = useStack()
+        return null
+      }
+      render(
+        <StackProvider
+          root={{
+            key: 'home',
+            render: () => (
+              <Composer
+                placeholder="Ask anything"
+                busy={false}
+                onSend={onSend}
+                settings={BALANCED}
+                onSettings={vi.fn()}
+              />
+            )
+          }}
+        >
+          <Grab />
+          <StackView />
+        </StackProvider>
+      )
+      await record(user)
+      act(() => stack.push({ key: 'thread', render: () => <p>Thread</p> }))
+
+      expect(recording.cancel).toHaveBeenCalledTimes(1)
+      expect(onSend).not.toHaveBeenCalled()
+    })
+
+    it('the app going to the background mid-recording stops the mic', async () => {
+      const user = userEvent.setup()
+      const { onSend } = setup()
+      await record(user)
+      await act(async () => app.listeners.forEach(l => l({ isActive: false })))
+
+      expect(recording.cancel).toHaveBeenCalledTimes(1)
+      expect(micButton()).toBeInTheDocument()
+      expect(transcribe).not.toHaveBeenCalled()
+      expect(onSend).not.toHaveBeenCalled()
+    })
+
+    it('a deep link mid-recording cancels it and shows the link, unsent', async () => {
+      const user = userEvent.setup()
+      const { onSend, rerender } = setup()
+      await record(user)
+      rerender(
+        <Composer
+          placeholder="Ask anything"
+          busy={false}
+          onSend={onSend}
+          settings={BALANCED}
+          onSettings={vi.fn()}
+          draft={{ text: 'From a link' }}
+        />
+      )
+
+      expect(recording.cancel).toHaveBeenCalledTimes(1)
+      const input = screen.getByRole('textbox', { name: 'Ask anything' })
+      expect(input).toHaveValue('From a link')
+      expect(input).toHaveFocus()
+      expect(transcribe).not.toHaveBeenCalled()
+      expect(onSend).not.toHaveBeenCalled()
+    })
+
+    it('a deep link mid-transcription drops the words and shows the link alone', async () => {
+      const user = userEvent.setup()
+      let finish!: (text: string) => void
+      vi.mocked(transcribe).mockReturnValueOnce(
+        new Promise(resolve => (finish = resolve))
+      )
+      const { onSend, rerender } = setup()
+      const stop = await record(user)
+      speak()
+      await user.click(stop)
+      await screen.findByText('Transcribing…')
+      rerender(
+        <Composer
+          placeholder="Ask anything"
+          busy={false}
+          onSend={onSend}
+          settings={BALANCED}
+          onSettings={vi.fn()}
+          draft={{ text: 'From a link' }}
+        />
+      )
+      await act(async () => finish('why is the sky blue'))
+
+      const input = screen.getByRole('textbox', { name: 'Ask anything' })
+      expect(input).toHaveValue('From a link')
+      expect(onSend).not.toHaveBeenCalled()
+    })
   })
 })

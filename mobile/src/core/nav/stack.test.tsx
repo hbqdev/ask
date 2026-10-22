@@ -12,6 +12,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import {
   StackProvider,
   StackView,
+  useScreenActive,
   useStack,
   type ScreenEntry
 } from '@/core/nav/stack'
@@ -250,6 +251,31 @@ describe('StackView', () => {
     act(() => stack.pop())
     expect(screen.getByRole('button', { name: 'home 1' })).toBeInTheDocument()
     expect(layer('home')).not.toHaveAttribute('inert')
+  })
+
+  it('tells each screen whether it is the top one', () => {
+    function Probe({ label }: { label: string }) {
+      return <p>{`${label} ${useScreenActive() ? 'on top' : 'covered'}`}</p>
+    }
+    setupView(entry('home', <Probe label="home" />))
+    expect(screen.getByText('home on top')).toBeInTheDocument()
+
+    act(() => stack.push(entry('thread', <Probe label="thread" />)))
+    expect(screen.getByText('home covered')).toBeInTheDocument()
+    expect(screen.getByText('thread on top')).toBeInTheDocument()
+
+    // A popped screen is no longer on top while it slides out.
+    act(() => stack.pop())
+    expect(screen.getByText('home on top')).toBeInTheDocument()
+    expect(screen.getByText('thread covered')).toBeInTheDocument()
+  })
+
+  it('a screen outside a stack counts as on top', () => {
+    function Probe() {
+      return <p>{useScreenActive() ? 'on top' : 'covered'}</p>
+    }
+    render(<Probe />)
+    expect(screen.getByText('on top')).toBeInTheDocument()
   })
 
   it('stacks each screen above the ones below it, by depth', () => {
