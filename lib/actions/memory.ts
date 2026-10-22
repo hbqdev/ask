@@ -8,12 +8,12 @@ import {
   listMemories,
   setMemoryEnabled
 } from '@/lib/db/memory-actions'
-import type { UserMemory } from '@/lib/db/schema'
+import type { MemoryListItem } from '@/lib/db/schema'
 
 /**
- * Get all memories for the current user.
+ * Get all memories for the current user (without their embeddings).
  */
-export async function getMemories(): Promise<UserMemory[]> {
+export async function getMemories(): Promise<MemoryListItem[]> {
   const userId = await getCurrentUserId()
   if (!userId) {
     return []
@@ -33,7 +33,9 @@ export async function getMemoryEnabled(): Promise<boolean> {
 }
 
 /**
- * Delete a single memory belonging to the current user.
+ * Delete a single memory belonging to the current user. `deleted` is false
+ * when no such memory exists (missing, or someone else's); that still counts
+ * as success, since the memory is gone either way.
  */
 export async function deleteMemoryAction(id: string) {
   const userId = await getCurrentUserId()
@@ -41,8 +43,8 @@ export async function deleteMemoryAction(id: string) {
     return { success: false, error: 'User not authenticated' }
   }
 
-  await deleteMemory(userId, id)
-  return { success: true }
+  const deleted = await deleteMemory(userId, id)
+  return { success: true, deleted }
 }
 
 /**
