@@ -163,6 +163,29 @@ describe('safe areas', () => {
     })
   })
 
+  it('at md (iPad) the centred card opens with a scale and fade, not a rise from below', () => {
+    // A slide of 100% of a short card's own height would start it far below
+    // the centre. Reduced motion keeps the plain fade for every width.
+    expect(css).toMatch(
+      /@keyframes sheet-pop\s*\{\s*from\s*\{\s*opacity:\s*0;\s*transform:\s*scale\(0\.96\);?\s*\}\s*to\s*\{\s*opacity:\s*1;\s*transform:\s*scale\(1\);?\s*\}\s*\}/
+    )
+    const pop = atBlock(
+      '@media (prefers-reduced-motion: no-preference) and (min-width: 768px)'
+    )
+    expect(pop).toMatch(
+      /\.sheet-panel\s*\{\s*animation:\s*sheet-pop var\(--nav-duration\) var\(--nav-ease\);?\s*\}/
+    )
+    // After the phone's slide-up, so it wins at md.
+    expect(
+      css.indexOf(
+        '@media (prefers-reduced-motion: no-preference) and (min-width: 768px)'
+      )
+    ).toBeGreaterThan(css.indexOf('animation: sheet-in'))
+    expect(css).toMatch(
+      /\.sheet-panel,\s*\.sheet-backdrop\s*\{\s*animation:\s*stack-fade-in 200ms linear;?\s*\}/
+    )
+  })
+
   it('at md (iPad) a sheet is a floating card, padded 16 px at the bottom', () => {
     // Away from the home indicator, the card needs no inset.
     const md = mediaBlock('(min-width: 768px)')

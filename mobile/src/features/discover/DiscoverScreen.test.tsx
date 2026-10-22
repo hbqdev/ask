@@ -343,6 +343,19 @@ describe('DiscoverScreen topics', () => {
     )
   })
 
+  it('with no padding computed (no CSS), scrolls the stored topic to the row’s start, not to NaN', async () => {
+    vi.spyOn(HTMLElement.prototype, 'offsetLeft', 'get').mockImplementation(
+      function (this: HTMLElement) {
+        return this.textContent === 'Health' ? 900 : 0
+      }
+    )
+    prefsData.set(DISCOVER_TOPIC_KEY, 'health')
+    await renderScreen()
+    expect(screen.getByRole('radiogroup', { name: 'Topics' }).scrollLeft).toBe(
+      900
+    )
+  })
+
   it('measures a chip from the row itself', async () => {
     // A chip's offsetLeft is from its offsetParent: the row, once it is
     // positioned, not whatever positioned box holds the screen.

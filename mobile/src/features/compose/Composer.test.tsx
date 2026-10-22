@@ -803,6 +803,8 @@ describe('Composer dictation', () => {
     await act(async () => finish(''))
     // "Didn't catch that": the mic is at rest again, and so is Attach.
     expect(screen.getByRole('alert')).toBeInTheDocument()
+    // In the readable column on an iPad, under the box it is about.
+    expect(readableColumn(screen.getByRole('alert'))).not.toBeNull()
     expect(attach()).toBeEnabled()
   })
 

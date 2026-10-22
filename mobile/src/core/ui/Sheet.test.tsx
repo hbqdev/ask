@@ -62,8 +62,9 @@ describe('Sheet', () => {
     expect(panel()).toHaveClass('md:dark:border')
   })
 
-  it('at md keeps its handle, so a drag down still closes the card', () => {
-    // An iPad form sheet also closes with a swipe down.
+  it('keeps its handle at every width (no md:hidden), so a drag down closes the card too', () => {
+    // An iPad form sheet also closes with a swipe down. jsdom has no media
+    // queries: this runs the phone path and pins the class-level fact.
     const { onClose } = setup()
     expect(screen.getByTestId('sheet-handle')).not.toHaveClass('md:hidden')
     drag([{ y: 100 }, { y: 200 }])

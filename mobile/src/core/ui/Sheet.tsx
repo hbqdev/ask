@@ -5,8 +5,8 @@
 // once closed, focus goes back to what had it when the sheet opened. In dark
 // the panel is a raised surface with a hairline top edge, over a deeper dim.
 // On an iPad (md, 768 px and up) it is a card centred over the dim, rounded
-// and edged all round; its handle still drags it down to close, as an iPad
-// form sheet swipes down.
+// and edged all round, that grows in with a fade rather than rising; its
+// handle still drags it down to close, as an iPad form sheet swipes down.
 
 import {
   useEffect,

@@ -133,7 +133,8 @@ function TopicChips({
   useLayoutEffect(() => {
     const el = row.current!
     const chip = el.querySelector<HTMLElement>('[aria-checked=true]')!
-    const start = parseFloat(getComputedStyle(el).paddingLeft)
+    // 0 where no CSS is applied (WebKit always gives a px value).
+    const start = parseFloat(getComputedStyle(el).paddingLeft) || 0
     el.scrollLeft = Math.max(0, chip.offsetLeft - start)
     // Only the topic the screen opens on: a chip tapped later is in view.
   }, [])
