@@ -1,11 +1,12 @@
 import type { Session, SupabaseClient } from '@supabase/supabase-js'
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { useState } from 'react'
+import { Preferences } from '@capacitor/preferences'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { useApi, type Api } from '@/core/api/ApiProvider'
 import { ApiError } from '@/core/api/errors'
-import { createApiClient } from '@/core/api/client'
+import { createApiClient, SIGNED_OUT_MESSAGE } from '@/core/api/client'
 import { AuthProvider, useAuth } from '@/core/auth/AuthProvider'
 import { AUTH_STORAGE_KEY } from '@/core/auth/supabase'
 import { haptic } from '@/core/haptics'
@@ -17,7 +18,10 @@ import {
 } from '@/features/compose/model-choice'
 import { LIBRARY_CACHE_KEY } from '@/features/library/library-cache'
 import { getNotesCache, setNotesCache } from '@/features/notes/notes-cache'
+import { takeSharedItem } from '@/core/shared-inbox'
+import { CUSTOM_INSTRUCTIONS_KEY } from '@/features/settings/custom-instructions'
 import {
+  accountAlreadyGone,
   ACCOUNT_DELETED_NOTICE,
   DELETE_ACCOUNT_ERROR,
   DELETE_ACCOUNT_UNAVAILABLE,
@@ -29,6 +33,9 @@ import { memoryStorage } from '@/test/memory-storage'
 
 vi.mock('@/core/api/ApiProvider', () => ({ useApi: vi.fn() }))
 vi.mock('@/core/haptics', () => ({ haptic: vi.fn() }))
+vi.mock('@/core/shared-inbox', () => ({
+  takeSharedItem: vi.fn(async () => 'shared before the deletion')
+}))
 vi.mock('@capacitor/app', () => ({
   App: { addListener: vi.fn(async () => ({ remove: async () => {} })) }
 }))
@@ -180,11 +187,29 @@ describe('deleteAccountErrorMessage', () => {
     for (const err of [
       new ApiError(500, 'relation "chats" does not exist'),
       new ApiError(0, 'Network error'),
-      new ApiError(401, 'Unauthorized'),
       new Error('odd')
     ]) {
       expect(deleteAccountErrorMessage(err)).toBe(DELETE_ACCOUNT_ERROR)
     }
+  })
+
+  it('a 401 the server sent means the account is already gone; the client’s own does not', () => {
+    expect(accountAlreadyGone(new ApiError(401, 'Unauthorized'))).toBe(true)
+    // Never sent: there was no token here.
+    expect(accountAlreadyGone(new ApiError(401, SIGNED_OUT_MESSAGE))).toBe(
+      false
+    )
+    expect(accountAlreadyGone(new ApiError(500, 'Unauthorized'))).toBe(false)
+    expect(accountAlreadyGone(new Error('Unauthorized'))).toBe(false)
+  })
+
+  it('never promises that nothing was removed', () => {
+    // The server deletes the data before the account: a failure late in the
+    // deletion leaves the account with some of its data already gone.
+    expect(DELETE_ACCOUNT_ERROR).toBe(
+      'Couldn’t finish deleting your account. Try again — if it keeps failing, some data may already be removed.'
+    )
+    expect(DELETE_ACCOUNT_ERROR).not.toMatch(/nothing was removed/i)
   })
 })
 
@@ -315,6 +340,45 @@ describe('DeleteAccountSheet', () => {
     await waitFor(() => expect(storage.data.has(LIBRARY_CACHE_KEY)).toBe(false))
     expect(getNotesCache()).toBeNull()
     expect(getModelChoice().selected).toBe('')
+    // The account's custom instructions go too (a plain sign-out keeps them),
+    // and a share waiting in the inbox is dropped, not left for the next
+    // account.
+    expect(Preferences.remove).toHaveBeenCalledWith({
+      key: CUSTOM_INSTRUCTIONS_KEY
+    })
+    expect(takeSharedItem).toHaveBeenCalled()
+  })
+
+  it('a 401 means the account is already gone: signs out and says so', async () => {
+    // e.g. the deletion finished but its answer was lost, and this is the
+    // retry: the bearer now belongs to a deleted user.
+    const { supabase, storage } = await setup(async () =>
+      json({ error: 'Unauthorized' }, 401)
+    )
+    type('DELETE')
+    fireEvent.click(deleteButton())
+
+    await waitFor(() =>
+      expect(authText()).toBe(`signedOut: ${ACCOUNT_DELETED_NOTICE}`)
+    )
+    expect(screen.queryByRole('alert')).toBeNull()
+    expect(supabase.auth.signOut).toHaveBeenCalledWith({ scope: 'local' })
+    expect(storage.data.has(AUTH_STORAGE_KEY)).toBe(false)
+    expect(Preferences.remove).toHaveBeenCalledWith({
+      key: CUSTOM_INSTRUCTIONS_KEY
+    })
+    expect(takeSharedItem).toHaveBeenCalled()
+  })
+
+  it('signs out even when removing the custom instructions fails', async () => {
+    vi.mocked(Preferences.remove).mockRejectedValueOnce(new Error('disk'))
+    await setup()
+    type('DELETE')
+    fireEvent.click(deleteButton())
+
+    await waitFor(() =>
+      expect(authText()).toBe(`signedOut: ${ACCOUNT_DELETED_NOTICE}`)
+    )
   })
 
   it('stays signed in when the server fails', async () => {
@@ -333,6 +397,7 @@ describe('DeleteAccountSheet', () => {
     expect(screen.queryByText(/deadlock/)).toBeNull()
     expect(authText()).toBe('signedIn')
     expect(supabase.auth.signOut).not.toHaveBeenCalled()
+    expect(Preferences.remove).not.toHaveBeenCalled()
     expect(storage.data.has(AUTH_STORAGE_KEY)).toBe(true)
     // The sheet stays open, ready to try again.
     expect(dialog()).toBeInTheDocument()

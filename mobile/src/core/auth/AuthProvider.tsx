@@ -22,6 +22,7 @@ import {
 import { googleSignInPending, runGoogleSignIn } from '@/core/auth/oauth'
 import { AUTH_STORAGE_KEY } from '@/core/auth/supabase'
 import { useAuthCallbackLink } from '@/core/deep-link'
+import { takeSharedItem } from '@/core/shared-inbox'
 import { resetModelChoice } from '@/features/compose/model-choice'
 import { clearLibraryCache } from '@/features/library/library-cache'
 import { resetNotesCache } from '@/features/notes/notes-cache'
@@ -227,6 +228,9 @@ export function AuthProvider({
       // At once, before awaiting the server: a save that settles meanwhile
       // must not send a waiting pick for this account.
       resetModelChoice()
+      // A share waiting in the inbox was meant for this account's composer,
+      // not the next one's: taken and dropped.
+      const sharedItemDropped = takeSharedItem()
       // supabase-js keeps the local session when the server can't be reached;
       // remove it ourselves so the next cold start doesn't restore it.
       const cleared = await client.auth.signOut({ scope: 'local' }).then(
@@ -234,9 +238,12 @@ export function AuthProvider({
         () => false
       )
       const authKeys = cleared ? [] : ['', '-code-verifier', '-user']
-      await Promise.allSettled(
-        authKeys.map(suffix => storage.removeItem(AUTH_STORAGE_KEY + suffix))
-      )
+      await Promise.allSettled([
+        ...authKeys.map(suffix =>
+          storage.removeItem(AUTH_STORAGE_KEY + suffix)
+        ),
+        sharedItemDropped
+      ])
       setError(null)
       // Also clears the cached Library rows and notes, which belong to this
       // account; device preferences (search settings, Library sort and

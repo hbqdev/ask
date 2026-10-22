@@ -19,6 +19,7 @@ import {
 } from '@/core/auth/oauth'
 import type { AuthStorage } from '@/core/auth/preferences-storage'
 import { AUTH_STORAGE_KEY } from '@/core/auth/supabase'
+import { takeSharedItem } from '@/core/shared-inbox'
 import { createApiClient } from '@/core/api/client'
 import {
   getModelChoice,
@@ -78,6 +79,10 @@ vi.mock('@capacitor/browser', () => ({
 /** The app is opened with `url` (as iOS does for ask:// links). */
 const openAppUrl = (url: string) =>
   act(() => appUrls.listeners.forEach(l => l({ url })))
+
+vi.mock('@/core/shared-inbox', () => ({
+  takeSharedItem: vi.fn(async () => null)
+}))
 
 vi.mock('@capacitor/preferences', () => ({
   Preferences: {
@@ -515,6 +520,16 @@ describe('AuthProvider: signOut', () => {
     for (const [key, value] of Object.entries(prefs)) {
       expect(storage.data.get(key)).toBe(value)
     }
+  })
+
+  it('signOut drops a share waiting in the inbox, so the next account never gets it', async () => {
+    const { result } = await signedInAuth()
+    vi.mocked(takeSharedItem).mockClear()
+    await act(async () => {
+      await result.current.signOut()
+    })
+    expect(takeSharedItem).toHaveBeenCalledTimes(1)
+    expect(result.current.status).toBe('signedOut')
   })
 
   it('signOut clears the library cache when the server can’t be reached too', async () => {

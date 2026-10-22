@@ -1,25 +1,29 @@
 // Deleting the account, from Settings: a sheet that says what goes, a field
 // where the user types DELETE, and the destructive button. On success the app
 // signs out (which clears this account's caches) and the sign-in screen says
-// the account was deleted; on any failure the user stays signed in with the
-// sheet open.
+// the account was deleted. A 401 means the account is already gone (a
+// deletion whose answer was lost) and is treated the same. On any other
+// failure the user stays signed in with the sheet open.
 
 import { useId, useRef, useState, type KeyboardEvent } from 'react'
 
 import { useApi } from '@/core/api/ApiProvider'
-import type { ApiClient } from '@/core/api/client'
+import { SIGNED_OUT_MESSAGE, type ApiClient } from '@/core/api/client'
 import { ApiError } from '@/core/api/errors'
 import { useAuth } from '@/core/auth/AuthProvider'
 import { haptic } from '@/core/haptics'
 import { Sheet } from '@/core/ui/Sheet'
+import { saveCustomInstructions } from '@/features/settings/custom-instructions'
 
 /** What the user types to confirm, exactly (case-sensitive, trimmed). */
 const CONFIRM_WORD = 'DELETE'
 
 export const ACCOUNT_DELETED_NOTICE = 'Your account was deleted'
-// Fixed messages: the server's own error text is never shown.
+// Fixed messages: the server's own error text is never shown. The server
+// deletes the data before the account, so a failure can leave some of it
+// gone: the error promises nothing about what was removed.
 export const DELETE_ACCOUNT_ERROR =
-  'Couldn’t delete your account. Nothing was removed — try again.'
+  'Couldn’t finish deleting your account. Try again — if it keeps failing, some data may already be removed.'
 export const DELETE_ACCOUNT_UNAVAILABLE = 'Not available on this server'
 
 /**
@@ -32,6 +36,20 @@ export async function deleteAccount(client: ApiClient): Promise<void> {
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ confirm: CONFIRM_WORD })
   })
+}
+
+/**
+ * Whether a failed deletion means the account is gone anyway: the server
+ * answered 401, so the session's user no longer exists. The client's own 401
+ * for a request it never sent (no token here) says nothing about the
+ * account.
+ */
+export function accountAlreadyGone(err: unknown): boolean {
+  return (
+    err instanceof ApiError &&
+    err.status === 401 &&
+    err.message !== SIGNED_OUT_MESSAGE
+  )
 }
 
 /** The message for a failed deletion. */
@@ -85,14 +103,20 @@ function DeleteAccountPanel({ onClose }: { onClose: () => void }) {
     try {
       await deleteAccount(client)
     } catch (err) {
-      setError(deleteAccountErrorMessage(err))
-      setDeleting(false)
-      inFlight.current = false
-      return
+      if (!accountAlreadyGone(err)) {
+        setError(deleteAccountErrorMessage(err))
+        setDeleting(false)
+        inFlight.current = false
+        return
+      }
     }
-    // The account is gone on the server. Signing out clears this account's
-    // caches and its session here (even though the server's sign-out now
-    // fails), and the sign-in screen that replaces Settings says why.
+    // The account is gone on the server. Its custom instructions go too (a
+    // plain sign-out keeps them as a device preference); a failure to remove
+    // them never keeps the app signed in. Signing out clears this account's
+    // caches, its session here (even though the server's sign-out now fails)
+    // and any share waiting in the inbox, and the sign-in screen that
+    // replaces Settings says why.
+    await saveCustomInstructions('').catch(() => {})
     await signOut({ notice: ACCOUNT_DELETED_NOTICE })
   }
 
