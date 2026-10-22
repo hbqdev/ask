@@ -23,6 +23,8 @@ import {
 import type { OptionsSheetProps } from '@/features/compose/OptionsSheet'
 import { uploadFile, type UploadResult } from '@/features/compose/upload'
 import type { SearchSettings } from '@/features/thread/chat-body'
+import { startRecording, type Recording } from '@/features/voice/recorder'
+import { transcribe } from '@/features/voice/transcribe'
 import { ACCEPT_ATTRIBUTE } from '@/lib/config/upload-allowlist'
 
 // The real sheet loads the model list from the server; here it is a stand-in
@@ -48,6 +50,8 @@ vi.mock('@/features/compose/OptionsSheet', async importOriginal => ({
 vi.mock('@/core/haptics', () => ({ haptic: vi.fn() }))
 vi.mock('@/core/api/ApiProvider', () => ({ useApi: vi.fn() }))
 vi.mock('@/features/compose/upload', () => ({ uploadFile: vi.fn() }))
+vi.mock('@/features/voice/recorder', () => ({ startRecording: vi.fn() }))
+vi.mock('@/features/voice/transcribe', () => ({ transcribe: vi.fn() }))
 
 const uploaded = (name: string): UploadResult => ({
   url: `https://ask.test.invalid/uploads/u1/chats/c1/1-${name}`,
@@ -91,6 +95,9 @@ function setup(props: Partial<ComposerProps> = {}) {
 }
 
 const sendButton = () => screen.getByRole('button', { name: 'Send' })
+const sendQuery = () => screen.queryByRole('button', { name: 'Send' })
+const micButton = () => screen.getByRole('button', { name: 'Dictate' })
+const micQuery = () => screen.queryByRole('button', { name: 'Dictate' })
 
 afterEach(() => {
   // Undo any scrollHeight a test defined on the prototype.
@@ -99,16 +106,22 @@ afterEach(() => {
 })
 
 describe('Composer', () => {
-  it('disables Send while the text is blank', async () => {
+  it('shows the mic instead of Send while the text is blank', async () => {
     const user = userEvent.setup()
     const { input } = setup()
-    expect(sendButton()).toBeDisabled()
+    expect(sendQuery()).not.toBeInTheDocument()
+    expect(micButton()).toBeInTheDocument()
 
     await user.type(input, '   ')
-    expect(sendButton()).toBeDisabled()
+    expect(sendQuery()).not.toBeInTheDocument()
+    expect(micButton()).toBeInTheDocument()
 
     await user.type(input, 'why')
     expect(sendButton()).toBeEnabled()
+    expect(micQuery()).not.toBeInTheDocument()
+
+    await user.clear(input)
+    expect(micButton()).toBeInTheDocument()
   })
 
   it('sends the trimmed text with the Send button and clears the field', async () => {
@@ -163,6 +176,7 @@ describe('Composer', () => {
     expect(
       screen.queryByRole('button', { name: 'Send' })
     ).not.toBeInTheDocument()
+    expect(micQuery()).not.toBeInTheDocument()
 
     await user.type(input, 'next{Enter}')
     expect(onSend).not.toHaveBeenCalled()
@@ -432,8 +446,10 @@ describe('Composer attachments', () => {
   it('attachments alone can be sent, which clears them', async () => {
     const user = userEvent.setup()
     const { onSend } = setup()
-    expect(sendButton()).toBeDisabled()
+    expect(sendQuery()).not.toBeInTheDocument()
     await user.upload(filePicker(), pdf())
+    // An attachment, even uploading, swaps the mic for Send.
+    expect(micQuery()).not.toBeInTheDocument()
     await waitFor(() => expect(sendButton()).toBeEnabled())
 
     await user.click(sendButton())
@@ -445,7 +461,7 @@ describe('Composer attachments', () => {
       }
     ])
     expect(screen.queryByText('report.pdf')).not.toBeInTheDocument()
-    expect(sendButton()).toBeDisabled()
+    expect(micButton()).toBeInTheDocument()
   })
 
   it('sends the text with its files', async () => {
@@ -490,5 +506,147 @@ describe('Composer haptics', () => {
     fireEvent.change(input, { target: { value: '  ' } })
     fireEvent.keyDown(input, { key: 'Enter' })
     expect(haptic).not.toHaveBeenCalled()
+  })
+})
+
+describe('Composer dictation', () => {
+  let recording: { [K in keyof Recording]: ReturnType<typeof vi.fn> }
+
+  beforeEach(() => {
+    // Only the clock is faked, so a recording can last long enough.
+    vi.useFakeTimers({ toFake: ['Date'] })
+    vi.mocked(haptic).mockClear()
+    recording = {
+      stop: vi.fn(async () => new Blob(['voice'], { type: 'audio/mp4' })),
+      cancel: vi.fn(),
+      level: vi.fn(() => 0.2)
+    }
+    vi.mocked(startRecording).mockReset()
+    vi.mocked(startRecording).mockResolvedValue(recording as Recording)
+    vi.mocked(transcribe).mockReset()
+    vi.mocked(transcribe).mockResolvedValue('why is the sky blue')
+  })
+
+  afterEach(() => {
+    vi.useRealTimers()
+  })
+
+  const speak = (ms = 2_000) => vi.setSystemTime(Date.now() + ms)
+
+  async function record(user: ReturnType<typeof userEvent.setup>) {
+    await user.click(micButton())
+    return screen.findByRole('button', { name: 'Stop recording' })
+  }
+
+  it('the recording bar replaces the field, and cancel brings it back', async () => {
+    const user = userEvent.setup()
+    const { onSend } = setup()
+    await record(user)
+
+    expect(
+      screen.queryByRole('textbox', { name: 'Ask anything' })
+    ).not.toBeInTheDocument()
+    expect(screen.getByRole('timer')).toHaveTextContent('00:00')
+    expect(screen.getByTestId('level-ring')).toBeInTheDocument()
+
+    await user.click(screen.getByRole('button', { name: 'Cancel recording' }))
+    expect(recording.cancel).toHaveBeenCalledTimes(1)
+    expect(
+      screen.getByRole('textbox', { name: 'Ask anything' })
+    ).toBeInTheDocument()
+    expect(micButton()).toBeInTheDocument()
+    expect(onSend).not.toHaveBeenCalled()
+  })
+
+  it('stop transcribes, then sends the text', async () => {
+    const user = userEvent.setup()
+    let finish!: (text: string) => void
+    vi.mocked(transcribe).mockReturnValueOnce(
+      new Promise(resolve => (finish = resolve))
+    )
+    const { onSend } = setup({ chatId: 'c1' })
+    const stop = await record(user)
+    speak()
+    await user.click(stop)
+
+    expect(await screen.findByRole('status')).toHaveTextContent('Transcribing…')
+    expect(screen.getByRole('button', { name: 'Transcribing' })).toBeDisabled()
+    expect(transcribe).toHaveBeenCalledWith(
+      expect.objectContaining({
+        baseUrl: 'https://ask.test.invalid',
+        token: 'tok'
+      })
+    )
+
+    await act(async () => finish('why is the sky blue'))
+    expect(onSend).toHaveBeenCalledExactlyOnceWith('why is the sky blue', [])
+    const input = screen.getByRole('textbox', { name: 'Ask anything' })
+    expect(input).toHaveValue('')
+    expect(micButton()).toBeInTheDocument()
+  })
+
+  it('sends the text with files attached while recording', async () => {
+    const user = userEvent.setup()
+    const { onSend } = setup()
+    const stop = await record(user)
+    await user.upload(filePicker(), pdf())
+    await waitFor(() => expect(uploadFile).toHaveBeenCalled())
+    await act(async () => {})
+    speak()
+    await user.click(stop)
+
+    await waitFor(() =>
+      expect(onSend).toHaveBeenCalledExactlyOnceWith('why is the sky blue', [
+        expect.objectContaining({ filename: 'report.pdf' })
+      ])
+    )
+    expect(screen.queryByText('report.pdf')).not.toBeInTheDocument()
+  })
+
+  it('puts the text in the box instead when it cannot be sent yet', async () => {
+    const user = userEvent.setup()
+    const { onSend } = setup({ disabled: true })
+    const stop = await record(user)
+    speak()
+    await user.click(stop)
+
+    const input = await screen.findByRole('textbox', { name: 'Ask anything' })
+    await waitFor(() => expect(input).toHaveValue('why is the sky blue'))
+    expect(onSend).not.toHaveBeenCalled()
+    expect(sendButton()).toBeDisabled()
+  })
+
+  it("an empty transcript sends nothing and says it didn't catch that", async () => {
+    const user = userEvent.setup()
+    vi.mocked(transcribe).mockResolvedValueOnce('')
+    const { onSend } = setup()
+    const stop = await record(user)
+    speak()
+    await user.click(stop)
+
+    expect(await screen.findByRole('alert')).toHaveTextContent(
+      "Didn't catch that"
+    )
+    expect(onSend).not.toHaveBeenCalled()
+    expect(micButton()).toBeInTheDocument()
+  })
+
+  it('shows a refused microphone under the composer', async () => {
+    const user = userEvent.setup()
+    vi.mocked(startRecording).mockRejectedValueOnce(
+      new DOMException('denied', 'NotAllowedError')
+    )
+    setup()
+    await user.click(micButton())
+    expect(await screen.findByRole('alert')).toHaveTextContent(
+      'Allow microphone access in Settings to dictate'
+    )
+    expect(haptic).toHaveBeenCalledWith('error')
+  })
+
+  it('a running turn shows Stop, not the mic', () => {
+    setup({ busy: true })
+    expect(micQuery()).not.toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Stop' })).toBeInTheDocument()
   })
 })

@@ -1,7 +1,9 @@
 // The question box at the bottom of the home screen and of every thread: a
 // text field that grows to six lines, Send (Stop while a turn runs), a
 // paperclip that attaches photos and files (shown as chips above the field),
-// and a chip with the search mode that opens the options sheet. The keyboard
+// and a chip with the search mode that opens the options sheet. While the box
+// is empty a mic takes Send's place: dictation records, transcribes and sends
+// the words (features/voice), the field showing the recording meanwhile. The keyboard
 // shrinks the web view natively (capacitor.config.ts), so the box simply sits
 // at the bottom; `.composer` (styles.css) clears the home indicator.
 
@@ -26,6 +28,8 @@ import {
   useAttachments
 } from '@/features/compose/useAttachments'
 import type { FilePart, SearchSettings } from '@/features/thread/chat-body'
+import { DictationBar, MicButton } from '@/features/voice/MicButton'
+import { useDictation } from '@/features/voice/useDictation'
 import { ACCEPT_ATTRIBUTE } from '@/lib/config/upload-allowlist'
 
 const LINE_HEIGHT_PX = 24
@@ -133,7 +137,39 @@ export function Composer({
     field.current!.focus()
   }, [draft])
 
-  // Fit the field to its text, up to six lines.
+  // Nothing goes while a file is still uploading or has failed.
+  const sendable = !busy && !disabled && attachments.ready
+  const canSend =
+    sendable && (text.trim().length > 0 || attachments.items.length > 0)
+
+  const submit = (body: string) => {
+    haptic('light')
+    onSend(body, attachments.parts())
+    setText('')
+    attachments.clear()
+  }
+
+  const send = () => {
+    if (canSend) submit(text.trim())
+  }
+
+  // The words go as soon as they are back, as the web's push-to-talk does,
+  // with any files attached; when nothing can go yet they wait in the box.
+  const dictation = useDictation({
+    onText: words => {
+      const body = [text.trim(), words].filter(Boolean).join(' ')
+      if (sendable) submit(body)
+      else setText(body)
+    }
+  })
+  const dictating =
+    dictation.state === 'recording' || dictation.state === 'transcribing'
+  const showMic =
+    dictating ||
+    (!busy && text.trim().length === 0 && attachments.items.length === 0)
+
+  // Fit the field to its text, up to six lines (again once it is back from
+  // under the recording).
   useLayoutEffect(() => {
     const el = field.current!
     el.style.height = 'auto'
@@ -141,22 +177,7 @@ export function Composer({
     el.style.height = `${height}px`
     el.style.overflowY =
       el.scrollHeight > COMPOSER_MAX_HEIGHT_PX ? 'auto' : 'hidden'
-  }, [text])
-
-  // Nothing goes while a file is still uploading or has failed.
-  const canSend =
-    !busy &&
-    !disabled &&
-    attachments.ready &&
-    (text.trim().length > 0 || attachments.items.length > 0)
-
-  const send = () => {
-    if (!canSend) return
-    haptic('light')
-    onSend(text.trim(), attachments.parts())
-    setText('')
-    attachments.clear()
-  }
+  }, [text, dictating])
 
   // The picker opens within the tap, as iOS requires.
   const pick = (input: RefObject<HTMLInputElement | null>) => {
@@ -201,8 +222,10 @@ export function Composer({
             {OVER_LIMIT_MESSAGE}
           </p>
         )}
+        <DictationBar dictation={dictation} />
         <textarea
           ref={field}
+          hidden={dictating}
           rows={1}
           value={text}
           onChange={e => setText(e.target.value)}
@@ -246,7 +269,9 @@ export function Composer({
               </svg>
             </button>
           </div>
-          {busy ? (
+          {showMic ? (
+            <MicButton dictation={dictation} />
+          ) : busy ? (
             <button
               type="button"
               aria-label="Stop"
@@ -267,6 +292,11 @@ export function Composer({
           )}
         </div>
       </div>
+      {dictation.state === 'error' && (
+        <p role="alert" className="px-3 pt-1 text-xs text-foreground/60">
+          {dictation.error}
+        </p>
+      )}
       <input
         ref={photoInput}
         type="file"
