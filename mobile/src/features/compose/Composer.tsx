@@ -152,13 +152,17 @@ export function Composer({
 
   // The words go as soon as they are back, as the web's push-to-talk does,
   // with any files attached; when nothing can go yet they wait in the box.
+  // Text typed while the mic opened is never lost: the words go after it and
+  // the whole waits in the box, for the user to send.
   // Dictation ends when this screen is left: another tab, or a screen pushed
   // over it.
   const tabShown = useTabActive()
   const screenShown = useScreenActive()
   const dictation = useDictation({
     onText: words => {
-      if (sendable) submit(words, false)
+      const typed = text.trim()
+      if (typed) setText(`${typed} ${words}`)
+      else if (sendable) submit(words, false)
       else setText(words)
     },
     active: tabShown && screenShown

@@ -20,17 +20,22 @@ vi.mock('@/core/api/ApiProvider', () => ({ useApi: vi.fn() }))
 vi.mock('@/features/voice/recorder', () => ({ startRecording: vi.fn() }))
 vi.mock('@/features/voice/transcribe', () => ({ transcribe: vi.fn() }))
 
-type AppStateListener = (state: { isActive: boolean }) => void
+type AppListener = (state: { isActive: boolean }) => void
+type Registered = { event: string; listener: AppListener }
 const app = vi.hoisted(() => ({
-  listeners: [] as Array<(state: { isActive: boolean }) => void>
+  listeners: [] as Array<{
+    event: string
+    listener: (state: { isActive: boolean }) => void
+  }>
 }))
 vi.mock('@capacitor/app', () => ({
   App: {
-    addListener: vi.fn(async (_event: string, listener: AppStateListener) => {
-      app.listeners.push(listener)
+    addListener: vi.fn(async (event: string, listener: AppListener) => {
+      const entry: Registered = { event, listener }
+      app.listeners.push(entry)
       return {
         remove: async () => {
-          const i = app.listeners.indexOf(listener)
+          const i = app.listeners.indexOf(entry)
           if (i >= 0) app.listeners.splice(i, 1)
         }
       }
@@ -38,9 +43,14 @@ vi.mock('@capacitor/app', () => ({
   }
 }))
 
+/** Fires an App event at the listeners for it. */
+const emitApp = (event: string, state = { isActive: true }) =>
+  act(async () =>
+    app.listeners.filter(l => l.event === event).forEach(l => l.listener(state))
+  )
+
 /** The app going to the background (false) or coming back (true). */
-const appActive = (isActive: boolean) =>
-  act(async () => app.listeners.forEach(l => l({ isActive })))
+const appActive = (isActive: boolean) => emitApp('appStateChange', { isActive })
 
 const BASE = 'https://ask.test.invalid'
 const getToken = vi.fn<() => Promise<string | null>>()
@@ -593,10 +603,43 @@ describe('useDictation', () => {
       expect(recording.cancel).not.toHaveBeenCalled()
     })
 
+    it('a mic that opens while the app is in the background is closed', async () => {
+      const opening = deferred<Recording>()
+      vi.mocked(startRecording).mockReturnValueOnce(opening.promise)
+      const { result, onText } = setup()
+      act(() => result.current.start())
+      await appActive(false)
+      await emitApp('pause')
+      await act(async () => opening.resolve(recording))
+
+      expect(recording.cancel).toHaveBeenCalledTimes(1)
+      expect(result.current.state).toBe('idle')
+      await advance(MAX_RECORDING_MS)
+      expect(recording.stop).not.toHaveBeenCalled()
+      expect(onText).not.toHaveBeenCalled()
+    })
+
+    it('a mic that opens after the app came back records', async () => {
+      const opening = deferred<Recording>()
+      vi.mocked(startRecording).mockReturnValueOnce(opening.promise)
+      const { result } = setup()
+      act(() => result.current.start())
+      await emitApp('pause')
+      await emitApp('resume')
+      await act(async () => opening.resolve(recording))
+
+      expect(result.current.state).toBe('recording')
+      expect(recording.cancel).not.toHaveBeenCalled()
+    })
+
     it('stops listening to the app when unmounted', async () => {
       const { unmount } = setup()
       await flush()
-      expect(app.listeners).toHaveLength(1)
+      expect(app.listeners.map(l => l.event).sort()).toEqual([
+        'appStateChange',
+        'pause',
+        'resume'
+      ])
       unmount()
       await flush()
       expect(app.listeners).toHaveLength(0)

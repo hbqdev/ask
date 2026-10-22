@@ -55,23 +55,34 @@ vi.mock('@/features/compose/upload', () => ({ uploadFile: vi.fn() }))
 vi.mock('@/features/voice/recorder', () => ({ startRecording: vi.fn() }))
 vi.mock('@/features/voice/transcribe', () => ({ transcribe: vi.fn() }))
 
-type AppStateListener = (state: { isActive: boolean }) => void
+type AppListener = (state: { isActive: boolean }) => void
+type Registered = { event: string; listener: AppListener }
 const app = vi.hoisted(() => ({
-  listeners: [] as Array<(state: { isActive: boolean }) => void>
+  listeners: [] as Array<{
+    event: string
+    listener: (state: { isActive: boolean }) => void
+  }>
 }))
 vi.mock('@capacitor/app', () => ({
   App: {
-    addListener: vi.fn(async (_event: string, listener: AppStateListener) => {
-      app.listeners.push(listener)
+    addListener: vi.fn(async (event: string, listener: AppListener) => {
+      const entry: Registered = { event, listener }
+      app.listeners.push(entry)
       return {
         remove: async () => {
-          const i = app.listeners.indexOf(listener)
+          const i = app.listeners.indexOf(entry)
           if (i >= 0) app.listeners.splice(i, 1)
         }
       }
     })
   }
 }))
+
+/** Fires an App event at the listeners for it. */
+const emitApp = (event: string, state = { isActive: true }) =>
+  act(async () =>
+    app.listeners.filter(l => l.event === event).forEach(l => l.listener(state))
+  )
 
 const uploaded = (name: string): UploadResult => ({
   url: `https://ask.test.invalid/uploads/u1/chats/c1/1-${name}`,
@@ -809,12 +820,31 @@ describe('Composer dictation', () => {
       const user = userEvent.setup()
       const { onSend } = setup()
       await record(user)
-      await act(async () => app.listeners.forEach(l => l({ isActive: false })))
+      await emitApp('appStateChange', { isActive: false })
 
       expect(recording.cancel).toHaveBeenCalledTimes(1)
       expect(micButton()).toBeInTheDocument()
       expect(transcribe).not.toHaveBeenCalled()
       expect(onSend).not.toHaveBeenCalled()
+    })
+
+    it('text typed while the mic opens is kept: the words go after it, unsent', async () => {
+      const user = userEvent.setup()
+      let open!: (recording: Recording) => void
+      vi.mocked(startRecording).mockReturnValueOnce(
+        new Promise(resolve => (open = resolve))
+      )
+      const { onSend, input } = setup()
+      await user.click(micButton())
+      await user.type(input, 'hello ')
+      await act(async () => open(recording as Recording))
+      speak()
+      await user.click(screen.getByRole('button', { name: 'Stop recording' }))
+
+      const box = await screen.findByRole('textbox', { name: 'Ask anything' })
+      await waitFor(() => expect(box).toHaveValue('hello why is the sky blue'))
+      expect(onSend).not.toHaveBeenCalled()
+      expect(sendButton()).toBeEnabled()
     })
 
     it('a deep link mid-recording cancels it and shows the link, unsent', async () => {

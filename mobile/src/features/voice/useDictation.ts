@@ -96,6 +96,8 @@ export function useDictation({
   const take = useRef<Take | null>(null)
   const request = useRef<AbortController | null>(null)
   const errorTimer = useRef<ReturnType<typeof setTimeout>>(undefined)
+  // Whether the app is in the background (between 'pause' and 'resume').
+  const backgrounded = useRef(false)
 
   const endTake = () => {
     const current = take.current!
@@ -203,6 +205,13 @@ export function useDictation({
     }
     // Cancelled, left, or unmounted while the microphone was opening.
     if (attempt.current !== mine) return recording.cancel()
+    // The app went to the background while it opened: no mic out of sight.
+    if (backgrounded.current) {
+      recording.cancel()
+      phase.current = 'idle'
+      setState('idle')
+      return
+    }
 
     phase.current = 'recording'
     const startedAt = Date.now()
@@ -225,17 +234,27 @@ export function useDictation({
     if (!active) cancel()
   }, [active, cancel])
 
-  // So does the app going to the background. Not while the microphone opens:
-  // iOS's first-use permission alert makes the app inactive too.
+  // So does the app going inactive. Not while the microphone opens: iOS's
+  // first-use permission alert makes the app inactive too. A real trip to the
+  // background (`pause`, which the alert does not fire) is remembered, so a
+  // microphone that opens meanwhile is closed at once.
   useEffect(() => {
-    const handle = App.addListener('appStateChange', ({ isActive }) => {
-      if (isActive) return
-      if (phase.current === 'recording' || phase.current === 'transcribing') {
-        cancel()
-      }
-    })
+    const handles = [
+      App.addListener('appStateChange', ({ isActive }) => {
+        if (isActive) return
+        if (phase.current === 'recording' || phase.current === 'transcribing') {
+          cancel()
+        }
+      }),
+      App.addListener('pause', () => {
+        backgrounded.current = true
+      }),
+      App.addListener('resume', () => {
+        backgrounded.current = false
+      })
+    ]
     return () => {
-      void handle.then(h => h.remove())
+      handles.forEach(handle => void handle.then(h => h.remove()))
     }
   }, [cancel])
 
