@@ -111,6 +111,65 @@ describe('takeSharedItem', () => {
     await expect(takeSharedItem()).resolves.toBe('a'.repeat(2000))
   })
 
+  // The Share extension counts characters as Swift does (grapheme clusters);
+  // the app must count the same way, or it re-cuts what the extension kept.
+  it('counts characters as the Share extension does, so it never re-cuts its text', async () => {
+    // 2000 characters, 4000 UTF-16 units: all kept.
+    const emoji = '😀'.repeat(2000)
+    native.take.mockResolvedValue({ text: emoji, createdAt: NOW })
+    await expect(takeSharedItem()).resolves.toBe(emoji)
+
+    // A family emoji is one character of 8 UTF-16 units.
+    const families = '👨‍👩‍👧'.repeat(2000)
+    native.take.mockResolvedValue({ text: families, createdAt: NOW })
+    await expect(takeSharedItem()).resolves.toBe(families)
+  })
+
+  it('cuts by characters, never through one', async () => {
+    native.take.mockResolvedValue({
+      text: '👨‍👩‍👧'.repeat(2001),
+      createdAt: NOW
+    })
+    await expect(takeSharedItem()).resolves.toBe('👨‍👩‍👧'.repeat(2000))
+  })
+
+  it('keeps a trailing link whole when it has to cut', async () => {
+    const link = 'https://example.com/article?id=1'
+    native.take.mockResolvedValue({
+      text: `${'a'.repeat(3000)}\n${link}`,
+      createdAt: NOW
+    })
+    const text = await takeSharedItem()
+    expect(text).toBe(`${'a'.repeat(2000 - link.length - 1)}\n${link}`)
+    expect(text).toHaveLength(2000)
+  })
+
+  it('cuts a too-long trailing link like any text', async () => {
+    const link = `https://example.com/${'p'.repeat(2500)}`
+    native.take.mockResolvedValue({ text: `hi\n${link}`, createdAt: NOW })
+    await expect(takeSharedItem()).resolves.toBe(`hi\n${link}`.slice(0, 2000))
+  })
+
+  it('keeps the link alone when nothing else fits', async () => {
+    const link = `https://example.com/${'p'.repeat(1979)}`
+    expect(link).toHaveLength(1999)
+    native.take.mockResolvedValue({ text: `intro\n${link}`, createdAt: NOW })
+    await expect(takeSharedItem()).resolves.toBe(link)
+  })
+
+  it('counts code points where the WebView has no Intl.Segmenter', async () => {
+    vi.stubGlobal('Intl', { ...Intl, Segmenter: undefined })
+    try {
+      native.take.mockResolvedValue({
+        text: '😀'.repeat(2001),
+        createdAt: NOW
+      })
+      await expect(takeSharedItem()).resolves.toBe('😀'.repeat(2000))
+    } finally {
+      vi.unstubAllGlobals()
+    }
+  })
+
   it('returns null when the native side fails (an app without the plugin)', async () => {
     native.take.mockRejectedValue(new Error('UNIMPLEMENTED'))
     await expect(takeSharedItem()).resolves.toBeNull()

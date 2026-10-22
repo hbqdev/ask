@@ -119,7 +119,8 @@ struct SharedItem: Equatable {
 
 /// The inbox in the App Group's shared defaults: one item, a newer share
 /// replacing one the app has not taken yet. Stored as
-/// ["text": String, "createdAt": ms since 1970] under `sharedInbox`.
+/// ["text": String, "createdAt": ms since 1970, "id": UUID string] under
+/// `sharedInbox`.
 struct SharedInbox {
     static let appGroup = "group.win.hbqnexus.ask"
     static let key = "sharedInbox"
@@ -134,9 +135,12 @@ struct SharedInbox {
         UserDefaults(suiteName: appGroup).map(SharedInbox.init(defaults:))
     }
 
+    /// Each put gets its own id, so two shares in the same millisecond still
+    /// differ (see remove(ifStill:)).
     func put(_ item: SharedItem, at date: Date = Date()) {
         let createdAt = (date.timeIntervalSince1970 * 1000).rounded()
-        defaults.set(["text": item.text, "createdAt": createdAt], forKey: Self.key)
+        defaults.set(["text": item.text, "createdAt": createdAt, "id": UUID().uuidString],
+                     forKey: Self.key)
     }
 
     /// The waiting item, removed from the inbox; nil when there is none (a
@@ -144,9 +148,21 @@ struct SharedInbox {
     func take() -> (text: String, createdAt: Double)? {
         Self.lock.lock(); defer { Self.lock.unlock() }
         let stored = defaults.dictionary(forKey: Self.key)
-        defaults.removeObject(forKey: Self.key)
+        remove(ifStill: stored)
         guard let text = stored?["text"] as? String,
               let createdAt = stored?["createdAt"] as? Double else { return nil }
         return (text, createdAt)
+    }
+
+    /// Removes the inbox's entry only while it is still `entry`. The extension
+    /// writes from another process, so a share put after take() read the
+    /// inbox is newer: it stays for the next take instead of being lost.
+    /// (UserDefaults has no compare-and-swap; this narrows the window to the
+    /// moment between this read and the remove.)
+    func remove(ifStill entry: [String: Any]?) {
+        guard let entry,
+              let current = defaults.dictionary(forKey: Self.key),
+              (current as NSDictionary).isEqual(entry as NSDictionary) else { return }
+        defaults.removeObject(forKey: Self.key)
     }
 }

@@ -124,6 +124,45 @@ final class SharedItemTests: XCTestCase {
         XCTAssertEqual(box.take()?.text, "second")
     }
 
+    func testEachPutHasItsOwnId() throws {
+        let box = inbox()
+        let when = Date(timeIntervalSince1970: 1_800_000_000)
+        let item = try XCTUnwrap(SharedItem(texts: ["same"], url: nil))
+        box.put(item, at: when)
+        let first = box.defaults.dictionary(forKey: SharedInbox.key)?["id"] as? String
+        box.put(item, at: when)
+        let second = box.defaults.dictionary(forKey: SharedInbox.key)?["id"] as? String
+        XCTAssertNotNil(first)
+        XCTAssertNotNil(second)
+        XCTAssertNotEqual(first, second)
+    }
+
+    func testAShareWrittenAfterTheReadIsNotRemoved() throws {
+        let box = inbox()
+        let when = Date(timeIntervalSince1970: 1_800_000_000)
+        box.put(try XCTUnwrap(SharedItem(texts: ["first"], url: nil)), at: when)
+        let read = box.defaults.dictionary(forKey: SharedInbox.key)
+
+        // The extension writes a newer share (same millisecond) between the
+        // app's read and its remove.
+        box.put(try XCTUnwrap(SharedItem(texts: ["second"], url: nil)), at: when)
+        box.remove(ifStill: read)
+
+        XCTAssertEqual(box.take()?.text, "second")
+        XCTAssertNil(box.take())
+    }
+
+    func testRemoveIfStillRemovesTheSameEntry() throws {
+        let box = inbox()
+        box.put(try XCTUnwrap(SharedItem(texts: ["only"], url: nil)), at: Date())
+        box.remove(ifStill: box.defaults.dictionary(forKey: SharedInbox.key))
+        XCTAssertNil(box.defaults.object(forKey: SharedInbox.key))
+        // Nothing read, nothing removed.
+        box.put(try XCTUnwrap(SharedItem(texts: ["kept"], url: nil)), at: Date())
+        box.remove(ifStill: nil)
+        XCTAssertEqual(box.take()?.text, "kept")
+    }
+
     func testAnEmptyOrMalformedInboxTakesNothing() {
         let box = inbox()
         XCTAssertNil(box.take())

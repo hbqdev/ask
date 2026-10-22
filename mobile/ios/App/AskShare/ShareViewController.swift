@@ -50,7 +50,13 @@ final class ShareViewController: UIViewController {
         // The text waits in the inbox; this link only brings Ask forward (a
         // blank q fills nothing), so the composer gets the text exactly once.
         let url = URL(string: "ask://ask?q=")!
-        guard let context = extensionContext else { return }
+        guard let context = extensionContext else {
+            // No context to open through: try the responder chain, and still
+            // finish (the text waits in the inbox either way).
+            openThroughResponderChain(url)
+            finish()
+            return
+        }
         context.open(url) { [weak self] opened in
             DispatchQueue.main.async {
                 guard let self else { return }
