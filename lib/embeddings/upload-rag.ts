@@ -91,8 +91,9 @@ export function isTextFamily(mediaType: string, filename: string): boolean {
 
 const MIN_MEANINGFUL_CHARS = 200
 
-// Chunks embedded per embedTexts call on the fast path. Between batches the
-// event loop gets a turn, as it does while splitting and serialising.
+// Chunks embedded per embedTexts call (fast path and worker path alike).
+// Between batches the event loop gets a turn, as it does while splitting and
+// serialising.
 const EMBED_BATCH = 64
 
 // Local fast-path ingestion. Returns true iff a chunks file was written —
@@ -126,9 +127,24 @@ export async function processFileForRAG(
   const chunks = await splitTextAsync(trimmed, 512, 128)
   if (chunks.length === 0) return false
 
-  // Same JSON as JSON.stringify(ChunksFile), written one batch at a time (a
-  // 2 MB file can make 100+ MB of it) to a partial file that replaces the
-  // chunks file only once complete, so a reader never sees half of one.
+  await writeChunksFile(filePath, filename, model, chunks)
+  return true
+}
+
+// Embeds `chunks` in batches of EMBED_BATCH — each one a separate embedder
+// call that finishes well within its timeout, however many chunks there are —
+// and writes the chunks file. Same JSON as JSON.stringify(ChunksFile), written
+// one batch at a time (a 2 MB file can make 100+ MB of it) to a partial file
+// that replaces the chunks file only once complete, so a reader never sees
+// half of one; on any failure the partial file is removed. `onBatch` runs
+// after each batch (the worker path uses it to keep its job claimed).
+async function writeChunksFile(
+  filePath: string,
+  filename: string,
+  model: EmbeddingModelId,
+  chunks: string[],
+  onBatch?: () => unknown
+): Promise<void> {
   const target = chunksFilePath(filePath)
   const partial = `${target}.partial`
   const out = await fs.open(partial, 'w')
@@ -145,6 +161,7 @@ export async function processFileForRAG(
         )
         .join(',')
       await out.write(i === 0 ? json : `,${json}`)
+      await onBatch?.()
       await yieldToEventLoop()
     }
     await out.write(']}')
@@ -155,31 +172,29 @@ export async function processFileForRAG(
   }
   await out.close()
   await fs.rename(partial, target)
-  return true
 }
 
 // Embed worker-extracted chunk texts and store them in the standard
-// chunks-file format. Oversized entries are re-split defensively so a
-// worker bug can't produce chunks beyond what the embedder handles well.
+// chunks-file format, in the fast path's batches (up to 2000 chunks arrive
+// here, far more than one embedder call finishes within its timeout).
+// Oversized entries are re-split defensively so a worker bug can't produce
+// chunks beyond what the embedder handles well.
 export async function storeExtractedChunks(
   filePath: string,
   filename: string,
-  chunkTexts: string[]
+  chunkTexts: string[],
+  onBatch?: () => unknown
 ): Promise<void> {
   const normalized = chunkTexts.flatMap(t =>
     t.length > 4000 ? splitText(t, 512, 128) : [t]
   )
-  const model = getConfiguredModel()
-  const embeddings = await embedTexts(normalized, model)
-  const stored: ChunksFile = {
-    model,
+  await writeChunksFile(
+    filePath,
     filename,
-    chunks: normalized.map((content, i) => ({
-      content,
-      embedding: embeddings[i]
-    }))
-  }
-  await fs.writeFile(chunksFilePath(filePath), JSON.stringify(stored))
+    getConfiguredModel(),
+    normalized,
+    onBatch
+  )
 }
 
 // ── Query-time retrieval ─────────────────────────────────────────────────────
