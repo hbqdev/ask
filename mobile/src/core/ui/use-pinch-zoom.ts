@@ -205,6 +205,17 @@ export function usePinchZoom(): PinchZoom {
     setZoomState(UNZOOMED)
   }, [])
 
+  // A resize (an iPad rotating, or its window changing size) moves the page
+  // under a zoomed image, so it unzooms, as Photos does.
+  useEffect(() => {
+    window.addEventListener('resize', reset)
+    window.addEventListener('orientationchange', reset)
+    return () => {
+      window.removeEventListener('resize', reset)
+      window.removeEventListener('orientationchange', reset)
+    }
+  }, [reset])
+
   /** A second tap at `at` toggles: in on that point, or back out. */
   const doubleTap = (page: HTMLElement, at: Point) => {
     if (current.current.scale > MIN_ZOOM) {
@@ -315,7 +326,11 @@ export function usePinchZoom(): PinchZoom {
       onPointerMove,
       onPointerUp: e => lift(e, true),
       onPointerCancel: e => lift(e, false),
-      onLostPointerCapture: e => lift(e, false)
+      // Only the page's own lost capture: one that bubbles up from inside
+      // it is not for a finger the page follows.
+      onLostPointerCapture: e => {
+        if (e.target === e.currentTarget) lift(e, false)
+      }
     },
     imageRef
   }

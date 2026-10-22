@@ -1,7 +1,8 @@
-import { fireEvent, render, screen, within } from '@testing-library/react'
+import { act, fireEvent, render, screen, within } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import { haptic } from '@/core/haptics'
+import { scrollActiveToTop } from '@/core/nav/scroll-to-top'
 import { ImageViewer } from '@/core/ui/ImageViewer'
 
 vi.mock('@/core/haptics', () => ({ haptic: vi.fn() }))
@@ -220,6 +221,48 @@ describe('ImageViewer', () => {
     expect(screen.getByRole('img', { name: '1.png' })).toHaveStyle({
       transform: 'translate(0px, 0px) scale(1)'
     })
+  })
+
+  it('unzooms when an iPad rotates', () => {
+    setup()
+    const img = screen.getByRole('img', { name: '1.png' })
+    doubleTap(img)
+    expect(img).toHaveStyle({ transform: 'translate(0px, 0px) scale(2.5)' })
+    act(() => {
+      window.dispatchEvent(new Event('resize'))
+    })
+    expect(img).toHaveStyle({ transform: 'translate(0px, 0px) scale(1)' })
+    expect(screen.getByTestId('viewer-strip')).not.toHaveStyle({
+      overflowX: 'hidden'
+    })
+  })
+
+  it('measures the image it is on (its ref reaches the <img>), not just the page', () => {
+    const measured: Element[] = []
+    vi.spyOn(HTMLElement.prototype, 'clientWidth', 'get').mockImplementation(
+      function (this: HTMLElement) {
+        measured.push(this)
+        return 100
+      }
+    )
+    setup(1)
+    const img = screen.getByRole('img', { name: '2.png' })
+    measured.length = 0
+    doubleTap(img)
+    expect(measured).toContain(img)
+  })
+
+  it('takes no status-bar tap: the screen behind stays where it was', () => {
+    render(
+      <div className="stack-layer">
+        <div data-testid="thread-scroll" data-scroll-root />
+      </div>
+    )
+    const thread = screen.getByTestId('thread-scroll')
+    thread.scrollTo = vi.fn() as unknown as HTMLElement['scrollTo']
+    setup()
+    expect(scrollActiveToTop()).toBe(false)
+    expect(thread.scrollTo).not.toHaveBeenCalled()
   })
 
   it('a reopened viewer starts unzoomed', () => {

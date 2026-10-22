@@ -9,7 +9,7 @@
 // The page never zooms; the image it is on does (usePinchZoom), as in Photos:
 // pinched about the fingers, or double-tapped in and out, anywhere on its
 // page. While zoomed one finger pans the image and the strip does not page;
-// a page change, or closing, unzooms.
+// a page change, a rotation or a window resize, or closing, unzooms.
 
 import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'

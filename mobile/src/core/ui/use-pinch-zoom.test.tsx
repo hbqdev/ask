@@ -362,6 +362,39 @@ describe('usePinchZoom', () => {
     expect(zoom()).toBe('2 40 0 true')
   })
 
+  it('ignores a lost capture that bubbled up from inside the page', () => {
+    const { photo } = setup()
+    pinch(photo, [75, 125], [50, 150])
+    fireEvent.pointerDown(photo, at({ x: 100 }))
+    // The image inside lost a capture it held for this pointer: the page
+    // still holds the finger, which pans on.
+    fireEvent.lostPointerCapture(photo.querySelector('img')!, at({ x: 100 }))
+    fireEvent.pointerMove(photo, at({ x: 140 }))
+    frame()
+    expect(zoom()).toBe('2 40 0 true')
+  })
+
+  it('unzooms when the window resizes or the device rotates', () => {
+    const { photo } = setup()
+    for (const type of ['resize', 'orientationchange']) {
+      pinch(photo, [75, 125], [50, 150])
+      frame()
+      expect(zoom()).toBe('2 0 0 true')
+      act(() => {
+        window.dispatchEvent(new Event(type))
+      })
+      expect(zoom()).toBe('1 0 0 false')
+    }
+  })
+
+  it('stops listening for resizes once unmounted', () => {
+    const remove = vi.spyOn(window, 'removeEventListener')
+    const { unmount } = setup()
+    unmount()
+    const types = remove.mock.calls.map(([type]) => type)
+    expect(types).toEqual(expect.arrayContaining(['resize', 'orientationchange']))
+  })
+
   it('does not pan an unzoomed image', () => {
     const { photo } = setup()
     fireEvent.pointerDown(photo, at({ x: 100 }))
