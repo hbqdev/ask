@@ -6,6 +6,8 @@ import { transcribeAudio } from '@/lib/voice/stt-client'
 // Bound abuse + STT latency. ~25MB matches OpenAI's audio limit and holds well
 // over a minute of Opus — far more than a push-to-talk clip needs.
 const MAX_BYTES = 25 * 1024 * 1024
+// Multipart framing (boundaries, part headers) on top of the audio itself.
+const MULTIPART_OVERHEAD = 64 * 1024
 
 // This route is outside the proxy matcher (proxy.ts) so its multipart body is
 // never cut at Next's 10 MB proxy limit; it therefore answers the app's CORS
@@ -22,8 +24,21 @@ async function transcribe(req: Request): Promise<Response> {
   // Feature-gated: when off, the endpoint does not exist.
   if (!isVoiceEnabled()) return new Response('Not found', { status: 404 })
 
-  const userId = await getCurrentUserId()
+  let userId: string | undefined
+  try {
+    userId = await getCurrentUserId()
+  } catch (e) {
+    console.warn('[voice] /transcribe session lookup failed:', e)
+    return new Response('Server error', { status: 500 })
+  }
   if (!userId) return new Response('Unauthorized', { status: 401 })
+
+  // Outside the proxy nothing caps the body, and req.formData() buffers all of
+  // it: refuse before reading unless a bounded length is declared (every
+  // browser fetch of FormData declares one).
+  const declared = Number(req.headers.get('content-length') ?? NaN)
+  if (!Number.isFinite(declared) || declared > MAX_BYTES + MULTIPART_OVERHEAD)
+    return new Response('Audio too large', { status: 413 })
 
   let audio: File | null = null
   try {
