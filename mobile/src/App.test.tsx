@@ -1,6 +1,14 @@
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { act, render, screen, waitFor } from '@testing-library/react'
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import {
+  afterEach,
+  beforeAll,
+  beforeEach,
+  describe,
+  expect,
+  it,
+  vi
+} from 'vitest'
 
 import type { AppConfig } from '@/core/config'
 
@@ -57,7 +65,17 @@ async function loadApp() {
   return (await import('@/App')).default
 }
 
+/** The first import of the app's module graph transforms it all: seconds. */
+const COLD_IMPORT_TIMEOUT_MS = 60_000
+
 describe('App', () => {
+  // Pay the one-off transform here, with its own budget, so no test's time
+  // (5 s) depends on how loaded the machine is; loadApp then only re-runs the
+  // already transformed modules.
+  beforeAll(async () => {
+    await import('@/App')
+  }, COLD_IMPORT_TIMEOUT_MS)
+
   beforeEach(() => {
     vi.clearAllMocks()
     mocks.getConfig.mockReturnValue(config)
