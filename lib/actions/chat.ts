@@ -6,7 +6,7 @@ import { generateChatTitle } from '@/lib/agents/title-generator'
 import { getCurrentUserId } from '@/lib/auth/get-current-user'
 import * as dbActions from '@/lib/db/actions'
 import type { Chat, Message } from '@/lib/db/schema'
-import { generateId } from '@/lib/db/schema'
+import { CHAT_TITLE_MAX_LENGTH, generateId } from '@/lib/db/schema'
 import { signFilePartUrlsInMessages } from '@/lib/storage/r2-client'
 import { signUploadUrlsInMessages } from '@/lib/storage/upload-url-signing'
 import type { UIMessage } from '@/lib/types/ai'
@@ -344,6 +344,43 @@ export async function clearChats() {
 }
 
 /**
+ * Rename one of the current user's chats. Resolves the user itself (never
+ * takes a userId) so it is safe as a 'use server' export. The title is trimmed,
+ * an empty one is rejected, and an over-long one is truncated to
+ * CHAT_TITLE_MAX_LENGTH. updateChatTitle's ownership predicate means a missing
+ * or foreign chat updates no row, reported as 'Not found'.
+ */
+export async function renameChat(
+  chatId: string,
+  title: string
+): Promise<
+  | { ok: true; title: string }
+  | { error: 'User not authenticated' | 'Empty title' | 'Not found' }
+> {
+  const userId = await getCurrentUserId()
+  if (!userId) {
+    return { error: 'User not authenticated' }
+  }
+
+  const trimmed = typeof title === 'string' ? title.trim() : ''
+  if (!trimmed) {
+    return { error: 'Empty title' }
+  }
+
+  const updated = await dbActions.updateChatTitle(
+    chatId,
+    trimmed.slice(0, CHAT_TITLE_MAX_LENGTH).trimEnd(),
+    userId
+  )
+  if (!updated) {
+    return { error: 'Not found' }
+  }
+
+  revalidateTag(`chat-${chatId}`, 'max')
+  return { ok: true, title: updated.title }
+}
+
+/**
  * Delete messages after a specific message
  */
 export async function deleteMessagesAfter(chatId: string, messageId: string) {
@@ -378,6 +415,28 @@ export async function shareChat(chatId: string) {
     chatId,
     userId,
     'public'
+  )
+
+  if (updatedChat) {
+    revalidateTag(`chat-${chatId}`, 'max')
+  }
+
+  return updatedChat
+}
+
+// Inverse of shareChat: sets the chat back to private. Resolves the user
+// itself; returns the updated chat, or null when there is no user or the chat
+// is missing or not theirs. Setting an already-private chat is a no-op success.
+export async function unshareChat(chatId: string) {
+  const userId = await getCurrentUserId()
+  if (!userId) {
+    return null
+  }
+
+  const updatedChat = await dbActions.updateChatVisibility(
+    chatId,
+    userId,
+    'private'
   )
 
   if (updatedChat) {

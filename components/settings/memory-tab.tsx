@@ -19,7 +19,7 @@ import {
   rebuildRecallIndexAction,
   setRecallEnabledAction
 } from '@/lib/actions/recall'
-import type { UserMemory } from '@/lib/db/schema'
+import type { MemoryListItem } from '@/lib/db/schema'
 
 import {
   AlertDialog,
@@ -46,7 +46,7 @@ const MAX_REBUILD_ROUNDS = 200
 
 export function MemoryTab() {
   const [enabled, setEnabled] = useState(true)
-  const [memories, setMemories] = useState<UserMemory[]>([])
+  const [memories, setMemories] = useState<MemoryListItem[]>([])
   const [isLoading, setIsLoading] = useState(true)
   const [clearOpen, setClearOpen] = useState(false)
   const [isPending, startTransition] = useTransition()

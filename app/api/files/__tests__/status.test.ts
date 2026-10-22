@@ -82,4 +82,28 @@ describe('GET /api/files/status', () => {
     await GET(makeRequest(''))
     expect(getFileStatusesForUser).toHaveBeenCalledWith('u1', [])
   })
+
+  it('passes through the partial-index note on a ready file', async () => {
+    vi.mocked(getFileStatusesForUser).mockResolvedValue([
+      {
+        objectKey: 'u1/chats/c1/big.csv',
+        status: 'ready',
+        ingestStage: null,
+        ingestError: 'Indexed the first part only (file too large)'
+      }
+    ])
+
+    const res = await GET(makeRequest('?keys=u1%2Fchats%2Fc1%2Fbig.csv'))
+
+    expect(await res.json()).toEqual({
+      statuses: [
+        {
+          objectKey: 'u1/chats/c1/big.csv',
+          status: 'ready',
+          ingestStage: null,
+          ingestError: 'Indexed the first part only (file too large)'
+        }
+      ]
+    })
+  })
 })

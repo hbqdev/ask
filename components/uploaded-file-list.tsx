@@ -108,6 +108,17 @@ export const UploadedFileList = React.memo(function UploadedFileList({
               <div className="mt-2 text-xs text-center text-foreground truncate w-full">
                 {filename}
               </div>
+
+              {/* A ready file can still carry a note, e.g. that only the
+                  first part of a very large file was indexed. */}
+              {it.ingestStatus === 'ready' && it.ingestError && (
+                <div
+                  className="mt-0.5 text-[10px] leading-tight text-center text-amber-600 dark:text-amber-400 line-clamp-2 w-full"
+                  title={it.ingestError}
+                >
+                  {it.ingestError}
+                </div>
+              )}
             </div>
           )
         })}

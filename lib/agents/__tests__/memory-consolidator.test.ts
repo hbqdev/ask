@@ -35,7 +35,7 @@ const mockEvictOverCap = vi.mocked(evictOverCap)
 describe('consolidateUser', () => {
   beforeEach(() => {
     vi.clearAllMocks()
-    mockDeleteMemory.mockResolvedValue(undefined)
+    mockDeleteMemory.mockResolvedValue(true)
     mockEvictOverCap.mockResolvedValue(undefined)
   })
 

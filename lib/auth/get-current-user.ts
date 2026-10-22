@@ -20,6 +20,15 @@ export function bearerToken(headerValue: string | null): string | null {
   return match ? match[1] : null
 }
 
+/**
+ * True when an `Authorization` header value uses the Bearer scheme, with or
+ * without a token ("Bearer", "bearer abc"). Such a request is decided by its
+ * bearer alone; other schemes and a missing header keep the cookie path.
+ */
+export function isBearerAuthorization(headerValue: string | null): boolean {
+  return headerValue !== null && /^Bearer(\s|$)/i.test(headerValue)
+}
+
 async function readAuthorizationHeader(): Promise<string | null> {
   try {
     return (await headers()).get('authorization')
@@ -61,7 +70,7 @@ export async function getCurrentUser() {
   // resolves to null and never falls back to the cookie session. Other schemes
   // (e.g. Basic) are not ours and keep the cookie path.
   const authorization = await readAuthorizationHeader()
-  if (authorization && /^Bearer(\s|$)/i.test(authorization)) {
+  if (isBearerAuthorization(authorization)) {
     const token = bearerToken(authorization)
     return token ? getUserFromBearer(token) : null
   }

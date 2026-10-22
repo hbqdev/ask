@@ -5,7 +5,9 @@ import { revalidateTag } from 'next/cache'
 import { trackAccountDeleted } from '@/lib/analytics'
 import { getCurrentUser } from '@/lib/auth/get-current-user'
 import * as dbActions from '@/lib/db/actions'
+import { clearMemories, deleteUserSettings } from '@/lib/db/memory-actions'
 import { deleteUserObjects } from '@/lib/storage/r2-client'
+import { removeUserUploads } from '@/lib/storage/user-uploads'
 import { createAdminClient } from '@/lib/supabase/admin'
 
 function getErrorMessage(error: unknown) {
@@ -41,6 +43,25 @@ export async function deleteAccount(): Promise<{
       success: false,
       error: 'Account deletion is not configured. Set SUPABASE_SECRET_KEY.'
     }
+  }
+
+  // Every DB step runs before the auth user is deleted, the point of no
+  // return. A failure in any of them returns an error with the account and
+  // its upload files intact, so the user stays signed in and can retry. The
+  // steps are not one transaction: those that ran before a failure (e.g. the
+  // memories and settings) stay done, so a failed deletion may already have
+  // removed some data, and a retry finishes the rest.
+  try {
+    await clearMemories(user.id)
+  } catch (error) {
+    console.error(`Error deleting memories for user ${user.id}:`, error)
+    return { success: false, error: 'Failed to delete user memories' }
+  }
+  try {
+    await deleteUserSettings(user.id)
+  } catch (error) {
+    console.error(`Error deleting settings for user ${user.id}:`, error)
+    return { success: false, error: 'Failed to delete user settings' }
   }
 
   try {
@@ -85,6 +106,11 @@ export async function deleteAccount(): Promise<{
     if (error) {
       throw error
     }
+
+    // Only now, with the account gone, the local upload tree (originals, RAG
+    // sidecars, generated images). Not fatal: removeUserUploads logs an
+    // unsafe id or fs failure itself, and the orphaned files are unreachable.
+    await removeUserUploads(user.id)
 
     revalidateTag('chat', 'max')
     await trackAccountDeleted(user.id)

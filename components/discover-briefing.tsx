@@ -6,6 +6,7 @@ import Link from 'next/link'
 import { IconSparkles } from '@tabler/icons-react'
 
 import { SUMMARIZE_LABEL } from '@/lib/constants'
+import { thumbUrl } from '@/lib/discover/thumb-url'
 import { cn } from '@/lib/utils'
 import { rotateWindow } from '@/lib/utils/rotate-window'
 import { sanitizeHttpUrl } from '@/lib/utils/safe-url'
@@ -64,20 +65,6 @@ function categoryColor(category?: string): string {
 function placeholderGradient(category?: string): string {
   const c = categoryColor(category)
   return `linear-gradient(135deg, color-mix(in oklab, ${c} 55%, #16141f), color-mix(in oklab, ${c} 16%, #100e18))`
-}
-
-// Some sources (Bing) hand back tracking-laden thumbnail URLs; keep only the
-// stable `id` param so the same image loads reliably. Mirrors the news widget.
-function thumbUrl(raw: string): string {
-  try {
-    const u = new URL(raw)
-    if (u.hostname.includes('bing.com') && u.searchParams.has('id')) {
-      return `${u.origin}${u.pathname}?id=${u.searchParams.get('id')}`
-    }
-    return raw
-  } catch {
-    return raw
-  }
 }
 
 // Short, human source label from the article URL (e.g. "reuters.com"), shown as

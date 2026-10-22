@@ -67,4 +67,38 @@ describe('stripSpecBlocks', () => {
     expect(result).toContain('const x = 1')
     expect(result).not.toContain('```spec')
   })
+
+  test('keeps a ```spec mentioned mid-line (not a fence)', () => {
+    const input = 'Use the ```spec fence for widgets. More text follows.'
+    expect(stripSpecBlocks(input)).toBe(input)
+  })
+
+  test('a mid-line mention does not swallow a real block after it', () => {
+    const input = [
+      'Use the ```spec fence for widgets.',
+      '',
+      '```spec',
+      '{"op":"add","path":"/root","value":"r"}',
+      '```',
+      '',
+      'Tail.'
+    ].join('\n')
+    expect(stripSpecBlocks(input)).toBe(
+      'Use the ```spec fence for widgets.\n\nTail.'
+    )
+  })
+
+  test('still removes an indented spec block (inside a list item)', () => {
+    const input = [
+      '1. Item',
+      '    ```spec',
+      '    {"op":"add"}',
+      '    ```',
+      'Tail.'
+    ].join('\n')
+    const result = stripSpecBlocks(input)
+    expect(result).not.toContain('op')
+    expect(result).toContain('1. Item')
+    expect(result).toContain('Tail.')
+  })
 })

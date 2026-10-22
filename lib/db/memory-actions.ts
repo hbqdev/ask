@@ -5,7 +5,7 @@ import {
   getConfiguredModel
 } from '@/lib/embeddings/transformers-embedding'
 
-import { userMemories, userSettings } from './schema'
+import { type MemoryListItem, userMemories, userSettings } from './schema'
 import { withOptionalRLS } from './with-rls'
 
 const toVec = (v: number[]) => sql`${JSON.stringify(v)}::vector`
@@ -133,21 +133,44 @@ export async function evictOverCap(userId: string, cap: number) {
   })
 }
 
-export async function listMemories(userId: string) {
+// Every column but the 1024-d embedding: lists go to clients (the settings
+// panel, the app), which never need the vector. Similarity work uses
+// nearestMemory, which computes on the embedding inside Postgres.
+const memoryListColumns = {
+  id: userMemories.id,
+  userId: userMemories.userId,
+  content: userMemories.content,
+  category: userMemories.category,
+  status: userMemories.status,
+  sightings: userMemories.sightings,
+  sourceChatId: userMemories.sourceChatId,
+  createdAt: userMemories.createdAt,
+  updatedAt: userMemories.updatedAt,
+  lastUsedAt: userMemories.lastUsedAt
+}
+
+/** The user's memories, most recently updated first, without embeddings. */
+export async function listMemories(userId: string): Promise<MemoryListItem[]> {
   return withOptionalRLS(userId, async tx =>
     tx
-      .select()
+      .select(memoryListColumns)
       .from(userMemories)
       .where(eq(userMemories.userId, userId))
       .orderBy(desc(userMemories.updatedAt))
   )
 }
 
-export async function deleteMemory(userId: string, id: string) {
-  await withOptionalRLS(userId, async tx => {
-    await tx
+/** Delete one of the user's memories; false when none matched. */
+export async function deleteMemory(
+  userId: string,
+  id: string
+): Promise<boolean> {
+  return withOptionalRLS(userId, async tx => {
+    const rows = await tx
       .delete(userMemories)
       .where(and(eq(userMemories.userId, userId), eq(userMemories.id, id)))
+      .returning({ id: userMemories.id })
+    return rows.length > 0
   })
 }
 
@@ -178,6 +201,13 @@ export async function setMemoryEnabled(userId: string, on: boolean) {
         target: userSettings.userId,
         set: { memoryEnabled: on, updatedAt: new Date() }
       })
+  })
+}
+
+/** Remove the user's settings row (memory, recall and model preferences). */
+export async function deleteUserSettings(userId: string) {
+  await withOptionalRLS(userId, async tx => {
+    await tx.delete(userSettings).where(eq(userSettings.userId, userId))
   })
 }
 

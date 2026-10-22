@@ -117,17 +117,41 @@ export async function findFileByObjectKey(
   return rows[0] ?? null
 }
 
-export async function markFileReady(id: string): Promise<void> {
+// `note` is kept in ingest_error on a ready file for the attachment UI to show
+// (e.g. that only the first part of a very large file was indexed).
+export async function markFileReady(id: string, note?: string): Promise<void> {
   await db
     .update(files)
     .set({
       status: 'ready',
       ingestedAt: new Date(),
-      ingestError: null,
+      ingestError: note ?? null,
       ingestStage: null,
       claimedAt: null
     })
     .where(eq(files.id, id))
+}
+
+// markFileReady for the worker path's background embed: it settles the file
+// only while it is still 'processing', so a file that expired or was swept to
+// failed while its chunks were embedding keeps that state. Returns whether
+// the file was marked ready.
+export async function markProcessingFileReady(
+  id: string,
+  note?: string
+): Promise<boolean> {
+  const result = await db.execute(sql`
+    UPDATE files SET
+      status = 'ready',
+      ingested_at = now(),
+      ingest_error = ${note ?? null},
+      ingest_stage = NULL,
+      claimed_at = NULL
+    WHERE id = ${id}
+      AND status = 'processing'
+    RETURNING id
+  `)
+  return Boolean(execRows(result)[0])
 }
 
 // Finalize jobs that reached the attempt cap via silent worker death: the

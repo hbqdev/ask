@@ -84,4 +84,25 @@ describe('UploadedFileList status chips', () => {
     expect(screen.queryByTitle('chunking')).not.toBeInTheDocument()
     expect(screen.queryByTitle(/./)).not.toBeInTheDocument()
   })
+
+  it('shows the note on a ready file that was only partly indexed', () => {
+    render(
+      <UploadedFileList
+        files={[
+          makeFile({
+            ingestStatus: 'ready',
+            ingestError: 'Indexed the first part only (file too large)'
+          })
+        ]}
+        onRemove={vi.fn()}
+      />
+    )
+
+    expect(
+      screen.getByText('Indexed the first part only (file too large)')
+    ).toBeInTheDocument()
+    // A ready file is usable: no spinner or failure overlay.
+    expect(screen.queryByTitle('queued')).not.toBeInTheDocument()
+    expect(screen.queryByTitle('Processing failed')).not.toBeInTheDocument()
+  })
 })

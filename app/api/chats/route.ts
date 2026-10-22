@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 
-import { countChats, getChatsPage } from '@/lib/actions/chat'
+import { clearChats, countChats, getChatsPage } from '@/lib/actions/chat'
+import { rejectInvalidBearer } from '@/lib/auth/reject-invalid-bearer'
 import type { ChatBadgeData, ChatSortOption } from '@/lib/db/actions'
 import { Chat as DBChat } from '@/lib/db/schema'
 
@@ -21,10 +22,29 @@ function parseSort(value: string | null): ChatSortOption {
     : 'recent'
 }
 
+const DEFAULT_LIMIT = 20
+const MAX_LIMIT = 50
+
+// limit is clamped to [1, MAX_LIMIT]; a missing or unparseable one is the default.
+function parseLimit(value: string | null): number {
+  const n = parseInt(value ?? '', 10)
+  if (Number.isNaN(n)) return DEFAULT_LIMIT
+  return Math.min(MAX_LIMIT, Math.max(1, n))
+}
+
+// A missing, negative or unparseable offset is 0.
+function parseOffset(value: string | null): number {
+  const n = parseInt(value ?? '', 10)
+  return Number.isNaN(n) || n < 0 ? 0 : n
+}
+
 export async function GET(request: NextRequest) {
+  const rejected = await rejectInvalidBearer(request)
+  if (rejected) return rejected
+
   const { searchParams } = new URL(request.url)
-  const offset = parseInt(searchParams.get('offset') || '0', 10)
-  const limit = parseInt(searchParams.get('limit') || '20', 10)
+  const offset = parseOffset(searchParams.get('offset'))
+  const limit = parseLimit(searchParams.get('limit'))
   const sort = parseSort(searchParams.get('sort'))
   const withCount = searchParams.get('withCount') === '1'
 
@@ -51,4 +71,31 @@ export async function GET(request: NextRequest) {
       { status: 500 }
     )
   }
+}
+
+// DELETE /api/chats: delete every chat of the current user. Native-client
+// counterpart of the web's clearChats server action, which a bearer-token
+// client cannot invoke; clearChats resolves the user itself.
+export async function DELETE(_request: NextRequest) {
+  let result: Awaited<ReturnType<typeof clearChats>>
+  try {
+    result = await clearChats()
+  } catch (error) {
+    console.error('DELETE /api/chats failed:', error)
+    return NextResponse.json(
+      { error: 'Failed to clear chats', retryable: true },
+      { status: 500 }
+    )
+  }
+
+  if (result.success) {
+    return NextResponse.json({ ok: true })
+  }
+  if (result.error === 'User not authenticated') {
+    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  }
+  return NextResponse.json(
+    { error: result.error ?? 'Failed to clear chats', retryable: true },
+    { status: 500 }
+  )
 }

@@ -5,7 +5,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { generateChatTitle } from '@/lib/agents/title-generator'
 import { getCurrentUserId } from '@/lib/auth/get-current-user'
 import * as dbActions from '@/lib/db/actions'
-import type { Chat, Message } from '@/lib/db/schema'
+import { type Chat, CHAT_TITLE_MAX_LENGTH, type Message } from '@/lib/db/schema'
 import type { UIMessage } from '@/lib/types/ai'
 
 import {
@@ -20,8 +20,10 @@ import {
   getChats,
   getChatsPage,
   loadChat,
+  renameChat,
   saveChatTitle,
   shareChat,
+  unshareChat,
   upsertMessage
 } from '../chat'
 
@@ -590,6 +592,51 @@ describe('Chat Actions', () => {
     })
   })
 
+  describe('unshareChat', () => {
+    const privateChat: Chat = {
+      id: 'chat-123',
+      title: 'Test Chat',
+      userId: 'user-123',
+      visibility: 'private',
+      createdAt: new Date(),
+      lastViewedAt: null
+    }
+
+    it('sets the chat private for its owner and revalidates it', async () => {
+      vi.mocked(getCurrentUserId).mockResolvedValue('user-123')
+      vi.mocked(dbActions.updateChatVisibility).mockResolvedValue(privateChat)
+
+      const result = await unshareChat('chat-123')
+
+      expect(result).toEqual(privateChat)
+      expect(dbActions.updateChatVisibility).toHaveBeenCalledWith(
+        'chat-123',
+        'user-123',
+        'private'
+      )
+      expect(revalidateTag).toHaveBeenCalledWith('chat-chat-123', 'max')
+    })
+
+    it('returns null without touching the db when there is no user', async () => {
+      vi.mocked(getCurrentUserId).mockResolvedValue(undefined)
+
+      const result = await unshareChat('chat-123')
+
+      expect(result).toBeNull()
+      expect(dbActions.updateChatVisibility).not.toHaveBeenCalled()
+    })
+
+    it('returns null and skips revalidation for a missing or foreign chat', async () => {
+      vi.mocked(getCurrentUserId).mockResolvedValue('user-123')
+      vi.mocked(dbActions.updateChatVisibility).mockResolvedValue(null)
+
+      const result = await unshareChat('foreign')
+
+      expect(result).toBeNull()
+      expect(revalidateTag).not.toHaveBeenCalled()
+    })
+  })
+
   describe('deleteMessagesFromIndex', () => {
     it('should delete messages from specified index', async () => {
       const chatId = 'chat-123'
@@ -746,6 +793,94 @@ describe('Chat Actions', () => {
 
       expect(generateChatTitle).not.toHaveBeenCalled()
       expect(dbActions.updateChatTitle).not.toHaveBeenCalled()
+    })
+  })
+
+  describe('renameChat', () => {
+    const userId = 'user-123'
+    const row = (title: string): Chat => ({
+      id: 'chat-1',
+      title,
+      userId,
+      visibility: 'private',
+      createdAt: new Date(),
+      lastViewedAt: null
+    })
+
+    it('trims the title, saves it for the current user and revalidates the chat', async () => {
+      vi.mocked(getCurrentUserId).mockResolvedValue(userId)
+      vi.mocked(dbActions.updateChatTitle).mockResolvedValue(row('New name'))
+
+      const result = await renameChat('chat-1', '  New name  ')
+
+      expect(result).toEqual({ ok: true, title: 'New name' })
+      expect(dbActions.updateChatTitle).toHaveBeenCalledWith(
+        'chat-1',
+        'New name',
+        userId
+      )
+      expect(revalidateTag).toHaveBeenCalledWith('chat-chat-1', 'max')
+    })
+
+    it('caps an over-long title at CHAT_TITLE_MAX_LENGTH', async () => {
+      vi.mocked(getCurrentUserId).mockResolvedValue(userId)
+      const capped = 'a'.repeat(CHAT_TITLE_MAX_LENGTH)
+      vi.mocked(dbActions.updateChatTitle).mockResolvedValue(row(capped))
+
+      const result = await renameChat('chat-1', 'a'.repeat(300))
+
+      expect(dbActions.updateChatTitle).toHaveBeenCalledWith(
+        'chat-1',
+        capped,
+        userId
+      )
+      expect(result).toEqual({ ok: true, title: capped })
+    })
+
+    it('drops the spaces the cap leaves at the end of the title', async () => {
+      vi.mocked(getCurrentUserId).mockResolvedValue(userId)
+      const kept = 'a'.repeat(CHAT_TITLE_MAX_LENGTH - 2)
+      vi.mocked(dbActions.updateChatTitle).mockResolvedValue(row(kept))
+
+      await renameChat('chat-1', `${kept}   tail`)
+
+      expect(dbActions.updateChatTitle).toHaveBeenCalledWith(
+        'chat-1',
+        kept,
+        userId
+      )
+    })
+
+    it('rejects an empty or whitespace-only title without writing', async () => {
+      vi.mocked(getCurrentUserId).mockResolvedValue(userId)
+
+      expect(await renameChat('chat-1', '')).toEqual({ error: 'Empty title' })
+      expect(await renameChat('chat-1', '   ')).toEqual({
+        error: 'Empty title'
+      })
+      expect(await renameChat('chat-1', 42 as unknown as string)).toEqual({
+        error: 'Empty title'
+      })
+      expect(dbActions.updateChatTitle).not.toHaveBeenCalled()
+    })
+
+    it('reports an unauthenticated caller without writing', async () => {
+      vi.mocked(getCurrentUserId).mockResolvedValue(undefined)
+
+      const result = await renameChat('chat-1', 'New name')
+
+      expect(result).toEqual({ error: 'User not authenticated' })
+      expect(dbActions.updateChatTitle).not.toHaveBeenCalled()
+    })
+
+    it('reports Not found when no owned row was updated', async () => {
+      vi.mocked(getCurrentUserId).mockResolvedValue(userId)
+      vi.mocked(dbActions.updateChatTitle).mockResolvedValue(null)
+
+      const result = await renameChat('foreign', 'New name')
+
+      expect(result).toEqual({ error: 'Not found' })
+      expect(revalidateTag).not.toHaveBeenCalled()
     })
   })
 })

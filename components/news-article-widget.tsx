@@ -5,6 +5,7 @@ import { useEffect, useState } from 'react'
 import { IconSparkles } from '@tabler/icons-react'
 
 import { SUMMARIZE_LABEL } from '@/lib/constants'
+import { thumbUrl } from '@/lib/discover/thumb-url'
 import { cn } from '@/lib/utils'
 import { rotateWindow } from '@/lib/utils/rotate-window'
 import { sanitizeHttpUrl } from '@/lib/utils/safe-url'
@@ -39,18 +40,6 @@ function useIsWide() {
     return () => mql.removeEventListener('change', sync)
   }, [])
   return wide
-}
-
-function thumbUrl(raw: string) {
-  try {
-    const u = new URL(raw)
-    if (u.hostname.includes('bing.com') && u.searchParams.has('id')) {
-      return `${u.origin}${u.pathname}?id=${u.searchParams.get('id')}`
-    }
-    return raw
-  } catch {
-    return raw
-  }
 }
 
 function summaryHref(url: string) {

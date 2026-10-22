@@ -610,7 +610,7 @@ export async function deleteUserChats(
   userId: string
 ): Promise<{ success: boolean; error?: string }> {
   try {
-    return withRLS(userId, async tx => {
+    return await withRLS(userId, async tx => {
       await tx.delete(chats).where(eq(chats.userId, userId))
       return { success: true }
     })
@@ -728,7 +728,7 @@ export async function deleteUserNotes(
   userId: string
 ): Promise<{ success: boolean; error?: string }> {
   try {
-    return withRLS(userId, async tx => {
+    return await withRLS(userId, async tx => {
       await tx.delete(notes).where(eq(notes.userId, userId))
       return { success: true }
     })
@@ -946,7 +946,7 @@ export async function deleteUserLibraryFiles(
   userId: string
 ): Promise<{ success: boolean; error?: string }> {
   try {
-    return withRLS(userId, async tx => {
+    return await withRLS(userId, async tx => {
       await tx.delete(libraryFiles).where(eq(libraryFiles.userId, userId))
       return { success: true }
     })
@@ -963,7 +963,7 @@ export async function anonymizeUserFeedback(
   userId: string
 ): Promise<{ success: boolean; error?: string }> {
   try {
-    return withRLS(userId, async tx => {
+    return await withRLS(userId, async tx => {
       await tx
         .update(feedback)
         .set({ userId: null })

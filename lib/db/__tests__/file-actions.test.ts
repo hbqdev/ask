@@ -5,16 +5,17 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 // outer `execute`/`select` must be created via vi.hoisted (same pattern as
 // lib/storage/__tests__/r2-client.test.ts) or the mock throws
 // "Cannot access 'execute' before initialization".
-const { execute, select, insert } = vi.hoisted(() => ({
+const { execute, select, insert, update } = vi.hoisted(() => ({
   execute: vi.fn(),
   select: vi.fn(),
-  insert: vi.fn()
+  insert: vi.fn(),
+  update: vi.fn()
 }))
 // file-actions imports `dbAdmin` (the admin client). Point it at the same
 // mocked builders — the module aliases it to db internally.
 vi.mock('@/lib/db', () => ({
-  db: { execute, select, insert },
-  dbAdmin: { execute, select, insert }
+  db: { execute, select, insert, update },
+  dbAdmin: { execute, select, insert, update }
 }))
 
 const { stat, unlink, readdir } = vi.hoisted(() => ({
@@ -40,6 +41,8 @@ import {
   FAST_PATH_STAGE,
   gcOrphanUploads,
   getFileStatusesForUser,
+  markFileReady,
+  markProcessingFileReady,
   releaseFastPathToWorker
 } from '../file-actions'
 
@@ -525,5 +528,73 @@ describe('fast-path claim state', () => {
     expect(q.sql).toMatch(/status = 'processing'/)
     expect(q.sql).toMatch(/ingest_stage = \$\d/)
     expect(q.params).toEqual(expect.arrayContaining(['f1', FAST_PATH_STAGE]))
+  })
+})
+
+describe('markFileReady', () => {
+  let set: ReturnType<typeof vi.fn>
+  beforeEach(() => {
+    vi.clearAllMocks()
+    set = vi.fn(() => ({ where: vi.fn(async () => undefined) }))
+    update.mockReturnValue({ set })
+  })
+
+  it('marks the file ready and clears any earlier error and stage', async () => {
+    await markFileReady('f1')
+    expect(set).toHaveBeenCalledWith(
+      expect.objectContaining({
+        status: 'ready',
+        ingestError: null,
+        ingestStage: null,
+        claimedAt: null
+      })
+    )
+  })
+
+  it('keeps a partial-index note on a ready file for the UI to show', async () => {
+    await markFileReady('f1', 'Indexed the first part only (file too large)')
+    expect(set).toHaveBeenCalledWith(
+      expect.objectContaining({
+        status: 'ready',
+        ingestError: 'Indexed the first part only (file too large)'
+      })
+    )
+  })
+})
+
+// The worker path's background embed settles the file only if nothing else
+// settled it meanwhile (expiry, the retries-exhausted sweep).
+describe('markProcessingFileReady', () => {
+  const dialect = new PgDialect()
+  beforeEach(() => vi.clearAllMocks())
+
+  it('marks only a still-processing file ready, clearing stage and claim', async () => {
+    execute.mockResolvedValueOnce([{ id: 'f1' }])
+    expect(await markProcessingFileReady('f1')).toBe(true)
+    const q = dialect.sqlToQuery(execute.mock.calls[0][0])
+    expect(q.sql).toMatch(/SET\s+status = 'ready'/)
+    expect(q.sql).toMatch(/ingested_at = now\(\)/)
+    expect(q.sql).toMatch(/ingest_stage = NULL/)
+    expect(q.sql).toMatch(/claimed_at = NULL/)
+    expect(q.sql).toMatch(/WHERE id = \$\d+\s+AND status = 'processing'/)
+    expect(q.params).toEqual([null, 'f1'])
+  })
+
+  it('stores the partial-index note as the ingest error', async () => {
+    execute.mockResolvedValueOnce([{ id: 'f1' }])
+    await markProcessingFileReady(
+      'f1',
+      'Indexed the first part only (file too large)'
+    )
+    const q = dialect.sqlToQuery(execute.mock.calls[0][0])
+    expect(q.params).toEqual([
+      'Indexed the first part only (file too large)',
+      'f1'
+    ])
+  })
+
+  it('reports false and changes nothing visible when the file was settled meanwhile', async () => {
+    execute.mockResolvedValueOnce([])
+    expect(await markProcessingFileReady('f1')).toBe(false)
   })
 })
