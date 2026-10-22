@@ -23,6 +23,7 @@ import { useApi } from '@/core/api/ApiProvider'
 import { useAuth } from '@/core/auth/AuthProvider'
 import { newId } from '@/core/ids'
 import { useScreenActive, useStack, type Stack } from '@/core/nav/stack'
+import { READABLE } from '@/core/ui/classes'
 import { Composer } from '@/features/compose/Composer'
 import { useSharedSearchSettings } from '@/features/compose/SearchSettingsProvider'
 import { isMessageSaved } from '@/features/notes/notes-cache'
@@ -419,7 +420,8 @@ export function ThreadScreen({
           onScroll={onScroll}
           className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-4 py-4"
         >
-          <div ref={content} data-testid="thread-content">
+          {/* On an iPad the turns sit in the readable column. */}
+          <div ref={content} data-testid="thread-content" className={READABLE}>
             {thread.loading ? (
               <LoadingSkeleton />
             ) : (

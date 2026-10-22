@@ -3,6 +3,14 @@
 // speed, the theme, the Library's sections) raises the chosen segment as a
 // thumb on a muted track. A chip (a topic, a source) inverts when it is on.
 
+/**
+ * A readable column: a screen's content, centred and at most 720 px wide, so
+ * lines stay short on an iPad. It goes on the content inside a scroller; the
+ * scroller, its pull area, a header's hairline and the tab bar stay full
+ * width.
+ */
+export const READABLE = 'mx-auto w-full max-w-[720px]'
+
 /** A group: a rounded card of rows or controls. */
 export const GROUP = 'rounded-2xl bg-card'
 

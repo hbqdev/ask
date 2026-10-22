@@ -78,7 +78,7 @@ function SparkleIcon() {
   )
 }
 
-/** The feed's first story: a 16:9 image, the title and the summary. */
+/** The feed's first story: a 16:9 image (at most 360 px tall), the title and the summary. */
 export const DiscoverLeadCard = memo(function DiscoverLeadCard({
   item,
   onOpen,
@@ -97,7 +97,11 @@ export const DiscoverLeadCard = memo(function DiscoverLeadCard({
         onClick={() => onOpen(item.url)}
         className="block w-full touch-manipulation text-left active:opacity-70"
       >
-        <Thumb src={item.thumbnail} className="aspect-video w-full" />
+        {/* 16:9, capped on an iPad's wide column (the image crops to fill). */}
+        <Thumb
+          src={item.thumbnail}
+          className="aspect-video max-h-[360px] w-full"
+        />
         <div className="flex flex-col gap-1.5 px-4 pt-3">
           <h2
             id={`${id}-title`}

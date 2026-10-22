@@ -21,6 +21,7 @@ import {
 import { useTabActive } from '@/app/Tabs'
 import { haptic } from '@/core/haptics'
 import { useScreenActive } from '@/core/nav/stack'
+import { READABLE } from '@/core/ui/classes'
 import { Sheet } from '@/core/ui/Sheet'
 import { AttachmentChips } from '@/features/compose/AttachmentChips'
 import { OptionsSheet } from '@/features/compose/OptionsSheet'
@@ -254,8 +255,10 @@ export function Composer({
     settings.searchMode
 
   return (
+    // The bar spans the screen; on an iPad its row sits in the readable
+    // column, over the turns.
     <form className="composer bg-background px-3 pt-2" onSubmit={onSubmit}>
-      <div className="rounded-3xl bg-foreground/5 px-3 pt-1 pb-2">
+      <div className={`${READABLE} rounded-3xl bg-foreground/5 px-3 pt-1 pb-2`}>
         <AttachmentChips
           items={attachments.items}
           onRemove={attachments.remove}
@@ -339,7 +342,10 @@ export function Composer({
         </div>
       </div>
       {dictation.state === 'error' && (
-        <p role="alert" className="px-3 pt-1 text-xs text-foreground/60">
+        <p
+          role="alert"
+          className={`${READABLE} px-3 pt-1 text-xs text-foreground/60`}
+        >
           {dictation.error}
         </p>
       )}

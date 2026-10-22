@@ -13,6 +13,7 @@ import { resetModelChoice } from '@/features/compose/model-choice'
 import { SearchSettingsProvider } from '@/features/compose/SearchSettingsProvider'
 import { SettingsScreen } from '@/features/settings/SettingsScreen'
 import { memoryStorage } from '@/test/memory-storage'
+import { expectReadableInScroller } from '@/test/readable'
 
 vi.mock('@/core/auth/AuthProvider', () => ({ useAuth: vi.fn() }))
 vi.mock('@/core/api/ApiProvider', () => ({ useApi: vi.fn() }))
@@ -130,6 +131,17 @@ describe('SettingsScreen', () => {
     ])
     // A status-bar tap scrolls it to the top (core/nav/scroll-to-top).
     expect(screen.getByRole('main')).toHaveAttribute('data-scroll-root')
+  })
+
+  it('on an iPad, sets the title and the sections in the readable column', async () => {
+    fakeAuth()
+    await renderSettings()
+    expectReadableInScroller(
+      screen.getByRole('heading', { level: 1, name: 'Settings' })
+    )
+    for (const h of screen.getAllByRole('heading', { level: 2 })) {
+      expectReadableInScroller(h)
+    }
   })
 
   it('shows the signed-in email', async () => {

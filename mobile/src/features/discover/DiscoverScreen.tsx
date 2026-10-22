@@ -14,7 +14,7 @@ import {
 
 import { useTabActive } from '@/app/Tabs'
 import { haptic } from '@/core/haptics'
-import { chipClass } from '@/core/ui/classes'
+import { chipClass, READABLE } from '@/core/ui/classes'
 import { useStack } from '@/core/nav/stack'
 import { PullScroller } from '@/core/ui/PullScroller'
 import { TOPICS, type Topic } from '@/features/discover/discover-api'
@@ -26,9 +26,6 @@ import { openThread } from '@/features/thread/ThreadScreen'
 
 /** How far below the visible feed the next page starts loading. */
 const PRELOAD_MARGIN = '0px 0px 800px 0px'
-
-/** The chip row's side padding: a chip scrolled into view keeps this gap. */
-const CHIP_GUTTER = 16
 
 const SKELETON_ROWS = 5
 
@@ -52,7 +49,9 @@ export function DiscoverScreen() {
 
 function Title() {
   return (
-    <h1 className="px-6 pt-6 pb-3 text-3xl font-bold tracking-tight">
+    <h1
+      className={`${READABLE} px-6 pt-6 pb-3 text-3xl font-bold tracking-tight`}
+    >
       Discover
     </h1>
   )
@@ -94,19 +93,22 @@ function DiscoverFeed({
         testId="discover"
       >
         {/* Memoized on these fields (all stable between changes), so the
-            feed does not render again for a pull. */}
-        <Feed
-          items={discover.items}
-          status={discover.status}
-          error={discover.error}
-          hasMore={discover.hasMore}
-          loadMore={discover.loadMore}
-          refresh={discover.refresh}
-          retry={discover.retry}
-          scroller={scroller}
-          onOpen={openLink}
-          onSummarize={summarize}
-        />
+            feed does not render again for a pull. On an iPad the stories
+            sit in the readable column; the pull area spans the screen. */}
+        <div className={READABLE}>
+          <Feed
+            items={discover.items}
+            status={discover.status}
+            error={discover.error}
+            hasMore={discover.hasMore}
+            loadMore={discover.loadMore}
+            refresh={discover.refresh}
+            retry={discover.retry}
+            scroller={scroller}
+            onOpen={openLink}
+            onSummarize={summarize}
+          />
+        </div>
       </PullScroller>
     </main>
   )
@@ -123,10 +125,16 @@ function TopicChips({
 }) {
   const row = useRef<HTMLDivElement>(null)
 
-  // Opening on a stored topic far along the row scrolls the row to it.
+  // Opening on a stored topic far along the row scrolls the row to it, the
+  // chip landing where the first one starts: the row's padding, 16 px on a
+  // phone, in line with the readable column on an iPad. The row is
+  // positioned, so a chip's offsetLeft is from the row itself, not from
+  // whatever positioned box holds the screen.
   useLayoutEffect(() => {
-    const chip = row.current!.querySelector<HTMLElement>('[aria-checked=true]')!
-    row.current!.scrollLeft = Math.max(0, chip.offsetLeft - CHIP_GUTTER)
+    const el = row.current!
+    const chip = el.querySelector<HTMLElement>('[aria-checked=true]')!
+    const start = parseFloat(getComputedStyle(el).paddingLeft)
+    el.scrollLeft = Math.max(0, chip.offsetLeft - start)
     // Only the topic the screen opens on: a chip tapped later is in view.
   }, [])
 
@@ -135,7 +143,9 @@ function TopicChips({
       ref={row}
       role="radiogroup"
       aria-label="Topics"
-      className="discover-chips flex gap-2 overflow-x-auto px-4 pb-3"
+      // The row spans the screen, so the topics scroll to its edges, but on
+      // an iPad its padding starts them in line with the readable column.
+      className="discover-chips relative flex gap-2 overflow-x-auto px-[max(16px,calc((100%-720px)/2+16px))] pb-3"
     >
       {TOPICS.map(t => {
         const checked = t.key === topic
@@ -298,10 +308,10 @@ function Skeleton() {
     <div
       role="status"
       aria-label="Loading stories"
-      className="flex motion-safe:animate-pulse flex-col"
+      className={`flex motion-safe:animate-pulse flex-col ${READABLE}`}
     >
       <div className="mx-4 mb-2 overflow-hidden rounded-2xl bg-muted">
-        <div className="aspect-video w-full bg-foreground/8" />
+        <div className="aspect-video max-h-[360px] w-full bg-foreground/8" />
         <div className="flex flex-col gap-2 px-4 py-4">
           <div className="h-4 w-5/6 rounded bg-foreground/8" />
           <div className="h-3 w-2/3 rounded bg-foreground/8" />

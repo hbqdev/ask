@@ -31,6 +31,7 @@ import { playingOwner, stop as stopPlayer } from '@/features/voice/speech'
 import { clippingAncestors } from '@/test/clipping'
 import { installFakeAudio, objectUrls, resetFakeAudio } from '@/test/fake-audio'
 import { memoryStorage } from '@/test/memory-storage'
+import { expectReadableInScroller, readableColumn } from '@/test/readable'
 import { resize } from '@/test/resize-observer'
 
 vi.mock('@/features/thread/useThread', () => ({ useThread: vi.fn() }))
@@ -364,6 +365,20 @@ describe('ThreadScreen', () => {
     expect(screen.getByTestId('thread-scroll')).toHaveAttribute(
       'data-scroll-root'
     )
+  })
+
+  it('on an iPad, sets the turns and the composer’s row in the readable column', async () => {
+    renderScreen(session())
+    await act(async () => {})
+    const content = screen.getByTestId('thread-content')
+    expectReadableInScroller(content)
+    expect(readableColumn(content)).toBe(content)
+    expect(readableColumn(composer())).not.toBeNull()
+    // The bar, the scroller and the composer's bar span the screen.
+    expect(
+      readableColumn(screen.getByRole('button', { name: 'Back' }))
+    ).toBeNull()
+    expect(readableColumn(composer().closest('form')!)).toBeNull()
   })
 
   it('holds the opening question until the stored settings load', async () => {

@@ -22,7 +22,7 @@ import {
 import { ActiveWithin, useSelectTab, useTabActive } from '@/app/Tabs'
 import { haptic } from '@/core/haptics'
 import { useStack } from '@/core/nav/stack'
-import { SEGMENT_TRACK, segmentClass } from '@/core/ui/classes'
+import { READABLE, SEGMENT_TRACK, segmentClass } from '@/core/ui/classes'
 import { ConfirmSheet } from '@/core/ui/ConfirmSheet'
 import { PullScroller } from '@/core/ui/PullScroller'
 import { Sheet } from '@/core/ui/Sheet'
@@ -76,7 +76,7 @@ export function LibraryScreen() {
   if (!sortLoaded || !segmentLoaded) {
     return (
       <main className="flex min-h-0 flex-1 flex-col">
-        <header className="px-4 pt-6 pb-3">
+        <header className={`${READABLE} px-4 pt-6 pb-3`}>
           <h1 className="px-2 text-3xl font-bold tracking-tight">Library</h1>
         </header>
         <Skeleton />
@@ -96,7 +96,7 @@ export function LibraryScreen() {
 
   return (
     <main className="flex min-h-0 flex-1 flex-col">
-      <header className="flex flex-col gap-3 px-4 pt-6 pb-1">
+      <header className={`${READABLE} flex flex-col gap-3 px-4 pt-6 pb-1`}>
         <h1 className="px-2 text-3xl font-bold tracking-tight">Library</h1>
         <div
           role="tablist"
@@ -201,25 +201,29 @@ function LibraryList({
         onRefresh={library.refresh}
         testId="library"
       >
-        {searching ? (
-          <SearchResults search={search} onOpen={open} />
-        ) : (
-          // Memoized on these fields (all stable between changes), so the
-          // list does not render again for a sheet, a keystroke or a pull.
-          <ChatList
-            chats={library.chats}
-            status={library.status}
-            error={library.error}
-            hasMore={library.hasMore}
-            loadMore={library.loadMore}
-            refresh={library.refresh}
-            sort={sort}
-            scroller={scroller}
-            onOpen={openRow}
-            onDelete={setDeleting}
-            onRename={setRenaming}
-          />
-        )}
+        {/* On an iPad the list sits in the readable column; the pull area
+            spans the screen. */}
+        <div className={READABLE}>
+          {searching ? (
+            <SearchResults search={search} onOpen={open} />
+          ) : (
+            // Memoized on these fields (all stable between changes), so the
+            // list does not render again for a sheet, a keystroke or a pull.
+            <ChatList
+              chats={library.chats}
+              status={library.status}
+              error={library.error}
+              hasMore={library.hasMore}
+              loadMore={library.loadMore}
+              refresh={library.refresh}
+              sort={sort}
+              scroller={scroller}
+              onOpen={openRow}
+              onDelete={setDeleting}
+              onRename={setRenaming}
+            />
+          )}
+        </div>
       </PullScroller>
 
       <ConfirmSheet
@@ -269,7 +273,7 @@ function LibraryHeader({
   }
 
   return (
-    <header className="flex flex-col gap-3 px-4 pt-2 pb-3">
+    <header className={`${READABLE} flex flex-col gap-3 px-4 pt-2 pb-3`}>
       <div className="flex items-center justify-between gap-3 px-2">
         <p className="min-w-0 text-sm text-muted-foreground">
           {total !== undefined && `${total} ${total === 1 ? 'chat' : 'chats'}`}
@@ -538,7 +542,7 @@ function Skeleton() {
     <div
       role="status"
       aria-label="Loading chats"
-      className="flex motion-safe:animate-pulse flex-col"
+      className={`flex motion-safe:animate-pulse flex-col ${READABLE}`}
     >
       {Array.from({ length: SKELETON_ROWS }, (_, i) => (
         <div key={i} className="flex flex-col gap-2 px-4 py-4">

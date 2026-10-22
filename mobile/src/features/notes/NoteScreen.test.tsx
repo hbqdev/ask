@@ -28,6 +28,7 @@ import {
 } from '@/features/notes/NoteScreen'
 import { preloadAnswerRenderer } from '@/features/thread/components/AssistantTurn'
 import { openThread } from '@/features/thread/ThreadScreen'
+import { expectReadableInScroller, readableColumn } from '@/test/readable'
 
 vi.mock('@/core/api/ApiProvider', () => ({ useApi: vi.fn() }))
 vi.mock('@/core/auth/AuthProvider', () => ({ useAuth: vi.fn() }))
@@ -165,6 +166,18 @@ describe('NoteScreen', () => {
     const content = title.closest('.safe-bottom')
     expect(content).not.toBeNull()
     expect(scroller).toContainElement(content as HTMLElement)
+  })
+
+  it('on an iPad, sets the note in the readable column; the bar spans the screen', async () => {
+    renderNote()
+    const title = await screen.findByRole('heading', {
+      level: 1,
+      name: 'Tides'
+    })
+    expectReadableInScroller(title)
+    expect(
+      readableColumn(screen.getByRole('button', { name: 'Back' }))
+    ).toBeNull()
   })
 
   it('shows the cached note at once, before the server answers', () => {

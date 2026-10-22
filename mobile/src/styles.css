@@ -295,6 +295,15 @@ h1[tabindex='-1']:focus {
   padding-bottom: max(16px, env(safe-area-inset-bottom));
 }
 
+/* On an iPad (md) the sheet is a card centred over the dim, away from the
+   home indicator. 768px is Tailwind's md (48rem at the initial 16px), however
+   large the text. */
+@media (min-width: 768px) {
+  .sheet-panel {
+    padding-bottom: 16px;
+  }
+}
+
 /* In a sheet, cards, muted surfaces (fields, Cancel, a segment track, an off
    chip) and the chosen segment are the sheet's own: in dark they sit above
    the raised panel, not at the page's level below it. */

@@ -15,7 +15,7 @@ import { useApi } from '@/core/api/ApiProvider'
 import { ApiError } from '@/core/api/errors'
 import { haptic } from '@/core/haptics'
 import { useScreenActive, useStack, type Stack } from '@/core/nav/stack'
-import { GROUP, SECTION_TITLE, SEPARATOR } from '@/core/ui/classes'
+import { GROUP, READABLE, SECTION_TITLE, SEPARATOR } from '@/core/ui/classes'
 import { ConfirmSheet } from '@/core/ui/ConfirmSheet'
 import { Sheet } from '@/core/ui/Sheet'
 import { SwipeRow } from '@/core/ui/SwipeRow'
@@ -581,12 +581,13 @@ export function MemoryScreen() {
     <div className="flex min-h-0 flex-1 flex-col">
       {header}
       {/* A pushed screen covers the tab bar, so its content clears the home
-          indicator; a status-bar tap scrolls it to the top. */}
+          indicator; a status-bar tap scrolls it to the top. On an iPad the
+          content sits in the readable column. */}
       <div
         data-scroll-root
         className="min-h-0 flex-1 overflow-y-auto overscroll-contain"
       >
-        <div className="safe-bottom">{body}</div>
+        <div className={`safe-bottom ${READABLE}`}>{body}</div>
       </div>
 
       <ConfirmSheet

@@ -14,6 +14,7 @@ import { SearchSettingsProvider } from '@/features/compose/SearchSettingsProvide
 import { useThread, type ThreadSession } from '@/features/thread/useThread'
 import { clippingAncestors } from '@/test/clipping'
 import { memoryStorage } from '@/test/memory-storage'
+import { readableColumn } from '@/test/readable'
 
 vi.mock('@/features/thread/useThread', () => ({ useThread: vi.fn() }))
 vi.mock('@/core/auth/AuthProvider', () => ({ useAuth: vi.fn() }))
@@ -155,6 +156,16 @@ describe('AskHome', () => {
     expect(
       screen.getByRole('button', { name: 'Search mode: Balanced' })
     ).toBeInTheDocument()
+  })
+
+  it('on an iPad, keeps the mark and the composer’s box to the readable column', () => {
+    renderHome()
+    expect(
+      readableColumn(screen.getByRole('heading', { name: 'Ask anything' }))
+    ).not.toBeNull()
+    expect(readableColumn(homeBox())).not.toBeNull()
+    // The composer's bar (its background, to the tab bar) spans the screen.
+    expect(readableColumn(homeBox().closest('form')!)).toBeNull()
   })
 
   it('nothing clips the composer’s hit areas, up to the screen', () => {

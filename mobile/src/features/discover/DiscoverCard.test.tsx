@@ -66,8 +66,13 @@ describe.each([
 
 describe('DiscoverLeadCard', () => {
   it('shows a 16:9 image, the title and the summary', () => {
-    render(<DiscoverLeadCard item={ITEM} {...handlers()} />)
+    const { container } = render(
+      <DiscoverLeadCard item={ITEM} {...handlers()} />
+    )
     expect(screen.getByTestId('discover-thumb')).toHaveClass('aspect-video')
+    // On an iPad's wide column the 16:9 image is capped, cropped to fill.
+    expect(screen.getByTestId('discover-thumb')).toHaveClass('max-h-[360px]')
+    expect(image(container)).toHaveClass('object-cover')
     expect(
       screen.getByRole('heading', { name: 'Chips get faster' })
     ).toBeInTheDocument()

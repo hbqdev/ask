@@ -25,6 +25,7 @@ import { startRecording, type Recording } from '@/features/voice/recorder'
 import { transcribe } from '@/features/voice/transcribe'
 import { ACCEPT_ATTRIBUTE } from '@/lib/config/upload-allowlist'
 import { clippingAncestors } from '@/test/clipping'
+import { readableColumn } from '@/test/readable'
 
 // The real sheet loads the model list from the server; here it is a stand-in
 // that shows whether it is open and can change the settings.
@@ -134,6 +135,19 @@ afterEach(() => {
 })
 
 describe('Composer', () => {
+  it('on an iPad, holds its row to the readable column while its bar spans the screen', () => {
+    const { input } = setup()
+    const column = readableColumn(input)
+    expect(column).not.toBeNull()
+    const form = input.closest('form')!
+    expect(form).toContainElement(column as HTMLElement)
+    expect(readableColumn(form)).toBeNull()
+    // The row's controls are in it too.
+    expect(readableColumn(screen.getByRole('button', { name: 'Attach' }))).toBe(
+      column
+    )
+  })
+
   it('shows the mic instead of Send while the text is blank', async () => {
     const user = userEvent.setup()
     const { input } = setup()

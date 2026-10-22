@@ -36,6 +36,7 @@ import {
   REBUILD_STOPPED,
   SAVE_SETTING_ERROR
 } from '@/features/settings/MemoryScreen'
+import { expectReadableInScroller, readableColumn } from '@/test/readable'
 
 vi.mock('@/core/api/ApiProvider', () => ({ useApi: vi.fn() }))
 
@@ -287,6 +288,15 @@ describe('MemoryScreen: loading', () => {
     const content = recallSwitch().closest('.safe-bottom')
     expect(content).not.toBeNull()
     expect(scroller).toContainElement(content as HTMLElement)
+  })
+
+  it('on an iPad, sets the content in the readable column; the bar spans the screen', async () => {
+    await renderScreen()
+    expectReadableInScroller(recallSwitch())
+    expectReadableInScroller(memorySwitch())
+    expect(
+      readableColumn(screen.getByRole('button', { name: 'Back' }))
+    ).toBeNull()
   })
 
   it('says turning memory off keeps what it remembers', async () => {

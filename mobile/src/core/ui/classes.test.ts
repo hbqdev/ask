@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest'
 import {
   chipClass,
   GROUP,
+  READABLE,
   SECTION_TITLE,
   SEPARATOR,
   SEGMENT_TRACK,
@@ -40,5 +41,9 @@ describe('the shared class names', () => {
   it('a chip that is on inverts; one that is off is muted', () => {
     expect(chipClass(true)).toBe('bg-foreground text-background')
     expect(chipClass(false)).toBe('bg-muted text-foreground')
+  })
+
+  it('a readable column is centred, at most 720 px wide', () => {
+    expect(READABLE).toBe('mx-auto w-full max-w-[720px]')
   })
 })

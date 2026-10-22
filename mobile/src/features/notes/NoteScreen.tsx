@@ -16,6 +16,7 @@ import { useApi } from '@/core/api/ApiProvider'
 import { ApiError } from '@/core/api/errors'
 import { useAuth } from '@/core/auth/AuthProvider'
 import { useStack, type Stack } from '@/core/nav/stack'
+import { READABLE } from '@/core/ui/classes'
 import { ConfirmSheet } from '@/core/ui/ConfirmSheet'
 import {
   deleteNote,
@@ -207,12 +208,13 @@ export function NoteScreen({ noteId }: { noteId: string }) {
       </header>
 
       {/* A pushed screen covers the tab bar, so its content clears the home
-          indicator; a status-bar tap scrolls it to the top. */}
+          indicator; a status-bar tap scrolls it to the top. On an iPad the
+          note sits in the readable column. */}
       <div
         data-scroll-root
         className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-4 py-4"
       >
-        <div className="safe-bottom">
+        <div className={`safe-bottom ${READABLE}`}>
           {error && (
             <p role="alert" className="pb-3 text-sm text-destructive">
               {error}

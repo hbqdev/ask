@@ -28,6 +28,7 @@ import {
 import { useNotes, type Notes } from '@/features/notes/useNotes'
 import { openThread } from '@/features/thread/ThreadScreen'
 import { intersect, isObserved, observerOf } from '@/test/intersection-observer'
+import { expectReadableInScroller, readableColumn } from '@/test/readable'
 
 vi.mock('@/features/library/useLibrary', () => ({
   useLibrary: vi.fn(),
@@ -275,6 +276,40 @@ afterEach(() => {
 })
 
 // --- Header -------------------------------------------------------------------
+
+describe('LibraryScreen on an iPad', () => {
+  it('sets the header, the search and the rows in the readable column', async () => {
+    await renderScreen()
+    for (const el of [
+      screen.getByRole('heading', { level: 1, name: 'Library' }),
+      screen.getByRole('tablist', { name: 'Library sections' }),
+      screen.getByRole('search'),
+      screen.getByRole('button', { name: 'Sort: Recent' })
+    ]) {
+      expect(readableColumn(el)).not.toBeNull()
+    }
+    expectReadableInScroller(rowButton('Chat a'))
+    // The pull area (the moving content) spans the screen.
+    expect(readableColumn(screen.getByTestId('library-content'))).toBeNull()
+  })
+
+  it('holds the title and the loading rows to the readable column', () => {
+    vi.mocked(Preferences.get).mockImplementationOnce(
+      () => new Promise(() => {})
+    )
+    render(
+      <StackProvider root={HOME}>
+        <LibraryScreen />
+      </StackProvider>
+    )
+    expect(
+      readableColumn(screen.getByRole('heading', { level: 1, name: 'Library' }))
+    ).not.toBeNull()
+    expect(
+      readableColumn(screen.getByRole('status', { name: 'Loading chats' }))
+    ).not.toBeNull()
+  })
+})
 
 describe('LibraryScreen header', () => {
   it('shows the total count', async () => {

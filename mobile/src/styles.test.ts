@@ -52,6 +52,21 @@ function rule(selector: string): Record<string, string> {
   return rules[0]
 }
 
+/** The contents of the one `@media <query>` block, braces balanced. */
+function mediaBlock(query: string): string {
+  const at = `@media ${query}`
+  const start = css.indexOf(at)
+  expect(start, at).toBeGreaterThanOrEqual(0)
+  expect(css.indexOf(at, start + 1), `one ${at}`).toBe(-1)
+  const open = css.indexOf('{', start)
+  let depth = 0
+  for (let i = open; i < css.length; i++) {
+    if (css[i] === '{') depth++
+    if (css[i] === '}' && --depth === 0) return css.slice(open + 1, i)
+  }
+  throw new Error(`${at} is not closed`)
+}
+
 /** Every app source file (not tests) under src/. */
 function sources(dir: string): string[] {
   return readdirSync(dir, { withFileTypes: true }).flatMap(entry => {
@@ -100,6 +115,16 @@ describe('safe areas', () => {
     expect(declarations('.sheet-panel')).toContainEqual({
       'padding-bottom': 'max(16px, env(safe-area-inset-bottom))'
     })
+  })
+
+  it('at md (iPad) a sheet is a floating card, padded 16 px at the bottom', () => {
+    // Away from the home indicator, the card needs no inset.
+    const md = mediaBlock('(min-width: 768px)')
+    expect(md).toMatch(/\.sheet-panel\s*\{\s*padding-bottom:\s*16px;?\s*\}/)
+    // After the phone rule, so it wins at md.
+    expect(css.indexOf('@media (min-width: 768px)')).toBeGreaterThan(
+      css.indexOf('max(16px, env(safe-area-inset-bottom))')
+    )
   })
 
   it('a composer in a tab sits on the tab bar without its own inset', () => {

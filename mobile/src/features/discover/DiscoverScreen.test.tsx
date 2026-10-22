@@ -34,6 +34,7 @@ import { DiscoverScreen } from '@/features/discover/DiscoverScreen'
 import { useDiscover, type Discover } from '@/features/discover/useDiscover'
 import { openThread } from '@/features/thread/ThreadScreen'
 import { intersect, isObserved } from '@/test/intersection-observer'
+import { expectReadableInScroller, readableColumn } from '@/test/readable'
 
 vi.mock('@/features/discover/useDiscover', () => ({ useDiscover: vi.fn() }))
 vi.mock('@/features/thread/ThreadScreen', () => ({ openThread: vi.fn() }))
@@ -116,6 +117,19 @@ async function shown() {
   await screen.findByRole('radiogroup', { name: 'Topics' })
   const scroller = screen.getByTestId('discover-scroll')
   await waitFor(() => expect(listensForTouch(scroller)).toBe(true))
+}
+
+/** Gives the topic row this computed left padding (jsdom has no CSS). */
+function padRow(paddingLeft: string) {
+  const style = window.getComputedStyle
+  vi.spyOn(window, 'getComputedStyle').mockImplementation((el, pseudo) => {
+    const css = style(el, pseudo)
+    if (el.getAttribute('role') !== 'radiogroup') return css
+    return new Proxy(css, {
+      get: (target, key) =>
+        key === 'paddingLeft' ? paddingLeft : Reflect.get(target, key, target)
+    })
+  })
 }
 
 /** The screen as the stack's root, once the stored topic has loaded. */
@@ -220,6 +234,44 @@ describe('DiscoverScreen topics', () => {
     expect(useDiscover).not.toHaveBeenCalledWith('tech')
   })
 
+  it('on an iPad, sets the title, topics and stories in the readable column', async () => {
+    await renderScreen()
+    expect(
+      readableColumn(
+        screen.getByRole('heading', { level: 1, name: 'Discover' })
+      )
+    ).not.toBeNull()
+    // The topics scroll to the screen's edges but start in line with the
+    // column: the row spans the screen, padded in to the column's text.
+    const topics = screen.getByRole('radiogroup', { name: 'Topics' })
+    expect(readableColumn(topics)).toBeNull()
+    expect(topics).toHaveClass('px-[max(16px,calc((100%-720px)/2+16px))]')
+    expect(topics).not.toHaveClass('px-4')
+    expectReadableInScroller(screen.getByTestId('discover-lead'))
+    expectReadableInScroller(screen.getByRole('list', { name: 'More stories' }))
+    // The pull area (the moving content) spans the screen too.
+    expect(readableColumn(screen.getByTestId('discover-content'))).toBeNull()
+  })
+
+  it('on an iPad, holds the loading stories to the readable column', () => {
+    vi.mocked(Preferences.get).mockImplementationOnce(
+      () => new Promise(() => {})
+    )
+    render(
+      <StackProvider root={HOME}>
+        <DiscoverScreen />
+      </StackProvider>
+    )
+    expect(
+      readableColumn(screen.getByRole('status', { name: 'Loading stories' }))
+    ).not.toBeNull()
+    expect(
+      readableColumn(
+        screen.getByRole('heading', { level: 1, name: 'Discover' })
+      )
+    ).not.toBeNull()
+  })
+
   it('shows every topic as a chip, in order, with tech chosen by default', async () => {
     await renderScreen()
     const chips = within(
@@ -282,10 +334,49 @@ describe('DiscoverScreen topics', () => {
         return this.textContent === 'Health' ? 900 : 0
       }
     )
+    // A phone's row: 16 px in from the screen's edge.
+    padRow('16px')
     prefsData.set(DISCOVER_TOPIC_KEY, 'health')
     await renderScreen()
     expect(screen.getByRole('radiogroup', { name: 'Topics' }).scrollLeft).toBe(
       884
+    )
+  })
+
+  it('measures a chip from the row itself', async () => {
+    // A chip's offsetLeft is from its offsetParent: the row, once it is
+    // positioned, not whatever positioned box holds the screen.
+    await renderScreen()
+    expect(screen.getByRole('radiogroup', { name: 'Topics' })).toHaveClass(
+      'relative'
+    )
+  })
+
+  it('on an iPad, scrolls the stored topic in line with the column, not the screen edge', async () => {
+    vi.spyOn(HTMLElement.prototype, 'offsetLeft', 'get').mockImplementation(
+      function (this: HTMLElement) {
+        return this.textContent === 'Health' ? 900 : 0
+      }
+    )
+    // The row's padding is the column's margin plus 16 px.
+    padRow('73px')
+    prefsData.set(DISCOVER_TOPIC_KEY, 'health')
+    await renderScreen()
+    expect(screen.getByRole('radiogroup', { name: 'Topics' }).scrollLeft).toBe(
+      827
+    )
+  })
+
+  it('leaves the row at its start for the first topic, however wide its padding', async () => {
+    vi.spyOn(HTMLElement.prototype, 'offsetLeft', 'get').mockImplementation(
+      function (this: HTMLElement) {
+        return this.textContent === 'Tech' ? 73 : 0
+      }
+    )
+    padRow('73px')
+    await renderScreen()
+    expect(screen.getByRole('radiogroup', { name: 'Topics' }).scrollLeft).toBe(
+      0
     )
   })
 })

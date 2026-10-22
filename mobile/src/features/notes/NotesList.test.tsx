@@ -7,6 +7,7 @@ import { NotesList } from '@/features/notes/NotesList'
 import { openNote } from '@/features/notes/NoteScreen'
 import { useNotes, type Notes } from '@/features/notes/useNotes'
 import { intersect, isObserved, observerOf } from '@/test/intersection-observer'
+import { expectReadableInScroller, readableColumn } from '@/test/readable'
 
 vi.mock('@/features/notes/useNotes', () => ({ useNotes: vi.fn() }))
 vi.mock('@/features/notes/NoteScreen', () => ({ openNote: vi.fn() }))
@@ -104,6 +105,12 @@ describe('NotesList', () => {
     const row = rowButton('Note 0')
     expect(row).toHaveTextContent('Content 0')
     expect(row).not.toHaveTextContent('**')
+  })
+
+  it('on an iPad, sets the rows in the readable column, the pull area full width', () => {
+    renderList()
+    expectReadableInScroller(rowButton('Note 0'))
+    expect(readableColumn(screen.getByTestId('notes-content'))).toBeNull()
   })
 
   it('separates every row but the last of its date group with an inset hairline', () => {

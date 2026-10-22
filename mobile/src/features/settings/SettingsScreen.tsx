@@ -1,3 +1,4 @@
+import { READABLE } from '@/core/ui/classes'
 import {
   AboutSection,
   AccountSection,
@@ -16,19 +17,20 @@ import {
  */
 export function SettingsScreen() {
   return (
-    <main
-      data-scroll-root
-      className="flex flex-1 flex-col gap-8 overflow-y-auto px-4 pt-6 pb-8"
-    >
-      <h1 className="px-2 text-3xl font-bold tracking-tight">Settings</h1>
-      <AccountSection />
-      <AnswersSection />
-      <VoiceSection />
-      <PersonalizationSection />
-      <MemorySection />
-      <AppearanceSection />
-      <DataSection />
-      <AboutSection />
+    // The scroller spans the screen; on an iPad the sections sit in the
+    // readable column inside it.
+    <main data-scroll-root className="flex-1 overflow-y-auto">
+      <div className={`${READABLE} flex flex-col gap-8 px-4 pt-6 pb-8`}>
+        <h1 className="px-2 text-3xl font-bold tracking-tight">Settings</h1>
+        <AccountSection />
+        <AnswersSection />
+        <VoiceSection />
+        <PersonalizationSection />
+        <MemorySection />
+        <AppearanceSection />
+        <DataSection />
+        <AboutSection />
+      </div>
     </main>
   )
 }

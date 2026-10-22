@@ -4,6 +4,9 @@
 // never lays the page out again mid-gesture. Tab stays within the sheet, and
 // once closed, focus goes back to what had it when the sheet opened. In dark
 // the panel is a raised surface with a hairline top edge, over a deeper dim.
+// On an iPad (md, 768 px and up) it is a card centred over the dim, rounded
+// and edged all round; its handle still drags it down to close, as an iPad
+// form sheet swipes down.
 
 import {
   useEffect,
@@ -103,7 +106,7 @@ function SheetPanel({
   }
 
   return createPortal(
-    <div className="fixed inset-0 z-50 flex flex-col justify-end">
+    <div className="fixed inset-0 z-50 flex flex-col justify-end md:items-center md:justify-center md:p-6">
       <div
         data-testid="sheet-backdrop"
         aria-hidden="true"
@@ -124,7 +127,7 @@ function SheetPanel({
             trapTab(e.nativeEvent, panel.current!)
           }
         }}
-        className="sheet-panel relative flex max-h-[85vh] flex-col rounded-t-3xl bg-elevated text-foreground shadow-2xl outline-none dark:border-t dark:border-foreground/10"
+        className="sheet-panel relative flex max-h-[85vh] flex-col rounded-t-3xl bg-elevated text-foreground shadow-2xl outline-none dark:border-t dark:border-foreground/10 md:max-h-[80vh] md:w-full md:max-w-lg md:rounded-3xl md:dark:border"
       >
         <div
           data-testid="sheet-handle"

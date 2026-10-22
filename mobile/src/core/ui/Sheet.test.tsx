@@ -41,6 +41,34 @@ describe('Sheet', () => {
     )
   })
 
+  it('at md (iPad) is a centred card, rounded all round, not a bottom sheet', () => {
+    setup()
+    // The wrapper centres it with a margin from every edge.
+    expect(panel().parentElement).toHaveClass(
+      'justify-end',
+      'md:items-center',
+      'md:justify-center',
+      'md:p-6'
+    )
+    expect(panel()).toHaveClass(
+      'rounded-t-3xl',
+      'md:w-full',
+      'md:max-w-lg',
+      'md:rounded-3xl',
+      'md:max-h-[80vh]'
+    )
+    // In dark, a floating card is edged all round, not only along its top.
+    expect(panel()).toHaveClass('md:dark:border')
+  })
+
+  it('at md keeps its handle, so a drag down still closes the card', () => {
+    // An iPad form sheet also closes with a swipe down.
+    const { onClose } = setup()
+    expect(screen.getByTestId('sheet-handle')).not.toHaveClass('md:hidden')
+    drag([{ y: 100 }, { y: 200 }])
+    expect(onClose).toHaveBeenCalledTimes(1)
+  })
+
   it('renders nothing when closed', () => {
     setup(false)
     expect(screen.queryByRole('dialog')).toBeNull()

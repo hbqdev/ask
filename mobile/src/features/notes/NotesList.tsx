@@ -16,7 +16,7 @@ import {
 
 import { useTabActive } from '@/app/Tabs'
 import { useStack } from '@/core/nav/stack'
-import { SEPARATOR } from '@/core/ui/classes'
+import { READABLE, SEPARATOR } from '@/core/ui/classes'
 import { ConfirmSheet } from '@/core/ui/ConfirmSheet'
 import { PullScroller } from '@/core/ui/PullScroller'
 import { SwipeRow } from '@/core/ui/SwipeRow'
@@ -57,17 +57,21 @@ export const NotesList = memo(function NotesList() {
         onRefresh={notes.refresh}
         testId="notes"
       >
-        <NoteRows
-          notes={notes.notes}
-          status={notes.status}
-          error={notes.error}
-          hasMore={notes.hasMore}
-          loadMore={notes.loadMore}
-          refresh={notes.refresh}
-          scroller={scroller}
-          onOpen={open}
-          onDelete={setDeleting}
-        />
+        {/* On an iPad the notes sit in the readable column; the pull area
+            spans the screen. */}
+        <div className={READABLE}>
+          <NoteRows
+            notes={notes.notes}
+            status={notes.status}
+            error={notes.error}
+            hasMore={notes.hasMore}
+            loadMore={notes.loadMore}
+            refresh={notes.refresh}
+            scroller={scroller}
+            onOpen={open}
+            onDelete={setDeleting}
+          />
+        </div>
       </PullScroller>
       <ConfirmSheet
         open={deleting !== null}

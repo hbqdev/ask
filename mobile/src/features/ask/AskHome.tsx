@@ -12,6 +12,7 @@ import { useAskDeepLink } from '@/core/deep-link'
 import { newId } from '@/core/ids'
 import { useStack } from '@/core/nav/stack'
 import { useSharedItem } from '@/core/shared-inbox'
+import { READABLE } from '@/core/ui/classes'
 import { OrbitMark } from '@/core/ui/OrbitMark'
 import { useE2eAsk } from '@/features/ask/e2e-ask'
 import { Composer } from '@/features/compose/Composer'
@@ -55,7 +56,9 @@ export function AskHome() {
 
   return (
     <main className="flex min-h-0 flex-1 flex-col">
-      <div className="flex flex-1 flex-col items-center justify-center gap-4 px-6">
+      <div
+        className={`${READABLE} flex flex-1 flex-col items-center justify-center gap-4 px-6`}
+      >
         <OrbitMark className="size-14" />
         <h1 className="text-2xl font-semibold tracking-tight">Ask anything</h1>
       </div>
