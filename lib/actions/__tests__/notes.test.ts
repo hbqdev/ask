@@ -27,6 +27,11 @@ describe('Note Actions', () => {
     process.env.ENABLE_AUTH = 'true'
     vi.mocked(getCurrentUserId).mockResolvedValue('user-1')
     vi.mocked(dbActions.createNote).mockResolvedValue(note)
+    vi.mocked(dbActions.getChat).mockResolvedValue({
+      id: 'chat-1',
+      userId: 'user-1',
+      visibility: 'private'
+    } as any)
     vi.mocked(dbActions.getNotes).mockResolvedValue({
       notes: [note],
       nextCursor: null,
@@ -55,6 +60,52 @@ describe('Note Actions', () => {
       title: 'Saved answer',
       content: '## **Saved answer**\n\nSaved answer content'
     })
+  })
+
+  it("checks the chat is the user's own", async () => {
+    await saveNote({ content: 'Saved answer', chatId: 'chat-1' })
+
+    expect(dbActions.getChat).toHaveBeenCalledWith('chat-1', 'user-1')
+    expect(dbActions.createNote).toHaveBeenCalledWith(
+      expect.objectContaining({ chatId: 'chat-1' })
+    )
+  })
+
+  it.each([
+    [
+      "another user's public chat",
+      { id: 'chat-x', userId: 'user-2', visibility: 'public' }
+    ],
+    ['a chat that does not exist', null]
+  ])('drops the chatId of %s and still saves', async (_label, chat) => {
+    vi.mocked(dbActions.getChat).mockResolvedValue(chat as any)
+
+    const result = await saveNote({ content: 'Saved answer', chatId: 'chat-x' })
+
+    expect(result.success).toBe(true)
+    expect(dbActions.createNote).toHaveBeenCalledWith(
+      expect.objectContaining({ userId: 'user-1', chatId: null })
+    )
+  })
+
+  it('does not look up a chat when none is given', async () => {
+    await saveNote({ content: 'Saved answer' })
+
+    expect(dbActions.getChat).not.toHaveBeenCalled()
+    expect(dbActions.createNote).toHaveBeenCalledWith(
+      expect.objectContaining({ chatId: null })
+    )
+  })
+
+  it('fails without saving when the chat lookup fails', async () => {
+    const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {})
+    vi.mocked(dbActions.getChat).mockRejectedValue(new Error('db down'))
+
+    const result = await saveNote({ content: 'Saved answer', chatId: 'chat-1' })
+
+    expect(result).toEqual({ success: false, error: 'Failed to save note.' })
+    expect(dbActions.createNote).not.toHaveBeenCalled()
+    consoleError.mockRestore()
   })
 
   it('rejects empty content', async () => {
