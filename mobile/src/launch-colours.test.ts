@@ -33,6 +33,20 @@ function hex({ color: { components } }: ColourEntry): string {
   )
 }
 
+/**
+ * A PNG's size and whether it has alpha: from its IHDR (width and height
+ * big-endian at bytes 16 and 20; colour types 4 and 6 carry alpha).
+ */
+function pngInfo(path: string) {
+  const png = readFileSync(resolve(root, path))
+  expect(png.subarray(12, 16).toString('latin1')).toBe('IHDR')
+  return {
+    width: png.readUInt32BE(16),
+    height: png.readUInt32BE(20),
+    alpha: png[25] === 4 || png[25] === 6
+  }
+}
+
 const isDark = (entry: { appearances?: { value: string }[] }) =>
   entry.appearances?.some(a => a.value === 'dark') ?? false
 
@@ -85,54 +99,63 @@ describe('launch colours', () => {
 describe('the launch mark', () => {
   it('the launch screen centres a 96-pt SplashMark on LaunchBackground', () => {
     const storyboard = read('ios/App/App/Base.lproj/LaunchScreen.storyboard')
-    const root = storyboard.match(
-      /<view key="view"[^>]*id="([^"]+)"[^>]*>([\s\S]*?)\n {20}<\/view>/
+    // Parsed, not matched as text: Xcode may re-save it indented otherwise.
+    const doc = new DOMParser().parseFromString(storyboard, 'application/xml')
+    expect(doc.querySelector('parsererror')).toBeNull()
+    const kids = (el: Element, tag: string) =>
+      [...el.children].filter(c => c.tagName === tag)
+    const rootView = doc.querySelector('viewController > view[key="view"]')
+    expect(rootView).not.toBeNull()
+    // The root view's own background.
+    expect(
+      kids(rootView!, 'color').map(c => [
+        c.getAttribute('key'),
+        c.getAttribute('name')
+      ])
+    ).toEqual([['backgroundColor', 'LaunchBackground']])
+    const images = kids(rootView!, 'subviews').flatMap(v =>
+      kids(v, 'imageView')
     )
-    expect(root).not.toBeNull()
-    const [, rootId, body] = root!
-    // The root view's own background (after its subviews).
-    expect(body).toMatch(
-      /<\/subviews>[\s\S]*<color key="backgroundColor" name="LaunchBackground"\/>/
-    )
-    const image = body.match(
-      /<imageView [^>]*image="SplashMark"[^>]*id="([^"]+)"[^>]*>([\s\S]*?)<\/imageView>/
-    )
-    expect(image).not.toBeNull()
-    const [, imageId, imageBody] = image!
+    expect(images.map(i => i.getAttribute('image'))).toEqual(['SplashMark'])
+    const image = images[0]
+    const constraintsOf = (el: Element) =>
+      kids(el, 'constraints').flatMap(c => kids(c, 'constraint'))
+    const attrs = (c: Element) =>
+      Object.fromEntries(
+        ['firstItem', 'firstAttribute', 'secondItem', 'secondAttribute', 'constant']
+          .filter(a => c.hasAttribute(a))
+          .map(a => [a, c.getAttribute(a)])
+      )
     // 96 x 96 on the image itself.
-    expect(imageBody).toMatch(
-      /<constraint firstAttribute="width" constant="96" id="[^"]+"\/>/
-    )
-    expect(imageBody).toMatch(
-      /<constraint firstAttribute="height" constant="96" id="[^"]+"\/>/
-    )
+    expect(constraintsOf(image).map(attrs)).toEqual([
+      { firstAttribute: 'width', constant: '96' },
+      { firstAttribute: 'height', constant: '96' }
+    ])
     // Centred on the root view's safe area: the web LaunchView is padded by
     // the safe area on all four sides (.app-root and .safe-bottom), so that is
     // where it centres its mark too, and so does the SplashScreen plugin's
     // copy of this storyboard, now that it covers the whole screen.
-    const safeArea = body.match(
-      /<viewLayoutGuide key="safeArea" id="([^"]+)"\/>/
+    const safeArea = kids(rootView!, 'viewLayoutGuide').find(
+      g => g.getAttribute('key') === 'safeArea'
     )
-    expect(safeArea).not.toBeNull()
-    const guideId = safeArea![1]
-    expect(rootId).not.toBe(imageId)
-    const constraints = [...body.matchAll(/<constraint [^>]*\/>/g)].map(
-      m => m[0]
+    expect(safeArea).toBeDefined()
+    const [imageId, guideId] = [image.id, safeArea!.id]
+    expect(rootView!.id).not.toBe(imageId)
+    expect(constraintsOf(rootView!).map(attrs)).toEqual(
+      ['centerX', 'centerY'].map(axis => ({
+        firstItem: imageId,
+        firstAttribute: axis,
+        secondItem: guideId,
+        secondAttribute: axis
+      }))
     )
-    for (const axis of ['centerX', 'centerY']) {
-      expect(constraints).toContainEqual(
-        expect.stringMatching(
-          new RegExp(
-            `firstItem="${imageId}" firstAttribute="${axis}" secondItem="${guideId}" secondAttribute="${axis}"`
-          )
-        )
-      )
-    }
-    expect(storyboard).toMatch(
-      /<image name="SplashMark" width="96" height="96"\/>/
-    )
-    expect(storyboard).not.toMatch(/image="Splash"/)
-    expect(storyboard).not.toMatch(/<image name="Splash"/)
+    const resources = [...doc.querySelectorAll('resources > image')].map(i => [
+      i.getAttribute('name'),
+      i.getAttribute('width'),
+      i.getAttribute('height')
+    ])
+    expect(resources).toEqual([['SplashMark', '96', '96']])
+    expect(doc.querySelector('[image="Splash"]')).toBeNull()
   })
 
   it('SplashMark is the in-app mark', () => {
@@ -163,8 +186,16 @@ describe('the launch mark', () => {
       ['2x', 'splash-mark@2x.png'],
       ['3x', 'splash-mark@3x.png']
     ])
-    for (const { filename } of files) {
+    // 96 pt at each scale, the mark on transparent (the colour set shows
+    // through).
+    const sizes: Record<string, number> = { '2x': 192, '3x': 288 }
+    for (const { filename, scale } of files) {
       expect(existsSync(resolve(root, set, filename!))).toBe(true)
+      expect(pngInfo(`${set}/${filename}`)).toEqual({
+        width: sizes[scale],
+        height: sizes[scale],
+        alpha: true
+      })
     }
     expect(existsSync(resolve(root, `${assets}/Splash.imageset`))).toBe(false)
   })

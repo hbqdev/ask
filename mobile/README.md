@@ -134,6 +134,7 @@ Mac, and enable Developer Mode under Settings → Privacy & Security).
 
   ```bash
   sips -s format png icon-dark.svg --out AppIcon-dark-1024.png
+  sips -s format png icon-tinted.svg --out AppIcon-tinted-1024.png
   sips -s format png splash-mark.svg --out splash-mark@3x.png
   cp splash-mark@3x.png splash-mark@2x.png && sips -z 192 192 splash-mark@2x.png
   sips -g hasAlpha *.png   # yes, except the default icon
