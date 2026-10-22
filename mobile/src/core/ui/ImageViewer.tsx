@@ -5,6 +5,10 @@
 // While it is open the page behind does not scroll, the status bar's content
 // is light over the black, Tab stays on its controls, and on close focus goes
 // back to what opened it.
+//
+// The page never zooms; the image it is on does (usePinchZoom): pinched, or
+// double-tapped in and out. While zoomed one finger pans the image and the
+// strip does not page; a page change, or closing, unzooms.
 
 import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
@@ -13,6 +17,7 @@ import { haptic } from '@/core/haptics'
 import { FallbackImage } from '@/core/ui/FallbackImage'
 import { trapTab, useReturnFocus } from '@/core/ui/focus'
 import { requestLightStatusBar } from '@/core/ui/status-bar'
+import { usePinchZoom } from '@/core/ui/use-pinch-zoom'
 
 export type ViewerImage = { src: string; alt: string }
 
@@ -58,6 +63,7 @@ function ViewerPanel({
 }: Omit<ImageViewerProps, 'open'>) {
   useReturnFocus()
   const [index, setIndex] = useState(start)
+  const { zoom, zoomed, reset, handlers } = usePinchZoom()
   const dialog = useRef<HTMLDivElement>(null)
   const strip = useRef<HTMLDivElement>(null)
   // The latest onClose, so the key listener isn't re-added on each render.
@@ -85,6 +91,9 @@ function ViewerPanel({
     }
   }, [])
 
+  // A new page starts unzoomed.
+  useEffect(reset, [index, reset])
+
   const onScroll = () => {
     const el = strip.current!
     const page = Math.round(el.scrollLeft / Math.max(1, el.clientWidth))
@@ -106,18 +115,29 @@ function ViewerPanel({
         ref={strip}
         data-testid="viewer-strip"
         onScroll={onScroll}
-        className="flex size-full touch-pan-x touch-pinch-zoom snap-x snap-mandatory overflow-x-auto overscroll-contain"
+        style={zoomed ? { overflowX: 'hidden' } : undefined}
+        className="flex size-full touch-pan-x snap-x snap-mandatory overflow-x-auto overscroll-contain"
       >
         {images.map((image, i) => (
+          // Each page clips its image, so a zoomed one never spills onto
+          // the next page or widens the strip.
           <div
             key={i}
-            className="flex size-full shrink-0 snap-center snap-always items-center justify-center"
+            className="flex size-full shrink-0 snap-center snap-always items-center justify-center overflow-hidden"
           >
             <FallbackImage
               src={image.src}
               alt={image.alt}
               className="max-h-full max-w-full object-contain"
               fallback={<Placeholder />}
+              {...(i === index && {
+                ...handlers,
+                style: {
+                  transform: `translate(${zoom.x}px, ${zoom.y}px) scale(${zoom.scale})`,
+                  // Unzoomed, a swipe on the image pages the strip.
+                  touchAction: zoomed ? 'none' : 'pan-x'
+                }
+              })}
             />
           </div>
         ))}

@@ -21,7 +21,7 @@ export function SpecImages({ images }: { images: SpecImage[] }) {
               src={image.src}
               alt={image.title ?? ''}
               loading="lazy"
-              className="aspect-[4/3] w-full rounded-xl bg-foreground/5 object-cover"
+              className="selectable aspect-[4/3] w-full rounded-xl bg-foreground/5 object-cover"
             />
           </button>
           {image.title && (

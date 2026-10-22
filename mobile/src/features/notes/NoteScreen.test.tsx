@@ -140,6 +140,19 @@ describe('NoteScreen', () => {
     expect(fetchImpl.mock.calls[0][0]).toBe(`${BASE}/api/notes/n1`)
   })
 
+  it('lets the note’s title and text be selected and copied', async () => {
+    renderNote()
+    const title = await screen.findByRole('heading', {
+      level: 1,
+      name: 'Tides'
+    })
+    expect(title.closest('.selectable')).not.toBeNull()
+    // The body is the answer renderer's, which is selectable as a whole.
+    expect(
+      (await screen.findByText('moon')).closest('.answer-prose')
+    ).not.toBeNull()
+  })
+
   it('scrolls to the top on a status-bar tap and clears the home indicator', async () => {
     renderNote()
     const title = await screen.findByRole('heading', {

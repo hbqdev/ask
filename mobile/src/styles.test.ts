@@ -11,10 +11,26 @@ const css = readFileSync(resolve(__dirname, 'styles.css'), 'utf8').replace(
   ''
 )
 
+/** A selector list's selectors: split at its commas, but not those in :is(). */
+function selectors(list: string): string[] {
+  const out = ['']
+  let depth = 0
+  for (const ch of list) {
+    if (ch === ',' && depth === 0) {
+      out.push('')
+      continue
+    }
+    if (ch === '(') depth++
+    if (ch === ')') depth--
+    out[out.length - 1] += ch
+  }
+  return out.map(s => s.trim().replace(/\s+/g, ' '))
+}
+
 /** Every rule's declarations for exactly this selector (media rules too). */
 function declarations(selector: string): Record<string, string>[] {
   return [...css.matchAll(/([^{}]+)\{([^{}]*)\}/g)]
-    .filter(m => m[1].split(',').some(s => s.trim() === selector))
+    .filter(m => selectors(m[1]).includes(selector))
     .map(m =>
       Object.fromEntries(
         m[2]
@@ -67,5 +83,31 @@ describe('safe areas', () => {
     // Ask's home composer is above the tab bar, which already clears the
     // home indicator; only a thread's composer is at the bottom edge.
     expect(rule("[role='tabpanel'] .composer")['padding-bottom']).toBe('8px')
+  })
+})
+
+describe('selection and zoom', () => {
+  it('the page never zooms, and its chrome is not selectable or long-pressable', () => {
+    for (const selector of ['html', 'body']) {
+      const page = rule(selector)
+      // Panning only: no pinch or double-tap zoom anywhere on the page.
+      expect(page['touch-action'], selector).toBe('pan-x pan-y')
+      expect(page['-webkit-user-select'], selector).toBe('none')
+      expect(page['user-select'], selector).toBe('none')
+      expect(page['-webkit-touch-callout'], selector).toBe('none')
+    }
+  })
+
+  it('text people read or type stays selectable, with the callout', () => {
+    const text = rule(
+      ':is(.selectable, .answer-prose, input, textarea, [contenteditable])'
+    )
+    expect(text['-webkit-user-select']).toBe('text')
+    expect(text['user-select']).toBe('text')
+    expect(text['-webkit-touch-callout']).toBe('default')
+  })
+
+  it('a long press on the image viewer’s image offers to save it', () => {
+    expect(rule('.image-viewer img')['-webkit-touch-callout']).toBe('default')
   })
 })

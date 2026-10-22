@@ -359,6 +359,16 @@ describe('UserMessage: pasted and quoted content', () => {
     expect(screen.getByRole('blockquote')).toHaveTextContent('Earlier answer')
   })
 
+  it('lets the question and a quote be selected and copied', () => {
+    renderMessage([
+      { type: 'text', text: 'Why is the sky blue?' },
+      { type: 'data-quotedContext', data: { text: 'Earlier answer' } }
+    ])
+    expect(screen.getByTestId('user-bubble')).toHaveClass('selectable')
+    fireEvent.click(screen.getByRole('button', { name: /Quoted context/ }))
+    expect(screen.getByRole('blockquote')).toHaveClass('selectable')
+  })
+
   it('splits legacy <user-content> blocks out of the text, as the web does', () => {
     renderMessage([
       {

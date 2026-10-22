@@ -220,7 +220,7 @@ export function NoteScreen({ noteId }: { noteId: string }) {
           )}
           {note ? (
             <article className="flex flex-col gap-3">
-              <div className="flex flex-col gap-1">
+              <div className="selectable flex flex-col gap-1">
                 <h1 className="text-2xl leading-tight font-bold tracking-tight">
                   {note.title || 'Untitled'}
                 </h1>

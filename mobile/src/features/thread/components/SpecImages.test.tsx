@@ -38,6 +38,13 @@ describe('SpecImages', () => {
     expect(screen.getByText('First')).toBeInTheDocument()
   })
 
+  it('offers each image’s own long-press menu, to save or copy it', () => {
+    const { container } = render(<SpecImages images={IMAGES} />)
+    for (const img of container.querySelectorAll('img')) {
+      expect(img).toHaveClass('selectable')
+    }
+  })
+
   it('opens the source page of an image on tap', () => {
     render(<SpecImages images={IMAGES} />)
     fireEvent.click(screen.getByRole('button', { name: /First/ }))

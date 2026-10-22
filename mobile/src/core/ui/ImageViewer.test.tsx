@@ -19,6 +19,14 @@ function setup(start = 0, images = IMAGES, open = true) {
   return { onClose, ...view }
 }
 
+/** Two quick taps in one place. */
+function doubleTap(el: HTMLElement) {
+  for (let i = 0; i < 2; i++) {
+    fireEvent.pointerDown(el, { clientX: 10, clientY: 10, pointerId: 1 })
+    fireEvent.pointerUp(el, { clientX: 10, clientY: 10, pointerId: 1 })
+  }
+}
+
 afterEach(() => {
   vi.restoreAllMocks()
   vi.mocked(haptic).mockClear()
@@ -134,6 +142,85 @@ describe('ImageViewer', () => {
     unmount()
     expect(document.body.style.overflow).toBe('auto')
     document.body.style.overflow = ''
+  })
+
+  it('leaves pinching to the image, not the strip', () => {
+    setup()
+    const strip = screen.getByTestId('viewer-strip')
+    expect(strip).toHaveClass('touch-pan-x')
+    expect(strip).not.toHaveClass('touch-pinch-zoom')
+    // Unzoomed, a swipe on the image still pages the strip.
+    const img = screen.getByRole('img', { name: '1.png' })
+    expect(img).toHaveStyle({
+      transform: 'translate(0px, 0px) scale(1)',
+      touchAction: 'pan-x'
+    })
+    expect(strip).not.toHaveStyle({ overflowX: 'hidden' })
+  })
+
+  it('zooms the image it is on with a double tap', () => {
+    setup(1)
+    const img = screen.getByRole('img', { name: '2.png' })
+    doubleTap(img)
+    expect(img).toHaveStyle({ transform: 'translate(0px, 0px) scale(2.5)' })
+    // Clipped to its page.
+    expect(img.parentElement).toHaveClass('overflow-hidden')
+    // The others stay as they are, and take no gestures.
+    const other = screen.getByRole('img', { name: '1.png' })
+    expect(other.style.transform).toBe('')
+    doubleTap(other)
+    expect(other.style.transform).toBe('')
+  })
+
+  it('does not page while zoomed', () => {
+    setup()
+    const strip = screen.getByTestId('viewer-strip')
+    const img = screen.getByRole('img', { name: '1.png' })
+    doubleTap(img)
+    // The strip stops scrolling and the image takes every touch, to pan.
+    expect(strip).toHaveStyle({ overflowX: 'hidden' })
+    expect(img).toHaveStyle({ touchAction: 'none' })
+    doubleTap(img)
+    expect(strip).not.toHaveStyle({ overflowX: 'hidden' })
+    expect(img).toHaveStyle({ touchAction: 'pan-x' })
+  })
+
+  it('resets zoom when the page changes', () => {
+    vi.spyOn(HTMLElement.prototype, 'clientWidth', 'get').mockReturnValue(100)
+    setup()
+    const strip = screen.getByTestId('viewer-strip')
+    doubleTap(screen.getByRole('img', { name: '1.png' }))
+    // A page change that was already under way when the zoom began.
+    strip.scrollLeft = 100
+    fireEvent.scroll(strip)
+    expect(screen.getByText('2 / 5')).toBeVisible()
+    expect(strip).not.toHaveStyle({ overflowX: 'hidden' })
+    expect(screen.getByRole('img', { name: '2.png' })).toHaveStyle({
+      transform: 'translate(0px, 0px) scale(1)'
+    })
+    strip.scrollLeft = 0
+    fireEvent.scroll(strip)
+    expect(screen.getByRole('img', { name: '1.png' })).toHaveStyle({
+      transform: 'translate(0px, 0px) scale(1)'
+    })
+  })
+
+  it('a reopened viewer starts unzoomed', () => {
+    const onClose = vi.fn()
+    const { rerender } = render(
+      <ImageViewer open images={IMAGES} start={0} onClose={onClose} />
+    )
+    doubleTap(screen.getByRole('img', { name: '1.png' }))
+    rerender(
+      <ImageViewer open={false} images={IMAGES} start={0} onClose={onClose} />
+    )
+    rerender(<ImageViewer open images={IMAGES} start={0} onClose={onClose} />)
+    expect(screen.getByRole('img', { name: '1.png' })).toHaveStyle({
+      transform: 'translate(0px, 0px) scale(1)'
+    })
+    expect(screen.getByTestId('viewer-strip')).not.toHaveStyle({
+      overflowX: 'hidden'
+    })
   })
 
   it('holds a light status bar while open', () => {

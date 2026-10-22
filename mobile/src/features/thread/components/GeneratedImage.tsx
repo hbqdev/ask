@@ -76,7 +76,7 @@ export function GeneratedImage({ part, baseUrl }: GeneratedImageProps) {
         <img
           src={src}
           alt={output.prompt}
-          className="h-auto max-w-full rounded-2xl"
+          className="selectable h-auto max-w-full rounded-2xl"
         />
       </button>
       <figcaption className="mt-1.5 truncate text-xs text-foreground/50">

@@ -857,6 +857,13 @@ describe('MemoryScreen: memories', () => {
     await waitFor(() => expect(sent()).toContain('DELETE /api/memory/m2'))
   })
 
+  it('lets the whole memory be selected and copied', async () => {
+    await renderScreen()
+    fireEvent.click(rowButton('Into astronomy'))
+    const sheet = screen.getByRole('dialog', { name: 'Interest' })
+    expect(within(sheet).getByText('Into astronomy')).toHaveClass('selectable')
+  })
+
   it('closes the memory with Done', async () => {
     await renderScreen()
     fireEvent.click(rowButton('Prefers metric units'))

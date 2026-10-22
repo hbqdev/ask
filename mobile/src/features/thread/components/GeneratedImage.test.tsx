@@ -72,6 +72,19 @@ describe('GeneratedImage', () => {
     )
   })
 
+  it('offers the image’s own long-press menu, to save or copy it', () => {
+    render(
+      <GeneratedImage
+        part={imagePart('output-available', {
+          imageUrl: 'https://cdn.test.invalid/fox.png',
+          prompt: 'fox'
+        })}
+        baseUrl={BASE}
+      />
+    )
+    expect(screen.getByRole('img', { name: 'fox' })).toHaveClass('selectable')
+  })
+
   it('opens the full image in the in-app browser on tap', () => {
     render(
       <GeneratedImage

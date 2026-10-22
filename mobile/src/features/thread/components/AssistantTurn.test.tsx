@@ -147,7 +147,10 @@ describe('AssistantTurn', () => {
         baseUrl={BASE}
       />
     )
-    expect(screen.getByText(/## Answer\s+Plain for now\./)).toBeInTheDocument()
+    // Selectable like the rendered answer.
+    expect(
+      screen.getByText(/## Answer\s+Plain for now\./).closest('.answer-prose')
+    ).not.toBeNull()
     expect(
       await screen.findByRole('heading', { name: 'Answer' })
     ).toBeInTheDocument()

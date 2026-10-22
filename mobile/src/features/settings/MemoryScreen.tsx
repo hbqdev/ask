@@ -621,7 +621,7 @@ export function MemoryScreen() {
       >
         {viewing && (
           <>
-            <p className="px-2 pb-3 text-base leading-relaxed">
+            <p className="selectable px-2 pb-3 text-base leading-relaxed">
               {viewing.content}
             </p>
             {viewing.status === 'candidate' && (

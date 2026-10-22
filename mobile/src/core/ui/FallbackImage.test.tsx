@@ -1,5 +1,5 @@
 import { fireEvent, render, screen } from '@testing-library/react'
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 
 import { FallbackImage } from '@/core/ui/FallbackImage'
 
@@ -19,6 +19,23 @@ describe('FallbackImage', () => {
     expect(img).toHaveAttribute('decoding', 'async')
     expect(img).toHaveClass('size-full')
     expect(screen.queryByText('no image')).not.toBeInTheDocument()
+  })
+
+  it('passes other image props through', () => {
+    const onPointerDown = vi.fn()
+    render(
+      <FallbackImage
+        src="https://img.test.invalid/a.png"
+        alt="A fox"
+        style={{ touchAction: 'none' }}
+        onPointerDown={onPointerDown}
+        fallback={<span>no image</span>}
+      />
+    )
+    const img = screen.getByRole('img', { name: 'A fox' })
+    expect(img).toHaveStyle({ touchAction: 'none' })
+    fireEvent.pointerDown(img)
+    expect(onPointerDown).toHaveBeenCalledTimes(1)
   })
 
   it('shows the fallback instead of a broken image', () => {

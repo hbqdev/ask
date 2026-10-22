@@ -88,6 +88,21 @@ body {
   -webkit-font-smoothing: antialiased;
   -webkit-tap-highlight-color: transparent;
   overscroll-behavior: none;
+  /* An app, not a page: no pinch or double-tap zoom (index.html's viewport
+     says the same), and a long press on a button or a label selects nothing
+     and shows no callout. The image viewer zooms its own image. */
+  touch-action: pan-x pan-y;
+  -webkit-user-select: none;
+  user-select: none;
+  -webkit-touch-callout: none;
+}
+
+/* What people read or type stays selectable, with the long-press menu: the
+   answer, a question, a note, a memory, and every field. */
+:is(.selectable, .answer-prose, input, textarea, [contenteditable]) {
+  -webkit-user-select: text;
+  user-select: text;
+  -webkit-touch-callout: default;
 }
 
 /* --- Navigation -------------------------------------------------------------
@@ -327,4 +342,9 @@ body {
    The full-screen viewer fades in over the page. */
 .image-viewer {
   animation: stack-fade-in 200ms linear;
+}
+
+/* A long press on the image offers Save and Copy. */
+.image-viewer img {
+  -webkit-touch-callout: default;
 }

@@ -267,7 +267,7 @@ function QuoteBlock({ quote }: { quote: Quote }) {
       {open && (
         <blockquote
           id={id}
-          className="mt-1 max-h-60 overflow-auto border-l-2 border-foreground/20 pl-3 text-sm break-words whitespace-pre-wrap text-foreground/70"
+          className="selectable mt-1 max-h-60 overflow-auto border-l-2 border-foreground/20 pl-3 text-sm break-words whitespace-pre-wrap text-foreground/70"
         >
           {quote.text}
         </blockquote>
@@ -304,7 +304,7 @@ export function UserMessage({ message, baseUrl }: UserMessageProps) {
       {text && (
         <p
           data-testid="user-bubble"
-          className="rounded-3xl bg-foreground/8 px-4 py-2.5 text-base whitespace-pre-wrap"
+          className="selectable rounded-3xl bg-foreground/8 px-4 py-2.5 text-base whitespace-pre-wrap"
         >
           {text}
         </p>

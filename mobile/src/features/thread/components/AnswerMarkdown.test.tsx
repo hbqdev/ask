@@ -75,6 +75,13 @@ describe('AnswerMarkdown', () => {
     )
   })
 
+  it('sits in .answer-prose, which keeps the answer selectable', async () => {
+    answer('Some **bold** text.')
+    expect(
+      (await screen.findByText('bold')).closest('.answer-prose')
+    ).not.toBeNull()
+  })
+
   it('renders a citation link as a chip, not a plain anchor', async () => {
     answer('Fact [1](#call_a).')
     const chip = await screen.findByRole('button', { name: /example\.com/ })
