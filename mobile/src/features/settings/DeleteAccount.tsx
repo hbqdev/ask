@@ -22,7 +22,7 @@ const CONFIRM_WORD = 'DELETE'
 export const ACCOUNT_DELETED_NOTICE = 'Your account was deleted'
 /** After a 401: the app cannot tell a deleted account from a revoked session. */
 export const SIGNED_OUT_AFTER_401_NOTICE =
-  "You've been signed out. If you just deleted your account, it's gone."
+  'You’ve been signed out. If you just deleted your account, it’s gone.'
 // Fixed messages: the server's own error text is never shown. The server
 // deletes the data before the account, so a failure can leave some of it
 // gone: the error promises nothing about what was removed.

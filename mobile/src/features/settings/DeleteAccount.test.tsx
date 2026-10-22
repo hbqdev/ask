@@ -361,7 +361,7 @@ describe('DeleteAccountSheet', () => {
       expect(authText()).toBe(`signedOut: ${SIGNED_OUT_AFTER_401_NOTICE}`)
     )
     expect(SIGNED_OUT_AFTER_401_NOTICE).toBe(
-      "You've been signed out. If you just deleted your account, it's gone."
+      'You’ve been signed out. If you just deleted your account, it’s gone.'
     )
     expect(screen.queryByRole('alert')).toBeNull()
     expect(supabase.auth.signOut).toHaveBeenCalledWith({ scope: 'local' })
