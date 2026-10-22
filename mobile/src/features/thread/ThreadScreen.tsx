@@ -413,6 +413,8 @@ export function ThreadScreen({
         <div
           ref={scroller}
           data-testid="thread-scroll"
+          // A status-bar tap scrolls it to the top (core/nav/scroll-to-top).
+          data-scroll-root
           onScroll={onScroll}
           className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-4 py-4"
         >

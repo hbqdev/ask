@@ -126,6 +126,8 @@ describe('SettingsScreen', () => {
       'Data',
       'About'
     ])
+    // A status-bar tap scrolls it to the top (core/nav/scroll-to-top).
+    expect(screen.getByRole('main')).toHaveAttribute('data-scroll-root')
   })
 
   it('shows the signed-in email', async () => {

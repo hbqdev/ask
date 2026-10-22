@@ -30,19 +30,23 @@ export class ErrorBoundary extends Component<{ children: ReactNode }, State> {
     const { error } = this.state
     const message = error instanceof Error ? error.message : String(error)
     return (
-      <main className="flex h-dvh flex-col items-center justify-center gap-3 bg-background px-6 text-center text-foreground">
-        <h1 className="text-xl font-semibold tracking-tight">
-          Something went wrong
-        </h1>
-        <p className="text-sm break-words text-foreground/60">{message}</p>
-        <button
-          type="button"
-          onClick={this.retry}
-          className="mt-3 h-12 touch-manipulation rounded-xl bg-mark-blue px-8 text-base font-semibold text-white active:opacity-80"
-        >
-          Try again
-        </button>
-      </main>
+      // Outside the app root, so it clears the safe area itself (on a
+      // wrapper: the message's own padding inside adds to the insets).
+      <div className="app-root safe-bottom flex h-dvh flex-col bg-background text-foreground">
+        <main className="flex flex-1 flex-col items-center justify-center gap-3 px-6 text-center">
+          <h1 className="text-xl font-semibold tracking-tight">
+            Something went wrong
+          </h1>
+          <p className="text-sm break-words text-foreground/60">{message}</p>
+          <button
+            type="button"
+            onClick={this.retry}
+            className="mt-3 h-12 touch-manipulation rounded-xl bg-mark-blue px-8 text-base font-semibold text-white active:opacity-80"
+          >
+            Try again
+          </button>
+        </main>
+      </div>
     )
   }
 }

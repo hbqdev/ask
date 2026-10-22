@@ -23,6 +23,9 @@
 		A63214525EC70E8D289453E1 /* SharedItem.swift in Sources */ = {isa = PBXBuildFile; fileRef = C71496D404CE62BEB0FFAC13 /* SharedItem.swift */; };
 		8F17F391AEF4F10279A770A2 /* SharedInboxPlugin.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4CA193C5E5A3E9EEBC98C69B /* SharedInboxPlugin.swift */; };
 		F36684ABA7C87254D79C7AFA /* SharedItemTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = FAF7CE4B01326A9C8E50154D /* SharedItemTests.swift */; };
+		1C310D658C4C20621F944E3E /* PageChrome.swift in Sources */ = {isa = PBXBuildFile; fileRef = B79A23E10EB5B191DF555AAA /* PageChrome.swift */; };
+		D0D717927F727136170F25DE /* PageChrome.swift in Sources */ = {isa = PBXBuildFile; fileRef = B79A23E10EB5B191DF555AAA /* PageChrome.swift */; };
+		C14FE6695E6211691AAFA046 /* PageChromeTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5D49DCF25BF28DBFD321684C /* PageChromeTests.swift */; };
 		2A665CC6792142EBD5509965 /* AskShare.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = D4F2A6B484A0913FD65EFF49 /* AskShare.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
 		8978251E2EC286F593965495 /* PrivacyInfo.xcprivacy in Resources */ = {isa = PBXBuildFile; fileRef = 81D3517256A79E9D63B373E6 /* PrivacyInfo.xcprivacy */; };
 		F50C9843F4FB4D1575701FF4 /* PrivacyInfo.xcprivacy in Resources */ = {isa = PBXBuildFile; fileRef = AAE3C778FB83F28A68AEBED3 /* PrivacyInfo.xcprivacy */; };
@@ -72,6 +75,8 @@
 		1F412AAD72384652E03F2A93 /* App.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = App.entitlements; sourceTree = "<group>"; };
 		4CA193C5E5A3E9EEBC98C69B /* SharedInboxPlugin.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SharedInboxPlugin.swift; sourceTree = "<group>"; };
 		FAF7CE4B01326A9C8E50154D /* SharedItemTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SharedItemTests.swift; sourceTree = "<group>"; };
+		B79A23E10EB5B191DF555AAA /* PageChrome.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PageChrome.swift; sourceTree = "<group>"; };
+		5D49DCF25BF28DBFD321684C /* PageChromeTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PageChromeTests.swift; sourceTree = "<group>"; };
 		D4F2A6B484A0913FD65EFF49 /* AskShare.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = AskShare.appex; sourceTree = BUILT_PRODUCTS_DIR; };
 		ACF6A2CD72EC77CBE9989C8D /* AskShareTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = AskShareTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		81D3517256A79E9D63B373E6 /* PrivacyInfo.xcprivacy */ = {isa = PBXFileReference; lastKnownFileType = text.xml; path = PrivacyInfo.xcprivacy; sourceTree = "<group>"; };
@@ -132,6 +137,7 @@
 				50379B222058CBB4000EE86E /* capacitor.config.json */,
 				504EC3071FED79650016851F /* AppDelegate.swift */,
 				A5C0FFEE00000000000000A1 /* MainViewController.swift */,
+				B79A23E10EB5B191DF555AAA /* PageChrome.swift */,
 				4CA193C5E5A3E9EEBC98C69B /* SharedInboxPlugin.swift */,
 				1F412AAD72384652E03F2A93 /* App.entitlements */,
 				504EC30B1FED79650016851F /* Main.storyboard */,
@@ -161,6 +167,7 @@
 			isa = PBXGroup;
 			children = (
 				FAF7CE4B01326A9C8E50154D /* SharedItemTests.swift */,
+				5D49DCF25BF28DBFD321684C /* PageChromeTests.swift */,
 			);
 			path = AskShareTests;
 			sourceTree = "<group>";
@@ -310,6 +317,7 @@
 			files = (
 				504EC3081FED79650016851F /* AppDelegate.swift in Sources */,
 				A5C0FFEE00000000000000A2 /* MainViewController.swift in Sources */,
+				1C310D658C4C20621F944E3E /* PageChrome.swift in Sources */,
 				9582B6832FE993A70072D4E8 /* SceneDelegate.swift in Sources */,
 				8F17F391AEF4F10279A770A2 /* SharedInboxPlugin.swift in Sources */,
 				91A5F37BC461AC383D80E7D2 /* SharedItem.swift in Sources */,
@@ -331,6 +339,8 @@
 			files = (
 				A63214525EC70E8D289453E1 /* SharedItem.swift in Sources */,
 				F36684ABA7C87254D79C7AFA /* SharedItemTests.swift in Sources */,
+				D0D717927F727136170F25DE /* PageChrome.swift in Sources */,
+				C14FE6695E6211691AAFA046 /* PageChromeTests.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

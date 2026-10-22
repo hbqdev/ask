@@ -140,6 +140,20 @@ describe('NoteScreen', () => {
     expect(fetchImpl.mock.calls[0][0]).toBe(`${BASE}/api/notes/n1`)
   })
 
+  it('scrolls to the top on a status-bar tap and clears the home indicator', async () => {
+    renderNote()
+    const title = await screen.findByRole('heading', {
+      level: 1,
+      name: 'Tides'
+    })
+    const scroller = title.closest('[data-scroll-root]')
+    expect(scroller).not.toBeNull()
+    // The screen covers the tab bar, so its content clears the indicator.
+    const content = title.closest('.safe-bottom')
+    expect(content).not.toBeNull()
+    expect(scroller).toContainElement(content as HTMLElement)
+  })
+
   it('shows the cached note at once, before the server answers', () => {
     setNotesCache({ userId: 'user-1', notes: [NOTE], nextCursor: null })
     handle = () => new Promise<Response>(() => {})

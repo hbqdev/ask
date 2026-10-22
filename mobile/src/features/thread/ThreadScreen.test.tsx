@@ -345,6 +345,19 @@ describe('ThreadScreen', () => {
     expect(thread.send).toHaveBeenCalledExactlyOnceWith('First?', undefined)
   })
 
+  it('marks its scroller for the status-bar tap', async () => {
+    vi.mocked(useThread).mockReturnValue(session())
+    render(
+      <Shell>
+        <ThreadScreen chatId="c1" isNew={false} />
+      </Shell>
+    )
+    await act(async () => {})
+    expect(screen.getByTestId('thread-scroll')).toHaveAttribute(
+      'data-scroll-root'
+    )
+  })
+
   it('holds the opening question until the stored settings load', async () => {
     const thread = session()
     vi.mocked(useThread).mockReturnValue(thread)

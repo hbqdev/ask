@@ -5,6 +5,7 @@ import { Tabs, type TabSpec } from '@/app/Tabs'
 import { ApiProvider } from '@/core/api/ApiProvider'
 import { useAuth } from '@/core/auth/AuthProvider'
 import { useE2eScreen } from '@/app/e2e-screen'
+import { useStatusTap } from '@/core/nav/scroll-to-top'
 import { StackProvider, StackView, type ScreenEntry } from '@/core/nav/stack'
 import { useTheme } from '@/core/ThemeProvider'
 import { OrbitMark } from '@/core/ui/OrbitMark'
@@ -85,6 +86,12 @@ const TABS: TabSpec[] = [
   }
 ]
 
+/** A status-bar tap scrolls the screen in front to the top. */
+function StatusTap() {
+  useStatusTap()
+  return null
+}
+
 /** Simulator E2E builds: opens the screen a run seeded (see e2e-screen). */
 function E2eScreenOpener() {
   useE2eScreen()
@@ -100,12 +107,16 @@ const TABS_SCREEN: ScreenEntry = {
   )
 }
 
-/** What launch shows until the session is known: the native splash's look. */
+/**
+ * What launch shows until the session is known: the native splash's look.
+ * The app root pads the top and sides and this the bottom, so the mark is
+ * centred on the safe area, where the launch screen centres its SplashMark.
+ */
 function LaunchView() {
   return (
     <div
       data-testid="app-splash"
-      className="flex flex-1 items-center justify-center bg-splash"
+      className="safe-bottom flex flex-1 items-center justify-center bg-splash"
     >
       <OrbitMark className="size-24" />
     </div>
@@ -130,6 +141,7 @@ export function AppShell({ apiBaseUrl }: { apiBaseUrl: string }) {
     <ApiProvider baseUrl={apiBaseUrl}>
       <SearchSettingsProvider>
         <StackProvider root={TABS_SCREEN}>
+          <StatusTap />
           <StackView />
         </StackProvider>
       </SearchSettingsProvider>

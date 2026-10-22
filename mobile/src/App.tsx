@@ -44,7 +44,9 @@ export default function App() {
       <ThemeProvider>
         <div
           data-testid="app-root"
-          className="flex h-dvh flex-col bg-background text-foreground"
+          // The web view is edge to edge: .app-root clears the status bar and
+          // the sides; the bottom is cleared by what sits there (styles.css).
+          className="app-root flex h-dvh flex-col bg-background text-foreground"
         >
           {'client' in startup ? (
             <AuthProvider client={startup.client}>

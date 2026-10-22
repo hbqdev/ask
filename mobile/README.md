@@ -104,9 +104,14 @@ Mac, and enable Developer Mode under Settings → Privacy & Security).
 - `scripts/env-from-ask.sh`: writes `.env.local` (prints variable names only).
 - `sync-mac.sh` (runs here) and `build-install.sh` (runs on the Mac): see
   above.
-- `ios/App/App/MainViewController.swift`: safe-area container, theme colour
-  (swipe-back is the app's own, in `src/core/nav/stack.tsx`; the web view's
-  back/forward gestures stay off).
+- `ios/App/App/MainViewController.swift`: edge-to-edge container (the page
+  pads itself with `env(safe-area-inset-*)`: `.app-root`, `.safe-bottom` and
+  friends in `src/styles.css`), theme colour and status bar from the page
+  (`PageChrome.swift`, light over the image viewer via
+  `src/core/ui/status-bar.ts`), and a status-bar tap sent to the page as a
+  `statusTap` event (`src/core/nav/scroll-to-top.ts`). Swipe-back is the
+  app's own, in `src/core/nav/stack.tsx`; the web view's back/forward
+  gestures stay off.
 - `ios/App/App/Info.plist`: permission prompts; portrait-only on iPhone,
   arm64, no background modes.
 - `ios/App/App/PrivacyInfo.xcprivacy` and `ios/App/AskShare/PrivacyInfo.xcprivacy`:

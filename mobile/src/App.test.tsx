@@ -101,7 +101,9 @@ describe('App', () => {
     const App = await loadApp()
     render(<App />)
 
-    expect(screen.getByTestId('app-root')).toBeInTheDocument()
+    // The web view is edge to edge: the root clears the status bar and the
+    // sides (styles.css .app-root).
+    expect(screen.getByTestId('app-root')).toHaveClass('app-root')
     expect(
       await screen.findByRole('button', { name: 'Sign in' })
     ).toBeInTheDocument()

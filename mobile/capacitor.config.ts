@@ -9,16 +9,19 @@ import { KeyboardResize } from '@capacitor/keyboard'
 // SplashScreen plugin the launch storyboard's view, with that one colour in
 // BOTH appearances. Unset, the web view keeps systemBackground and the splash
 // keeps its adaptive LaunchBackground behind the SplashMark (light #fcfcfc,
-// dark #030309, the page background), and MainViewController colours the
-// safe-area strips the same way (src/launch-colours.test.ts checks them all).
+// dark #030309, the page background), and MainViewController colours its
+// container (seen behind the keyboard) the same way (src/launch-colours.test.ts
+// checks them all).
 
 const config: CapacitorConfig = {
   appId: 'win.hbqnexus.ask',
   appName: 'Ask',
   webDir: 'dist',
   ios: {
-    // The native view controller pins the web view to the safe area, so the
-    // page itself must not add its own insets on top of that.
+    // The web view runs edge to edge (MainViewController) and the page pads
+    // itself with env(safe-area-inset-*) (src/styles.css); 'never' keeps
+    // WKWebView from insetting its scroll view as well, which would add the
+    // insets twice.
     contentInset: 'never',
     scrollEnabled: true,
     allowsLinkPreview: false

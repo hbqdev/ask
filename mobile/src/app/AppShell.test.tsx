@@ -124,6 +124,15 @@ describe('AppShell', () => {
     expect(screen.queryByRole('tablist')).not.toBeInTheDocument()
   })
 
+  it('centres the launch mark on the safe area, as the native splash does', async () => {
+    const { client } = fakeClient(never)
+    renderShell(client)
+    await act(async () => {})
+
+    // The app root pads the top and sides; the launch view adds the bottom.
+    expect(screen.getByTestId('app-splash')).toHaveClass('safe-bottom')
+  })
+
   it('shows sign-in when signed out', async () => {
     const { client } = fakeClient()
     renderShell(client)
@@ -261,6 +270,73 @@ describe('AppShell', () => {
     expect(String(fetchMock.mock.calls[0][0])).toMatch(
       /^https:\/\/ask\.test\.invalid\/api\/discover\?topic=tech&page=1$/
     )
+  })
+
+  describe('status-bar tap', () => {
+    const original = Element.prototype.scrollTo
+    const scrollTo = vi.fn()
+
+    beforeEach(() => {
+      scrollTo.mockClear()
+      Element.prototype.scrollTo = scrollTo as unknown as Element['scrollTo']
+    })
+
+    afterEach(() => {
+      Element.prototype.scrollTo = original
+    })
+
+    const statusTap = () =>
+      act(() => {
+        window.dispatchEvent(new Event('statusTap'))
+      })
+
+    it('scrolls the active screen to the top on statusTap', async () => {
+      const { client } = fakeClient(async () => ({
+        data: { session },
+        error: null
+      }))
+      vi.stubGlobal(
+        'fetch',
+        vi.fn(
+          async () =>
+            new Response(
+              JSON.stringify({
+                chats: [],
+                nextOffset: null,
+                badges: {},
+                total: 0
+              }),
+              { headers: { 'Content-Type': 'application/json' } }
+            )
+        )
+      )
+      const user = userEvent.setup()
+      renderShell(client)
+
+      await user.click(await screen.findByRole('tab', { name: 'Library' }))
+      await screen.findByText('No chats yet')
+      statusTap()
+      expect(scrollTo).toHaveBeenCalledTimes(1)
+      expect(scrollTo.mock.contexts[0]).toBe(
+        screen.getByTestId('library-scroll')
+      )
+      // matchMedia matches everything here, reduced motion included.
+      expect(scrollTo).toHaveBeenCalledWith({ top: 0, behavior: 'auto' })
+
+      await user.click(screen.getByRole('tab', { name: 'Settings' }))
+      statusTap()
+      expect(scrollTo).toHaveBeenCalledTimes(2)
+      expect(scrollTo.mock.contexts[1]).toBe(screen.getByRole('main'))
+    })
+
+    it('does nothing while signed out', async () => {
+      const { client } = fakeClient()
+      renderShell(client)
+
+      await signInButton()
+      statusTap()
+      expect(scrollTo).not.toHaveBeenCalled()
+    })
   })
 
   describe('simulator screen hook', () => {

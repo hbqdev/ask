@@ -576,8 +576,13 @@ export function MemoryScreen() {
   return (
     <div className="flex min-h-0 flex-1 flex-col">
       {header}
-      <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain">
-        {body}
+      {/* A pushed screen covers the tab bar, so its content clears the home
+          indicator; a status-bar tap scrolls it to the top. */}
+      <div
+        data-scroll-root
+        className="min-h-0 flex-1 overflow-y-auto overscroll-contain"
+      >
+        <div className="safe-bottom">{body}</div>
       </div>
 
       <ConfirmSheet

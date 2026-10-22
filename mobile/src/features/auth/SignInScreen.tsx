@@ -91,8 +91,10 @@ export function SignInScreen({ apiBaseUrl }: { apiBaseUrl: string }) {
   }
 
   return (
-    <main className="flex flex-1 flex-col items-center justify-center overflow-y-auto px-6 py-10">
-      <div className="flex w-full max-w-sm flex-col items-center">
+    // No tab bar here: the screen clears the home indicator itself (on the
+    // main, so the form's own padding inside it adds to the inset).
+    <main className="safe-bottom flex flex-1 flex-col items-center justify-center overflow-y-auto px-6">
+      <div className="flex w-full max-w-sm flex-col items-center py-10">
         <OrbitMark className="size-20" />
         <h1 className="mt-6 text-2xl font-semibold tracking-tight">
           Sign in to Ask

@@ -106,9 +106,10 @@ describe('the launch mark', () => {
     expect(imageBody).toMatch(
       /<constraint firstAttribute="height" constant="96" id="[^"]+"\/>/
     )
-    // Centred on the root view's safe area: MainViewController pins the web
-    // view to the safe area, so that is where the web LaunchView centres its
-    // mark too.
+    // Centred on the root view's safe area: the web LaunchView is padded by
+    // the safe area on all four sides (.app-root and .safe-bottom), so that is
+    // where it centres its mark too, and so does the SplashScreen plugin's
+    // copy of this storyboard, now that it covers the whole screen.
     const safeArea = body.match(
       /<viewLayoutGuide key="safeArea" id="([^"]+)"\/>/
     )

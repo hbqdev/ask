@@ -271,6 +271,16 @@ describe('MemoryScreen: loading', () => {
     expect(screen.queryByRole('status', { name: 'Loading memory' })).toBeNull()
   })
 
+  it('scrolls to the top on a status-bar tap and clears the home indicator', async () => {
+    await renderScreen()
+    const scroller = recallSwitch().closest('[data-scroll-root]')
+    expect(scroller).not.toBeNull()
+    // The screen covers the tab bar, so its content clears the indicator.
+    const content = recallSwitch().closest('.safe-bottom')
+    expect(content).not.toBeNull()
+    expect(scroller).toContainElement(content as HTMLElement)
+  })
+
   it('says turning memory off keeps what it remembers', async () => {
     await renderScreen()
     expect(

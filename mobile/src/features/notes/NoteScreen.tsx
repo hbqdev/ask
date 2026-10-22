@@ -206,77 +206,84 @@ export function NoteScreen({ noteId }: { noteId: string }) {
         </div>
       </header>
 
-      <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-4 py-4">
-        {error && (
-          <p role="alert" className="pb-3 text-sm text-red-500">
-            {error}
-          </p>
-        )}
-        {note ? (
-          <article className="flex flex-col gap-3">
-            <div className="flex flex-col gap-1">
-              <h1 className="text-2xl leading-tight font-bold tracking-tight">
-                {note.title || 'Untitled'}
-              </h1>
-              <p className="text-sm text-muted-foreground">
-                <time dateTime={note.updatedAt}>
-                  {dateFormat.format(new Date(note.updatedAt))}
-                </time>
-              </p>
-            </div>
-            <Suspense fallback={<PlainAnswer text={note.content} />}>
-              <LazyAnswerMarkdown
-                text={note.content}
-                sources={NO_SOURCES}
-                streaming={false}
-              />
-            </Suspense>
-            {note.chatId && (
-              <button
-                type="button"
-                onClick={() => openThread(push, { chatId: note.chatId! })}
-                className="mt-2 min-h-11 self-start touch-manipulation rounded-full bg-muted px-4 text-sm font-semibold text-foreground active:opacity-50"
-              >
-                Open chat
-              </button>
-            )}
-          </article>
-        ) : load.kind === 'missing' ? (
-          <Message>
-            <p className="text-lg font-semibold">This note was deleted.</p>
-          </Message>
-        ) : load.kind === 'failed' ? (
-          load.unavailable ? (
+      {/* A pushed screen covers the tab bar, so its content clears the home
+          indicator; a status-bar tap scrolls it to the top. */}
+      <div
+        data-scroll-root
+        className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-4 py-4"
+      >
+        <div className="safe-bottom">
+          {error && (
+            <p role="alert" className="pb-3 text-sm text-red-500">
+              {error}
+            </p>
+          )}
+          {note ? (
+            <article className="flex flex-col gap-3">
+              <div className="flex flex-col gap-1">
+                <h1 className="text-2xl leading-tight font-bold tracking-tight">
+                  {note.title || 'Untitled'}
+                </h1>
+                <p className="text-sm text-muted-foreground">
+                  <time dateTime={note.updatedAt}>
+                    {dateFormat.format(new Date(note.updatedAt))}
+                  </time>
+                </p>
+              </div>
+              <Suspense fallback={<PlainAnswer text={note.content} />}>
+                <LazyAnswerMarkdown
+                  text={note.content}
+                  sources={NO_SOURCES}
+                  streaming={false}
+                />
+              </Suspense>
+              {note.chatId && (
+                <button
+                  type="button"
+                  onClick={() => openThread(push, { chatId: note.chatId! })}
+                  className="mt-2 min-h-11 self-start touch-manipulation rounded-full bg-muted px-4 text-sm font-semibold text-foreground active:opacity-50"
+                >
+                  Open chat
+                </button>
+              )}
+            </article>
+          ) : load.kind === 'missing' ? (
             <Message>
-              <p className="text-lg font-semibold">{load.error}</p>
+              <p className="text-lg font-semibold">This note was deleted.</p>
             </Message>
+          ) : load.kind === 'failed' ? (
+            load.unavailable ? (
+              <Message>
+                <p className="text-lg font-semibold">{load.error}</p>
+              </Message>
+            ) : (
+              <div
+                role="alert"
+                className="flex flex-col items-center gap-3 px-8 pt-16 text-center"
+              >
+                <p className="text-lg font-semibold">Couldn’t load this note</p>
+                <p className="text-sm text-muted-foreground">{load.error}</p>
+                <button
+                  type="button"
+                  onClick={retry}
+                  className="min-h-11 touch-manipulation rounded-full bg-foreground px-4 text-sm font-semibold text-background active:opacity-50"
+                >
+                  Retry
+                </button>
+              </div>
+            )
           ) : (
             <div
-              role="alert"
-              className="flex flex-col items-center gap-3 px-8 pt-16 text-center"
+              role="status"
+              aria-label="Loading note"
+              className="flex animate-pulse flex-col gap-3"
             >
-              <p className="text-lg font-semibold">Couldn’t load this note</p>
-              <p className="text-sm text-muted-foreground">{load.error}</p>
-              <button
-                type="button"
-                onClick={retry}
-                className="min-h-11 touch-manipulation rounded-full bg-foreground px-4 text-sm font-semibold text-background active:opacity-50"
-              >
-                Retry
-              </button>
+              <div className="h-7 w-2/3 rounded bg-foreground/8" />
+              <div className="h-4 w-full rounded bg-foreground/8" />
+              <div className="h-4 w-5/6 rounded bg-foreground/8" />
             </div>
-          )
-        ) : (
-          <div
-            role="status"
-            aria-label="Loading note"
-            className="flex animate-pulse flex-col gap-3"
-          >
-            <div className="h-7 w-2/3 rounded bg-foreground/8" />
-            <div className="h-4 w-full rounded bg-foreground/8" />
-            <div className="h-4 w-5/6 rounded bg-foreground/8" />
-          </div>
-        )}
+          )}
+        </div>
       </div>
 
       <ConfirmSheet

@@ -2,8 +2,9 @@
 // page, swiped sideways with native scroll-snap paging. A page count
 // ("2 / 5") sits above the home indicator and a close button below the
 // status bar, both clear of the safe-area insets. Escape closes it too.
-// While it is open the page behind does not scroll, Tab stays on its
-// controls, and on close focus goes back to what opened it.
+// While it is open the page behind does not scroll, the status bar's content
+// is light over the black, Tab stays on its controls, and on close focus goes
+// back to what opened it.
 
 import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
@@ -11,6 +12,7 @@ import { createPortal } from 'react-dom'
 import { haptic } from '@/core/haptics'
 import { FallbackImage } from '@/core/ui/FallbackImage'
 import { trapTab, useReturnFocus } from '@/core/ui/focus'
+import { requestLightStatusBar } from '@/core/ui/status-bar'
 
 export type ViewerImage = { src: string; alt: string }
 
@@ -75,9 +77,11 @@ function ViewerPanel({
     document.addEventListener('keydown', onKey)
     const overflow = document.body.style.overflow
     document.body.style.overflow = 'hidden'
+    const releaseStatusBar = requestLightStatusBar()
     return () => {
       document.removeEventListener('keydown', onKey)
       document.body.style.overflow = overflow
+      releaseStatusBar()
     }
   }, [])
 

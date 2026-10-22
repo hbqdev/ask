@@ -135,4 +135,27 @@ describe('ImageViewer', () => {
     expect(document.body.style.overflow).toBe('auto')
     document.body.style.overflow = ''
   })
+
+  it('holds a light status bar while open', () => {
+    const status = () =>
+      document.documentElement.getAttribute('data-status-bar')
+    expect(status()).toBeNull()
+    const { unmount } = setup()
+    // The viewer is black: light status-bar content over it.
+    expect(status()).toBe('light')
+    unmount()
+    expect(status()).toBeNull()
+  })
+
+  it('releases the light status bar when closed', () => {
+    const onClose = vi.fn()
+    const { rerender } = render(
+      <ImageViewer open images={IMAGES} start={0} onClose={onClose} />
+    )
+    expect(document.documentElement.dataset.statusBar).toBe('light')
+    rerender(
+      <ImageViewer open={false} images={IMAGES} start={0} onClose={onClose} />
+    )
+    expect(document.documentElement.dataset.statusBar).toBeUndefined()
+  })
 })

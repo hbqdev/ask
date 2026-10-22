@@ -58,6 +58,11 @@ describe('ErrorBoundary', () => {
     ).toBeInTheDocument()
     expect(screen.getByText('render exploded')).toBeInTheDocument()
     expect(SplashScreen.hide).toHaveBeenCalledTimes(1)
+    // Outside the app root, so it clears the safe area itself.
+    expect(screen.getByRole('main').parentElement).toHaveClass(
+      'app-root',
+      'safe-bottom'
+    )
   })
 
   it('shows a thrown non-Error too', () => {

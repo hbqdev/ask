@@ -179,16 +179,37 @@ body {
   }
 }
 
-/* The tab bar clears the home indicator should the web view ever extend
-   under it (today the native container keeps it inside the safe area). */
+/* --- Safe areas ---------------------------------------------------------------
+   The web view runs edge to edge (MainViewController), so the page's own
+   colour fills the strips under the status bar and the home indicator. The
+   app root clears the status bar and the sides; the bottom is cleared by
+   whatever sits there, so its colour runs to the edge: the tab bar, a
+   thread's composer, a sheet, or (.safe-bottom) a pushed screen's scroller
+   content and sign-in. With the keyboard up the web view ends above it, and
+   the bottom inset is 0. */
+.app-root {
+  padding-top: env(safe-area-inset-top);
+  padding-left: env(safe-area-inset-left);
+  padding-right: env(safe-area-inset-right);
+}
+
+.safe-bottom {
+  padding-bottom: env(safe-area-inset-bottom);
+}
+
 .tab-bar {
   padding-bottom: max(8px, env(safe-area-inset-bottom));
 }
 
-/* The composer sits at the bottom of its screen and clears the home
-   indicator the same way. */
+/* The composer sits at the bottom of a thread and clears the home indicator
+   the same way. */
 .composer {
   padding-bottom: max(env(safe-area-inset-bottom), 8px);
+}
+
+/* Ask's home composer sits on the tab bar, which already clears it. */
+[role='tabpanel'] .composer {
+  padding-bottom: 8px;
 }
 
 /* --- Bottom sheet -----------------------------------------------------------

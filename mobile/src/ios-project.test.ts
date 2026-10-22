@@ -363,3 +363,80 @@ describe('the app icon', () => {
     }
   })
 })
+
+// Edge to edge: the web view fills the screen and the page clears the safe
+// area itself (styles.css .app-root and friends), the status bar follows the
+// page (PageChrome) and a status-bar tap reaches the page as `statusTap`.
+describe('the native page chrome', () => {
+  const swift = read('App/MainViewController.swift')
+  const pbxproj = read('App.xcodeproj/project.pbxproj')
+
+  it('pins the web view to the screen edges, not the safe area', () => {
+    for (const edge of ['top', 'bottom', 'leading', 'trailing']) {
+      expect(swift).toMatch(
+        new RegExp(
+          `child\\.${edge}Anchor\\.constraint\\(equalTo: view\\.${edge}Anchor\\)`
+        )
+      )
+    }
+    expect(swift).not.toContain('safeAreaLayoutGuide')
+  })
+
+  it('ends the web view at the keyboard', () => {
+    // The Keyboard plugin's native resize sets the web view's frame, which the
+    // next layout pass puts back to its constraints (the composer ended up
+    // under the keyboard), and keyboardLayoutGuide did not follow the
+    // keyboard on iOS 27. So the bottom pin's constant follows the keyboard's
+    // frame (PageChrome.keyboardOverlap), with the keyboard's own animation.
+    expect(swift).toContain('UIResponder.keyboardWillChangeFrameNotification')
+    expect(swift).toContain('UIResponder.keyboardWillHideNotification')
+    expect(swift).toContain(
+      'let overlap = PageChrome.keyboardOverlap(keyboard: keyboard, in: view.bounds)'
+    )
+    expect(swift).toContain('bottomPin.constant = -overlap')
+    expect(swift).not.toContain('view.keyboardLayoutGuide')
+  })
+
+  it('turns a status-bar tap into a statusTap window event', () => {
+    // The web view's own scroll view never takes the tap, so the hidden
+    // sentinel is the only candidate.
+    expect(swift).toMatch(/web\.scrollView\.scrollsToTop = false/)
+    expect(swift).toMatch(/func scrollViewShouldScrollToTop\(/)
+    expect(swift).toContain('triggerWindowJSEvent(eventName: "statusTap")')
+    // iOS offers the tap only to scroll views under its x position, so the
+    // sentinel spans the width (1 pt tall) and follows it.
+    expect(swift).toMatch(
+      /sentinel\.frame = CGRect\(x: 0, y: 0, width: view\.bounds\.width, height: 1\)/
+    )
+    expect(swift).toContain('sentinel.autoresizingMask = [.flexibleWidth]')
+  })
+
+  it('reports the status-bar override with the page colour', () => {
+    expect(swift).toMatch(/attributeFilter: \[[^\]]*'data-status-bar'[^\]]*\]/)
+    expect(swift).toContain('document.documentElement.dataset.statusBar')
+    expect(swift).toContain('PageChrome.from(messageBody: message.body)')
+  })
+
+  /** The file names compiled by one Sources build phase. */
+  const sourcesOf = (phase: string) => {
+    const files = pbxproj.match(
+      new RegExp(`${phase} /\\* Sources \\*/ = \\{[^}]*files = \\(([^)]*)\\)`)
+    )?.[1]
+    expect(files).toBeDefined()
+    return [...files!.matchAll(/\/\* (\S+) in Sources \*\//g)].map(m => m[1])
+  }
+
+  it('compiles PageChrome into the app and its tests', () => {
+    expect(sourcesOf('504EC3001FED79650016851F')).toContain('PageChrome.swift')
+    const tests = sourcesOf('4E1B5284F86CB73DE0DCD2BC')
+    expect(tests).toContain('PageChrome.swift')
+    expect(tests).toContain('PageChromeTests.swift')
+    // Not in the share extension.
+    expect(sourcesOf('3EA9C033AB93B5BD084EDB3A')).not.toContain(
+      'PageChrome.swift'
+    )
+    expect(
+      existsSync(resolve(__dirname, '../ios/App/App/PageChrome.swift'))
+    ).toBe(true)
+  })
+})

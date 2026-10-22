@@ -43,6 +43,8 @@ describe('PullScroller', () => {
   it('scrolls its children, at rest, with the test ids it is given', () => {
     render(<Screen onRefresh={vi.fn(async () => {})} />)
     expect(scroll()).toContainElement(content())
+    // A status-bar tap scrolls it to the top (core/nav/scroll-to-top).
+    expect(scroll()).toHaveAttribute('data-scroll-root')
     expect(content()).toHaveTextContent('The list')
     expect(content().style.transform).toBe('')
     expect(content()).toHaveClass('pull-settle')

@@ -72,6 +72,8 @@ describe('SignInScreen', () => {
     expect(passwordField()).toHaveAttribute('autocomplete', 'current-password')
     expect(passwordField()).toHaveAttribute('type', 'password')
     expect(passwordField()).toHaveAttribute('enterkeyhint', 'go')
+    // Edge to edge with no tab bar: the screen clears the home indicator.
+    expect(screen.getByRole('main')).toHaveClass('safe-bottom')
   })
 
   it('keeps Sign in disabled until both fields are filled', async () => {
