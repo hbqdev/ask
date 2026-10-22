@@ -400,6 +400,61 @@ describe('useEdgeSwipe', () => {
     expect(onBack).toHaveBeenCalledTimes(1)
   })
 
+  it('a fast flick whose lift-off wobbles 1–2 px left still goes back', () => {
+    const { onBack, pad } = setup()
+    // 1.5 px/ms, a move every 16 ms; the last move or the release rolls back.
+    for (const [moves, up] of [
+      [[34, 58, 82, 81], 81],
+      [[34, 58, 82, 80], 80],
+      [[34, 58, 82], 80]
+    ] as const) {
+      onBack.mockClear()
+      clock = 0
+      fireEvent.pointerDown(pad, at({ x: 10 }))
+      moves.forEach((x, i) => {
+        clock = 16 * (i + 1)
+        fireEvent.pointerMove(pad, at({ x }))
+      })
+      clock += 8
+      fireEvent.pointerUp(pad, at({ x: up }))
+      expect(onBack).toHaveBeenCalledTimes(1)
+    }
+  })
+
+  it('a slow peek with a 2 px wobble at the release still does not go back', () => {
+    const onCancel = vi.fn()
+    const { onBack, pad } = setup({ onCancel })
+    // 0.2 px/ms in 20 ms steps, released 2 px back.
+    drag(pad, [
+      { x: 10, t: 0 },
+      { x: 14, t: 20 },
+      { x: 18, t: 40 },
+      { x: 22, t: 60 },
+      { x: 26, t: 80 },
+      { x: 30, t: 100 },
+      { x: 28, t: 104 }
+    ])
+    expect(onBack).not.toHaveBeenCalled()
+    expect(onCancel).toHaveBeenCalledTimes(1)
+  })
+
+  it('a finger drifting back left 1 px at a time is no flick', () => {
+    const { onBack, pad } = setup()
+    // Fast right, then a steady drift left: each step is within the wobble,
+    // but together they are a move left.
+    drag(pad, [
+      { x: 10, t: 0 },
+      { x: 60, t: 20 },
+      { x: 59, t: 28 },
+      { x: 58, t: 36 },
+      { x: 57, t: 44 },
+      { x: 56, t: 52 },
+      { x: 55, t: 60 },
+      { x: 54, t: 68 }
+    ])
+    expect(onBack).not.toHaveBeenCalled()
+  })
+
   it('a burst of moves under 4 ms (a stall flushed at once) is no flick', () => {
     const { onBack, pad } = setup()
     drag(pad, [

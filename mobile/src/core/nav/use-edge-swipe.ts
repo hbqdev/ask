@@ -70,11 +70,24 @@ function record(d: Drag, x: number, t: number) {
   while (d.samples[0].t < t - FLICK_WINDOW_MS) d.samples.shift()
 }
 
-/** The speed, in px/ms, rightward, of the latest run of moves right. */
+// A finger rolls back a pixel or two as it lifts off the glass: a turn back
+// left of up to this many px, from the furthest left the run reaches later,
+// does not end the run.
+const LIFT_WOBBLE = 2
+
+/**
+ * The speed, in px/ms, rightward, of the latest run of moves right: walking
+ * back from the release while each earlier sample lies at most LIFT_WOBBLE
+ * px right of every later one.
+ */
 function velocity(samples: Sample[]): number {
   const end = samples[samples.length - 1]
   let i = samples.length - 1
-  while (i > 0 && samples[i - 1].x <= samples[i].x) i--
+  let low = end.x
+  while (i > 0 && samples[i - 1].x <= low + LIFT_WOBBLE) {
+    i--
+    low = Math.min(low, samples[i].x)
+  }
   const span = end.t - samples[i].t
   return span >= FLICK_MIN_SPAN_MS ? (end.x - samples[i].x) / span : 0
 }
