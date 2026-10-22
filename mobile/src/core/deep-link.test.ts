@@ -5,7 +5,12 @@ import { App } from '@capacitor/app'
 import { act, renderHook } from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
-import { parseAskUrl, useAskDeepLink } from '@/core/deep-link'
+import { deliverAuthCallback } from '@/core/auth/oauth'
+import {
+  parseAskUrl,
+  useAskDeepLink,
+  useAuthCallbackLink
+} from '@/core/deep-link'
 
 type UrlOpenListener = (event: { url: string }) => void
 
@@ -21,6 +26,11 @@ vi.mock('@capacitor/app', () => ({
       return { remove: app.remove }
     })
   }
+}))
+
+vi.mock('@/core/auth/oauth', async importOriginal => ({
+  ...(await importOriginal<typeof import('@/core/auth/oauth')>()),
+  deliverAuthCallback: vi.fn()
 }))
 
 const open = (url: string) => app.listeners.forEach(l => l({ url }))
@@ -54,7 +64,8 @@ describe('parseAskUrl', () => {
     ['no q', 'ask://ask'],
     ['a blank q', 'ask://ask?q=%20%20'],
     ['an empty q', 'ask://ask?q='],
-    ['not a URL', 'not a url']
+    ['not a URL', 'not a url'],
+    ['a sign-in callback', 'ask://auth-callback?q=hello&code=abc']
   ])('rejects %s', (_label, url) => {
     expect(parseAskUrl(url)).toBeNull()
   })
@@ -88,6 +99,17 @@ describe('useAskDeepLink', () => {
     expect(onQuestion).not.toHaveBeenCalled()
   })
 
+  it('never puts a sign-in callback in the composer', async () => {
+    const onQuestion = vi.fn()
+    renderHook(() => useAskDeepLink(onQuestion))
+    await act(async () => {})
+
+    open('ask://auth-callback?code=abc&q=hello')
+    open('ask://auth-callback/?q=hello')
+    expect(onQuestion).not.toHaveBeenCalled()
+    expect(deliverAuthCallback).not.toHaveBeenCalled()
+  })
+
   it('calls the latest onQuestion without adding a second listener', async () => {
     const first = vi.fn()
     const second = vi.fn()
@@ -105,6 +127,36 @@ describe('useAskDeepLink', () => {
 
   it('removes the listener on unmount', async () => {
     const { unmount } = renderHook(() => useAskDeepLink(vi.fn()))
+    await act(async () => {})
+
+    unmount()
+    await act(async () => {})
+    expect(app.remove).toHaveBeenCalledTimes(1)
+  })
+})
+
+describe('useAuthCallbackLink', () => {
+  beforeEach(() => {
+    app.listeners.length = 0
+    vi.clearAllMocks()
+  })
+
+  it('hands every URL the app is opened with to the sign-in', async () => {
+    renderHook(() => useAuthCallbackLink())
+    await act(async () => {})
+
+    expect(App.addListener).toHaveBeenCalledExactlyOnceWith(
+      'appUrlOpen',
+      expect.any(Function)
+    )
+    open('ask://auth-callback?code=abc')
+    expect(deliverAuthCallback).toHaveBeenCalledExactlyOnceWith(
+      'ask://auth-callback?code=abc'
+    )
+  })
+
+  it('removes the listener on unmount', async () => {
+    const { unmount } = renderHook(() => useAuthCallbackLink())
     await act(async () => {})
 
     unmount()

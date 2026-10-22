@@ -19,7 +19,9 @@ import {
   preferencesStorage,
   type AuthStorage
 } from '@/core/auth/preferences-storage'
+import { googleSignInPending, runGoogleSignIn } from '@/core/auth/oauth'
 import { AUTH_STORAGE_KEY } from '@/core/auth/supabase'
+import { useAuthCallbackLink } from '@/core/deep-link'
 import { resetModelChoice } from '@/features/compose/model-choice'
 import { clearLibraryCache } from '@/features/library/library-cache'
 
@@ -30,6 +32,11 @@ export type Auth = {
   session: Session | null
   error: string | null
   signIn(email: string, password: string): Promise<boolean>
+  /**
+   * Google sign-in in the in-app browser. False when cancelled, failed (with
+   * `error` saying why) or ignored because one is already under way.
+   */
+  signInWithGoogle(): Promise<boolean>
   signOut(): Promise<void>
   /** The current access token; supabase-js refreshes it first when needed. */
   getAccessToken(): Promise<string | null>
@@ -50,9 +57,11 @@ function isNetworkFailure(err: unknown): boolean {
   )
 }
 
+const NETWORK_ERROR = 'Network error. Check your connection.'
+
 /** A short, user-facing message for a failed sign-in. */
 function signInErrorMessage(err: unknown): string {
-  if (isNetworkFailure(err)) return 'Network error. Check your connection.'
+  if (isNetworkFailure(err)) return NETWORK_ERROR
   if (isAuthApiError(err) && err.code === 'invalid_credentials') {
     return 'Invalid email or password'
   }
@@ -169,6 +178,30 @@ export function AuthProvider({
     [client, showSession]
   )
 
+  // Google's callback comes back as an app URL, whichever screen is showing.
+  useAuthCallbackLink()
+
+  const signInWithGoogle = useCallback(async () => {
+    // A second tap while one is under way changes nothing.
+    if (googleSignInPending()) return false
+    setError(null)
+    try {
+      const result = await runGoogleSignIn(client)
+      if (result.outcome === 'signedIn') {
+        // As signIn: supabase-js has already emitted SIGNED_IN, which a
+        // sign-out earlier in this run makes showSession ignore.
+        signedOutHere.current = false
+        showSession(result.session)
+        return true
+      }
+      if (result.outcome === 'failed') setError(result.error)
+      return false
+    } catch (err) {
+      setError(isNetworkFailure(err) ? NETWORK_ERROR : 'Google sign-in failed')
+      return false
+    }
+  }, [client, showSession])
+
   const signOut = useCallback(async () => {
     signedOutHere.current = true
     // At once, before awaiting the server: a save that settles meanwhile
@@ -197,8 +230,15 @@ export function AuthProvider({
   }, [client])
 
   const value = useMemo(
-    () => ({ ...view, error, signIn, signOut, getAccessToken }),
-    [view, error, signIn, signOut, getAccessToken]
+    () => ({
+      ...view,
+      error,
+      signIn,
+      signInWithGoogle,
+      signOut,
+      getAccessToken
+    }),
+    [view, error, signIn, signInWithGoogle, signOut, getAccessToken]
   )
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>

@@ -3,8 +3,15 @@
 // user to send; it never sends by itself (AskHome). iOS delivers
 // the URL through the App plugin's appUrlOpen event, which it holds until a
 // listener is added, so a link that launched the app still arrives.
+//
+// ask://auth-callback is Google sign-in coming back (core/auth/oauth). It goes
+// only to the sign-in, through useAuthCallbackLink, which the AuthProvider
+// keeps for the life of the app; parseAskUrl rejects it, so it never reaches
+// the composer.
 import { App } from '@capacitor/app'
 import { useEffect, useRef } from 'react'
+
+import { deliverAuthCallback } from '@/core/auth/oauth'
 
 /** The longest question a link may carry; the rest is dropped. */
 const MAX_QUESTION_CHARS = 2000
@@ -41,6 +48,21 @@ export function useAskDeepLink(onQuestion: (question: string) => void) {
       const link = parseAskUrl(url)
       if (link) latest.current(link.question)
     })
+    return () => {
+      void handle.then(h => h.remove())
+    }
+  }, [])
+}
+
+/**
+ * Hands each URL the app is opened with to the Google sign-in, which takes
+ * its ask://auth-callback and nothing else. Mounted once, signed in or not.
+ */
+export function useAuthCallbackLink() {
+  useEffect(() => {
+    const handle = App.addListener('appUrlOpen', ({ url }) =>
+      deliverAuthCallback(url)
+    )
     return () => {
       void handle.then(h => h.remove())
     }

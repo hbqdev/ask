@@ -12,8 +12,9 @@ export const AUTH_STORAGE_KEY = 'ask-auth'
 /**
  * The app's Supabase client. The session persists in `storage` and supabase-js
  * refreshes the access token on its own, so a cold start restores the session
- * without a sign-in. There is no OAuth redirect into the app, so the URL is
- * never read for a session.
+ * without a sign-in. The page URL is never read for a session: Google
+ * sign-in comes back as an ask://auth-callback app URL, whose PKCE code
+ * core/auth/oauth exchanges itself.
  */
 export function createSupabase(
   config: AppConfig,

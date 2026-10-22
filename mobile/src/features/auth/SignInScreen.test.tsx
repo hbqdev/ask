@@ -1,9 +1,10 @@
 import { Browser } from '@capacitor/browser'
-import { fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { useAuth, type Auth } from '@/core/auth/AuthProvider'
+import { haptic } from '@/core/haptics'
 import { forgotPasswordUrl, SignInScreen } from '@/features/auth/SignInScreen'
 
 vi.mock('@capacitor/browser', () => ({
@@ -11,6 +12,8 @@ vi.mock('@capacitor/browser', () => ({
 }))
 
 vi.mock('@/core/auth/AuthProvider', () => ({ useAuth: vi.fn() }))
+
+vi.mock('@/core/haptics', () => ({ haptic: vi.fn() }))
 
 // Fake values only.
 const EMAIL = 'user@example.test'
@@ -25,6 +28,7 @@ function fakeAuth(overrides: Partial<Auth> = {}): Auth {
     session: null,
     error: null,
     signIn: vi.fn(async () => true),
+    signInWithGoogle: vi.fn(async () => true),
     signOut: vi.fn(async () => {}),
     getAccessToken: vi.fn(async () => null),
     ...overrides
@@ -36,6 +40,20 @@ function fakeAuth(overrides: Partial<Auth> = {}): Auth {
 const emailField = () => screen.getByLabelText('Email')
 const passwordField = () => screen.getByLabelText('Password')
 const signInButton = () => screen.getByRole('button', { name: 'Sign in' })
+const googleButton = () =>
+  screen.getByRole('button', { name: 'Continue with Google' })
+
+/** A signInWithGoogle that settles when the test says so. */
+function pendingGoogle() {
+  let finish: (ok: boolean) => void = () => {}
+  const signInWithGoogle = vi.fn(
+    () =>
+      new Promise<boolean>(resolve => {
+        finish = resolve
+      })
+  )
+  return { signInWithGoogle, finish: (ok: boolean) => finish(ok) }
+}
 
 describe('SignInScreen', () => {
   beforeEach(() => {
@@ -182,5 +200,100 @@ describe('SignInScreen', () => {
     await user.click(link)
     expect(Browser.open).toHaveBeenCalledTimes(2)
     expect(screen.queryByRole('status')).not.toBeInTheDocument()
+  })
+
+  it('Continue with Google starts the Google sign-in with a tap haptic', async () => {
+    const auth = fakeAuth()
+    const user = userEvent.setup()
+    render(<SignInScreen apiBaseUrl={API} />)
+
+    await user.click(googleButton())
+
+    expect(auth.signInWithGoogle).toHaveBeenCalledTimes(1)
+    expect(haptic).toHaveBeenCalledWith('light')
+  })
+
+  it('shows the pending state and disables the whole form during the Google sign-in', async () => {
+    const google = pendingGoogle()
+    fakeAuth({ signInWithGoogle: google.signInWithGoogle })
+    const user = userEvent.setup()
+    render(<SignInScreen apiBaseUrl={API} />)
+    await user.type(emailField(), EMAIL)
+    await user.type(passwordField(), PASSWORD)
+
+    await user.click(googleButton())
+
+    const busy = screen.getByRole('button', {
+      name: 'Signing in with Google…'
+    })
+    expect(busy).toBeDisabled()
+    expect(busy).toHaveAttribute('aria-busy', 'true')
+    expect(emailField()).toBeDisabled()
+    expect(passwordField()).toBeDisabled()
+    expect(signInButton()).toBeDisabled()
+
+    // A second tap while pending does nothing.
+    await user.click(busy)
+    expect(google.signInWithGoogle).toHaveBeenCalledTimes(1)
+  })
+
+  it('a cancelled Google sign-in returns to the form with focus on the button', async () => {
+    const google = pendingGoogle()
+    const auth = fakeAuth({ signInWithGoogle: google.signInWithGoogle })
+    const user = userEvent.setup()
+    render(<SignInScreen apiBaseUrl={API} />)
+    await user.type(emailField(), EMAIL)
+    await user.type(passwordField(), PASSWORD)
+    await user.click(googleButton())
+    // The focus leaves the button: WebKit drops it from a button that becomes
+    // disabled, and the browser sheet takes it. jsdom does neither, so move
+    // it here.
+    act(() => screen.getByRole('link', { name: 'Forgot password?' }).focus())
+
+    google.finish(false)
+
+    await waitFor(() => expect(googleButton()).toBeEnabled())
+    expect(googleButton()).toHaveFocus()
+    expect(emailField()).toBeEnabled()
+    expect(passwordField()).toBeEnabled()
+    expect(signInButton()).toBeEnabled()
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument()
+    expect(auth.signIn).not.toHaveBeenCalled()
+  })
+
+  it('a successful Google sign-in leaves the focus alone', async () => {
+    const google = pendingGoogle()
+    fakeAuth({ signInWithGoogle: google.signInWithGoogle })
+    const user = userEvent.setup()
+    render(<SignInScreen apiBaseUrl={API} />)
+    await user.click(googleButton())
+    act(() => screen.getByRole('link', { name: 'Forgot password?' }).focus())
+
+    google.finish(true)
+
+    await waitFor(() => expect(googleButton()).toBeEnabled())
+    expect(googleButton()).not.toHaveFocus()
+  })
+
+  it('shows a Google sign-in error', () => {
+    fakeAuth({ error: 'Sign-in timed out' })
+    render(<SignInScreen apiBaseUrl={API} />)
+    expect(screen.getByRole('alert')).toHaveTextContent('Sign-in timed out')
+  })
+
+  it('disables Continue with Google while signing in with a password', async () => {
+    const auth = fakeAuth({
+      signIn: vi.fn(() => new Promise<boolean>(() => {}))
+    })
+    const user = userEvent.setup()
+    render(<SignInScreen apiBaseUrl={API} />)
+    await user.type(emailField(), EMAIL)
+    await user.type(passwordField(), PASSWORD)
+
+    await user.click(signInButton())
+
+    expect(googleButton()).toBeDisabled()
+    await user.click(googleButton())
+    expect(auth.signInWithGoogle).not.toHaveBeenCalled()
   })
 })

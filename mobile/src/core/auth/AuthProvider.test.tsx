@@ -1,3 +1,4 @@
+import { Browser } from '@capacitor/browser'
 import { Preferences } from '@capacitor/preferences'
 import {
   AuthApiError,
@@ -8,9 +9,9 @@ import {
 } from '@supabase/supabase-js'
 import { act, renderHook, waitFor } from '@testing-library/react'
 import type { ReactNode } from 'react'
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
-import { AuthProvider, useAuth } from '@/core/auth/AuthProvider'
+import { AuthProvider, useAuth, type Auth } from '@/core/auth/AuthProvider'
 import type { AuthStorage } from '@/core/auth/preferences-storage'
 import { AUTH_STORAGE_KEY } from '@/core/auth/supabase'
 import { createApiClient } from '@/core/api/client'
@@ -26,6 +27,45 @@ import { LIBRARY_CACHE_KEY } from '@/features/library/library-cache'
 import { LIBRARY_SORT_KEY } from '@/features/library/library-sort'
 import { CUSTOM_INSTRUCTIONS_KEY } from '@/features/settings/custom-instructions'
 import { memoryStorage } from '@/test/memory-storage'
+
+// The app URLs the provider's appUrlOpen listener hears.
+const appUrls = vi.hoisted(() => ({
+  listeners: [] as Array<(event: { url: string }) => void>,
+  remove: vi.fn(async () => {})
+}))
+
+vi.mock('@capacitor/app', () => ({
+  App: {
+    addListener: vi.fn(
+      async (_event: string, listener: (event: { url: string }) => void) => {
+        appUrls.listeners.push(listener)
+        return {
+          remove: async () => {
+            appUrls.listeners.splice(appUrls.listeners.indexOf(listener), 1)
+            await appUrls.remove()
+          }
+        }
+      }
+    )
+  }
+}))
+
+const browserFinished = vi.hoisted(() => [] as Array<() => void>)
+
+vi.mock('@capacitor/browser', () => ({
+  Browser: {
+    open: vi.fn(async () => {}),
+    close: vi.fn(async () => {}),
+    addListener: vi.fn(async (_event: string, listener: () => void) => {
+      browserFinished.push(listener)
+      return { remove: async () => {} }
+    })
+  }
+}))
+
+/** The app is opened with `url` (as iOS does for ask:// links). */
+const openAppUrl = (url: string) =>
+  act(() => appUrls.listeners.forEach(l => l({ url })))
 
 vi.mock('@capacitor/preferences', () => ({
   Preferences: {
@@ -66,7 +106,14 @@ function fakeClient(sessionFromServer: Session | null = null) {
       return { data: { subscription: { unsubscribe } } }
     }),
     signInWithPassword: vi.fn(),
-    signOut: vi.fn().mockResolvedValue({ error: null })
+    signOut: vi.fn().mockResolvedValue({ error: null }),
+    signInWithOAuth: vi.fn().mockResolvedValue({
+      data: { provider: 'google', url: 'https://supabase.test.invalid/auth' },
+      error: null
+    }),
+    exchangeCodeForSession: vi
+      .fn()
+      .mockResolvedValue({ data: { session, user: session.user }, error: null })
   }
   return {
     auth,
@@ -540,6 +587,193 @@ describe('AuthProvider: signOut', () => {
     const refreshed = { ...session, access_token: 'fake-refreshed-token' }
     emit('TOKEN_REFRESHED', refreshed)
     expect(result.current.session).toBe(refreshed)
+  })
+})
+
+describe('AuthProvider: signInWithGoogle', () => {
+  beforeEach(() => {
+    browserFinished.length = 0
+    vi.mocked(Browser.open).mockClear()
+  })
+
+  afterEach(async () => {
+    // Settle a sign-in a test left waiting, so the next starts clean.
+    await act(async () => browserFinished.forEach(l => l()))
+  })
+
+  /** Starts a Google sign-in and waits until the browser is open. */
+  async function startGoogle(result: { current: Auth }) {
+    let done: Promise<boolean> = Promise.resolve(false)
+    act(() => {
+      done = result.current.signInWithGoogle()
+    })
+    await waitFor(() => expect(Browser.open).toHaveBeenCalled())
+    return { done }
+  }
+
+  it('signs in with the code the callback brings', async () => {
+    const { auth, result } = await signedOutAuth()
+    const { done } = await startGoogle(result)
+    expect(Browser.open).toHaveBeenCalledWith({
+      url: 'https://supabase.test.invalid/auth'
+    })
+
+    await openAppUrl('ask://auth-callback?code=fake-code')
+    let ok: boolean | undefined
+    await act(async () => {
+      ok = await done
+    })
+
+    expect(ok).toBe(true)
+    expect(auth.exchangeCodeForSession).toHaveBeenCalledExactlyOnceWith(
+      'fake-code'
+    )
+    expect(result.current.status).toBe('signedIn')
+    expect(result.current.session).toBe(session)
+    expect(result.current.error).toBeNull()
+  })
+
+  it('a cancelled sign-in returns to the form with no error', async () => {
+    const { auth, result } = await signedOutAuth()
+    const { done } = await startGoogle(result)
+
+    let ok: boolean | undefined
+    await act(async () => {
+      browserFinished.forEach(l => l())
+      ok = await done
+    })
+
+    expect(ok).toBe(false)
+    expect(auth.exchangeCodeForSession).not.toHaveBeenCalled()
+    expect(result.current.status).toBe('signedOut')
+    expect(result.current.error).toBeNull()
+  })
+
+  it('an error param shows the message', async () => {
+    const { auth, result } = await signedOutAuth()
+    const { done } = await startGoogle(result)
+
+    await openAppUrl(
+      'ask://auth-callback?error=access_denied&error_description=Email+link+is+invalid'
+    )
+    let ok: boolean | undefined
+    await act(async () => {
+      ok = await done
+    })
+
+    expect(ok).toBe(false)
+    expect(auth.exchangeCodeForSession).not.toHaveBeenCalled()
+    expect(result.current.error).toBe('Email link is invalid')
+    expect(result.current.status).toBe('signedOut')
+  })
+
+  it('ignores a callback when no sign-in is pending', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    const { auth, result } = await signedOutAuth()
+
+    await openAppUrl('ask://auth-callback?code=stale-code')
+
+    expect(auth.exchangeCodeForSession).not.toHaveBeenCalled()
+    expect(result.current.status).toBe('signedOut')
+    expect(warn).toHaveBeenCalledTimes(1)
+    warn.mockRestore()
+  })
+
+  it('a failed code exchange says Google sign-in failed', async () => {
+    const { auth, result } = await signedOutAuth()
+    auth.exchangeCodeForSession.mockResolvedValueOnce({
+      data: { session: null, user: null },
+      error: new AuthApiError('invalid flow state', 400, 'flow_state_not_found')
+    })
+    const { done } = await startGoogle(result)
+
+    await openAppUrl('ask://auth-callback?code=fake-code')
+    await act(async () => {
+      await done
+    })
+
+    expect(result.current.error).toBe('Google sign-in failed')
+    expect(result.current.status).toBe('signedOut')
+  })
+
+  it('a network failure says so', async () => {
+    const { auth, result } = await signedOutAuth()
+    auth.exchangeCodeForSession.mockResolvedValueOnce({
+      data: { session: null, user: null },
+      error: new AuthRetryableFetchError('Failed to fetch', 0)
+    })
+    const { done } = await startGoogle(result)
+
+    await openAppUrl('ask://auth-callback?code=fake-code')
+    await act(async () => {
+      await done
+    })
+
+    expect(result.current.error).toBe('Network error. Check your connection.')
+  })
+
+  it('a second tap while a sign-in is pending is ignored', async () => {
+    const { auth, result } = await signedOutAuth()
+    const { done } = await startGoogle(result)
+
+    let second: boolean | undefined
+    await act(async () => {
+      second = await result.current.signInWithGoogle()
+    })
+    expect(second).toBe(false)
+    expect(auth.signInWithOAuth).toHaveBeenCalledTimes(1)
+
+    await openAppUrl('ask://auth-callback?code=fake-code')
+    let ok: boolean | undefined
+    await act(async () => {
+      ok = await done
+    })
+    expect(ok).toBe(true)
+  })
+
+  it('a new Google sign-in clears the previous error', async () => {
+    const { auth, result } = await signedOutAuth()
+    auth.signInWithPassword.mockResolvedValue({
+      data: { session: null, user: null },
+      error: new AuthApiError('Invalid login', 400, 'invalid_credentials')
+    })
+    await act(async () => {
+      await result.current.signIn('user@example.test', 'wrong-password')
+    })
+    expect(result.current.error).toBe('Invalid email or password')
+
+    await startGoogle(result)
+    expect(result.current.error).toBeNull()
+  })
+
+  it('signs in with Google after a sign-out', async () => {
+    const { auth, emit, result } = await signedInAuth()
+    await act(async () => {
+      await result.current.signOut()
+    })
+    // supabase-js emits SIGNED_IN during the exchange.
+    auth.exchangeCodeForSession.mockImplementationOnce(async () => {
+      emit('SIGNED_IN', session)
+      return { data: { session, user: session.user }, error: null }
+    })
+    const { done } = await startGoogle(result)
+
+    await openAppUrl('ask://auth-callback?code=fake-code')
+    await act(async () => {
+      await done
+    })
+
+    expect(result.current.status).toBe('signedIn')
+    const refreshed = { ...session, access_token: 'fake-refreshed-token' }
+    emit('TOKEN_REFRESHED', refreshed)
+    expect(result.current.session).toBe(refreshed)
+  })
+
+  it('stops hearing app URLs on unmount', async () => {
+    const { unmount } = await signedOutAuth()
+    expect(appUrls.listeners).toHaveLength(1)
+    unmount()
+    await waitFor(() => expect(appUrls.listeners).toHaveLength(0))
   })
 })
 

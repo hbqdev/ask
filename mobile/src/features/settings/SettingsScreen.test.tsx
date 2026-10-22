@@ -64,6 +64,7 @@ function fakeAuth(overrides: Partial<Auth> = {}): Auth {
     session,
     error: null,
     signIn: vi.fn(async () => true),
+    signInWithGoogle: vi.fn(async () => true),
     signOut: vi.fn(async () => {}),
     getAccessToken: vi.fn(async () => null),
     ...overrides
