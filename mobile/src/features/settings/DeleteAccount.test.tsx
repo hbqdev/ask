@@ -209,7 +209,7 @@ describe('DeleteAccountSheet', () => {
     for (const text of ['delete', 'DELET', 'DELETE!', 'Delete']) {
       type(text)
       expect(deleteButton()).toBeDisabled()
-      fireEvent.submit(field().closest('form')!)
+      fireEvent.keyDown(field(), { key: 'Enter' })
     }
     expect(fetchImpl).not.toHaveBeenCalled()
     expect(haptic).not.toHaveBeenCalled()
@@ -217,6 +217,56 @@ describe('DeleteAccountSheet', () => {
     // Surrounding spaces don't count.
     type('  DELETE ')
     expect(deleteButton()).toBeEnabled()
+  })
+
+  it('Enter in the field sends nothing: it only dismisses the keyboard', async () => {
+    const { fetchImpl } = await setup()
+    type('DELETE')
+    field().focus()
+    // false: the key's default (an implicit submit) was prevented.
+    expect(fireEvent.keyDown(field(), { key: 'Enter' })).toBe(false)
+    expect(field()).not.toHaveFocus()
+    await act(async () => {})
+    expect(fetchImpl).not.toHaveBeenCalled()
+    expect(haptic).not.toHaveBeenCalled()
+    expect(dialog()).toBeInTheDocument()
+    expect(authText()).toBe('signedIn')
+    // There is no form to submit implicitly.
+    expect(field().closest('form')).toBeNull()
+    expect(deleteButton()).toHaveAttribute('type', 'button')
+    // Other keys type as usual.
+    expect(fireEvent.keyDown(field(), { key: 'E' })).toBe(true)
+  })
+
+  it('Done/blur leaves the sheet open and nothing sent', async () => {
+    const { fetchImpl } = await setup()
+    type('DELETE')
+    field().focus()
+    fireEvent.blur(field())
+    field().blur()
+    await act(async () => {})
+    expect(fetchImpl).not.toHaveBeenCalled()
+    expect(dialog()).toBeInTheDocument()
+    expect(field()).toHaveValue('DELETE')
+    expect(deleteButton()).toBeEnabled()
+  })
+
+  it('sends one request even when two taps land before a re-render', async () => {
+    let answer: (res: Response) => void = () => {}
+    const { fetchImpl } = await setup(
+      () => new Promise<Response>(resolve => (answer = resolve))
+    )
+    type('DELETE')
+    const button = deleteButton()
+    act(() => {
+      button.click()
+      button.click()
+    })
+    await waitFor(() => expect(fetchImpl).toHaveBeenCalled())
+    await act(async () => {})
+    expect(fetchImpl).toHaveBeenCalledTimes(1)
+    expect(haptic).toHaveBeenCalledTimes(1)
+    await act(async () => answer(json({ ok: true })))
   })
 
   it('sends {confirm:"DELETE"} with a warning haptic, and shows the deletion under way', async () => {

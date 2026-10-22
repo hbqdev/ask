@@ -4,7 +4,7 @@
 // the account was deleted; on any failure the user stays signed in with the
 // sheet open.
 
-import { useId, useState, type FormEvent } from 'react'
+import { useId, useRef, useState, type KeyboardEvent } from 'react'
 
 import { useApi } from '@/core/api/ApiProvider'
 import type { ApiClient } from '@/core/api/client'
@@ -63,11 +63,22 @@ function DeleteAccountPanel({ onClose }: { onClose: () => void }) {
   const [typed, setTyped] = useState('')
   const [deleting, setDeleting] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  // Set at once on a tap, so a second tap before the re-render sends
+  // nothing more.
+  const inFlight = useRef(false)
   const confirmed = typed.trim() === CONFIRM_WORD
 
-  const submit = async (e: FormEvent) => {
+  // Only a tap on the destructive button deletes: Return or Done in the
+  // field just dismisses the keyboard.
+  const onFieldKey = (e: KeyboardEvent<HTMLInputElement>) => {
+    if (e.key !== 'Enter') return
     e.preventDefault()
-    if (!confirmed || deleting) return
+    e.currentTarget.blur()
+  }
+
+  const confirmDelete = async () => {
+    if (!confirmed || inFlight.current) return
+    inFlight.current = true
     haptic('warning')
     setDeleting(true)
     setError(null)
@@ -76,6 +87,7 @@ function DeleteAccountPanel({ onClose }: { onClose: () => void }) {
     } catch (err) {
       setError(deleteAccountErrorMessage(err))
       setDeleting(false)
+      inFlight.current = false
       return
     }
     // The account is gone on the server. Signing out clears this account's
@@ -92,7 +104,8 @@ function DeleteAccountPanel({ onClose }: { onClose: () => void }) {
       title="Delete account?"
       describedBy={explanationId}
     >
-      <form onSubmit={submit} className="flex flex-col gap-3 pb-2">
+      {/* Not a form: nothing submits implicitly. */}
+      <div className="flex flex-col gap-3 pb-2">
         <p
           id={explanationId}
           className="px-2 text-sm leading-relaxed text-muted-foreground"
@@ -110,6 +123,7 @@ function DeleteAccountPanel({ onClose }: { onClose: () => void }) {
           value={typed}
           readOnly={deleting}
           onChange={e => setTyped(e.target.value)}
+          onKeyDown={onFieldKey}
           autoCapitalize="characters"
           autoCorrect="off"
           autoComplete="off"
@@ -123,10 +137,11 @@ function DeleteAccountPanel({ onClose }: { onClose: () => void }) {
           </p>
         )}
         {/* aria-disabled, not disabled, while deleting: the button keeps
-            focus, and the submit guard ignores further taps. */}
+            focus, and the in-flight guard ignores further taps. */}
         <button
-          type="submit"
+          type="button"
           disabled={!confirmed}
+          onClick={() => void confirmDelete()}
           aria-disabled={deleting || undefined}
           aria-busy={deleting || undefined}
           className={`${BUTTON} bg-red-500 text-white active:opacity-50 disabled:opacity-25 aria-disabled:opacity-50`}
@@ -141,7 +156,7 @@ function DeleteAccountPanel({ onClose }: { onClose: () => void }) {
         >
           Cancel
         </button>
-      </form>
+      </div>
     </Sheet>
   )
 }
