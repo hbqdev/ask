@@ -163,6 +163,29 @@ describe('useVoiceSettings', () => {
     )
   })
 
+  it('two changes made before a render both stick, and both are saved', async () => {
+    const storage = memoryStorage()
+    const { result } = renderHook(() => useVoiceSettings(storage))
+    await waitFor(() => expect(storage.getItem).toHaveBeenCalled())
+    const [, set] = result.current
+    act(() => {
+      set(current => ({ ...current, voice: 'bf_emma' }))
+      set(current => ({ ...current, speed: 1.4 }))
+    })
+    expect(result.current[0]).toEqual({
+      voice: 'bf_emma',
+      speed: 1.4,
+      autoRead: false
+    })
+    await waitFor(() =>
+      expect(JSON.parse(storage.data.get(VOICE_SETTINGS_KEY)!)).toEqual({
+        voice: 'bf_emma',
+        speed: 1.4,
+        autoRead: false
+      })
+    )
+  })
+
   it('a slow load does not undo a change', async () => {
     const storage = memoryStorage({
       [VOICE_SETTINGS_KEY]: JSON.stringify({ voice: 'bf_emma' })

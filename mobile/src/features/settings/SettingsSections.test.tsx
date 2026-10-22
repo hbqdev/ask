@@ -527,6 +527,22 @@ describe('VoiceSection', () => {
     ).toHaveAttribute('aria-checked', 'true')
   })
 
+  it('two quick picks before a render keep both', async () => {
+    await renderVoice()
+    const emma = screen.getByRole('radio', { name: 'Emma — UK female' })
+    const fast = screen.getByRole('radio', { name: 'Fast (1.4×)' })
+    const toggle = screen.getByRole('switch', { name: 'Read answers aloud' })
+    act(() => {
+      emma.click()
+      fast.click()
+      toggle.click()
+    })
+    await flush()
+    expect(stored()).toEqual({ voice: 'bf_emma', speed: 1.4, autoRead: true })
+    expect(emma).toHaveAttribute('aria-checked', 'true')
+    expect(fast).toHaveAttribute('aria-checked', 'true')
+  })
+
   it('picking the voice already chosen changes nothing', async () => {
     await renderVoice()
     fireEvent.click(

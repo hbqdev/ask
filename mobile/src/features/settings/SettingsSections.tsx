@@ -153,12 +153,12 @@ export function VoiceSection() {
   const pickVoice = (voice: string) => {
     if (voice === settings.voice) return
     haptic('selection')
-    setSettings({ ...settings, voice })
+    setSettings(current => ({ ...current, voice }))
   }
   const pickSpeed = (speed: number) => {
     if (speed === settings.speed) return
     haptic('selection')
-    setSettings({ ...settings, speed })
+    setSettings(current => ({ ...current, speed }))
   }
 
   return (
@@ -172,7 +172,10 @@ export function VoiceSection() {
           aria-labelledby={autoReadLabel}
           onClick={() => {
             haptic('selection')
-            setSettings({ ...settings, autoRead: !settings.autoRead })
+            setSettings(current => ({
+              ...current,
+              autoRead: !current.autoRead
+            }))
           }}
           className={`${GROUP} flex min-h-12 w-full touch-manipulation items-center gap-3 px-4 text-left active:opacity-60`}
         >

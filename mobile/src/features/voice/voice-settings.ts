@@ -91,27 +91,41 @@ export function saveVoiceSettings(
   return save
 }
 
+/** New settings, or how to make them from the latest ones. */
+export type VoiceSettingsChange =
+  | VoiceSettings
+  | ((current: VoiceSettings) => VoiceSettings)
+
 /**
  * The settings and a setter. It starts on the defaults and moves to the
  * stored settings once they load; a change shows at once and is saved in the
- * background (a failed save only costs the change at the next launch).
+ * background (a failed save only costs the change at the next launch). A
+ * change given as a function builds on the latest settings, even ones not
+ * rendered yet, so two quick changes both stick.
  */
 export function useVoiceSettings(
   storage: AuthStorage = preferencesStorage
-): [VoiceSettings, (settings: VoiceSettings) => void] {
+): [VoiceSettings, (change: VoiceSettingsChange) => void] {
   const [settings, setSettings] = useState(DEFAULT_VOICE_SETTINGS)
+  // The latest settings, ahead of the render that shows them.
+  const latest = useRef(settings)
   // Set once the user changes something, so a slow load cannot undo it.
   const changed = useRef(false)
 
   useEffect(() => {
     void loadVoiceSettings(storage).then(stored => {
-      if (!changed.current) setSettings(stored)
+      if (changed.current) return
+      latest.current = stored
+      setSettings(stored)
     })
   }, [storage])
 
   const update = useCallback(
-    (next: VoiceSettings) => {
+    (change: VoiceSettingsChange) => {
+      const next =
+        typeof change === 'function' ? change(latest.current) : change
       changed.current = true
+      latest.current = next
       setSettings(next)
       saveVoiceSettings(next, storage).catch(error => {
         console.warn('Could not save the voice settings', error)
