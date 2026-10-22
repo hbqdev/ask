@@ -14,27 +14,13 @@ import { clampSpeed } from '@/lib/voice/voices'
 export const SPOKEN_MAX_CHARS = 20_000
 
 /**
- * Fenced code blocks other than ```spec (stripForSpeech removes those, and
- * the backticks of the rest but not their code), to the end of the text when
- * one is never closed.
- */
-const CODE_FENCE_RE = /```(?!spec)[\s\S]*?(?:```|$)/g
-
-/** A comma or colon left before a sentence end by a dropped citation. */
-const DANGLING_PUNCTUATION_RE = /[,;:]+(?=[.!?])/g
-
-/**
  * An answer as it is read aloud: no citations, spec fences, code, tables,
  * URLs or markdown; a long one is cut at the last whole sentence that fits.
- * stripForSpeech is the server's own cleaning for the spoken answer it
- * streams (lib/voice/emit-spoken-gist.ts); code blocks are dropped first,
- * since it would read their code.
+ * The same cleaning the server gives the spoken answer it streams
+ * (lib/voice/emit-spoken-gist.ts).
  */
 export function speakableText(text: string): string {
-  const spoken = stripForSpeech(text.replace(CODE_FENCE_RE, ' ')).replace(
-    DANGLING_PUNCTUATION_RE,
-    ''
-  )
+  const spoken = stripForSpeech(text)
   if (spoken.length <= SPOKEN_MAX_CHARS) return spoken
   // Every whole sentence in the head; the head itself when it has none.
   return firstSentences(spoken.slice(0, SPOKEN_MAX_CHARS), Infinity)

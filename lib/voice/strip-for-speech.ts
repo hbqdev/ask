@@ -2,7 +2,7 @@
 import { stripSpecBlocks } from '@/lib/render/strip-spec-blocks'
 
 // Turn written answer text into something a TTS model should read aloud: no
-// citation anchors, tables, URLs, or markdown syntax. Complements
+// citation anchors, tables, code blocks, URLs, or markdown syntax. Complements
 // extractIndexableText (which already removes citations) — kept independent so
 // it can also clean a plain-text fallback.
 export function stripForSpeech(text: string): string {
@@ -12,6 +12,9 @@ export function stripForSpeech(text: string): string {
     // before the closing fence) from its opening fence to the end.
     stripSpecBlocks(text)
       .replace(/```spec[\s\S]*$/, '')
+      // fenced code blocks are not read out at all (only their backticks would
+      // go below); an unclosed one (stream cut) runs to the end
+      .replace(/```[\s\S]*?(?:```|$)/g, ' ')
       // horizontal rules (---, ***, ___ alone on a line)
       .replace(/^ {0,3}([-*_])(?:[ \t]*\1){2,}[ \t]*$/gm, '')
       // [label](#call_id) citation anchors → removed entirely (drop the number)
@@ -30,6 +33,9 @@ export function stripForSpeech(text: string): string {
       .replace(/\s+/g, ' ')
       // tidy a space that ends up before a period ("... at .")
       .replace(/\s+([.,!?;:])/g, '$1')
+      // and a comma/semicolon/colon a dropped citation left before a
+      // sentence end ("most [2](#a), [3](#b)." → "most.")
+      .replace(/[,;:]+(?=[.!?])/g, '')
       .trim()
   )
 }

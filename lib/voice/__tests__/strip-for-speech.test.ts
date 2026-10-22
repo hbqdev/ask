@@ -52,6 +52,43 @@ describe('stripForSpeech', () => {
       'First part.\n\n---\n\nSecond part.\n\n***\n\nThird.\n\n___\n\nEnd.'
     expect(stripForSpeech(md)).toBe('First part. Second part. Third. End.')
   })
+
+  it('drops fenced code blocks entirely, not just their backticks', () => {
+    const md =
+      'Run this:\n\n```python\ndef scatter(w):\n    return 1 / w ** 4\n```\n\n' +
+      'Then use `scatter()` to compare.'
+    const out = stripForSpeech(md)
+    expect(out).toBe('Run this: Then use scatter() to compare.')
+    expect(out).not.toMatch(/python|def |return/)
+  })
+
+  it('drops an unclosed code fence to the end (stream cut)', () => {
+    expect(stripForSpeech('Run this:\n\n```bash\nrm -rf build')).toBe(
+      'Run this:'
+    )
+  })
+
+  it('drops a code block and a ```spec block in the same answer', () => {
+    const md =
+      'Example:\n\n```js\nconst a = 1\n```\n\nDone.\n\n```spec\n' +
+      '{"op":"add","path":"/root","value":"main"}\n```'
+    expect(stripForSpeech(md)).toBe('Example: Done.')
+  })
+
+  it('removes the comma left before a sentence end by a dropped citation', () => {
+    expect(
+      stripForSpeech('Blue scatters most [2](#call_a), [3](#call_b).')
+    ).toBe('Blue scatters most.')
+    expect(stripForSpeech('It varies [1](#call_a);  [2](#call_b)!')).toBe(
+      'It varies!'
+    )
+  })
+
+  it('keeps commas and colons that belong to the prose', () => {
+    expect(stripForSpeech('Yes, it works: 3:1 ratio, as expected.')).toBe(
+      'Yes, it works: 3:1 ratio, as expected.'
+    )
+  })
 })
 
 describe('firstSentences', () => {
