@@ -67,6 +67,11 @@ beforeEach(() => {
     hasMore: false
   })
   vi.mocked(dbActions.createNote).mockResolvedValue(note)
+  vi.mocked(dbActions.getChat).mockResolvedValue({
+    id: 'chat-1',
+    userId: 'user-1',
+    visibility: 'private'
+  } as any)
   vi.mocked(dbActions.getNote).mockResolvedValue(note)
   vi.mocked(dbActions.deleteNote).mockResolvedValue({ success: true })
 })

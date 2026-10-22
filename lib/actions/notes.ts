@@ -73,9 +73,16 @@ export async function saveNote({
   }
 
   try {
+    // A chat id is kept only for the user's own chat. The foreign key check
+    // bypasses RLS, so it would accept another user's chat; a missing one
+    // would fail the insert. Either way the note is saved without it.
+    const ownChatId =
+      chatId && (await dbActions.getChat(chatId, userId))?.userId === userId
+        ? chatId
+        : null
     const note = await dbActions.createNote({
       userId,
-      chatId: chatId || null,
+      chatId: ownChatId,
       sourceMessageId: sourceMessageId || null,
       title: deriveTitle(trimmedContent, title),
       content: trimmedContent
