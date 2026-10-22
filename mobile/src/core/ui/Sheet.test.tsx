@@ -1,6 +1,7 @@
 import { fireEvent, render, screen } from '@testing-library/react'
 import { describe, expect, it, vi } from 'vitest'
 
+import { scrollActiveToTop } from '@/core/nav/scroll-to-top'
 import { Sheet } from '@/core/ui/Sheet'
 
 function setup(open = true) {
@@ -67,6 +68,25 @@ describe('Sheet', () => {
     expect(screen.getByTestId('sheet-handle')).not.toHaveClass('md:hidden')
     drag([{ y: 100 }, { y: 200 }])
     expect(onClose).toHaveBeenCalledTimes(1)
+  })
+
+  it('takes a status-bar tap on its own list, leaving the screen behind where it was', () => {
+    render(
+      <div className="stack-layer">
+        <div data-testid="thread-scroll" data-scroll-root />
+        <Sheet open onClose={vi.fn()} title="Sources">
+          <p>Sheet body</p>
+        </Sheet>
+      </div>
+    )
+    const thread = screen.getByTestId('thread-scroll')
+    const list = screen.getByText('Sheet body').parentElement!
+    thread.scrollTo = vi.fn() as unknown as HTMLElement['scrollTo']
+    list.scrollTo = vi.fn() as unknown as HTMLElement['scrollTo']
+    expect(list).toHaveAttribute('data-scroll-root')
+    expect(scrollActiveToTop()).toBe(true)
+    expect(list.scrollTo).toHaveBeenCalledTimes(1)
+    expect(thread.scrollTo).not.toHaveBeenCalled()
   })
 
   it('renders nothing when closed', () => {

@@ -125,6 +125,89 @@ describe('scrollActiveToTop', () => {
     )
   })
 
+  it('with a sheet open, scrolls the sheet’s own list, not the screen behind', () => {
+    const root = mount(`
+      <div class="stack-layer">
+        <div id="thread" data-scroll-root></div>
+      </div>
+      <div class="fixed">
+        <div role="dialog" aria-modal="true">
+          <h2>Sources</h2>
+          <div id="sheet-list" data-scroll-root></div>
+        </div>
+      </div>`)
+    expect(scrollActiveToTop(root)).toBe(true)
+    expect(byId(root, 'sheet-list').scrollTo).toHaveBeenCalledWith({
+      top: 0,
+      behavior: 'smooth'
+    })
+    expect(byId(root, 'thread').scrollTo).not.toHaveBeenCalled()
+  })
+
+  it('scrolls the top-most of two open sheets', () => {
+    const root = mount(`
+      <div class="stack-layer"><div id="thread" data-scroll-root></div></div>
+      <div role="dialog" aria-modal="true">
+        <div id="under" data-scroll-root></div>
+      </div>
+      <div role="dialog" aria-modal="true">
+        <div id="over" data-scroll-root></div>
+      </div>`)
+    expect(scrollActiveToTop(root)).toBe(true)
+    expect(byId(root, 'over').scrollTo).toHaveBeenCalledTimes(1)
+    expect(byId(root, 'under').scrollTo).not.toHaveBeenCalled()
+    expect(byId(root, 'thread').scrollTo).not.toHaveBeenCalled()
+  })
+
+  it('with a modal that has no marked list, scrolls its first scrollable element', () => {
+    const root = mount(`
+      <div class="stack-layer"><div id="thread" data-scroll-root></div></div>
+      <div role="dialog" aria-modal="true">
+        <div id="plain"></div>
+        <div id="list" style="overflow-y: auto"></div>
+      </div>`)
+    const list = byId(root, 'list')
+    list.scrollTo = vi.fn() as unknown as HTMLElement['scrollTo']
+    const plain = byId(root, 'plain')
+    plain.scrollTo = vi.fn() as unknown as HTMLElement['scrollTo']
+    expect(scrollActiveToTop(root)).toBe(true)
+    expect(list.scrollTo).toHaveBeenCalledTimes(1)
+    expect(plain.scrollTo).not.toHaveBeenCalled()
+    expect(byId(root, 'thread').scrollTo).not.toHaveBeenCalled()
+  })
+
+  it('with the image viewer open, scrolls nothing', () => {
+    const root = mount(`
+      <div class="stack-layer"><div id="thread" data-scroll-root></div></div>
+      <div role="dialog" aria-modal="true" class="image-viewer">
+        <div id="strip" style="overflow-x: auto; overflow-y: auto"></div>
+      </div>`)
+    const strip = byId(root, 'strip')
+    strip.scrollTo = vi.fn() as unknown as HTMLElement['scrollTo']
+    expect(scrollActiveToTop(root)).toBe(false)
+    expect(strip.scrollTo).not.toHaveBeenCalled()
+    expect(byId(root, 'thread').scrollTo).not.toHaveBeenCalled()
+  })
+
+  it('with a modal that has nothing to scroll, leaves the screen behind alone', () => {
+    const root = mount(`
+      <div class="stack-layer"><div id="thread" data-scroll-root></div></div>
+      <div role="dialog" aria-modal="true"><p>Delete this chat?</p></div>`)
+    expect(scrollActiveToTop(root)).toBe(false)
+    expect(byId(root, 'thread').scrollTo).not.toHaveBeenCalled()
+  })
+
+  it('treats a web view without matchMedia as motion allowed', () => {
+    vi.stubGlobal('matchMedia', undefined)
+    const root = mount(`
+      <div class="stack-layer"><div id="list" data-scroll-root></div></div>`)
+    expect(scrollActiveToTop(root)).toBe(true)
+    expect(byId(root, 'list').scrollTo).toHaveBeenCalledWith({
+      top: 0,
+      behavior: 'smooth'
+    })
+  })
+
   it('looks in the whole document by default', () => {
     const root = mount(`
       <div class="stack-layer"><div id="list" data-scroll-root></div></div>`)

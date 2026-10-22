@@ -142,7 +142,10 @@ function SheetPanel({
         >
           {title}
         </h2>
-        <div className="min-h-0 overflow-y-auto overscroll-contain px-4">
+        <div
+          data-scroll-root
+          className="min-h-0 overflow-y-auto overscroll-contain px-4"
+        >
           {children}
         </div>
       </div>
