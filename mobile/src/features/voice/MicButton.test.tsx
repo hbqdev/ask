@@ -82,10 +82,34 @@ describe('MicButton', () => {
     expect(d.start).not.toHaveBeenCalled()
   })
 
-  it('cannot be tapped while transcribing', () => {
-    render(<MicButton dictation={dictation({ state: 'transcribing' })} />)
-    expect(screen.getByRole('button', { name: 'Transcribing' })).toBeDisabled()
+  it('does nothing when tapped while transcribing, yet keeps its focus', async () => {
+    const user = userEvent.setup()
+    const d = dictation({ state: 'transcribing' })
+    render(<MicButton dictation={d} />)
+    const button = screen.getByRole('button', { name: 'Transcribing' })
+    expect(button).toHaveAttribute('aria-disabled', 'true')
     expect(screen.queryByTestId('level-ring')).not.toBeInTheDocument()
+    await user.click(button)
+    expect(d.start).not.toHaveBeenCalled()
+    expect(d.stop).not.toHaveBeenCalled()
+    expect(d.cancel).not.toHaveBeenCalled()
+  })
+
+  it('is one button throughout, so VoiceOver focus stays on it', () => {
+    const { rerender } = render(<MicButton dictation={dictation()} />)
+    const button = screen.getByRole('button', { name: 'Dictate' })
+    button.focus()
+    for (const state of [
+      'starting',
+      'recording',
+      'transcribing',
+      'idle',
+      'error'
+    ] as const) {
+      rerender(<MicButton dictation={dictation({ state })} />)
+      expect(screen.getByRole('button')).toBe(button)
+      expect(document.activeElement).toBe(button)
+    }
   })
 })
 
@@ -112,10 +136,17 @@ describe('DictationBar', () => {
     expect(d.stop).not.toHaveBeenCalled()
   })
 
-  it('while transcribing shows a spinner and nothing to tap', () => {
-    render(<DictationBar dictation={dictation({ state: 'transcribing' })} />)
+  it('while transcribing shows a spinner and a cancel that abandons it', async () => {
+    const user = userEvent.setup()
+    const d = dictation({ state: 'transcribing' })
+    render(<DictationBar dictation={d} />)
     expect(screen.getByRole('status')).toHaveTextContent('Transcribing…')
-    expect(screen.queryByRole('button')).not.toBeInTheDocument()
     expect(screen.queryByRole('timer')).not.toBeInTheDocument()
+
+    await user.click(
+      screen.getByRole('button', { name: 'Cancel transcription' })
+    )
+    expect(d.cancel).toHaveBeenCalledTimes(1)
+    expect(d.stop).not.toHaveBeenCalled()
   })
 })

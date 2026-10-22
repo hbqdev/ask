@@ -601,7 +601,9 @@ describe('Composer dictation', () => {
     await user.click(stop)
 
     expect(await screen.findByRole('status')).toHaveTextContent('Transcribing…')
-    expect(screen.getByRole('button', { name: 'Transcribing' })).toBeDisabled()
+    expect(
+      screen.getByRole('button', { name: 'Transcribing' })
+    ).toHaveAttribute('aria-disabled', 'true')
     expect(transcribe).toHaveBeenCalledWith(
       expect.objectContaining({
         baseUrl: 'https://ask.test.invalid',
@@ -616,6 +618,32 @@ describe('Composer dictation', () => {
     expect(micButton()).toBeInTheDocument()
     // One tap at the start and one at the stop; the send adds none.
     expect(vi.mocked(haptic).mock.calls).toEqual([['medium'], ['light']])
+  })
+
+  it('a stalled transcription can be cancelled: the box is back and nothing sends', async () => {
+    const user = userEvent.setup()
+    let finish!: (text: string) => void
+    vi.mocked(transcribe).mockReturnValueOnce(
+      new Promise(resolve => (finish = resolve))
+    )
+    const { onSend } = setup({ chatId: 'c1' })
+    const stop = await record(user)
+    speak()
+    await user.click(stop)
+    expect(await screen.findByRole('status')).toHaveTextContent('Transcribing…')
+
+    await user.click(
+      screen.getByRole('button', { name: 'Cancel transcription' })
+    )
+    const { signal } = vi.mocked(transcribe).mock.calls[0][0] as {
+      signal: AbortSignal
+    }
+    expect(signal.aborted).toBe(true)
+    expect(screen.getByRole('textbox', { name: 'Ask anything' })).toBeVisible()
+    expect(micButton()).toBeInTheDocument()
+
+    await act(async () => finish('too late'))
+    expect(onSend).not.toHaveBeenCalled()
   })
 
   it('shows the mic opening while the permission prompt is up', async () => {

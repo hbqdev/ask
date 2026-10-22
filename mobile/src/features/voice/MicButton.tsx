@@ -2,9 +2,9 @@
 // the box is empty: tap to record; while the microphone opens (the permission
 // prompt may be up) a ring pulses and a tap gives up; while recording it is a
 // stop button inside a ring that swells with the voice; while transcribing it
-// rests. DictationBar
-// takes the text field's place meanwhile: a cancel, a pulsing dot and the
-// time recorded, then a spinner while the words come back.
+// rests. It is one button throughout, so VoiceOver focus stays on it.
+// DictationBar takes the text field's place meanwhile: a cancel, a pulsing dot
+// and the time recorded, then a cancel and a spinner while the words come back.
 
 import type { Dictation } from '@/features/voice/useDictation'
 
@@ -87,72 +87,70 @@ const ROUND_BUTTON =
 export function MicButton({ dictation }: { dictation: Dictation }) {
   const { state, level } = dictation
 
-  if (state === 'recording') {
-    return (
-      <span className="relative flex size-9 shrink-0">
+  // One button whose label, action and look follow the state, so VoiceOver
+  // keeps its focus on it from start to finish; the rings are decoration.
+  const control =
+    state === 'recording'
+      ? {
+          label: 'Stop recording',
+          onClick: dictation.stop,
+          look: 'bg-red-500 text-white active:opacity-50',
+          icon: <StopSquare />
+        }
+      : state === 'starting'
+        ? {
+            label: 'Starting microphone',
+            onClick: dictation.cancel,
+            look: 'bg-foreground text-background opacity-60 active:opacity-40',
+            icon: <MicIcon />
+          }
+        : state === 'transcribing'
+          ? {
+              label: 'Transcribing',
+              onClick: undefined,
+              look: 'bg-foreground text-background opacity-25',
+              icon: <MicIcon />
+            }
+          : {
+              label: 'Dictate',
+              onClick: dictation.start,
+              look: 'bg-foreground text-background active:opacity-50',
+              icon: <MicIcon />
+            }
+
+  return (
+    <span className="relative flex size-9 shrink-0">
+      {state === 'starting' && (
+        <span
+          aria-hidden="true"
+          data-testid="starting-ring"
+          className="absolute -inset-1 rounded-full border-2 border-red-500/60 motion-safe:animate-pulse"
+        />
+      )}
+      {state === 'recording' && (
         <span
           aria-hidden="true"
           data-testid="level-ring"
           className="absolute inset-0 rounded-full bg-red-500/30 transition-transform duration-100 ease-out"
           style={{ transform: `scale(${levelScale(level)})` }}
         />
-        <button
-          type="button"
-          aria-label="Stop recording"
-          onClick={dictation.stop}
-          className={`relative bg-red-500 text-white active:opacity-50 ${ROUND_BUTTON}`}
-        >
-          <StopSquare />
-        </button>
-      </span>
-    )
-  }
-
-  if (state === 'starting') {
-    return (
-      <span className="relative flex size-9 shrink-0">
-        <span
-          aria-hidden="true"
-          data-testid="starting-ring"
-          className="absolute -inset-1 rounded-full border-2 border-red-500/60 motion-safe:animate-pulse"
-        />
-        <button
-          type="button"
-          aria-label="Starting microphone"
-          aria-busy="true"
-          onClick={dictation.cancel}
-          className={`relative bg-foreground text-background opacity-60 active:opacity-40 ${ROUND_BUTTON}`}
-        >
-          <MicIcon />
-        </button>
-      </span>
-    )
-  }
-
-  if (state === 'transcribing') {
-    return (
+      )}
       <button
         type="button"
-        aria-label="Transcribing"
-        disabled
-        className={`bg-foreground text-background opacity-25 ${ROUND_BUTTON}`}
+        aria-label={control.label}
+        aria-busy={state === 'starting' || undefined}
+        aria-disabled={state === 'transcribing' || undefined}
+        onClick={control.onClick}
+        className={`relative ${control.look} ${ROUND_BUTTON}`}
       >
-        <MicIcon />
+        {control.icon}
       </button>
-    )
-  }
-
-  return (
-    <button
-      type="button"
-      aria-label="Dictate"
-      onClick={dictation.start}
-      className={`bg-foreground text-background active:opacity-50 ${ROUND_BUTTON}`}
-    >
-      <MicIcon />
-    </button>
+    </span>
   )
 }
+
+const CANCEL_BUTTON =
+  '-ml-1 flex size-9 shrink-0 touch-manipulation items-center justify-center rounded-full text-foreground/70 active:bg-foreground/10'
 
 export function DictationBar({ dictation }: { dictation: Dictation }) {
   if (dictation.state === 'recording') {
@@ -162,7 +160,7 @@ export function DictationBar({ dictation }: { dictation: Dictation }) {
           type="button"
           aria-label="Cancel recording"
           onClick={dictation.cancel}
-          className="-ml-1 flex size-9 shrink-0 touch-manipulation items-center justify-center rounded-full text-foreground/70 active:bg-foreground/10"
+          className={CANCEL_BUTTON}
         >
           <Cross />
         </button>
@@ -179,12 +177,22 @@ export function DictationBar({ dictation }: { dictation: Dictation }) {
 
   if (dictation.state === 'transcribing') {
     return (
-      <div
-        role="status"
-        className="flex min-h-10 items-center gap-2 text-base text-foreground/60"
-      >
-        <Spinner />
-        Transcribing…
+      <div className="flex min-h-10 items-center gap-2">
+        <button
+          type="button"
+          aria-label="Cancel transcription"
+          onClick={dictation.cancel}
+          className={CANCEL_BUTTON}
+        >
+          <Cross />
+        </button>
+        <span
+          role="status"
+          className="flex items-center gap-2 text-base text-foreground/60"
+        >
+          <Spinner />
+          Transcribing…
+        </span>
       </div>
     )
   }
