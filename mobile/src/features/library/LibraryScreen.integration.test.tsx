@@ -22,6 +22,7 @@ import { LIBRARY_SEGMENT_KEY } from '@/features/library/library-segment'
 import { LIBRARY_SORT_KEY } from '@/features/library/library-sort'
 import { LibraryScreen } from '@/features/library/LibraryScreen'
 import { resetNotesCache } from '@/features/notes/notes-cache'
+import { installVirtualLayout } from '@/test/virtual-layout'
 
 vi.mock('@/core/api/ApiProvider', () => ({ useApi: vi.fn() }))
 vi.mock('@/core/auth/AuthProvider', () => ({ useAuth: vi.fn() }))
@@ -158,7 +159,11 @@ function renderScreen() {
   )
 }
 
+// Tall enough that every row mounts.
+let restoreLayout = () => {}
+
 beforeEach(() => {
+  restoreLayout = installVirtualLayout({ viewport: 100_000, item: 72 })
   prefsData.clear()
   vi.clearAllMocks()
   vi.useFakeTimers({ toFake: ['Date'] })
@@ -171,6 +176,7 @@ beforeEach(() => {
 })
 
 afterEach(() => {
+  restoreLayout()
   vi.useRealTimers()
   vi.restoreAllMocks()
 })
@@ -184,9 +190,13 @@ describe('LibraryScreen with the real library hooks', () => {
     expect(screen.getByText('3 chats')).toBeInTheDocument()
     expect(first).toHaveTextContent('Quality')
     expect(first).toHaveTextContent('2 files')
+    // Chat 2 sits under Previous 7 days.
     expect(
-      screen.getByRole('region', { name: 'Previous 7 days' })
-    ).toHaveTextContent('Chat 2')
+      screen
+        .getByRole('heading', { level: 2, name: 'Previous 7 days' })
+        .compareDocumentPosition(screen.getByText('Chat 2')) &
+        Node.DOCUMENT_POSITION_FOLLOWING
+    ).toBeTruthy()
 
     const target = screen.getByRole('button', { name: /^Chat 1/ })
     const at = (x: number) => ({
@@ -200,7 +210,9 @@ describe('LibraryScreen with the real library hooks', () => {
     fireEvent.pointerMove(target, at(180))
     fireEvent.pointerUp(target, at(180))
     fireEvent.click(
-      within(target.closest('li')!).getByRole('button', { name: 'Delete' })
+      within(target.closest<HTMLElement>('.swipe-row')!).getByRole('button', {
+        name: 'Delete'
+      })
     )
     fireEvent.click(
       within(

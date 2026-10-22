@@ -533,6 +533,36 @@ describe('ThreadScreen', () => {
     expect(screen.getByText(/The fact/)).toBeInTheDocument()
   })
 
+  it('lets the browser skip laying out past turns off screen, never the latest question and answer', () => {
+    renderScreen(
+      session({
+        messages: [
+          user('u1', 'First?'),
+          assistant('a1', 'One.'),
+          user('u2', 'Second?'),
+          assistant('a2', 'Two.'),
+          user('u3', 'Third?'),
+          assistant('a3', 'Three.')
+        ]
+      })
+    )
+    const turns = [
+      ...screen.getByTestId('thread-content').firstElementChild!.children
+    ] as HTMLElement[]
+    expect(turns).toHaveLength(6)
+    expect(turns.map(t => t.style.contentVisibility)).toEqual([
+      'auto',
+      'auto',
+      'auto',
+      'auto',
+      '',
+      ''
+    ])
+    expect(turns[0].style.containIntrinsicSize).toBe('auto 480px')
+    expect(turns[0]).toHaveTextContent('First?')
+    expect(turns[5]).toHaveTextContent('Three.')
+  })
+
   it('heads the screen with the chat title', () => {
     renderScreen(session({ messages: TURN, title: 'Facts, explained' }))
     expect(

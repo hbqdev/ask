@@ -29,6 +29,7 @@ import { useNotes, type Notes } from '@/features/notes/useNotes'
 import { openThread } from '@/features/thread/ThreadScreen'
 import { intersect, isObserved, observerOf } from '@/test/intersection-observer'
 import { expectReadableInScroller, readableColumn } from '@/test/readable'
+import { installVirtualLayout } from '@/test/virtual-layout'
 
 vi.mock('@/features/library/useLibrary', () => ({
   useLibrary: vi.fn(),
@@ -242,24 +243,43 @@ function swipeAction(title: string, action: 'Delete' | 'Rename') {
   const content = rowButton(title)
   swipeOpen(content)
   fireEvent.click(
-    within(content.closest('li')!).getByRole('button', { name: action })
+    within(content.closest<HTMLElement>('.swipe-row')!).getByRole('button', {
+      name: action
+    })
   )
 }
 
-/** The date sections, by their accessible names (their headings). */
+/** The date sections, by their headings. */
 const sectionNames = () =>
-  screen
-    .getAllByRole('region')
-    .map(section =>
-      section.getAttribute('aria-labelledby')
-        ? document.getElementById(section.getAttribute('aria-labelledby')!)!
-            .textContent
-        : null
+  screen.queryAllByRole('heading', { level: 2 }).map(h => h.textContent)
+
+/** The list in order: each section's heading (as `# label`), each row's title. */
+const outline = () =>
+  [
+    ...document.querySelectorAll<HTMLElement>(
+      '[data-testid="library-scroll"] h2, [data-testid="library-scroll"] .swipe-row-content > div > span:first-child'
     )
+  ].map(el => (el.tagName === 'H2' ? `# ${el.textContent}` : el.textContent))
+
+/** The rows mounted. */
+const rowCount = () => document.querySelectorAll('.swipe-row').length
+
+/** Scrolls the list to `top`, as a finger would. */
+function scrollList(top: number) {
+  const scroller = screen.getByTestId('library-scroll')
+  act(() => {
+    scroller.scrollTop = top
+    fireEvent.scroll(scroller)
+  })
+}
 
 const selectTab = vi.fn()
 
+// Tall enough that every row of a short list mounts.
+let restoreLayout = () => {}
+
 beforeEach(() => {
+  restoreLayout = installVirtualLayout({ viewport: 100_000, item: 72 })
   prefsData.clear()
   app.listeners.length = 0
   vi.clearAllMocks()
@@ -271,6 +291,7 @@ beforeEach(() => {
 })
 
 afterEach(() => {
+  restoreLayout()
   vi.useRealTimers()
   vi.restoreAllMocks()
 })
@@ -387,15 +408,15 @@ describe('LibraryScreen header', () => {
 describe('LibraryScreen list', () => {
   it('renders the rows in date sections by last viewed for the recent sort', async () => {
     await renderScreen()
-    const sections = screen.getAllByRole('region')
-    expect(sectionNames()).toEqual(['Today', 'Yesterday', 'Previous 7 days'])
-    expect(within(sections[0]).getByText('Chat a')).toBeInTheDocument()
-    expect(within(sections[1]).getByText('Chat b')).toBeInTheDocument()
-    // Never viewed: its creation date.
-    expect(within(sections[2]).getByText('Chat c')).toBeInTheDocument()
-    expect(
-      within(sections[0]).getByRole('heading', { level: 2, name: 'Today' })
-    ).toBeInTheDocument()
+    expect(outline()).toEqual([
+      '# Today',
+      'Chat a',
+      '# Yesterday',
+      'Chat b',
+      // Never viewed: its creation date.
+      '# Previous 7 days',
+      'Chat c'
+    ])
   })
 
   it('moves the rows to the next day’s sections when the app comes back after midnight', async () => {
@@ -433,9 +454,13 @@ describe('LibraryScreen list', () => {
   it('sections by creation date for the newest and oldest sorts', async () => {
     prefsData.set(LIBRARY_SORT_KEY, 'newest')
     await renderScreen(library({ chats: [ROWS[1], ROWS[0], ROWS[2]] }))
-    const sections = screen.getAllByRole('region')
-    expect(sectionNames()).toEqual(['Today', 'Previous 7 days'])
-    expect(within(sections[0]).getByText('Chat b')).toBeInTheDocument()
+    expect(outline()).toEqual([
+      '# Today',
+      'Chat b',
+      '# Previous 7 days',
+      'Chat a',
+      'Chat c'
+    ])
     // Row times follow the same date.
     expect(rowButton('Chat a')).toHaveTextContent('3 days ago')
   })
@@ -444,7 +469,7 @@ describe('LibraryScreen list', () => {
     prefsData.set(LIBRARY_SORT_KEY, 'title')
     await renderScreen()
     expect(screen.queryAllByRole('heading', { level: 2 })).toEqual([])
-    expect(screen.getAllByRole('listitem')).toHaveLength(3)
+    expect(outline()).toEqual(['Chat a', 'Chat b', 'Chat c'])
   })
 
   /** The row draws its inset hairline (ChatRowItem's separator). */
@@ -633,6 +658,152 @@ describe('LibraryScreen swipe actions', () => {
   })
 })
 
+// --- Windowing ------------------------------------------------------------------
+
+describe('LibraryScreen windowing', () => {
+  // A phone's worth of list: 300 px, rows 72 px high.
+  beforeEach(() => {
+    restoreLayout()
+    restoreLayout = installVirtualLayout({ viewport: 300, item: 72 })
+  })
+
+  /** `n` chats, all viewed 10 days ago: one section of n rows. */
+  const many = (n: number) =>
+    Array.from({ length: n }, (_, i) =>
+      row(`m${i}`, { title: `Many ${i}`, lastViewedAt: daysAgo(10) })
+    )
+
+  // The section's header comes first: row i is item i + 1.
+  const rowTop = (i: number) => (i + 1) * 72
+
+  it('mounts only the rows on screen, however long the list', async () => {
+    await renderScreen(library({ chats: many(500), total: 500 }))
+    expect(rowButton('Many 0')).toBeInTheDocument()
+    expect(rowCount()).toBeLessThan(60)
+
+    scrollList(rowTop(499))
+    expect(rowButton('Many 499')).toBeInTheDocument()
+    expect(screen.queryByText('Many 0')).toBeNull()
+    expect(rowCount()).toBeLessThan(60)
+  })
+
+  it('keeps the section’s header at the top, opaque, over its rows', async () => {
+    await renderScreen(library({ chats: many(200), total: 200 }))
+    scrollList(rowTop(100))
+    const heading = screen.getByRole('heading', {
+      level: 2,
+      name: 'Previous 30 days'
+    })
+    const item = heading.closest<HTMLElement>('[data-index]')!
+    expect(item.style.position).toBe('sticky')
+    expect(item.style.top).toBe('0px')
+    expect(item).toHaveClass('bg-background')
+    for (const el of [heading, item]) {
+      expect(el.className).not.toMatch(/backdrop-blur|bg-background\//)
+    }
+  })
+
+  it('a swiped-open row scrolled out of the window releases its open state', async () => {
+    await renderScreen(library({ chats: many(300), total: 300 }))
+    swipeOpen(rowButton('Many 0'))
+    expect(
+      rowButton('Many 0')
+        .closest('.swipe-row')!
+        .querySelector('[data-swipe-actions]')
+    ).not.toHaveAttribute('inert')
+
+    scrollList(rowTop(200))
+    expect(screen.queryByText('Many 0')).toBeNull()
+
+    // The next tap elsewhere presses its row: nothing swallows it.
+    const target = rowButton('Many 200')
+    fireEvent.pointerDown(target, {
+      clientX: 200,
+      clientY: 100,
+      isPrimary: true
+    })
+    fireEvent.pointerUp(target, { clientX: 200, clientY: 100, isPrimary: true })
+    fireEvent.click(target)
+    expect(openThread).toHaveBeenCalledExactlyOnceWith(expect.any(Function), {
+      chatId: 'm200',
+      title: 'Many 200'
+    })
+  })
+
+  it('a row scrolled out of the window with its actions open leaves no dialog', async () => {
+    await renderScreen(library({ chats: many(300), total: 300 }))
+    fireEvent.contextMenu(rowButton('Many 0'))
+    expect(screen.getByRole('dialog', { name: 'Many 0' })).toBeInTheDocument()
+
+    scrollList(rowTop(200))
+    expect(screen.queryByText('Many 0')).toBeNull()
+    expect(screen.queryByRole('dialog')).toBeNull()
+
+    fireEvent.click(rowButton('Many 200'))
+    expect(openThread).toHaveBeenCalledOnce()
+  })
+
+  it('loads the next page when the end comes into view', async () => {
+    const lib = library({ chats: many(100), total: 200, hasMore: true })
+    const { update } = await renderScreen(lib)
+    // The end follows the whole list's box, not the rows mounted.
+    const sentinel = screen.getByTestId('library-more')
+    const box = sentinel.previousElementSibling as HTMLElement
+    expect(box.style.height).toBe(`${rowTop(100)}px`)
+    expect(isObserved(sentinel)).toBe(true)
+
+    act(() => intersect(sentinel))
+    expect(lib.loadMore).toHaveBeenCalledOnce()
+
+    update({ lib: { ...lib, chats: many(200), hasMore: false } })
+    scrollList(rowTop(199))
+    expect(rowButton('Many 199')).toBeInTheDocument()
+    expect(rowCount()).toBeLessThan(60)
+  })
+
+  it('deletes and renames a row far down the list', async () => {
+    const lib = library({ chats: many(300), total: 300 })
+    await renderScreen(lib)
+    scrollList(rowTop(150))
+
+    swipeAction('Many 150', 'Delete')
+    fireEvent.click(
+      within(
+        screen.getByRole('dialog', { name: 'Delete this chat?' })
+      ).getByRole('button', { name: 'Delete' })
+    )
+    expect(lib.remove).toHaveBeenCalledExactlyOnceWith('m150')
+
+    swipeAction('Many 151', 'Rename')
+    const field = screen.getByRole('textbox', { name: 'Rename chat' })
+    fireEvent.change(field, { target: { value: 'Renamed' } })
+    fireEvent.submit(field.closest('form')!)
+    expect(lib.rename).toHaveBeenCalledExactlyOnceWith('m151', 'Renamed')
+  })
+
+  it('refreshes on a pull down from the top', async () => {
+    const lib = library({ chats: many(300), total: 300 })
+    await renderScreen(lib)
+    const scroller = screen.getByTestId('library-scroll')
+    const touch = (y: number) => ({ identifier: 0, clientX: 100, clientY: y })
+    fireEvent.touchStart(scroller, {
+      touches: [touch(100)],
+      changedTouches: [touch(100)]
+    })
+    fireEvent.touchMove(scroller, {
+      touches: [touch(400)],
+      changedTouches: [touch(400)]
+    })
+    await act(async () =>
+      fireEvent.touchEnd(scroller, {
+        touches: [],
+        changedTouches: [touch(400)]
+      })
+    )
+    expect(lib.refresh).toHaveBeenCalledOnce()
+  })
+})
+
 // --- Search ---------------------------------------------------------------------
 
 const HITS: SearchHit[] = [
@@ -665,7 +836,8 @@ describe('LibraryScreen search', () => {
     expect(items[0]).toHaveTextContent('Chat b')
     expect(items[0]).toHaveTextContent('…the sky is blue because…')
     expect(items[1]).toHaveTextContent('Untitled')
-    expect(screen.queryByRole('region')).toBeNull()
+    expect(screen.queryAllByRole('heading', { level: 2 })).toEqual([])
+    expect(rowCount()).toBe(0)
     expect(screen.queryByTestId('library-more')).toBeNull()
   })
 
@@ -699,7 +871,7 @@ describe('LibraryScreen search', () => {
 
     update({ search: chatSearch() })
     expect(screen.queryByRole('button', { name: 'Clear search' })).toBeNull()
-    expect(screen.getAllByRole('region')).toHaveLength(3)
+    expect(sectionNames()).toHaveLength(3)
   })
 
   it('says it is searching until results come', async () => {
@@ -792,7 +964,7 @@ describe('LibraryScreen states', () => {
     await renderScreen(lib)
     const alert = screen.getByRole('alert')
     expect(alert).toHaveTextContent('Network error. Check your connection.')
-    expect(screen.getAllByRole('listitem')).toHaveLength(3)
+    expect(rowCount()).toBe(3)
     fireEvent.click(within(alert).getByRole('button', { name: 'Retry' }))
     expect(lib.refresh).toHaveBeenCalledOnce()
   })
@@ -800,7 +972,7 @@ describe('LibraryScreen states', () => {
   it('shows a failed delete or rename over the list', async () => {
     await renderScreen(library({ status: 'ready', error: 'Not allowed' }))
     expect(screen.getByRole('alert')).toHaveTextContent('Not allowed')
-    expect(screen.getAllByRole('listitem')).toHaveLength(3)
+    expect(rowCount()).toBe(3)
   })
 })
 

@@ -287,11 +287,11 @@ describe('AssistantTurn', () => {
     ).not.toBeInTheDocument()
   })
 
-  it('lets the browser skip laying it out while off screen', () => {
+  it('leaves skipping layout off screen to the thread (pastTurnStyle)', () => {
     const { container } = renderTurn()
     const turn = container.firstElementChild as HTMLElement
-    expect(turn.style.contentVisibility).toBe('auto')
-    expect(turn.style.containIntrinsicSize).toBe('auto 600px')
+    expect(turn.style.contentVisibility).toBe('')
+    expect(turn.style.containIntrinsicSize).toBe('')
   })
 })
 

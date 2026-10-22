@@ -1,7 +1,10 @@
 import type { UIMessage } from 'ai'
 import { describe, expect, it } from 'vitest'
 
-import { layoutAssistantMessage } from '@/features/thread/model/layout'
+import {
+  layoutAssistantMessage,
+  pastTurnStyle
+} from '@/features/thread/model/layout'
 
 type Part = UIMessage['parts'][number]
 
@@ -129,5 +132,25 @@ describe('layoutAssistantMessage', () => {
   it('gives no blocks for a message with no parts', () => {
     expect(layoutAssistantMessage(msg([]), false)).toEqual([])
     expect(layoutAssistantMessage(msg([]), true)).toEqual([])
+  })
+})
+
+describe('pastTurnStyle', () => {
+  const PAST = { contentVisibility: 'auto', containIntrinsicSize: 'auto 480px' }
+
+  it('lets the browser skip laying out a past message while off screen', () => {
+    expect(pastTurnStyle(0, 5)).toEqual(PAST)
+    expect(pastTurnStyle(2, 5)).toEqual(PAST)
+  })
+
+  it('lays out the last two messages (the latest question and answer) always', () => {
+    expect(pastTurnStyle(3, 5)).toBeUndefined()
+    expect(pastTurnStyle(4, 5)).toBeUndefined()
+  })
+
+  it('skips nothing in a thread of one or two messages', () => {
+    expect(pastTurnStyle(0, 1)).toBeUndefined()
+    expect(pastTurnStyle(0, 2)).toBeUndefined()
+    expect(pastTurnStyle(1, 2)).toBeUndefined()
   })
 })

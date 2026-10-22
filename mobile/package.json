@@ -28,6 +28,7 @@
     "@paralleldrive/cuid2": "2.2.2",
     "@streamdown/math": "1.0.2",
     "@supabase/supabase-js": "^2.49.4",
+    "@tanstack/react-virtual": "^3.14.22",
     "ai": "6.0.180",
     "katex": "0.16.22",
     "react": "~19.2.9",

@@ -39,6 +39,7 @@ import { SourcesSheet } from '@/features/thread/components/SourcesSheet'
 import { UserMessage } from '@/features/thread/components/UserMessage'
 import type { ChatErrorView } from '@/features/thread/model/chat-errors'
 import { listSources } from '@/features/thread/model/citations'
+import { pastTurnStyle } from '@/features/thread/model/layout'
 import {
   shareChat,
   unshareChat,
@@ -427,31 +428,33 @@ export function ThreadScreen({
             ) : (
               <div className="flex flex-col gap-5">
                 {messages.map((message, i) => {
+                  // Past turns skip layout while off screen. Every message is
+                  // wrapped alike, so none mounts again as the thread grows.
+                  const style = pastTurnStyle(i, messages.length)
                   if (message.role === 'user') {
                     return (
-                      <UserMessage
-                        key={message.id}
-                        message={message}
-                        baseUrl={baseUrl}
-                      />
+                      <div key={message.id} style={style}>
+                        <UserMessage message={message} baseUrl={baseUrl} />
+                      </div>
                     )
                   }
                   const isLatest = i === messages.length - 1
                   const prev = messages[i - 1]
                   return (
-                    <AssistantTurn
-                      key={message.id}
-                      message={message}
-                      streaming={isTurnStreaming(isLatest, status)}
-                      isLatest={isLatest}
-                      question={prev?.role === 'user' ? textOf(prev) : ''}
-                      onAsk={send}
-                      onRetry={thread.retry}
-                      baseUrl={baseUrl}
-                      autoRead={message.id === thread.freshAnswerId}
-                      linkToChat={thread.saved ? linkToChat : undefined}
-                      notes={notes}
-                    />
+                    <div key={message.id} style={style}>
+                      <AssistantTurn
+                        message={message}
+                        streaming={isTurnStreaming(isLatest, status)}
+                        isLatest={isLatest}
+                        question={prev?.role === 'user' ? textOf(prev) : ''}
+                        onAsk={send}
+                        onRetry={thread.retry}
+                        baseUrl={baseUrl}
+                        autoRead={message.id === thread.freshAnswerId}
+                        linkToChat={thread.saved ? linkToChat : undefined}
+                        notes={notes}
+                      />
+                    </div>
                   )
                 })}
                 {status === 'submitted' &&

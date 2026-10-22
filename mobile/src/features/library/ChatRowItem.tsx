@@ -22,12 +22,6 @@ export type ChatRowItemProps = {
   onRename(chat: ChatRow): void
 }
 
-// Off-screen rows skip layout and paint; this is the size they hold meanwhile.
-const ROW_STYLE = {
-  contentVisibility: 'auto',
-  containIntrinsicSize: 'auto 72px'
-} as const
-
 /** Balanced is the default mode, so only the other two get a badge. */
 function modeBadge(searchMode: string | undefined) {
   return searchMode === 'quality' || searchMode === 'speed'
@@ -69,7 +63,9 @@ export const ChatRowItem = memo(function ChatRowItem({
   const badge = modeBadge(chat.searchMode)
   const files = chat.fileCount
   return (
-    <li style={ROW_STYLE}>
+    // An item of the windowed list (VirtualList), which mounts only the rows
+    // on screen: no list role.
+    <div>
       <SwipeRow
         actions={[
           {
@@ -112,6 +108,6 @@ export const ChatRowItem = memo(function ChatRowItem({
           </span>
         </div>
       </SwipeRow>
-    </li>
+    </div>
   )
 })

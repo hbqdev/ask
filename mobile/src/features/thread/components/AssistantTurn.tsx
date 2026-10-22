@@ -117,13 +117,6 @@ export function PlainAnswer({ text }: { text: string }) {
   return <div className="answer-prose whitespace-pre-wrap">{text}</div>
 }
 
-// Off-screen turns skip layout and paint; `auto` keeps each turn's last
-// rendered height as its placeholder, so the scroll position holds.
-const TURN_STYLE = {
-  contentVisibility: 'auto',
-  containIntrinsicSize: 'auto 600px'
-} as const
-
 /**
  * Memoized: while the latest turn streams, earlier turns (whose message
  * objects don't change) skip re-rendering, given stable callbacks.
@@ -177,7 +170,7 @@ export const AssistantTurn = memo(function AssistantTurn({
   }, [autoRead, spoken, shown, read])
 
   return (
-    <article className="flex flex-col gap-3" style={TURN_STYLE}>
+    <article className="flex flex-col gap-3">
       {streaming && blocks.length === 0 && <Thinking />}
       {blocks.map((block, i) => {
         if (block.kind === 'research') {

@@ -1,13 +1,13 @@
 // The Library's Notes segment: the user's saved answers in date sections (by
 // last update), with pull to refresh, infinite scroll, a tap to open one and
-// a swipe to delete it. Memoized with no props, so the Library around it
-// (a segment switch included) never renders it again.
+// a swipe to delete it. Only the rows on screen are mounted (VirtualList).
+// Memoized with no props, so the Library around it (a segment switch
+// included) never renders it again.
 
 import {
   memo,
   useCallback,
   useEffect,
-  useId,
   useMemo,
   useRef,
   useState,
@@ -20,6 +20,11 @@ import { READABLE, SEPARATOR } from '@/core/ui/classes'
 import { ConfirmSheet } from '@/core/ui/ConfirmSheet'
 import { PullScroller } from '@/core/ui/PullScroller'
 import { SwipeRow } from '@/core/ui/SwipeRow'
+import {
+  flattenGroups,
+  sectionHeader,
+  VirtualList
+} from '@/core/ui/virtual-list'
 import { groupByDate } from '@/features/library/group-by-date'
 import { relativeTime } from '@/features/library/relative-time'
 import { useToday } from '@/features/library/useToday'
@@ -35,12 +40,6 @@ const SKELETON_ROWS = 6
 
 const PILL =
   'min-h-11 shrink-0 touch-manipulation rounded-full px-4 text-sm font-semibold active:opacity-50'
-
-// Off-screen rows skip layout and paint; this is the size they hold meanwhile.
-const ROW_STYLE = {
-  contentVisibility: 'auto',
-  containIntrinsicSize: 'auto 88px'
-} as const
 
 export const NotesList = memo(function NotesList() {
   const notes = useNotes()
@@ -111,7 +110,6 @@ const NoteRows = memo(function NoteRows({
   onDelete
 }: NoteRowsProps) {
   const active = useTabActive()
-  const idPrefix = useId()
   const now = useToday()
 
   // The end of the list: in view (or nearly), it asks for the next page. It is
@@ -131,9 +129,23 @@ const NoteRows = memo(function NoteRows({
     return () => observer.disconnect()
   }, [active, hasMore, loadMore, notes, scroller])
 
-  const groups = useMemo(
-    () => groupByDate(notes, now, 'updatedAt'),
+  const items = useMemo(
+    () => flattenGroups(groupByDate(notes, now, 'updatedAt'), notes, noteKey),
     [notes, now]
+  )
+  // Stable while the day holds, so a mounted row (memoized) renders again
+  // only when its own note changes.
+  const renderRow = useCallback(
+    (note: Note, separator: boolean) => (
+      <NoteRowItem
+        note={note}
+        now={now}
+        separator={separator}
+        onOpen={onOpen}
+        onDelete={onDelete}
+      />
+    ),
+    [now, onOpen, onDelete]
   )
 
   const more = hasMore && (
@@ -214,35 +226,20 @@ const NoteRows = memo(function NoteRows({
           </button>
         </div>
       )}
-      {groups.map((group, i) => {
-        const headingId = `${idPrefix}-section-${i}`
-        return (
-          <section key={group.label} aria-labelledby={headingId}>
-            <h2
-              id={headingId}
-              className="sticky top-0 z-10 bg-background/95 px-6 pt-4 pb-1.5 text-xs font-semibold tracking-wide text-muted-foreground uppercase backdrop-blur"
-            >
-              {group.label}
-            </h2>
-            <ul>
-              {group.rows.map((note, i) => (
-                <NoteRowItem
-                  key={note.id}
-                  note={note}
-                  now={now}
-                  separator={i < group.rows.length - 1}
-                  onOpen={onOpen}
-                  onDelete={onDelete}
-                />
-              ))}
-            </ul>
-          </section>
-        )
-      })}
+      {/* Only the rows on screen are mounted; each section's header stays
+          at the top over its rows. */}
+      <VirtualList
+        scroller={scroller}
+        items={items}
+        renderRow={renderRow}
+        renderHeader={sectionHeader}
+      />
       {more}
     </>
   )
 })
+
+const noteKey = (note: Note) => note.id
 
 /** One note: its title, a plain-text preview and when it was saved. */
 const NoteRowItem = memo(function NoteRowItem({
@@ -261,7 +258,8 @@ const NoteRowItem = memo(function NoteRowItem({
 }) {
   const preview = useMemo(() => notePreview(note.content), [note.content])
   return (
-    <li style={ROW_STYLE}>
+    // An item of the windowed list: no list role.
+    <div>
       <SwipeRow
         actions={[
           {
@@ -294,7 +292,7 @@ const NoteRowItem = memo(function NoteRowItem({
           </time>
         </div>
       </SwipeRow>
-    </li>
+    </div>
   )
 })
 

@@ -1,4 +1,5 @@
 import { act, fireEvent, render, screen, within } from '@testing-library/react'
+import { useState } from 'react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { StackProvider } from '@/core/nav/stack'
@@ -8,6 +9,7 @@ import { openNote } from '@/features/notes/NoteScreen'
 import { useNotes, type Notes } from '@/features/notes/useNotes'
 import { intersect, isObserved, observerOf } from '@/test/intersection-observer'
 import { expectReadableInScroller, readableColumn } from '@/test/readable'
+import { installVirtualLayout } from '@/test/virtual-layout'
 
 vi.mock('@/features/notes/useNotes', () => ({ useNotes: vi.fn() }))
 vi.mock('@/features/notes/NoteScreen', () => ({ openNote: vi.fn() }))
@@ -81,7 +83,11 @@ function swipeOpen(content: HTMLElement) {
   fireEvent.pointerUp(content, at(180))
 }
 
+// Tall enough that every row of a short list mounts.
+let restoreLayout = () => {}
+
 beforeEach(() => {
+  restoreLayout = installVirtualLayout({ viewport: 100_000, item: 72 })
   vi.clearAllMocks()
   vi.useFakeTimers({ toFake: ['Date'] })
   vi.setSystemTime(NOW)
@@ -89,6 +95,7 @@ beforeEach(() => {
 })
 
 afterEach(() => {
+  restoreLayout()
   vi.useRealTimers()
   vi.restoreAllMocks()
 })
@@ -125,9 +132,11 @@ describe('NotesList', () => {
     expect(separated('Note 0')).toBe(true)
     expect(separated('Note 9')).toBe(false)
     expect(separated('Note 40')).toBe(false)
-    for (const item of screen.getAllByRole('listitem')) {
+    for (const item of document.querySelectorAll('.swipe-row')) {
       expect(item.className).not.toContain('border-b')
     }
+    // Rows of a windowed list: no list role.
+    expect(screen.queryByRole('listitem')).toBeNull()
   })
 
   it('opens a note on a tap', () => {
@@ -146,9 +155,12 @@ describe('NotesList', () => {
     renderList(value)
     swipeOpen(rowButton('Note 1'))
     fireEvent.click(
-      within(rowButton('Note 1').closest('li')!).getByRole('button', {
-        name: 'Delete'
-      })
+      within(rowButton('Note 1').closest<HTMLElement>('.swipe-row')!).getByRole(
+        'button',
+        {
+          name: 'Delete'
+        }
+      )
     )
     const sheet = screen.getByRole('dialog', { name: 'Delete this note?' })
     fireEvent.click(within(sheet).getByRole('button', { name: 'Delete' }))
@@ -181,9 +193,12 @@ describe('NotesList', () => {
     renderList(value)
     swipeOpen(rowButton('Note 1'))
     fireEvent.click(
-      within(rowButton('Note 1').closest('li')!).getByRole('button', {
-        name: 'Delete'
-      })
+      within(rowButton('Note 1').closest<HTMLElement>('.swipe-row')!).getByRole(
+        'button',
+        {
+          name: 'Delete'
+        }
+      )
     )
     fireEvent.click(screen.getByRole('button', { name: 'Cancel' }))
     expect(value.remove).not.toHaveBeenCalled()
@@ -291,5 +306,117 @@ describe('NotesList', () => {
     const row = rowButton('Note 0')
     update({ ...value })
     expect(rowButton('Note 0')).toBe(row)
+  })
+})
+
+describe('NotesList windowing', () => {
+  // A phone's worth of list: 300 px, rows 72 px high.
+  beforeEach(() => {
+    restoreLayout()
+    restoreLayout = installVirtualLayout({ viewport: 300, item: 72 })
+  })
+
+  /** `n` notes, all saved 10 days ago: one section of n rows. */
+  const many = (n: number) =>
+    Array.from({ length: n }, (_, i) =>
+      note(10, { id: `m${i}`, title: `Many ${i}` })
+    )
+
+  // The section's header comes first: row i is item i + 1.
+  const rowTop = (i: number) => (i + 1) * 72
+  const rowCount = () => document.querySelectorAll('.swipe-row').length
+
+  function scrollList(top: number) {
+    const scroller = screen.getByTestId('notes-scroll')
+    act(() => {
+      scroller.scrollTop = top
+      fireEvent.scroll(scroller)
+    })
+  }
+
+  it('mounts only the rows on screen, however long the list', () => {
+    renderList(notes({ notes: many(500) }))
+    expect(rowButton('Many 0')).toBeInTheDocument()
+    expect(rowCount()).toBeLessThan(60)
+
+    scrollList(rowTop(499))
+    expect(rowButton('Many 499')).toBeInTheDocument()
+    expect(screen.queryByText('Many 0')).toBeNull()
+    expect(rowCount()).toBeLessThan(60)
+  })
+
+  it('keeps the section’s header at the top, opaque', () => {
+    renderList(notes({ notes: many(200) }))
+    scrollList(rowTop(100))
+    const heading = screen.getByRole('heading', { level: 2 })
+    const item = heading.closest<HTMLElement>('[data-index]')!
+    expect(item.style.position).toBe('sticky')
+    expect(item).toHaveClass('bg-background')
+    for (const el of [heading, item]) {
+      expect(el.className).not.toMatch(/backdrop-blur|bg-background\//)
+    }
+  })
+
+  it('loads the next page when the end comes into view', () => {
+    const value = notes({ notes: many(100), hasMore: true })
+    // The hook's state, as a page landing changes it.
+    let land: (next: Notes) => void = () => {}
+    vi.mocked(useNotes).mockImplementation(() => {
+      const [state, set] = useState(value)
+      land = set
+      return state
+    })
+    render(
+      <StackProvider root={{ key: 'root', render: () => <NotesList /> }}>
+        <NotesList />
+      </StackProvider>
+    )
+    // The end follows the whole list's box, not the rows mounted.
+    const sentinel = screen.getByTestId('notes-more')
+    expect((sentinel.previousElementSibling as HTMLElement).style.height).toBe(
+      `${rowTop(100)}px`
+    )
+    act(() => intersect(sentinel))
+    expect(value.loadMore).toHaveBeenCalledOnce()
+
+    act(() => land({ ...value, notes: many(200), hasMore: false }))
+    scrollList(rowTop(199))
+    expect(rowButton('Many 199')).toBeInTheDocument()
+    expect(rowCount()).toBeLessThan(60)
+  })
+
+  it('a swiped-open row scrolled out of the window releases its open state', () => {
+    renderList(notes({ notes: many(300) }))
+    swipeOpen(rowButton('Many 0'))
+    scrollList(rowTop(200))
+    expect(screen.queryByText('Many 0')).toBeNull()
+
+    const target = rowButton('Many 200')
+    fireEvent.pointerDown(target, {
+      clientX: 200,
+      clientY: 100,
+      isPrimary: true
+    })
+    fireEvent.pointerUp(target, { clientX: 200, clientY: 100, isPrimary: true })
+    fireEvent.click(target)
+    expect(openNote).toHaveBeenCalledOnce()
+  })
+
+  it('deletes a row far down the list', () => {
+    const value = notes({ notes: many(300) })
+    renderList(value)
+    scrollList(rowTop(150))
+    swipeOpen(rowButton('Many 150'))
+    fireEvent.click(
+      within(
+        rowButton('Many 150').closest<HTMLElement>('.swipe-row')!
+      ).getByRole('button', { name: 'Delete' })
+    )
+    fireEvent.click(
+      within(
+        screen.getByRole('dialog', { name: 'Delete this note?' })
+      ).getByRole('button', { name: 'Delete' })
+    )
+    expect(value.remove).toHaveBeenCalledWith('m150')
   })
 })

@@ -1,8 +1,10 @@
 // How an assistant message lays out in the thread: research steps collapse
 // into blocks, a generated image stands alone, and only answer text shows.
 // The same rules as the web's components/render-message.tsx, built on the
-// shared predicates in Ask's lib/render/message-parts. Pure: no React.
+// shared predicates in Ask's lib/render/message-parts. And how a past turn
+// lays out in a long thread: not at all while off screen. Pure: no React.
 import type { UIMessage } from 'ai'
+import type { CSSProperties } from 'react'
 
 import {
   isAnswerText,
@@ -68,4 +70,23 @@ export function layoutAssistantMessage(
   const last = blocks[blocks.length - 1]
   if (streaming && last?.kind === 'research') last.live = true
   return blocks
+}
+
+// Off screen, a past message skips layout and paint; `auto` keeps its last
+// rendered height as its placeholder, so the scroll position holds.
+const PAST_TURN: CSSProperties = {
+  contentVisibility: 'auto',
+  containIntrinsicSize: 'auto 480px'
+}
+
+/**
+ * The style of the message at `index` of `count`: a past one skips layout
+ * while off screen; the last two (the latest question and its answer, which
+ * may be streaming and is followed) always lay out.
+ */
+export function pastTurnStyle(
+  index: number,
+  count: number
+): CSSProperties | undefined {
+  return index < count - 2 ? PAST_TURN : undefined
 }

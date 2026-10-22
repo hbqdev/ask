@@ -27,6 +27,11 @@ import { ConfirmSheet } from '@/core/ui/ConfirmSheet'
 import { PullScroller } from '@/core/ui/PullScroller'
 import { Sheet } from '@/core/ui/Sheet'
 import { TextPromptSheet } from '@/core/ui/TextPromptSheet'
+import {
+  flattenGroups,
+  sectionHeader,
+  VirtualList
+} from '@/core/ui/virtual-list'
 import { ChatRowItem } from '@/features/library/ChatRowItem'
 import { groupByDate } from '@/features/library/group-by-date'
 import {
@@ -395,7 +400,6 @@ const ChatList = memo(function ChatList({
 }: ChatListProps) {
   const selectTab = useSelectTab()
   const active = useTabActive()
-  const idPrefix = useId()
 
   // The end of the list: in view (or nearly), it asks for the next page. It is
   // watched again whenever the list changes (a page landed, even one of rows
@@ -423,6 +427,26 @@ const ChatList = memo(function ChatList({
   const groups = useMemo(
     () => (sort === 'title' ? null : groupByDate(chats, now, key)),
     [chats, now, key, sort]
+  )
+  const items = useMemo(
+    () => flattenGroups(groups, chats, chatKey),
+    [groups, chats]
+  )
+  // Stable while the day and the sort hold, so a mounted row (memoized)
+  // renders again only when its own chat changes.
+  const renderRow = useCallback(
+    (chat: ChatRow, separator: boolean) => (
+      <ChatRowItem
+        chat={chat}
+        time={chat[key] ?? chat.createdAt}
+        now={now}
+        separator={separator}
+        onOpen={onOpen}
+        onDelete={onDelete}
+        onRename={onRename}
+      />
+    ),
+    [key, now, onOpen, onDelete, onRename]
   )
 
   const more = hasMore && (
@@ -481,22 +505,6 @@ const ChatList = memo(function ChatList({
     )
   }
 
-  const timeOf = (chat: ChatRow) => chat[key] ?? chat.createdAt
-  // Each row but the last of its list draws a hairline under it.
-  const rows = (list: ChatRow[]) =>
-    list.map((chat, i) => (
-      <ChatRowItem
-        key={chat.id}
-        chat={chat}
-        time={timeOf(chat)}
-        now={now}
-        separator={i < list.length - 1}
-        onOpen={onOpen}
-        onDelete={onDelete}
-        onRename={onRename}
-      />
-    ))
-
   return (
     <>
       {error && (
@@ -514,28 +522,21 @@ const ChatList = memo(function ChatList({
           </button>
         </div>
       )}
-      {groups === null ? (
-        <ul>{rows(chats)}</ul>
-      ) : (
-        groups.map((group, i) => {
-          const headingId = `${idPrefix}-section-${i}`
-          return (
-            <section key={group.label} aria-labelledby={headingId}>
-              <h2
-                id={headingId}
-                className="sticky top-0 z-10 bg-background/95 px-6 pt-4 pb-1.5 text-xs font-semibold tracking-wide text-muted-foreground uppercase backdrop-blur"
-              >
-                {group.label}
-              </h2>
-              <ul>{rows(group.rows)}</ul>
-            </section>
-          )
-        })
-      )}
+      {/* Only the rows on screen are mounted; each section's header stays
+          at the top over its rows. Each row but the last of its section
+          draws a hairline under it. */}
+      <VirtualList
+        scroller={scroller}
+        items={items}
+        renderRow={renderRow}
+        renderHeader={sectionHeader}
+      />
       {more}
     </>
   )
 })
+
+const chatKey = (chat: ChatRow) => chat.id
 
 function Skeleton() {
   return (

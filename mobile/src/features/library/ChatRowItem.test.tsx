@@ -19,20 +19,18 @@ function setup(row: ChatRow = chat(), time = row.createdAt, separator = false) {
   const onOpen = vi.fn()
   const onDelete = vi.fn()
   const onRename = vi.fn()
-  render(
-    <ul>
-      <ChatRowItem
-        chat={row}
-        time={time}
-        now={NOW}
-        separator={separator}
-        onOpen={onOpen}
-        onDelete={onDelete}
-        onRename={onRename}
-      />
-    </ul>
+  const { container } = render(
+    <ChatRowItem
+      chat={row}
+      time={time}
+      now={NOW}
+      separator={separator}
+      onOpen={onOpen}
+      onDelete={onDelete}
+      onRename={onRename}
+    />
   )
-  const item = screen.getByRole('listitem')
+  const item = container.firstElementChild as HTMLElement
   // SwipeRow's pressable content (after its action buttons).
   const content = within(item).getAllByRole('button').at(-1)!
   return { onOpen, onDelete, onRename, item, content }
@@ -132,12 +130,10 @@ describe('ChatRowItem', () => {
     expect(within(content).queryByTestId('files-badge')).toBeNull()
   })
 
-  it('lets the browser skip laying out rows off screen', () => {
+  it('leaves the rows off screen to the windowed list: no content-visibility, no list item', () => {
     const { item } = setup()
-    expect(item.style.getPropertyValue('content-visibility')).toBe('auto')
-    expect(item.style.getPropertyValue('contain-intrinsic-size')).toMatch(
-      /^auto \d+px$/
-    )
+    expect(item.style.getPropertyValue('content-visibility')).toBe('')
+    expect(screen.queryByRole('listitem')).toBeNull()
   })
 
   it('opens the chat on a tap', () => {
