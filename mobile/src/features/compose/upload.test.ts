@@ -1,7 +1,8 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
+import { NETWORK_ERROR_MESSAGE } from '@/core/api/client'
 import { ApiError } from '@/core/api/errors'
-import { uploadFile } from '@/features/compose/upload'
+import { UPLOAD_STALL_MS, uploadFile } from '@/features/compose/upload'
 
 /** A stand-in XMLHttpRequest the test drives by hand. */
 class FakeXhr {
@@ -255,5 +256,62 @@ describe('uploadFile', () => {
       })
     ).rejects.toMatchObject({ name: 'AbortError' })
     expect(FakeXhr.last).toBeUndefined()
+  })
+
+  describe('a stalled upload', () => {
+    beforeEach(() => vi.useFakeTimers())
+    afterEach(() => vi.useRealTimers())
+
+    const start = () =>
+      uploadFile({ baseUrl: BASE, token: 'tok', file, filename: 'a.png' })
+
+    it('gives up after 120 s without progress, as a retryable network error', async () => {
+      const done = start()
+      const settled = vi.fn()
+      done.catch(settled)
+      await vi.advanceTimersByTimeAsync(UPLOAD_STALL_MS - 1)
+      expect(settled).not.toHaveBeenCalled()
+      await vi.advanceTimersByTimeAsync(1)
+      expect(xhr().aborted).toBe(true)
+      await expect(done).rejects.toMatchObject({
+        name: 'ApiError',
+        status: 0,
+        retryable: true,
+        message: NETWORK_ERROR_MESSAGE
+      })
+      expect(UPLOAD_STALL_MS).toBe(120_000)
+    })
+
+    it('waits again from each bit of progress', async () => {
+      const done = start()
+      const settled = vi.fn()
+      done.catch(settled)
+      await vi.advanceTimersByTimeAsync(UPLOAD_STALL_MS - 1)
+      xhr().progress(10, 100)
+      await vi.advanceTimersByTimeAsync(UPLOAD_STALL_MS - 1)
+      expect(settled).not.toHaveBeenCalled()
+      xhr().respond(200, OK_BODY)
+      await expect(done).resolves.toMatchObject({ filename: 'my photo.png' })
+      expect(vi.getTimerCount()).toBe(0)
+    })
+
+    it('stops watching once it fails or is cancelled', async () => {
+      const failed = start()
+      xhr().fail()
+      await expect(failed).rejects.toMatchObject({ status: 0 })
+      expect(vi.getTimerCount()).toBe(0)
+
+      const controller = new AbortController()
+      const cancelled = uploadFile({
+        baseUrl: BASE,
+        token: 'tok',
+        file,
+        filename: 'a.png',
+        signal: controller.signal
+      })
+      controller.abort()
+      await expect(cancelled).rejects.toMatchObject({ name: 'AbortError' })
+      expect(vi.getTimerCount()).toBe(0)
+    })
   })
 })

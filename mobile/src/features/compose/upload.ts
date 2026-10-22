@@ -2,7 +2,8 @@
 // /api/upload, named in x-filename and filed under the chat in x-chat-id. It
 // uses XHR rather than fetch because only XHR reports upload progress. The
 // route answers the app's CORS itself, outside the proxy, so a large file
-// arrives whole.
+// arrives whole. An upload with no progress for UPLOAD_STALL_MS (a dead
+// connection the WebView never reports) is given up on as a network error.
 
 import { NETWORK_ERROR_MESSAGE } from '@/core/api/client'
 import { ApiError, toApiError } from '@/core/api/errors'
@@ -28,6 +29,9 @@ export type UploadResult = {
   /** Its indexing state when the upload finished: 'pending' or 'processing'. */
   status: string
 }
+
+/** How long an upload may go without progress (or an answer) before it is given up. */
+export const UPLOAD_STALL_MS = 120_000
 
 type UploadResponse = { file?: Partial<UploadResult> }
 
@@ -68,7 +72,20 @@ export function uploadFile({
     const xhr = new XMLHttpRequest()
     const onAbort = () => xhr.abort()
     signal?.addEventListener('abort', onAbort, { once: true })
-    const settle = () => signal?.removeEventListener('abort', onAbort)
+    let stall: ReturnType<typeof setTimeout> | undefined
+    let stalled = false
+    /** (Re)starts the wait for the next sign of life. */
+    const watch = () => {
+      clearTimeout(stall)
+      stall = setTimeout(() => {
+        stalled = true
+        xhr.abort()
+      }, UPLOAD_STALL_MS)
+    }
+    const settle = () => {
+      clearTimeout(stall)
+      signal?.removeEventListener('abort', onAbort)
+    }
 
     xhr.open('POST', `${baseUrl}/api/upload`)
     xhr.setRequestHeader('Authorization', `Bearer ${token}`)
@@ -81,6 +98,7 @@ export function uploadFile({
     if (chatId) xhr.setRequestHeader('x-chat-id', chatId)
 
     xhr.upload.onprogress = e => {
+      watch()
       if (e.lengthComputable && e.total > 0) onProgress?.(e.loaded / e.total)
     }
     xhr.onload = () => {
@@ -104,8 +122,9 @@ export function uploadFile({
     }
     xhr.onabort = () => {
       settle()
-      reject(abortError())
+      reject(stalled ? networkError() : abortError())
     }
     xhr.send(file)
+    watch()
   })
 }

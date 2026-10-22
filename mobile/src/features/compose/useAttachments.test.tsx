@@ -275,13 +275,30 @@ describe('useAttachments', () => {
     ['an unexpected failure', new TypeError('boom'), true],
     ['a refused type', new ApiError(400, 'Unsupported file type'), false],
     ['a file too large', new ApiError(400, 'File too large'), false],
-    ['being signed out', new ApiError(401, 'Signed out'), false]
+    ['a refused (expired) token', new ApiError(401, 'Unauthorized'), true]
   ])('decides whether %s can be retried', async (_name, error, retryable) => {
     vi.mocked(uploadFile).mockRejectedValue(error)
     const { result } = render()
     act(() => result.current.add([pdf()]))
     await waitFor(() => expect(result.current.items[0].status).toBe('error'))
     expect(result.current.items[0].retryable).toBe(retryable)
+  })
+
+  it('a 401 can be retried, with a fresh token', async () => {
+    vi.mocked(uploadFile).mockRejectedValueOnce(
+      new ApiError(401, 'Unauthorized')
+    )
+    getToken.mockResolvedValueOnce('stale').mockResolvedValueOnce('fresh')
+    const { result } = render()
+    act(() => result.current.add([pdf()]))
+    await waitFor(() => expect(result.current.items[0].status).toBe('error'))
+
+    act(() => result.current.retry(result.current.items[0].id))
+    await waitFor(() => expect(result.current.items[0].status).toBe('done'))
+    expect(vi.mocked(uploadFile).mock.calls.map(([o]) => o.token)).toEqual([
+      'stale',
+      'fresh'
+    ])
   })
 
   it('a failed conversion can be retried', async () => {

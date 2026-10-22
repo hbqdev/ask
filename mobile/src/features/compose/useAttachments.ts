@@ -96,15 +96,19 @@ type Failure = { error: string; retryable: boolean }
 
 /**
  * What the chip says about a failure, and whether another try may fix it: a
- * lost connection, a server error, a cut-off upload or a failed conversion
- * may; a refused file (type, size, any other 4xx) never will.
+ * lost connection, a server error, a cut-off upload, a refused token (the
+ * retry asks for a fresh one) or a failed conversion may; a refused file
+ * (type, size, any other 4xx) never will.
  */
 function describeFailure(err: unknown): Failure {
   if (err instanceof ApiError) {
     return {
       error: err.message,
       retryable:
-        err.retryable || err.status >= 500 || err.message === UPLOAD_INCOMPLETE
+        err.retryable ||
+        err.status >= 500 ||
+        err.status === 401 ||
+        err.message === UPLOAD_INCOMPLETE
     }
   }
   if (err instanceof Error && err.message === CONVERT_FAILED_MESSAGE) {
