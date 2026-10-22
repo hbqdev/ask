@@ -47,6 +47,30 @@ afterEach(() => {
 const photo = (name: string, type: string) =>
   new File(['raw bytes'], name, { type })
 
+/** A JPEG whose frame header says it is width × height. */
+const jpegOf = (name: string, width: number, height: number) =>
+  new File(
+    [
+      new Uint8Array([
+        0xff,
+        0xd8,
+        0xff,
+        0xc0,
+        0,
+        17,
+        8,
+        height >> 8,
+        height & 0xff,
+        width >> 8,
+        width & 0xff,
+        3
+      ]),
+      new Uint8Array(1000)
+    ],
+    name,
+    { type: 'image/jpeg' }
+  )
+
 describe('toUploadable', () => {
   it('converts HEIC to JPEG', async () => {
     const heic = photo('IMG_0001.HEIC', 'image/heic')
@@ -100,6 +124,32 @@ describe('toUploadable', () => {
     expect(await toUploadable(small)).toBe(small)
     expect(canvases).toHaveLength(0)
     expect(bitmap.close).toHaveBeenCalled()
+  })
+
+  it('never decodes an image whose header says it is within the limit', async () => {
+    const ok = jpegOf('ok.jpg', 4032, 3024)
+    expect(await toUploadable(ok)).toBe(ok)
+    const edge = jpegOf('edge.jpg', 4096, 10)
+    expect(await toUploadable(edge)).toBe(edge)
+    expect(createImageBitmap).not.toHaveBeenCalled()
+  })
+
+  it('decodes one whose header says it is over the limit, to scale it', async () => {
+    bitmap = { width: 8064, height: 6048, close: vi.fn() }
+    const big = jpegOf('big.jpg', 8064, 6048)
+    const out = await toUploadable(big)
+    expect(createImageBitmap).toHaveBeenCalledExactlyOnceWith(big)
+    expect(canvases[0]).toMatchObject({ width: 4096, height: 3072 })
+    expect(out.name).toBe('big.jpg')
+  })
+
+  it('decodes one whose header cannot be read, to learn its size', async () => {
+    const odd = photo('odd.png', 'image/png')
+    vi.spyOn(odd, 'slice').mockImplementation(() => {
+      throw new Error('unreadable')
+    })
+    expect(await toUploadable(odd)).toBe(odd)
+    expect(createImageBitmap).toHaveBeenCalledExactlyOnceWith(odd)
   })
 
   it('passes non-images, and images it would not re-encode, through untouched', async () => {

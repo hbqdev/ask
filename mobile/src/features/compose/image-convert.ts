@@ -2,6 +2,10 @@
 // .heic), so a HEIC/HEIF photo is decoded and re-encoded as a JPEG. A photo
 // larger than MAX_IMAGE_EDGE on its long edge is scaled down to it, which also
 // keeps the canvas inside iOS's size limit. Everything else goes as picked.
+// A JPEG, PNG or WebP is sized from its header first, so only one that really
+// is too large is decoded (a full-size decode of a 48 MP photo is ~200 MB).
+
+import { imageSize, type ImageSize } from '@/features/compose/image-size'
 
 /** The longest edge, in px, an uploaded image keeps. */
 export const MAX_IMAGE_EDGE = 4096
@@ -14,6 +18,19 @@ const SCALABLE_TYPES = new Set(['image/jpeg', 'image/png', 'image/webp'])
 /** A HEIC/HEIF photo, by its type or by its name. */
 export const isHeic = (file: File) =>
   /^image\/hei[cf]/i.test(file.type) || /\.hei[cf]$/i.test(file.name)
+
+/** Enough of a file to hold its header, past a JPEG's EXIF and ICC segments. */
+const HEADER_BYTES = 256 * 1024
+
+/** The size its header gives, or null when it cannot be read. */
+async function headerSize(file: File): Promise<ImageSize | null> {
+  try {
+    const head = await file.slice(0, HEADER_BYTES).arrayBuffer()
+    return imageSize(new Uint8Array(head))
+  } catch {
+    return null
+  }
+}
 
 /** The name with its extension (if any) replaced by `ext`. */
 const renameTo = (name: string, ext: string) =>
@@ -49,6 +66,10 @@ function encode(
 export async function toUploadable(file: File): Promise<File> {
   const heic = isHeic(file)
   if (!heic && !SCALABLE_TYPES.has(file.type)) return file
+  if (!heic) {
+    const size = await headerSize(file)
+    if (size && Math.max(size.width, size.height) <= MAX_IMAGE_EDGE) return file
+  }
 
   let bitmap: ImageBitmap
   try {

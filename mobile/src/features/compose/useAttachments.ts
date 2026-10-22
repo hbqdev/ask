@@ -1,6 +1,8 @@
 // The attachments of the question being written: each picked file is checked
 // against Ask's allowlist (the server's own rule), made uploadable (HEIC to
 // JPEG, oversized photos scaled) and uploaded at once, with its progress.
+// Conversions run one at a time (each may decode a full-size photo), so a big
+// pick never holds many decoded photos in memory at once; uploads overlap.
 // Files stay in memory only. Once uploaded, a file still being indexed is
 // polled so its chip can say so; sending does not wait for that (the server
 // waits for the indexing itself).
@@ -12,6 +14,7 @@ import { SIGNED_OUT_MESSAGE } from '@/core/api/client'
 import { ApiError } from '@/core/api/errors'
 import { haptic } from '@/core/haptics'
 import { newId } from '@/core/ids'
+import { serialQueue } from '@/core/serial'
 import {
   CONVERT_FAILED_MESSAGE,
   isHeic,
@@ -135,6 +138,7 @@ export function useAttachments(chatId?: string): Attachments {
   const files = useRef(new Map<string, File>())
   const uploads = useRef(new Map<string, AbortController>())
   const previews = useRef(new Map<string, string>())
+  const [convertInTurn] = useState(serialQueue)
   const live = useRef({ chatId, baseUrl, getToken })
   useEffect(() => {
     live.current = { chatId, baseUrl, getToken }
@@ -170,7 +174,10 @@ export function useAttachments(chatId?: string): Attachments {
         retryable: undefined
       })
       try {
-        const file = await toUploadable(picked)
+        // A file removed while it waited its turn is never converted.
+        const file = await convertInTurn(() =>
+          signal.aborted ? Promise.resolve(picked) : toUploadable(picked)
+        )
         if (signal.aborted) return
         let previewUrl = previews.current.get(id)
         if (!previewUrl && file.type.startsWith('image/')) {
@@ -207,7 +214,7 @@ export function useAttachments(chatId?: string): Attachments {
         if (uploads.current.get(id) === controller) uploads.current.delete(id)
       }
     },
-    [update, fail]
+    [update, fail, convertInTurn]
   )
 
   const add = useCallback(

@@ -322,6 +322,45 @@ describe('useAttachments', () => {
     expect(haptic).not.toHaveBeenCalled()
   })
 
+  it('converts one picked file at a time, while uploads run side by side', async () => {
+    const conversions: Array<ReturnType<typeof deferred<File>>> = []
+    let converting = 0
+    let mostAtOnce = 0
+    vi.mocked(toUploadable).mockImplementation(file => {
+      const conversion = deferred<File>()
+      conversions.push(conversion)
+      mostAtOnce = Math.max(mostAtOnce, ++converting)
+      return conversion.promise.finally(() => converting--)
+    })
+    vi.mocked(uploadFile).mockReturnValue(new Promise(() => {}))
+    const picked = Array.from({ length: 10 }, (_, i) => jpeg(`p${i}.jpg`))
+    const { result } = render()
+
+    act(() => result.current.add(picked))
+    expect(toUploadable).toHaveBeenCalledTimes(1)
+
+    for (let i = 0; i < picked.length; i++) {
+      expect(toUploadable).toHaveBeenCalledTimes(i + 1)
+      expect(vi.mocked(toUploadable).mock.calls[i][0]).toBe(picked[i])
+      await act(async () => conversions[i].resolve(picked[i]))
+    }
+    expect(mostAtOnce).toBe(1)
+    // Every file went on to upload without waiting for the others' uploads.
+    await waitFor(() => expect(uploadFile).toHaveBeenCalledTimes(10))
+  })
+
+  it('never converts a file removed while it waited its turn', async () => {
+    const first = deferred<File>()
+    vi.mocked(toUploadable).mockReturnValueOnce(first.promise)
+    const { result } = render()
+    act(() => result.current.add([jpeg('a.jpg'), jpeg('b.jpg')]))
+    act(() => result.current.remove(result.current.items[1].id))
+
+    await act(async () => first.resolve(jpeg('a.jpg')))
+    expect(toUploadable).toHaveBeenCalledTimes(1)
+    await waitFor(() => expect(result.current.items[0].status).toBe('done'))
+  })
+
   it('drops a conversion that finishes after the file was removed', async () => {
     const conversion = deferred<File>()
     vi.mocked(toUploadable).mockReturnValue(conversion.promise)
