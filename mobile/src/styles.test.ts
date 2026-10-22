@@ -54,7 +54,11 @@ function rule(selector: string): Record<string, string> {
 
 /** The contents of the one `@media <query>` block, braces balanced. */
 function mediaBlock(query: string): string {
-  const at = `@media ${query}`
+  return atBlock(`@media ${query}`)
+}
+
+/** The contents of the one `<at>` block (an @media, an @layer), braces balanced. */
+function atBlock(at: string): string {
   const start = css.indexOf(at)
   expect(start, at).toBeGreaterThanOrEqual(0)
   expect(css.indexOf(at, start + 1), `one ${at}`).toBe(-1)
@@ -259,16 +263,66 @@ describe('tap targets', () => {
     })
   })
 
-  it('no control both positions itself and is a .hit-target, whose position: relative would win', () => {
-    // .hit-target is plain CSS, after Tailwind's layered utilities. (Class
-    // strings in the components; styles.css's own prose is not one.)
+  it('.hit-target sits in @layer components, so a positioning utility on the control wins', () => {
+    // Unlayered, its position: relative would beat Tailwind's layered
+    // absolute / fixed / sticky on the same control; in the components layer
+    // the utility wins, and those are containing blocks for the area too.
+    const layer = atBlock('@layer components')
+    expect(layer).toMatch(/(^|\})\s*\.hit-target\s*\{\s*position:\s*relative;?\s*\}/)
+    expect(layer).toMatch(/\.hit-target::after\s*\{/)
+    // The chip's cap stays unlayered, so it beats the area's height.
+    expect(layer).not.toContain('citation-chip')
+  })
+
+  it('no .hit-target control draws its own ::after, constants included (an after: utility would move its area)', () => {
+    const constants = classConstants()
+    expect(constants.get('SEPARATOR')).toContain('after:')
     expect(
-      sourceMatches(
-        /['"`][^'"`]*\bhit-target\b[^'"`]*\b(?:absolute|fixed|sticky)\b[^'"`]*['"`]|['"`][^'"`]*\b(?:absolute|fixed|sticky)\b[^'"`]*\bhit-target\b[^'"`]*['"`]/g
-      ).filter(match => !match.startsWith('styles.css:'))
+      sourceFindings(text => hitTargetWithAfter(text, constants))
     ).toEqual([])
   })
+
+  it('the ::after scan sees through class constants', () => {
+    const constants = new Map([
+      ['SEP', 'after:absolute after:h-px'],
+      ['ROUND', 'size-9 rounded-full']
+    ])
+    expect(hitTargetWithAfter(`'hit-target after:left-4'`, constants)).toHaveLength(1)
+    expect(hitTargetWithAfter('`hit-target ${SEP}`', constants)).toHaveLength(1)
+    expect(hitTargetWithAfter('`${ROUND} hit-target`', constants)).toEqual([])
+    expect(hitTargetWithAfter(`'hit-target size-9'`, constants)).toEqual([])
+  })
 })
+
+/** The string constants (NAME = '…') the app's sources define. */
+function classConstants(): Map<string, string> {
+  return new Map(
+    sources(__dirname).flatMap(path =>
+      [
+        ...readFileSync(path, 'utf8').matchAll(
+          /\bconst ([A-Z][A-Z0-9_]*)\s*=\s*(['"`])([^'"`]*)\2/g
+        )
+      ].map(m => [m[1], m[3]] as [string, string])
+    )
+  )
+}
+
+/**
+ * Class strings with hit-target and an after: utility, a ${CONSTANT} in a
+ * template literal read as its value.
+ */
+function hitTargetWithAfter(
+  text: string,
+  constants: Map<string, string>
+): string[] {
+  return classStrings(text)
+    .map(s =>
+      s.replace(/\$\{([A-Z][A-Z0-9_]*)\}/g, (all, name: string) =>
+        constants.get(name) ?? all
+      )
+    )
+    .filter(s => /\bhit-target\b/.test(s) && /\bafter:/.test(s))
+}
 
 describe('colour tokens', () => {
   /** Every declaration of the rules for this selector, merged. */

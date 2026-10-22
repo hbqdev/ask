@@ -1253,17 +1253,20 @@ describe('ThreadScreen', () => {
           ]
         })
       )
+      // The only control found by a query that can come back empty.
+      const chip = view.container.querySelector<HTMLElement>('[data-citation]')
+      expect(chip).not.toBeNull()
+      expect(jump()).toBeInTheDocument()
       const controls = [
         jump()!,
         screen.getByRole('button', { name: /Pasted content/ }),
         screen.getByRole('button', { name: 'Open https://example.test/a' }),
-        view.container.querySelector<HTMLElement>('[data-citation]')!,
+        chip!,
         screen.getByRole('button', { name: 'Attach' }),
         screen.getByRole('button', { name: /^Search mode/ }),
         screen.getByRole('button', { name: 'Stop' })
       ]
       for (const control of controls) {
-        expect(control).not.toBeNull()
         expect(clippingAncestors(control, view.container)).toEqual([])
       }
     })

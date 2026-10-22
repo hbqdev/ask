@@ -433,20 +433,25 @@ h1[tabindex='-1']:focus {
    A control smaller than 44 pt keeps its look and gets a 44 pt hit area,
    centred on it: a pseudo-element that takes its taps. Nothing between a
    control and its screen clips its overflow (src/test/clipping.ts), so the
-   area is never cut off. The area is position: relative's, so a control that
-   is itself absolute, fixed or sticky uses min-h-11 / min-w-11 instead. */
-.hit-target {
-  position: relative;
-}
+   area is never cut off. It is in the components layer, so a utility on the
+   same control wins: an absolute, fixed or sticky control keeps its own
+   position (each is a containing block for the area too). An after: utility
+   on it would move the area, so a .hit-target control draws no ::after of its
+   own (styles.test.ts). */
+@layer components {
+  .hit-target {
+    position: relative;
+  }
 
-.hit-target::after {
-  content: '';
-  position: absolute;
-  left: 50%;
-  top: 50%;
-  width: max(100%, 44px);
-  height: max(100%, 44px);
-  transform: translate(-50%, -50%);
+  .hit-target::after {
+    content: '';
+    position: absolute;
+    left: 50%;
+    top: 50%;
+    width: max(100%, 44px);
+    height: max(100%, 44px);
+    transform: translate(-50%, -50%);
+  }
 }
 
 /* --- Image viewer -------------------------------------------------------------
