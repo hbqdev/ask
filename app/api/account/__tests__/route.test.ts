@@ -140,34 +140,76 @@ describe('DELETE /api/account', () => {
     expectNothingDeleted()
   })
 
-  it('returns a retryable 500 with the error when a cleanup step fails', async () => {
-    vi.spyOn(console, 'error').mockImplementation(() => {})
+  it('returns a retryable 500 with a fixed message when a cleanup step fails', async () => {
+    const logged = vi.spyOn(console, 'error').mockImplementation(() => {})
     vi.mocked(memoryDb.clearMemories).mockRejectedValue(new Error('db down'))
 
     const res = await DELETE(del(CONFIRM))
 
     expect(res.status).toBe(500)
     expect(await res.json()).toEqual({
-      error: 'Failed to delete user memories',
+      error: 'Failed to delete account',
       retryable: true
     })
     expect(deleteUser).not.toHaveBeenCalled()
+    // The step that failed is logged on the server.
+    expect(logged).toHaveBeenCalledWith(
+      'DELETE /api/account failed:',
+      'Failed to delete user memories'
+    )
   })
 
-  it('returns a retryable 500 when the auth user deletion fails', async () => {
-    vi.spyOn(console, 'error').mockImplementation(() => {})
+  it('never passes upstream (Supabase or R2) error text to the client', async () => {
+    const logged = vi.spyOn(console, 'error').mockImplementation(() => {})
     deleteUser.mockResolvedValue({
       data: { user: null },
-      error: new Error('Auth deletion failed')
+      error: new Error('AuthApiError: db error at supabase.internal:5432')
     })
 
     const res = await DELETE(del(CONFIRM))
 
     expect(res.status).toBe(500)
+    const body = await res.json()
+    expect(body).toEqual({ error: 'Failed to delete account', retryable: true })
+    expect(JSON.stringify(body)).not.toContain('supabase.internal')
+    expect(logged).toHaveBeenCalledWith(
+      'DELETE /api/account failed:',
+      'AuthApiError: db error at supabase.internal:5432'
+    )
+  })
+
+  it('hides an R2 failure the same way', async () => {
+    vi.spyOn(console, 'error').mockImplementation(() => {})
+    vi.mocked(deleteUserObjects).mockRejectedValue(
+      new Error('R2 bucket ask-uploads: AccessDenied')
+    )
+
+    const res = await DELETE(del(CONFIRM))
+
+    expect(res.status).toBe(500)
     expect(await res.json()).toEqual({
-      error: 'Auth deletion failed',
+      error: 'Failed to delete account',
       retryable: true
     })
+    expect(deleteUser).not.toHaveBeenCalled()
+  })
+
+  it('returns a non-retryable 500 when deletion is not configured, without naming the key', async () => {
+    vi.spyOn(console, 'error').mockImplementation(() => {})
+    vi.mocked(createAdminClient).mockImplementation(() => {
+      throw new Error('SUPABASE_SECRET_KEY is missing')
+    })
+
+    const res = await DELETE(del(CONFIRM))
+
+    expect(res.status).toBe(500)
+    const body = await res.json()
+    expect(body).toEqual({
+      error: 'Account deletion is not configured on this server.',
+      retryable: false
+    })
+    expect(JSON.stringify(body)).not.toContain('SUPABASE_SECRET_KEY')
+    expectNothingDeleted()
   })
 
   it('returns a retryable 500 when the action itself throws', async () => {
