@@ -84,6 +84,27 @@ describe('stripForSpeech', () => {
     )
   })
 
+  it('keeps prose that mentions ``` mid-line (not a fence)', () => {
+    expect(
+      stripForSpeech(
+        'Markdown fences start with ``` and a language. Then you write code.'
+      )
+    ).toBe('Markdown fences start with and a language. Then you write code.')
+    expect(
+      stripForSpeech('Use `` ``` `` to open a fence. More prose follows here.')
+    ).toBe('Use to open a fence. More prose follows here.')
+  })
+
+  it('drops a fence that opens on the last line with nothing after it', () => {
+    expect(stripForSpeech('Here it comes:\n\n```bash')).toBe('Here it comes:')
+  })
+
+  it('drops an indented fence (up to three spaces) and its closing line', () => {
+    expect(stripForSpeech('Steps:\n\n   ```sh\n   make\n   ```\n\nDone.')).toBe(
+      'Steps: Done.'
+    )
+  })
+
   it('keeps commas and colons that belong to the prose', () => {
     expect(stripForSpeech('Yes, it works: 3:1 ratio, as expected.')).toBe(
       'Yes, it works: 3:1 ratio, as expected.'

@@ -13,8 +13,13 @@ export function stripForSpeech(text: string): string {
     stripSpecBlocks(text)
       .replace(/```spec[\s\S]*$/, '')
       // fenced code blocks are not read out at all (only their backticks would
-      // go below); an unclosed one (stream cut) runs to the end
-      .replace(/```[\s\S]*?(?:```|$)/g, ' ')
+      // go below). A fence opens and closes only at a line start (up to three
+      // spaces in), so ``` mentioned mid-line is prose; an unclosed fence
+      // (stream cut) runs to the end.
+      .replace(
+        /^ {0,3}```[^\n]*(?:\n[\s\S]*?(?:^ {0,3}```[ \t]*$|(?![\s\S]))|(?![\s\S]))/gm,
+        ' '
+      )
       // horizontal rules (---, ***, ___ alone on a line)
       .replace(/^ {0,3}([-*_])(?:[ \t]*\1){2,}[ \t]*$/gm, '')
       // [label](#call_id) citation anchors → removed entirely (drop the number)

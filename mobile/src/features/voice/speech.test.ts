@@ -302,6 +302,29 @@ describe('the player', () => {
     expect(playingOwner()).toBeNull()
   })
 
+  it('treats a pause by the system (a call, Siri) as the end', async () => {
+    const changes: Array<string | null> = []
+    const off = onStateChange(owner => changes.push(owner))
+    await play(mp3(), 'm1')
+    audioElement().interrupt()
+
+    expect(playingOwner()).toBeNull()
+    expect(objectUrls.revoked).toEqual(objectUrls.made)
+    expect(changes).toEqual(['m1', null])
+    off()
+  })
+
+  it('its own pause (on stop or a new playback) tells once, not twice', async () => {
+    const changes: Array<string | null> = []
+    const off = onStateChange(owner => changes.push(owner))
+    await play(mp3(), 'm1')
+    await play(mp3(), 'm2')
+    stop()
+    expect(changes).toEqual(['m1', 'm2', null])
+    expect(objectUrls.revoked).toEqual(objectUrls.made)
+    off()
+  })
+
   it('a stop with nothing playing tells no one', () => {
     const listener = vi.fn()
     const off = onStateChange(listener)

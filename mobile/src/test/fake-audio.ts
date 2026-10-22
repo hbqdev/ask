@@ -14,6 +14,7 @@ export class FakeAudio {
   paused = true
   onended: (() => void) | null = null
   onerror: (() => void) | null = null
+  onpause: (() => void) | null = null
 
   play = vi.fn(() => {
     const impl = FakeAudio.nextPlay
@@ -22,8 +23,10 @@ export class FakeAudio {
     return impl ? impl() : Promise.resolve()
   })
 
+  // As in a browser, any pause fires the pause event (here, at once).
   pause = vi.fn(() => {
     this.paused = true
+    this.onpause?.()
   })
 
   constructor() {
@@ -34,10 +37,17 @@ export class FakeAudio {
     if (name === 'src') this.src = ''
   }
 
-  /** The audio plays to its end. */
+  /** The audio plays to its end: a browser fires pause, then ended. */
   end() {
     this.paused = true
+    this.onpause?.()
     this.onended?.()
+  }
+
+  /** The system pauses the audio (a call, Siri, another app's audio). */
+  interrupt() {
+    this.paused = true
+    this.onpause?.()
   }
 
   /** The audio fails to decode or load. */

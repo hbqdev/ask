@@ -96,6 +96,7 @@ function release(): boolean {
   const audio = element!
   audio.onended = null
   audio.onerror = null
+  audio.onpause = null
   audio.pause()
   audio.removeAttribute('src')
   URL.revokeObjectURL(current.url)
@@ -116,7 +117,8 @@ export function stop(): void {
 /**
  * Plays `blob`, stopping whatever played before. Resolves once it is
  * playing (or once it was stopped before it could start); rejects when it
- * cannot play. Its audio is freed when it ends, is stopped or fails.
+ * cannot play. Its audio is freed when it ends, is stopped, fails, or is
+ * paused by the system (a call, Siri).
  */
 export async function play(blob: Blob, owner = ''): Promise<void> {
   release()
@@ -129,6 +131,9 @@ export async function play(blob: Blob, owner = ''): Promise<void> {
   }
   audio.onended = finish
   audio.onerror = finish
+  // A pause not of our making (release() clears these first) is the system
+  // taking the audio: a call, Siri, another app. It is not resumed: done.
+  audio.onpause = finish
   audio.src = playback.url
   emit()
   try {

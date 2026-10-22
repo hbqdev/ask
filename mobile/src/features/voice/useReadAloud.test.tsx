@@ -165,6 +165,15 @@ describe('useReadAloud', () => {
     expect(objectUrls.revoked).toEqual(objectUrls.made)
   })
 
+  it('goes back to idle when the system interrupts the audio', async () => {
+    const { result } = renderHook(() => useReadAloud('m1'))
+    act(() => result.current.toggle(ANSWER))
+    await waitFor(() => expect(result.current.state).toBe('playing'))
+    act(() => audioElement().interrupt())
+    expect(result.current.state).toBe('idle')
+    expect(objectUrls.revoked).toEqual(objectUrls.made)
+  })
+
   it('a tap while loading cancels the request', async () => {
     fetchMock.mockImplementation((_url, init) => hang(init))
     const { result } = renderHook(() => useReadAloud('m1'))
