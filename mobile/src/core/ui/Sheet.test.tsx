@@ -60,6 +60,21 @@ describe('Sheet', () => {
     expect(screen.getByRole('textbox', { name: 'Name' })).toHaveFocus()
   })
 
+  it('gives focus back to what opened it once closed', () => {
+    const opener = document.createElement('button')
+    document.body.append(opener)
+    opener.focus()
+    const view = setup()
+    expect(panel()).toHaveFocus()
+    view.rerender(
+      <Sheet open={false} onClose={view.onClose} title="Options">
+        <p>Sheet body</p>
+      </Sheet>
+    )
+    expect(opener).toHaveFocus()
+    opener.remove()
+  })
+
   it('closes on a backdrop tap', () => {
     const { onClose } = setup()
     fireEvent.click(screen.getByTestId('sheet-backdrop'))

@@ -1,6 +1,7 @@
 import { Browser } from '@capacitor/browser'
 import type { UIMessage } from 'ai'
 import { fireEvent, render, screen, within } from '@testing-library/react'
+import userEvent from '@testing-library/user-event'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import {
@@ -187,6 +188,18 @@ describe('UserMessage: image viewer', () => {
     expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
   })
 
+  it('gives focus back to the tapped image once the viewer closes', async () => {
+    const user = userEvent.setup()
+    renderMessage([image('1.png'), image('2.png')])
+    const thumb = screen.getByRole('button', { name: 'View 2.png' })
+    await user.click(thumb)
+    expect(screen.getByRole('dialog')).toHaveFocus()
+
+    await user.click(screen.getByRole('button', { name: 'Close' }))
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+    expect(thumb).toHaveFocus()
+  })
+
   it('names a lone image without a count', () => {
     renderMessage([image('1.png')])
     fireEvent.click(screen.getByRole('button', { name: 'View 1.png' }))
@@ -297,6 +310,14 @@ describe('UserMessage: source URLs', () => {
     ])
     expect(screen.queryByRole('button')).not.toBeInTheDocument()
     expect(screen.getByText('javascript:alert(1)')).toBeInTheDocument()
+  })
+
+  it('does not resolve a relative path as a pasted link', () => {
+    renderMessage([
+      { type: 'data-sourceUrl', data: { url: '/uploads/u/a.pdf' } }
+    ])
+    expect(screen.queryByRole('button')).not.toBeInTheDocument()
+    expect(screen.getByText('/uploads/u/a.pdf')).toBeInTheDocument()
   })
 
   it('skips an empty source URL', () => {

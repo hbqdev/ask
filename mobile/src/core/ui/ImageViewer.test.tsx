@@ -100,4 +100,39 @@ describe('ImageViewer', () => {
     fireEvent.error(screen.getByRole('img', { name: '1.png' }))
     expect(screen.getByTestId('viewer-placeholder')).toBeInTheDocument()
   })
+
+  it('gives focus back to what opened it once closed', () => {
+    const opener = document.createElement('button')
+    document.body.append(opener)
+    opener.focus()
+    const { unmount } = setup()
+    expect(screen.getByRole('dialog')).toHaveFocus()
+    unmount()
+    expect(opener).toHaveFocus()
+    opener.remove()
+  })
+
+  it('keeps Tab on its controls', () => {
+    setup()
+    const close = screen.getByRole('button', { name: 'Close' })
+    fireEvent.keyDown(screen.getByRole('dialog'), {
+      key: 'Tab',
+      shiftKey: true
+    })
+    expect(close).toHaveFocus()
+    fireEvent.keyDown(close, { key: 'Tab' })
+    expect(close).toHaveFocus()
+  })
+
+  it('locks the page behind it from scrolling while open', () => {
+    document.body.style.overflow = 'auto'
+    const { unmount } = setup()
+    expect(document.body.style.overflow).toBe('hidden')
+    const strip = screen.getByTestId('viewer-strip')
+    // A swipe pages sideways and never chains to the page behind.
+    expect(strip).toHaveClass('overscroll-contain', 'touch-pan-x')
+    unmount()
+    expect(document.body.style.overflow).toBe('auto')
+    document.body.style.overflow = ''
+  })
 })

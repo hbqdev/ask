@@ -1,7 +1,8 @@
 // A bottom sheet: a modal panel that rises from the bottom edge over a dimmed
 // backdrop. A backdrop tap, Escape, or dragging the handle down past
 // CLOSE_DRAG closes it. The drag moves the panel with a transform only, so it
-// never lays the page out again mid-gesture.
+// never lays the page out again mid-gesture. Once closed, focus goes back to
+// what had it when the sheet opened.
 
 import {
   useEffect,
@@ -11,6 +12,8 @@ import {
   type ReactNode
 } from 'react'
 import { createPortal } from 'react-dom'
+
+import { useReturnFocus } from '@/core/ui/focus'
 
 /** How far, in px, the handle must be dragged down to close the sheet. */
 export const CLOSE_DRAG = 80
@@ -34,6 +37,8 @@ export function Sheet({ open, onClose, title, children }: SheetProps) {
 type Drag = { id: number; y: number; dy: number }
 
 function SheetPanel({ onClose, title, children }: Omit<SheetProps, 'open'>) {
+  // On close, focus goes back to what opened the sheet.
+  useReturnFocus()
   const titleId = useId()
   const panel = useRef<HTMLDivElement>(null)
   const drag = useRef<Drag | null>(null)

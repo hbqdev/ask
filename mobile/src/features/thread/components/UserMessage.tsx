@@ -2,8 +2,9 @@
 // (components/render-message.tsx): the photos in a grid that opens a full-size
 // viewer, the other files as chips that open in the in-app browser, the text
 // in a bubble, then pasted or quoted content (collapsed) and pasted links.
-// Only an http(s) URL, or a relative /uploads one under the API base, is ever
-// loaded or opened; anything else shows as a chip that does nothing. Old
+// Only an http(s) URL, or for a file a relative /uploads one under the API
+// base, is ever loaded or opened; anything else shows as a chip that does
+// nothing. Old
 // messages' <user-content> pasted blocks are split out of the text as the web
 // splits them (lib/render/pasted-content).
 
@@ -75,7 +76,8 @@ function readParts(parts: Part[], baseUrl: string) {
       if (body) list.push(body)
     } else if (part.type === 'data-sourceUrl') {
       const url = (part.data as { url?: string } | undefined)?.url
-      if (url) sources.push({ url, href: attachmentUrl(url, baseUrl) })
+      // A pasted link is a web page: never an upload under the API base.
+      if (url) sources.push({ url, href: isHttpUrl(url) ? url : null })
     }
   }
   // As the web: legacy pasted blocks, then pasted parts, then quotes.
