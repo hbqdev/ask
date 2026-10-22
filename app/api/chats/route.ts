@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 
 import { clearChats, countChats, getChatsPage } from '@/lib/actions/chat'
+import { rejectInvalidBearer } from '@/lib/auth/reject-invalid-bearer'
 import type { ChatBadgeData, ChatSortOption } from '@/lib/db/actions'
 import { Chat as DBChat } from '@/lib/db/schema'
 
@@ -38,6 +39,9 @@ function parseOffset(value: string | null): number {
 }
 
 export async function GET(request: NextRequest) {
+  const rejected = await rejectInvalidBearer(request)
+  if (rejected) return rejected
+
   const { searchParams } = new URL(request.url)
   const offset = parseOffset(searchParams.get('offset'))
   const limit = parseLimit(searchParams.get('limit'))

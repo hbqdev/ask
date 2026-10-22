@@ -1,8 +1,12 @@
 import { NextRequest, NextResponse } from 'next/server'
 
 import { searchChats } from '@/lib/actions/chat'
+import { rejectInvalidBearer } from '@/lib/auth/reject-invalid-bearer'
 
 export async function GET(request: NextRequest) {
+  const rejected = await rejectInvalidBearer(request)
+  if (rejected) return rejected
+
   const { searchParams } = new URL(request.url)
   const q = searchParams.get('q')?.trim() ?? ''
   // Semantic recall is opt-in (explicit submit). Default = keyword-only, so

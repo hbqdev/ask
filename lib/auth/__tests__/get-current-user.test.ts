@@ -32,7 +32,11 @@ vi.mock('next/headers', () => ({
   headers: headersMock
 }))
 
-import { bearerToken, getCurrentUser } from '../get-current-user'
+import {
+  bearerToken,
+  getCurrentUser,
+  isBearerAuthorization
+} from '../get-current-user'
 
 const withHeaders = (init: Record<string, string> = {}) =>
   headersMock.mockResolvedValue(new Headers(init))
@@ -74,6 +78,19 @@ describe('bearerToken', () => {
     expect(bearerToken('')).toBeNull()
     expect(bearerToken('Basic abc')).toBeNull()
     expect(bearerToken('Bearer ')).toBeNull()
+  })
+})
+
+describe('isBearerAuthorization', () => {
+  it.each([
+    ['Bearer x', true],
+    ['bearer', true],
+    ['Bearer', true],
+    ['Basic x', false],
+    ['Bearerx', false],
+    [null, false]
+  ])('%j uses the Bearer scheme: %s', (header, expected) => {
+    expect(isBearerAuthorization(header)).toBe(expected)
   })
 })
 
