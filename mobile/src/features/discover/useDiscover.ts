@@ -1,4 +1,4 @@
-// Discover's state for one topic: its articles page by page (1..20), deduped
+// Discover's state for one topic: its articles page by page (1..10), deduped
 // by url, from a per-topic in-memory cache when that is under 15 minutes old
 // so switching topics (or screens) back and forth is instant. Only the
 // current topic's answers are used: a topic switch or refresh drops every
@@ -32,8 +32,11 @@ export type Discover = {
   refresh(): Promise<void>
 }
 
-/** The route clamps `page` to 1..20. */
-export const DISCOVER_MAX_PAGE = 20
+// Each page costs the server ~12 SearXNG queries plus degoog, so paging stops
+// where the web's Discover does (app/discover/page.tsx): at page 10, degoog's
+// own limit, or after 2 pages in a row that add nothing new.
+export const DISCOVER_MAX_PAGE = 10
+export const DISCOVER_MAX_EMPTY_PAGES = 2
 export const DISCOVER_CACHE_TTL_MS = 15 * 60_000
 
 /** A topic's loaded pages. */
@@ -42,6 +45,8 @@ type TopicList = {
   /** The page loadMore asks for next. */
   nextPage: number
   hasMore: boolean
+  /** How many pages in a row, up to the last, added no new item. */
+  emptyStreak: number
   /** When page 1 of this list was fetched; 0 for none. */
   fetchedAt: number
 }
@@ -70,6 +75,7 @@ function initialState(topic: Topic): State {
       items: [],
       nextPage: 1,
       hasMore: true,
+      emptyStreak: 0,
       fetchedAt: 0,
       status: 'loading'
     }
@@ -78,15 +84,29 @@ function initialState(topic: Topic): State {
   return { ...hit, topic, status: fresh ? 'ready' : 'refreshing' }
 }
 
-/** `base` plus `page`, without urls `base` already has (or repeats). */
-function withPage(base: DiscoverItem[], page: DiscoverItem[]) {
-  const seen = new Set(base.map(item => item.url))
-  const added = page.filter(item => {
+/**
+ * `base` with page `page`'s items added, minus urls already there (or
+ * repeated), and whether another page is worth asking for.
+ */
+function withPage(
+  base: Pick<TopicList, 'items' | 'emptyStreak' | 'fetchedAt'>,
+  page: number,
+  pageItems: DiscoverItem[]
+): TopicList {
+  const seen = new Set(base.items.map(item => item.url))
+  const added = pageItems.filter(item => {
     if (seen.has(item.url)) return false
     seen.add(item.url)
     return true
   })
-  return [...base, ...added]
+  const emptyStreak = added.length ? 0 : base.emptyStreak + 1
+  return {
+    items: [...base.items, ...added],
+    nextPage: page + 1,
+    hasMore: emptyStreak < DISCOVER_MAX_EMPTY_PAGES && page < DISCOVER_MAX_PAGE,
+    emptyStreak,
+    fetchedAt: base.fetchedAt
+  }
 }
 
 const errorMessage = (error: unknown) =>
@@ -123,14 +143,10 @@ export function useDiscover(topic: Topic): Discover {
       error: undefined
     }))
     try {
-      const items = withPage([], await fetchDiscoverPage(client, topic, 1))
+      const page = await fetchDiscoverPage(client, topic, 1)
       if (mine !== generation.current) return
-      commit({
-        items,
-        nextPage: 2,
-        hasMore: items.length > 0,
-        fetchedAt: Date.now()
-      })
+      const fresh = { items: [], emptyStreak: 0, fetchedAt: Date.now() }
+      commit(withPage(fresh, 1, page))
     } catch (error) {
       if (mine !== generation.current) return
       setState(s => ({ ...s, status: 'error', error: errorMessage(error) }))
@@ -163,12 +179,7 @@ export function useDiscover(topic: Topic): Discover {
     try {
       const page = await fetchDiscoverPage(client, topic, base.nextPage)
       if (mine !== generation.current) return
-      commit({
-        items: withPage(base.items, page),
-        nextPage: base.nextPage + 1,
-        hasMore: page.length > 0 && base.nextPage < DISCOVER_MAX_PAGE,
-        fetchedAt: base.fetchedAt
-      })
+      commit(withPage(base, base.nextPage, page))
     } catch (error) {
       if (mine !== generation.current) return
       setState(s => ({ ...s, status: 'error', error: errorMessage(error) }))

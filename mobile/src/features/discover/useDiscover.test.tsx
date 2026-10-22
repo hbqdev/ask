@@ -146,38 +146,83 @@ describe('useDiscover', () => {
     expect(server.requests()).toEqual(['tech:1', 'tech:2'])
   })
 
-  it('has no more after an empty page, and loadMore then asks nothing', async () => {
-    server.on('tech', 2, () => json({ blogs: [] }))
+  it('stops after two pages with nothing new', async () => {
+    // Pages 2 and 3 only repeat page 1.
+    server.on('tech', 2, () => json({ blogs: defaultPage('tech', 1) }))
+    server.on('tech', 3, () => json({ blogs: defaultPage('tech', 1) }))
     const { result } = renderDiscover()
     await waitFor(() => expect(result.current.status).toBe('ready'))
+    await act(() => result.current.loadMore())
+    expect(result.current.hasMore).toBe(true)
     await act(() => result.current.loadMore())
     expect(result.current.hasMore).toBe(false)
     expect(urls(result.current.items)).toEqual(pageUrls('tech', 1))
     await act(() => result.current.loadMore())
-    expect(server.requests()).toEqual(['tech:1', 'tech:2'])
+    expect(server.requests()).toEqual(['tech:1', 'tech:2', 'tech:3'])
   })
 
-  it('has no more when page 1 is empty', async () => {
+  it('a page of only duplicates followed by a page with new items keeps going', async () => {
+    server.on('tech', 2, () => json({ blogs: defaultPage('tech', 1) }))
+    server.on('tech', 4, () => json({ blogs: defaultPage('tech', 1) }))
+    const { result } = renderDiscover()
+    await waitFor(() => expect(result.current.status).toBe('ready'))
+    await act(() => result.current.loadMore()) // 2: nothing new
+    await act(() => result.current.loadMore()) // 3: new items
+    await act(() => result.current.loadMore()) // 4: nothing new, once
+    expect(result.current.hasMore).toBe(true)
+    expect(urls(result.current.items)).toEqual([
+      ...pageUrls('tech', 1),
+      ...pageUrls('tech', 3)
+    ])
+    await act(() => result.current.loadMore())
+    expect(server.requests()).toEqual([
+      'tech:1',
+      'tech:2',
+      'tech:3',
+      'tech:4',
+      'tech:5'
+    ])
+  })
+
+  it('an empty page 1 still tries page 2, then stops', async () => {
     server.on('tech', 1, () => json({ blogs: [] }))
+    server.on('tech', 2, () => json({ blogs: [] }))
     const { result } = renderDiscover()
     await waitFor(() => expect(result.current.status).toBe('ready'))
     expect(result.current.items).toEqual([])
+    expect(result.current.hasMore).toBe(true)
+    await act(() => result.current.loadMore())
     expect(result.current.hasMore).toBe(false)
+    expect(server.requests()).toEqual(['tech:1', 'tech:2'])
   })
 
-  it('stops at page 20', async () => {
-    expect(DISCOVER_MAX_PAGE).toBe(20)
+  it('the run of pages with nothing new carries over a remount', async () => {
+    server.on('tech', 2, () => json({ blogs: [] }))
+    server.on('tech', 3, () => json({ blogs: [] }))
+    const first = renderDiscover()
+    await waitFor(() => expect(first.result.current.status).toBe('ready'))
+    await act(() => first.result.current.loadMore())
+    first.unmount()
+    const { result } = renderDiscover()
+    expect(result.current.hasMore).toBe(true)
+    await act(() => result.current.loadMore())
+    expect(result.current.hasMore).toBe(false)
+    expect(server.requests()).toEqual(['tech:1', 'tech:2', 'tech:3'])
+  })
+
+  it('stops at page 10', async () => {
+    expect(DISCOVER_MAX_PAGE).toBe(10)
     const { result } = renderDiscover()
     await waitFor(() => expect(result.current.status).toBe('ready'))
-    for (let page = 2; page <= 20; page++) {
+    for (let page = 2; page <= 10; page++) {
       expect(result.current.hasMore).toBe(true)
       await act(() => result.current.loadMore())
     }
     expect(result.current.hasMore).toBe(false)
     await act(() => result.current.loadMore())
-    expect(server.requests()).toHaveLength(20)
-    expect(server.requests().at(-1)).toBe('tech:20')
-    expect(result.current.items).toHaveLength(60)
+    expect(server.requests()).toHaveLength(10)
+    expect(server.requests().at(-1)).toBe('tech:10')
+    expect(result.current.items).toHaveLength(30)
   })
 
   it('runs one loadMore at a time, and none while page 1 loads', async () => {
