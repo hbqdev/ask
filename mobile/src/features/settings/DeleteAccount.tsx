@@ -1,9 +1,10 @@
 // Deleting the account, from Settings: a sheet that says what goes, a field
 // where the user types DELETE, and the destructive button. On success the app
 // signs out (which clears this account's caches) and the sign-in screen says
-// the account was deleted. A 401 means the account is already gone (a
-// deletion whose answer was lost) and is treated the same. On any other
-// failure the user stays signed in with the sheet open.
+// the account was deleted. A 401 signs out too (the session is dead: the
+// deletion may have finished with its answer lost, or the session was revoked)
+// but claims nothing and clears no device data. On any other failure the user
+// stays signed in with the sheet open.
 
 import { useId, useRef, useState, type KeyboardEvent } from 'react'
 
@@ -19,6 +20,9 @@ import { saveCustomInstructions } from '@/features/settings/custom-instructions'
 const CONFIRM_WORD = 'DELETE'
 
 export const ACCOUNT_DELETED_NOTICE = 'Your account was deleted'
+/** After a 401: the app cannot tell a deleted account from a revoked session. */
+export const SIGNED_OUT_AFTER_401_NOTICE =
+  "You've been signed out. If you just deleted your account, it's gone."
 // Fixed messages: the server's own error text is never shown. The server
 // deletes the data before the account, so a failure can leave some of it
 // gone: the error promises nothing about what was removed.
@@ -39,12 +43,12 @@ export async function deleteAccount(client: ApiClient): Promise<void> {
 }
 
 /**
- * Whether a failed deletion means the account is gone anyway: the server
- * answered 401, so the session's user no longer exists. The client's own 401
- * for a request it never sent (no token here) says nothing about the
- * account.
+ * Whether a failed deletion means the session is dead: the server answered
+ * 401 (its user was deleted, or the session revoked; the app cannot tell
+ * which). The client's own 401 for a request it never sent (no token here)
+ * says nothing about the session.
  */
-export function accountAlreadyGone(err: unknown): boolean {
+export function sessionGone(err: unknown): boolean {
   return (
     err instanceof ApiError &&
     err.status === 401 &&
@@ -103,12 +107,19 @@ function DeleteAccountPanel({ onClose }: { onClose: () => void }) {
     try {
       await deleteAccount(client)
     } catch (err) {
-      if (!accountAlreadyGone(err)) {
-        setError(deleteAccountErrorMessage(err))
-        setDeleting(false)
-        inFlight.current = false
+      if (sessionGone(err)) {
+        // Signed out, with nothing claimed and no device data cleared: the
+        // custom instructions and a waiting share stay.
+        await signOut({
+          notice: SIGNED_OUT_AFTER_401_NOTICE,
+          keepSharedItem: true
+        })
         return
       }
+      setError(deleteAccountErrorMessage(err))
+      setDeleting(false)
+      inFlight.current = false
+      return
     }
     // The account is gone on the server. Its custom instructions go too (a
     // plain sign-out keeps them as a device preference); a failure to remove

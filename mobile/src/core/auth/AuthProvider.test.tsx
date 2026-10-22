@@ -532,6 +532,16 @@ describe('AuthProvider: signOut', () => {
     expect(result.current.status).toBe('signedOut')
   })
 
+  it('signOut keeps a waiting share when asked to', async () => {
+    const { result } = await signedInAuth()
+    vi.mocked(takeSharedItem).mockClear()
+    await act(async () => {
+      await result.current.signOut({ keepSharedItem: true })
+    })
+    expect(takeSharedItem).not.toHaveBeenCalled()
+    expect(result.current.status).toBe('signedOut')
+  })
+
   it('signOut clears the library cache when the server can’t be reached too', async () => {
     const { auth, result, storage } = await signedInAuth()
     auth.signOut.mockRejectedValue(new TypeError('Failed to fetch'))

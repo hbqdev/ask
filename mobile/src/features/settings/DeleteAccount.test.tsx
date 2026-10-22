@@ -21,13 +21,14 @@ import { getNotesCache, setNotesCache } from '@/features/notes/notes-cache'
 import { takeSharedItem } from '@/core/shared-inbox'
 import { CUSTOM_INSTRUCTIONS_KEY } from '@/features/settings/custom-instructions'
 import {
-  accountAlreadyGone,
+  sessionGone,
   ACCOUNT_DELETED_NOTICE,
   DELETE_ACCOUNT_ERROR,
   DELETE_ACCOUNT_UNAVAILABLE,
   deleteAccount,
   deleteAccountErrorMessage,
-  DeleteAccountSheet
+  DeleteAccountSheet,
+  SIGNED_OUT_AFTER_401_NOTICE
 } from '@/features/settings/DeleteAccount'
 import { memoryStorage } from '@/test/memory-storage'
 
@@ -193,14 +194,12 @@ describe('deleteAccountErrorMessage', () => {
     }
   })
 
-  it('a 401 the server sent means the account is already gone; the client’s own does not', () => {
-    expect(accountAlreadyGone(new ApiError(401, 'Unauthorized'))).toBe(true)
+  it('a 401 the server sent means the session is gone; the client’s own does not', () => {
+    expect(sessionGone(new ApiError(401, 'Unauthorized'))).toBe(true)
     // Never sent: there was no token here.
-    expect(accountAlreadyGone(new ApiError(401, SIGNED_OUT_MESSAGE))).toBe(
-      false
-    )
-    expect(accountAlreadyGone(new ApiError(500, 'Unauthorized'))).toBe(false)
-    expect(accountAlreadyGone(new Error('Unauthorized'))).toBe(false)
+    expect(sessionGone(new ApiError(401, SIGNED_OUT_MESSAGE))).toBe(false)
+    expect(sessionGone(new ApiError(500, 'Unauthorized'))).toBe(false)
+    expect(sessionGone(new Error('Unauthorized'))).toBe(false)
   })
 
   it('never promises that nothing was removed', () => {
@@ -349,9 +348,9 @@ describe('DeleteAccountSheet', () => {
     expect(takeSharedItem).toHaveBeenCalled()
   })
 
-  it('a 401 means the account is already gone: signs out and says so', async () => {
-    // e.g. the deletion finished but its answer was lost, and this is the
-    // retry: the bearer now belongs to a deleted user.
+  it('a 401 signs out without claiming a deletion, and keeps the device’s data', async () => {
+    // The deletion may have finished with its answer lost, or the session may
+    // just have been revoked: the app cannot tell which.
     const { supabase, storage } = await setup(async () =>
       json({ error: 'Unauthorized' }, 401)
     )
@@ -359,15 +358,17 @@ describe('DeleteAccountSheet', () => {
     fireEvent.click(deleteButton())
 
     await waitFor(() =>
-      expect(authText()).toBe(`signedOut: ${ACCOUNT_DELETED_NOTICE}`)
+      expect(authText()).toBe(`signedOut: ${SIGNED_OUT_AFTER_401_NOTICE}`)
+    )
+    expect(SIGNED_OUT_AFTER_401_NOTICE).toBe(
+      "You've been signed out. If you just deleted your account, it's gone."
     )
     expect(screen.queryByRole('alert')).toBeNull()
     expect(supabase.auth.signOut).toHaveBeenCalledWith({ scope: 'local' })
     expect(storage.data.has(AUTH_STORAGE_KEY)).toBe(false)
-    expect(Preferences.remove).toHaveBeenCalledWith({
-      key: CUSTOM_INSTRUCTIONS_KEY
-    })
-    expect(takeSharedItem).toHaveBeenCalled()
+    // Only a confirmed deletion removes the instructions and the inbox.
+    expect(Preferences.remove).not.toHaveBeenCalled()
+    expect(takeSharedItem).not.toHaveBeenCalled()
   })
 
   it('signs out even when removing the custom instructions fails', async () => {

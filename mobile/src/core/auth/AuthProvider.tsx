@@ -51,7 +51,14 @@ export type Auth = {
   getAccessToken(): Promise<string | null>
 }
 
-export type SignOutOptions = { notice?: string }
+export type SignOutOptions = {
+  notice?: string
+  /**
+   * Leaves a share waiting in the inbox (by default it is dropped, so it
+   * never reaches the next account's composer).
+   */
+  keepSharedItem?: boolean
+}
 
 type View = { status: AuthStatus; session: Session | null }
 
@@ -229,8 +236,10 @@ export function AuthProvider({
       // must not send a waiting pick for this account.
       resetModelChoice()
       // A share waiting in the inbox was meant for this account's composer,
-      // not the next one's: taken and dropped.
-      const sharedItemDropped = takeSharedItem()
+      // not the next one's: taken and dropped (unless keepSharedItem).
+      const sharedItemDropped = options?.keepSharedItem
+        ? null
+        : takeSharedItem()
       // supabase-js keeps the local session when the server can't be reached;
       // remove it ourselves so the next cold start doesn't restore it.
       const cleared = await client.auth.signOut({ scope: 'local' }).then(
