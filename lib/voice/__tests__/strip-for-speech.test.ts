@@ -105,6 +105,41 @@ describe('stripForSpeech', () => {
     )
   })
 
+  it('keeps prose that mentions ```spec mid-line', () => {
+    expect(
+      stripForSpeech('Use the ```spec fence to add widgets. Then more prose.')
+    ).toBe('Use the spec fence to add widgets. Then more prose.')
+  })
+
+  it('still drops an unterminated ```spec block at a line start', () => {
+    expect(stripForSpeech('Answer.\n\n  ```spec\n{"op":"add"')).toBe('Answer.')
+  })
+
+  it('drops a fence indented inside a list item (four or more spaces)', () => {
+    expect(
+      stripForSpeech(
+        '1. Run this:\n\n    ```bash\n    npm install\n    ```\n\n2. Done.'
+      )
+    ).toBe('1. Run this: 2. Done.')
+  })
+
+  it('closes a four-backtick fence only with four or more backticks', () => {
+    expect(
+      stripForSpeech(
+        'Example:\n\n````md\n```js\nx\n```\n````\n\nAfter the example.'
+      )
+    ).toBe('Example: After the example.')
+    expect(
+      stripForSpeech('Example:\n\n````md\ninner\n`````\n\nAfter it.')
+    ).toBe('Example: After it.')
+  })
+
+  it('reads a line-start ```inline code``` span as prose, not a fence', () => {
+    expect(stripForSpeech('```npm i``` installs it. More words.')).toBe(
+      'npm i installs it. More words.'
+    )
+  })
+
   it('keeps commas and colons that belong to the prose', () => {
     expect(stripForSpeech('Yes, it works: 3:1 ratio, as expected.')).toBe(
       'Yes, it works: 3:1 ratio, as expected.'
