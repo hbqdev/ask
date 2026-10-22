@@ -578,6 +578,43 @@ describe('AuthProvider: signOut', () => {
     expect(result.current.status).toBe('signedOut')
   })
 
+  it('a plain signOut leaves no notice', async () => {
+    const { result } = await signedInAuth()
+    expect(result.current.notice).toBeNull()
+    await act(async () => {
+      await result.current.signOut()
+    })
+    expect(result.current.notice).toBeNull()
+  })
+
+  it('signOut with a notice shows it once signed out, even when the server signOut fails', async () => {
+    const { auth, result, storage } = await signedInAuth()
+    // The account is gone on the server: its sign-out fails.
+    auth.signOut.mockRejectedValue(new TypeError('Failed to fetch'))
+    await act(async () => {
+      await result.current.signOut({ notice: 'Your account was deleted' })
+    })
+    expect(result.current.status).toBe('signedOut')
+    expect(result.current.notice).toBe('Your account was deleted')
+    expect(result.current.error).toBeNull()
+    expect(storage.data.size).toBe(0)
+  })
+
+  it('a new signIn clears the notice', async () => {
+    const { auth, result } = await signedInAuth()
+    await act(async () => {
+      await result.current.signOut({ notice: 'Your account was deleted' })
+    })
+    auth.signInWithPassword.mockResolvedValue({
+      data: { session, user: session.user },
+      error: null
+    })
+    await act(async () => {
+      await result.current.signIn('user@example.test', 'fake-password')
+    })
+    expect(result.current.notice).toBeNull()
+  })
+
   it('signIn after signOut signs in again', async () => {
     const { auth, emit, result } = await signedInAuth()
     await act(async () => {
@@ -751,6 +788,17 @@ describe('AuthProvider: signInWithGoogle', () => {
 
     await startGoogle(result)
     expect(result.current.error).toBeNull()
+  })
+
+  it('a new Google sign-in clears the notice', async () => {
+    const { result } = await signedInAuth()
+    await act(async () => {
+      await result.current.signOut({ notice: 'Your account was deleted' })
+    })
+    expect(result.current.notice).toBe('Your account was deleted')
+
+    await startGoogle(result)
+    expect(result.current.notice).toBeNull()
   })
 
   it('signs in with Google after a sign-out', async () => {

@@ -199,6 +199,24 @@ describe('AccountSection', () => {
     expect(auth.signOut).not.toHaveBeenCalled()
   })
 
+  it('ends with a destructive Delete account row that opens its sheet', () => {
+    fakeAuth()
+    serve()
+    render(<AccountSection />)
+    const rows = screen.getAllByRole('button')
+    const row = screen.getByRole('button', { name: 'Delete account' })
+    expect(rows.at(-1)).toBe(row)
+    expect(row).toHaveClass('text-red-500')
+
+    fireEvent.click(row)
+    const dialog = screen.getByRole('dialog', { name: 'Delete account?' })
+    expect(
+      within(dialog).getByLabelText('Type DELETE to confirm')
+    ).toBeInTheDocument()
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Cancel' }))
+    expect(screen.queryByRole('dialog')).toBeNull()
+  })
+
   it('still offers Sign out when the session has no email', () => {
     fakeAuth({
       session: { ...session, user: { id: 'user-1' } } as unknown as Session

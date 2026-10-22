@@ -21,6 +21,7 @@ import {
 import { useSharedSearchSettings } from '@/features/compose/SearchSettingsProvider'
 import { clearAllChats } from '@/features/library/library-api'
 import { clearLibraryCache } from '@/features/library/library-cache'
+import { DeleteAccountSheet } from '@/features/settings/DeleteAccount'
 import {
   CUSTOM_INSTRUCTIONS_MAX,
   loadCustomInstructions,
@@ -46,11 +47,15 @@ const NOTE = 'px-4 pt-2 text-sm'
 
 // --- Account ----------------------------------------------------------------
 
-/** The signed-in email and Sign out, after a confirmation. */
+/**
+ * The signed-in email, Sign out after a confirmation, and Delete account
+ * after typing DELETE.
+ */
 export function AccountSection() {
   const { session, signOut } = useAuth()
   const email = session?.user.email
   const [confirming, setConfirming] = useState(false)
+  const [deletingAccount, setDeletingAccount] = useState(false)
   const [signingOut, setSigningOut] = useState(false)
 
   const confirmSignOut = () => {
@@ -82,6 +87,17 @@ export function AccountSection() {
         tone="destructive"
         onConfirm={confirmSignOut}
         onClose={() => setConfirming(false)}
+      />
+      <button
+        type="button"
+        onClick={() => setDeletingAccount(true)}
+        className={`${ROW_BUTTON} text-red-500`}
+      >
+        Delete account
+      </button>
+      <DeleteAccountSheet
+        open={deletingAccount}
+        onClose={() => setDeletingAccount(false)}
       />
     </section>
   )

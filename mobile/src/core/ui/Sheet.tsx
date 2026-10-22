@@ -22,21 +22,27 @@ export type SheetProps = {
   open: boolean
   onClose: () => void
   title: string
+  /**
+   * The id of an element inside that describes the sheet (an explanation
+   * read right after the title as the sheet opens).
+   */
+  describedBy?: string
   children: ReactNode
 }
 
-export function Sheet({ open, onClose, title, children }: SheetProps) {
+export function Sheet({ open, ...panel }: SheetProps) {
   if (!open) return null
-  return (
-    <SheetPanel onClose={onClose} title={title}>
-      {children}
-    </SheetPanel>
-  )
+  return <SheetPanel {...panel} />
 }
 
 type Drag = { id: number; y: number; dy: number }
 
-function SheetPanel({ onClose, title, children }: Omit<SheetProps, 'open'>) {
+function SheetPanel({
+  onClose,
+  title,
+  describedBy,
+  children
+}: Omit<SheetProps, 'open'>) {
   // On close, focus goes back to what opened the sheet.
   useReturnFocus()
   const titleId = useId()
@@ -108,6 +114,7 @@ function SheetPanel({ onClose, title, children }: Omit<SheetProps, 'open'>) {
         role="dialog"
         aria-modal="true"
         aria-labelledby={titleId}
+        aria-describedby={describedBy}
         tabIndex={-1}
         onKeyDown={e => {
           // React bubbles a key from a sheet opened over this one (another

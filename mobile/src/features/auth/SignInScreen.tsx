@@ -44,7 +44,7 @@ function GoogleMark() {
 
 /** Sign-in with Google, or with an email and password. */
 export function SignInScreen({ apiBaseUrl }: { apiBaseUrl: string }) {
-  const { signIn, signInWithGoogle, error } = useAuth()
+  const { signIn, signInWithGoogle, error, notice } = useAuth()
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [submitting, setSubmitting] = useState(false)
@@ -97,6 +97,14 @@ export function SignInScreen({ apiBaseUrl }: { apiBaseUrl: string }) {
         <h1 className="mt-6 text-2xl font-semibold tracking-tight">
           Sign in to Ask
         </h1>
+        {notice && (
+          <p
+            role="status"
+            className="mt-4 w-full rounded-xl bg-foreground/5 px-4 py-3 text-center text-sm text-foreground/70"
+          >
+            {notice}
+          </p>
+        )}
 
         <button
           ref={googleButton}

@@ -162,6 +162,21 @@ describe('SignInScreen', () => {
     expect(screen.queryByRole('alert')).not.toBeInTheDocument()
   })
 
+  it('shows a notice (such as a deleted account) as a status, not an error', () => {
+    fakeAuth({ notice: 'Your account was deleted' })
+    render(<SignInScreen apiBaseUrl={API} />)
+    expect(screen.getByRole('status')).toHaveTextContent(
+      'Your account was deleted'
+    )
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument()
+  })
+
+  it('shows no notice without one', () => {
+    fakeAuth({ notice: null })
+    render(<SignInScreen apiBaseUrl={API} />)
+    expect(screen.queryByRole('status')).not.toBeInTheDocument()
+  })
+
   it('Forgot password? opens the reset page in the browser', async () => {
     fakeAuth()
     const user = userEvent.setup()

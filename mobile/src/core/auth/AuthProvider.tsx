@@ -32,16 +32,25 @@ export type Auth = {
   status: AuthStatus
   session: Session | null
   error: string | null
+  /**
+   * Information for the sign-in screen, not an error: why the user was
+   * signed out (e.g. "Your account was deleted"). Set by signOut's `notice`,
+   * cleared by the next sign-in attempt. Stand-ins may leave it out.
+   */
+  notice?: string | null
   signIn(email: string, password: string): Promise<boolean>
   /**
    * Google sign-in in the in-app browser. False when cancelled, failed (with
    * `error` saying why) or ignored because one is already under way.
    */
   signInWithGoogle(): Promise<boolean>
-  signOut(): Promise<void>
+  /** Signs out on this device; `notice` is then shown on the sign-in screen. */
+  signOut(options?: SignOutOptions): Promise<void>
   /** The current access token; supabase-js refreshes it first when needed. */
   getAccessToken(): Promise<string | null>
 }
+
+export type SignOutOptions = { notice?: string }
 
 type View = { status: AuthStatus; session: Session | null }
 
@@ -97,6 +106,7 @@ export function AuthProvider({
 }) {
   const [view, setView] = useState<View>({ status: 'loading', session: null })
   const [error, setError] = useState<string | null>(null)
+  const [notice, setNotice] = useState<string | null>(null)
   // Set by signOut until the next signIn: a refresh that races the sign-out
   // must not sign the user back in.
   const signedOutHere = useRef(false)
@@ -166,6 +176,7 @@ export function AuthProvider({
   const signIn = useCallback(
     async (email: string, password: string) => {
       setError(null)
+      setNotice(null)
       try {
         const { data, error: authError } = await client.auth.signInWithPassword(
           { email, password }
@@ -189,6 +200,7 @@ export function AuthProvider({
     // A second tap while one is under way changes nothing.
     if (googleSignInPending()) return false
     setError(null)
+    setNotice(null)
     try {
       const result = await runGoogleSignIn(client)
       if (result.outcome === 'signedIn') {
@@ -206,27 +218,33 @@ export function AuthProvider({
     }
   }, [client, showSession])
 
-  const signOut = useCallback(async () => {
-    signedOutHere.current = true
-    // At once, before awaiting the server: a save that settles meanwhile
-    // must not send a waiting pick for this account.
-    resetModelChoice()
-    // supabase-js keeps the local session when the server can't be reached;
-    // remove it ourselves so the next cold start doesn't restore it.
-    const cleared = await client.auth.signOut({ scope: 'local' }).then(
-      ({ error: authError }) => !authError,
-      () => false
-    )
-    const authKeys = cleared ? [] : ['', '-code-verifier', '-user']
-    await Promise.allSettled(
-      authKeys.map(suffix => storage.removeItem(AUTH_STORAGE_KEY + suffix))
-    )
-    setError(null)
-    // Also clears the cached Library rows and notes, which belong to this
-    // account; device preferences (search settings, Library sort and
-    // segment, custom instructions) stay.
-    showSignedOut()
-  }, [client, storage, showSignedOut])
+  const signOut = useCallback(
+    async (options?: SignOutOptions) => {
+      signedOutHere.current = true
+      // Before the server is awaited: supabase-js's SIGNED_OUT may show the
+      // sign-in screen meanwhile, and it shows the notice from the start.
+      setNotice(options?.notice ?? null)
+      // At once, before awaiting the server: a save that settles meanwhile
+      // must not send a waiting pick for this account.
+      resetModelChoice()
+      // supabase-js keeps the local session when the server can't be reached;
+      // remove it ourselves so the next cold start doesn't restore it.
+      const cleared = await client.auth.signOut({ scope: 'local' }).then(
+        ({ error: authError }) => !authError,
+        () => false
+      )
+      const authKeys = cleared ? [] : ['', '-code-verifier', '-user']
+      await Promise.allSettled(
+        authKeys.map(suffix => storage.removeItem(AUTH_STORAGE_KEY + suffix))
+      )
+      setError(null)
+      // Also clears the cached Library rows and notes, which belong to this
+      // account; device preferences (search settings, Library sort and
+      // segment, custom instructions) stay.
+      showSignedOut()
+    },
+    [client, storage, showSignedOut]
+  )
 
   const getAccessToken = useCallback(async () => {
     const { data } = await client.auth.getSession()
@@ -237,12 +255,13 @@ export function AuthProvider({
     () => ({
       ...view,
       error,
+      notice,
       signIn,
       signInWithGoogle,
       signOut,
       getAccessToken
     }),
-    [view, error, signIn, signInWithGoogle, signOut, getAccessToken]
+    [view, error, notice, signIn, signInWithGoogle, signOut, getAccessToken]
   )
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>

@@ -46,6 +46,21 @@ describe('Sheet', () => {
     expect(document.body).toContainElement(dialog)
   })
 
+  it('is described by the element describedBy names', () => {
+    render(
+      <Sheet open onClose={vi.fn()} title="Delete account?" describedBy="why">
+        <p id="why">Everything is deleted.</p>
+      </Sheet>
+    )
+    expect(panel()).toHaveAttribute('aria-describedby', 'why')
+    expect(panel()).toHaveAccessibleDescription('Everything is deleted.')
+  })
+
+  it('has no description without describedBy', () => {
+    setup()
+    expect(panel()).not.toHaveAttribute('aria-describedby')
+  })
+
   it('moves focus into the dialog when it opens', () => {
     setup()
     expect(panel()).toHaveFocus()
