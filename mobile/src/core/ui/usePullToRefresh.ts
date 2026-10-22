@@ -1,7 +1,8 @@
 // Pull to refresh for a scrolling list. A drag down that starts with the list
 // at its top pulls it (damped, so it gives less the further it goes);
 // released at `threshold` or more it calls `onRefresh`, and `refreshing`
-// holds until that settles. The hook only reports `pull`, in px: the screen
+// holds until that settles. Crossing `threshold` on the way down taps, as
+// iOS's own pull does (again if the pull goes back under it and over again). The hook only reports `pull`, in px: the screen
 // moves its list (and spinner) with a transform.
 //
 // Touch events, not pointer events: on iOS a vertical drag on a scroller is a
@@ -54,6 +55,8 @@ export function usePullToRefresh(
     if (!el) return
     let drag: Drag | null = null
     let distance = 0
+    // Whether the pull is at the threshold or past it (and so has tapped).
+    let armed = false
 
     const find = (e: TouchEvent) =>
       drag
@@ -62,6 +65,7 @@ export function usePullToRefresh(
 
     const onStart = (e: TouchEvent) => {
       drag = null
+      armed = false
       if (latest.current.refreshing || e.touches.length !== 1) return
       if (el.scrollTop > 0) return
       const t = e.touches[0]
@@ -83,7 +87,10 @@ export function usePullToRefresh(
         drag.pulling = true
       }
       if (e.cancelable) e.preventDefault()
-      distance = damp(Math.max(0, dy), 2 * latest.current.threshold)
+      const { threshold } = latest.current
+      distance = damp(Math.max(0, dy), 2 * threshold)
+      if (distance >= threshold && !armed) haptic('medium')
+      armed = distance >= threshold
       setPull(distance)
     }
 
@@ -94,7 +101,6 @@ export function usePullToRefresh(
       distance = 0
       const { threshold, onRefresh } = latest.current
       if (e.type === 'touchend' && pulled >= threshold) {
-        haptic('medium')
         setPull(threshold)
         setRefreshing(true)
         latest.current.refreshing = true

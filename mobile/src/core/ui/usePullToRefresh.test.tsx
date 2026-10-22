@@ -248,31 +248,51 @@ describe('usePullToRefresh', () => {
 describe('usePullToRefresh haptics', () => {
   beforeEach(() => vi.mocked(haptic).mockClear())
 
-  it('a release that starts a refresh taps medium, once', async () => {
+  it('taps medium as the pull crosses the threshold, not on release', async () => {
     const { list, pending } = setup()
-    pullThrough(list, [{ y: 100 }, { y: 200 }, { y: 400 }])
+    pullThrough(list, [{ y: 100 }, { y: 200 }])
     expect(haptic).not.toHaveBeenCalled()
-    release(list, { y: 400 })
+    fireEvent.touchMove(list, touches({ y: 400 }))
     expect(haptic).toHaveBeenCalledExactlyOnceWith('medium')
+    // Further past it: no more.
+    fireEvent.touchMove(list, touches({ y: 500 }))
+    release(list, { y: 500 })
+    expect(refreshing()).toBe(true)
     await act(async () => pending.resolve())
     expect(haptic).toHaveBeenCalledTimes(1)
   })
 
-  it('a pull released short, cancelled, or made while refreshing makes none of its own', () => {
+  it('taps again each time the pull crosses back over the threshold', () => {
+    const { list } = setup()
+    pullThrough(list, [{ y: 100 }, { y: 400 }, { y: 150 }, { y: 400 }])
+    expect(haptic).toHaveBeenCalledTimes(2)
+    // Dropping back under it is silent.
+    fireEvent.touchMove(list, touches({ y: 150 }))
+    expect(haptic).toHaveBeenCalledTimes(2)
+  })
+
+  it('a pull that stays short, or one made while refreshing, makes none', () => {
     const { list } = setup()
     pullThrough(list, [{ y: 100 }, { y: 150 }])
     release(list, { y: 150 })
+    expect(haptic).not.toHaveBeenCalled()
+
+    pullThrough(list, [{ y: 100 }, { y: 400 }])
+    release(list, { y: 400 })
+    expect(haptic).toHaveBeenCalledTimes(1)
+    pullThrough(list, [{ y: 100 }, { y: 400 }])
+    release(list, { y: 400 })
+    expect(haptic).toHaveBeenCalledTimes(1)
+  })
+
+  it('a new pull starts unarmed, even after one cancelled past the threshold', () => {
+    const { list } = setup()
     pullThrough(list, [{ y: 100 }, { y: 400 }])
     fireEvent.touchCancel(list, {
       touches: [],
       changedTouches: [touch({ y: 400 })]
     })
-    expect(haptic).not.toHaveBeenCalled()
-
     pullThrough(list, [{ y: 100 }, { y: 400 }])
-    release(list, { y: 400 })
-    pullThrough(list, [{ y: 100 }, { y: 400 }])
-    release(list, { y: 400 })
-    expect(haptic).toHaveBeenCalledTimes(1)
+    expect(haptic).toHaveBeenCalledTimes(2)
   })
 })
