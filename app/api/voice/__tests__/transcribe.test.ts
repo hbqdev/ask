@@ -96,19 +96,72 @@ describe('POST /api/voice/transcribe', () => {
     )
   })
 
-  it('413 when the body declares no length (unbounded stream)', async () => {
-    vi.mocked(isVoiceEnabled).mockReturnValue(true)
-    vi.mocked(getCurrentUserId).mockResolvedValue('u1')
-    const form = new FormData()
-    form.append('file', new Blob(['x'], { type: 'audio/webm' }), 'a.webm')
+  // A proxy (or HTTP/2 hop) may forward the body chunked, without a length:
+  // it is read with a cap instead of trusted or buffered whole.
+  const undeclared = (chunks: Uint8Array[], contentType: string) => {
+    let read = 0
+    const body = new ReadableStream<Uint8Array>({
+      pull(controller) {
+        if (read < chunks.length) controller.enqueue(chunks[read++])
+        else controller.close()
+      }
+    })
     const req = new Request('http://t/api/voice/transcribe', {
       method: 'POST',
-      body: form
-    })
+      headers: { 'content-type': contentType },
+      body,
+      duplex: 'half'
+    } as RequestInit)
     expect(req.headers.get('content-length')).toBeNull()
+    return { req, chunksRead: () => read }
+  }
+
+  it('413 when a body without a declared length runs over the cap, reading no further', async () => {
+    vi.mocked(isVoiceEnabled).mockReturnValue(true)
+    vi.mocked(getCurrentUserId).mockResolvedValue('u1')
+    const mb = new Uint8Array(1024 * 1024)
+    const { req, chunksRead } = undeclared(
+      Array.from({ length: 40 }, () => mb),
+      'multipart/form-data; boundary=x'
+    )
     const formData = vi.spyOn(req, 'formData')
     expect((await POST(req)).status).toBe(413)
     expect(formData).not.toHaveBeenCalled()
+    expect(chunksRead()).toBeLessThanOrEqual(27)
+    expect(transcribeAudio).not.toHaveBeenCalled()
+  })
+
+  it('transcribes a body without a declared length that is within the cap', async () => {
+    vi.mocked(isVoiceEnabled).mockReturnValue(true)
+    vi.mocked(getCurrentUserId).mockResolvedValue('u1')
+    vi.mocked(transcribeAudio).mockResolvedValue('hello')
+    const form = new FormData()
+    form.append('file', new Blob(['x'], { type: 'audio/webm' }), 'a.webm')
+    const encoded = new Response(form)
+    const bytes = new Uint8Array(await encoded.arrayBuffer())
+    const { req } = undeclared(
+      [bytes.subarray(0, 10), bytes.subarray(10)],
+      encoded.headers.get('content-type')!
+    )
+    const res = await POST(req)
+    expect(res.status).toBe(200)
+    expect(await res.json()).toEqual({ text: 'hello' })
+  })
+
+  it('400 for a body that is not a form, declared length or not', async () => {
+    vi.mocked(isVoiceEnabled).mockReturnValue(true)
+    vi.mocked(getCurrentUserId).mockResolvedValue('u1')
+    const declared = new Request('http://t/api/voice/transcribe', {
+      method: 'POST',
+      headers: { 'content-type': 'text/plain', 'content-length': '5' },
+      body: 'hello'
+    })
+    expect((await POST(declared)).status).toBe(400)
+    const { req } = undeclared(
+      [new TextEncoder().encode('hello')],
+      'multipart/form-data; boundary=x'
+    )
+    expect((await POST(req)).status).toBe(400)
   })
 
   it('500 (not a thrown error) when the session lookup fails', async () => {

@@ -20,6 +20,43 @@ export async function POST(req: Request): Promise<Response> {
   return withAppCors(await transcribe(req), req.headers.get('origin'))
 }
 
+const TOO_LARGE = Symbol('too large')
+
+/**
+ * The multipart body, read with at most `limit` bytes in memory. Outside the
+ * proxy nothing caps it and req.formData() buffers all of it, so a declared
+ * length over the cap is refused unread, and a body with none (a hop that
+ * forwards it chunked) is read up to the cap and refused past it. Rejects
+ * when the body is not a form (or breaks off).
+ */
+async function readForm(
+  req: Request,
+  limit: number
+): Promise<FormData | typeof TOO_LARGE> {
+  const declared = req.headers.get('content-length')
+  if (declared !== null) {
+    return Number(declared) > limit ? TOO_LARGE : req.formData()
+  }
+  const kept: Uint8Array[] = []
+  let size = 0
+  if (req.body) {
+    const reader = req.body.getReader()
+    for (;;) {
+      const { done, value } = await reader.read()
+      if (done) break
+      size += value.length
+      if (size > limit) {
+        await reader.cancel()
+        return TOO_LARGE
+      }
+      kept.push(value)
+    }
+  }
+  return new Response(Buffer.concat(kept), {
+    headers: { 'content-type': req.headers.get('content-type') ?? '' }
+  }).formData()
+}
+
 async function transcribe(req: Request): Promise<Response> {
   // Feature-gated: when off, the endpoint does not exist.
   if (!isVoiceEnabled()) return new Response('Not found', { status: 404 })
@@ -33,16 +70,11 @@ async function transcribe(req: Request): Promise<Response> {
   }
   if (!userId) return new Response('Unauthorized', { status: 401 })
 
-  // Outside the proxy nothing caps the body, and req.formData() buffers all of
-  // it: refuse before reading unless a bounded length is declared (every
-  // browser fetch of FormData declares one).
-  const declared = Number(req.headers.get('content-length') ?? NaN)
-  if (!Number.isFinite(declared) || declared > MAX_BYTES + MULTIPART_OVERHEAD)
-    return new Response('Audio too large', { status: 413 })
-
   let audio: File | null = null
   try {
-    const form = await req.formData()
+    const form = await readForm(req, MAX_BYTES + MULTIPART_OVERHEAD)
+    if (form === TOO_LARGE)
+      return new Response('Audio too large', { status: 413 })
     const f = form.get('file')
     if (f instanceof File) audio = f
   } catch {
