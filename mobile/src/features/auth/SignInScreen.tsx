@@ -1,5 +1,11 @@
 import { Browser } from '@capacitor/browser'
-import { useRef, useState, type FormEvent, type MouseEvent } from 'react'
+import {
+  useEffect,
+  useRef,
+  useState,
+  type FormEvent,
+  type MouseEvent
+} from 'react'
 import { flushSync } from 'react-dom'
 
 import { useAuth } from '@/core/auth/AuthProvider'
@@ -14,7 +20,9 @@ export function forgotPasswordUrl(apiBaseUrl: string): string {
   return `${apiBaseUrl.replace(/\/+$/, '')}/auth/forgot-password`
 }
 
-// 16px text keeps iOS from zooming into a focused field.
+// The field's text follows Dynamic Type (text-base is 14px at the smallest
+// sizes); the viewport's maximum-scale=1 (index.html) is what keeps iOS from
+// zooming into a focused field, so don't pin it to 16px.
 const FIELD =
   'h-12 w-full rounded-xl border border-foreground/15 bg-foreground/5 px-4 text-base text-foreground outline-none placeholder:text-muted-foreground focus:border-mark-blue'
 
@@ -51,6 +59,22 @@ export function SignInScreen({ apiBaseUrl }: { apiBaseUrl: string }) {
   const [googlePending, setGooglePending] = useState(false)
   const [browserFailed, setBrowserFailed] = useState(false)
   const googleButton = useRef<HTMLButtonElement>(null)
+  const heading = useRef<HTMLHeadingElement>(null)
+  const noticeLine = useRef<HTMLParagraphElement>(null)
+  const arriving = useRef(true)
+
+  // Arriving here (an app start, a sign-out the user did not ask for), focus
+  // goes to why, so VoiceOver reads it: the notice, else the heading. A
+  // notice that comes while the screen is up takes it too.
+  useEffect(() => {
+    const target = notice
+      ? noticeLine.current
+      : arriving.current
+        ? heading.current
+        : null
+    arriving.current = false
+    target?.focus({ preventScroll: true })
+  }, [notice])
 
   const resetUrl = forgotPasswordUrl(apiBaseUrl)
   // Shown when the browser cannot open: the same page, without the scheme.
@@ -96,13 +120,19 @@ export function SignInScreen({ apiBaseUrl }: { apiBaseUrl: string }) {
     <main className="safe-bottom flex flex-1 flex-col items-center justify-center overflow-y-auto px-6">
       <div className="flex w-full max-w-sm flex-col items-center py-10">
         <OrbitMark className="size-20" />
-        <h1 className="mt-6 text-2xl font-semibold tracking-tight">
+        <h1
+          ref={heading}
+          tabIndex={-1}
+          className="mt-6 text-2xl font-semibold tracking-tight"
+        >
           Sign in to Ask
         </h1>
         {notice && (
           <p
+            ref={noticeLine}
             role="status"
-            className="mt-4 w-full rounded-xl bg-foreground/5 px-4 py-3 text-center text-sm text-foreground/70"
+            tabIndex={-1}
+            className="mt-4 w-full outline-none rounded-xl bg-foreground/5 px-4 py-3 text-center text-sm text-foreground/70"
           >
             {notice}
           </p>

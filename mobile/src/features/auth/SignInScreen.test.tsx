@@ -192,6 +192,36 @@ describe('SignInScreen', () => {
     expect(screen.queryByRole('status')).not.toBeInTheDocument()
   })
 
+  it('arriving with a notice (signed out, or the account deleted), focus goes to it so VoiceOver reads why', () => {
+    fakeAuth({ notice: 'You’ve been signed out.' })
+    render(<SignInScreen apiBaseUrl={API} />)
+    const notice = screen.getByRole('status')
+    expect(notice).toHaveFocus()
+    expect(notice).toHaveAttribute('tabindex', '-1')
+    expect(notice).toHaveClass('outline-none')
+  })
+
+  it('arriving with no notice, focus goes to the heading', () => {
+    fakeAuth({ notice: null })
+    render(<SignInScreen apiBaseUrl={API} />)
+    const heading = screen.getByRole('heading', { level: 1 })
+    expect(heading).toHaveTextContent('Sign in to Ask')
+    expect(heading).toHaveFocus()
+    expect(heading).toHaveAttribute('tabindex', '-1')
+  })
+
+  it('a notice that arrives while the screen is up takes the focus; one that clears leaves it', () => {
+    fakeAuth({ notice: null })
+    const { rerender } = render(<SignInScreen apiBaseUrl={API} />)
+    fakeAuth({ notice: 'Your account was deleted' })
+    rerender(<SignInScreen apiBaseUrl={API} />)
+    expect(screen.getByRole('status')).toHaveFocus()
+    act(() => emailField().focus())
+    fakeAuth({ notice: null })
+    rerender(<SignInScreen apiBaseUrl={API} />)
+    expect(emailField()).toHaveFocus()
+  })
+
   it('Forgot password? opens the reset page in the browser', async () => {
     fakeAuth()
     const user = userEvent.setup()
