@@ -2,7 +2,8 @@
 // use-voice-dictation.ts): start records, stop transcribes and hands the text
 // to onText, cancel throws the take (or its transcription) away. A take stops
 // itself at 120 s; one under 0.6 s, or silent, is dropped without a request.
-// A failure shows for 4 s, then the mic is idle again.
+// A failure shows for 4 s, then the mic is idle again. Starting stops any
+// answer being read aloud, so it never plays into the recording.
 //
 // Dictation belongs to the screen it started on. Tabs and stacked screens stay
 // mounted when left, so leaving it (`active` false), the app going to the
@@ -17,6 +18,7 @@ import { SIGNED_OUT_MESSAGE } from '@/core/api/client'
 import { haptic } from '@/core/haptics'
 import { startRecording, type Recording } from '@/features/voice/recorder'
 import { transcribe } from '@/features/voice/transcribe'
+import { stopReading } from '@/features/voice/useReadAloud'
 
 export const MAX_RECORDING_MS = 120_000
 export const MIN_RECORDING_MS = 600
@@ -194,6 +196,9 @@ export function useDictation({
     setError(undefined)
     setState('starting')
     haptic('medium')
+    // No answer read aloud plays into the recording: stop it (or its audio
+    // still loading) before the mic opens.
+    stopReading()
 
     let recording: Recording
     try {

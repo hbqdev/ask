@@ -5,6 +5,7 @@ import { useApi, type Api } from '@/core/api/ApiProvider'
 import { ApiError } from '@/core/api/errors'
 import { haptic } from '@/core/haptics'
 import { startRecording, type Recording } from '@/features/voice/recorder'
+import { play, playingOwner, stop } from '@/features/voice/speech'
 import { transcribe } from '@/features/voice/transcribe'
 import {
   ERROR_VISIBLE_MS,
@@ -14,6 +15,8 @@ import {
   PERMISSION_MESSAGE,
   useDictation
 } from '@/features/voice/useDictation'
+import { useReadAloud } from '@/features/voice/useReadAloud'
+import { installFakeAudio, objectUrls, resetFakeAudio } from '@/test/fake-audio'
 
 vi.mock('@/core/haptics', () => ({ haptic: vi.fn() }))
 vi.mock('@/core/api/ApiProvider', () => ({ useApi: vi.fn() }))
@@ -644,5 +647,59 @@ describe('useDictation', () => {
       await flush()
       expect(app.listeners).toHaveLength(0)
     })
+  })
+})
+
+describe('useDictation and read-aloud', () => {
+  beforeEach(() => {
+    installFakeAudio()
+    resetFakeAudio()
+  })
+
+  afterEach(() => {
+    stop()
+    vi.unstubAllGlobals()
+  })
+
+  it('stops an answer being read aloud before the mic opens', async () => {
+    await play(new Blob(['mp3'], { type: 'audio/mpeg' }), 'm1')
+    let ownerWhenMicOpened: string | null | undefined
+    vi.mocked(startRecording).mockImplementationOnce(async () => {
+      ownerWhenMicOpened = playingOwner()
+      return recording
+    })
+    const { result } = setup()
+    await startIt(result)
+
+    expect(ownerWhenMicOpened).toBeNull()
+    expect(objectUrls.revoked).toEqual(objectUrls.made)
+    expect(result.current.state).toBe('recording')
+  })
+
+  it('cancels a reading whose audio is still loading, so it never plays into the recording', async () => {
+    const speakRequests: RequestInit[] = []
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(
+        (_url: string, init: RequestInit) =>
+          new Promise<Response>((_, reject) => {
+            speakRequests.push(init)
+            init.signal?.addEventListener('abort', () =>
+              reject(new DOMException('Aborted', 'AbortError'))
+            )
+          })
+      )
+    )
+    const reader = renderHook(() => useReadAloud('m1'))
+    act(() => reader.result.current.toggle('An answer.'))
+    await vi.waitFor(() => expect(speakRequests).toHaveLength(1))
+
+    const { result } = setup()
+    await startIt(result)
+
+    expect(speakRequests[0].signal!.aborted).toBe(true)
+    await flush()
+    expect(reader.result.current.state).toBe('idle')
+    expect(playingOwner()).toBeNull()
   })
 })

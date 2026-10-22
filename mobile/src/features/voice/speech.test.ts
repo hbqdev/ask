@@ -148,6 +148,67 @@ describe('speak', () => {
 })
 
 describe('speakableText', () => {
+  /** A whole answer as the model writes it, with every kind of non-prose. */
+  const RAW = [
+    '## Why the sky is blue',
+    '',
+    'Sunlight scatters off air [1](#call_abc123). Blue scatters most [ 2 ](#call_abc123), [3](#call_def456).',
+    '',
+    '| Colour | Wavelength |',
+    '| --- | --- |',
+    '| Blue | 450 nm |',
+    '',
+    '```python',
+    'def scatter(wavelength):',
+    '    return 1 / wavelength ** 4',
+    '```',
+    '',
+    'Use `scatter()` to compare **colours**.',
+    '',
+    '```spec',
+    '{"op":"add","path":"/root","value":"main"}',
+    '{"op":"add","path":"/elements/q1","value":{"type":"Button","props":{"text":"Why are sunsets red?"},"on":{"press":{"action":"submitQuery","params":{"query":"Why are sunsets red?"}}},"children":[]}}',
+    '```'
+  ].join('\n')
+
+  it('speaks a raw answer as prose only: no citation anchors, tables, code or related-questions fence', () => {
+    const spoken = speakableText(RAW)
+    expect(spoken).toBe(
+      'Why the sky is blue Sunlight scatters off air. Blue scatters most. Use scatter() to compare colours.'
+    )
+    for (const leftover of [
+      '#call_',
+      '](',
+      '[1]',
+      '|',
+      '450 nm',
+      'Wavelength',
+      'def ',
+      'wavelength ** 4',
+      'python',
+      '```',
+      'spec',
+      'submitQuery',
+      'sunsets',
+      '"op"',
+      '**',
+      '##'
+    ]) {
+      expect(spoken).not.toContain(leftover)
+    }
+  })
+
+  it('drops an unfinished trailing related-questions fence and an unclosed code fence', () => {
+    expect(
+      speakableText(
+        'The answer [1](#call_a).\n\n```spec\n{"op":"add","path":"/root"'
+      )
+    ).toBe('The answer.')
+    expect(speakableText('Run this:\n\n```bash\nrm -rf build')).toBe(
+      'Run this:'
+    )
+  })
+
   it('drops citations, spec fences and markdown', () => {
     const answer = [
       '## The answer',
