@@ -4,6 +4,7 @@ import { describe, expect, it } from 'vitest'
 import { toPublicErrorPayload } from '@/lib/errors/public-error'
 import { isAnswerText } from '@/lib/render/message-parts'
 import { parseSpecBlock } from '@/lib/render/parse-spec-block'
+import { splitPastedContent } from '@/lib/render/pasted-content'
 import { stripSpecBlocks } from '@/lib/render/strip-spec-blocks'
 import { narrationCleanView } from '@/lib/streaming/helpers/strip-narration-from-message'
 import { ResumableChatTransport } from '@/lib/streaming/resumable-chat-transport'
@@ -27,6 +28,7 @@ describe('shared Ask modules', () => {
     ['collapseCitationArtifacts', collapseCitationArtifacts],
     ['stripSpecBlocks', stripSpecBlocks],
     ['parseSpecBlock', parseSpecBlock],
+    ['splitPastedContent', splitPastedContent],
     ['toPublicErrorPayload', toPublicErrorPayload],
     ['ResumableChatTransport', ResumableChatTransport],
     ['narrationCleanView', narrationCleanView],

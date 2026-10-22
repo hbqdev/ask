@@ -58,6 +58,11 @@ export function copyableAnswer(text: string, maps: CitationMaps): string {
   )
 }
 
+/** A site's icon, from Google's favicon service, as the web shows it. */
+export function faviconUrl(host: string): string {
+  return `https://www.google.com/s2/favicons?domain=${encodeURIComponent(host)}&sz=64`
+}
+
 function hostOf(url: string): string {
   return new URL(url).hostname.replace(/^www\./, '')
 }
@@ -79,7 +84,7 @@ export function listSources(message: UIMessage): Source[] {
         title: result.title,
         host,
         snippet: (result.content ?? '').slice(0, SNIPPET_CHARS),
-        favicon: `https://www.google.com/s2/favicons?domain=${host}&sz=64`,
+        favicon: faviconUrl(host),
         cited: cited.has(result.url)
       })
     }

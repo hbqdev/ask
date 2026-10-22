@@ -3,13 +3,18 @@
 // viewer, the other files as chips that open in the in-app browser, the text
 // in a bubble, then pasted or quoted content (collapsed) and pasted links.
 // Only an http(s) URL, or a relative /uploads one under the API base, is ever
-// loaded or opened; anything else shows as a chip that does nothing.
+// loaded or opened; anything else shows as a chip that does nothing. Old
+// messages' <user-content> pasted blocks are split out of the text as the web
+// splits them (lib/render/pasted-content).
 
 import type { UIMessage } from 'ai'
-import { useId, useLayoutEffect, useRef, useState } from 'react'
+import { useId, useState } from 'react'
 
-import { Sheet } from '@/core/ui/Sheet'
-import { openLink } from '@/features/thread/components/open-link'
+import { FallbackImage } from '@/core/ui/FallbackImage'
+import { ImageViewer } from '@/core/ui/ImageViewer'
+import { isHttpUrl, openLink } from '@/features/thread/components/open-link'
+import { faviconUrl } from '@/features/thread/model/citations'
+import { splitPastedContent } from '@/lib/render/pasted-content'
 
 type Part = UIMessage['parts'][number]
 
@@ -27,12 +32,7 @@ type Source = { url: string; href: string | null }
  */
 export function attachmentUrl(url: string, baseUrl: string): string | null {
   if (url.startsWith('/uploads/')) return `${baseUrl.replace(/\/+$/, '')}${url}`
-  try {
-    const { protocol } = new URL(url)
-    return protocol === 'http:' || protocol === 'https:' ? url : null
-  } catch {
-    return null
-  }
+  return isHttpUrl(url) ? url : null
 }
 
 /** A file's type for its chip: its extension, else its media subtype. */
@@ -49,7 +49,8 @@ function readParts(parts: Part[], baseUrl: string) {
   let text = ''
   const photos: Photo[] = []
   const files: FileItem[] = []
-  const quotes: Quote[] = []
+  const pasted: string[] = []
+  const quoted: string[] = []
   const sources: Source[] = []
   for (const part of parts) {
     if (part.type === 'text') {
@@ -69,27 +70,38 @@ function readParts(parts: Part[], baseUrl: string) {
       part.type === 'data-pastedContent' ||
       part.type === 'data-quotedContext'
     ) {
-      const quoted = (part.data as { text?: string } | undefined)?.text
-      if (quoted) {
-        quotes.push({
-          label:
-            part.type === 'data-pastedContent'
-              ? 'Pasted content'
-              : 'Quoted context',
-          text: quoted
-        })
-      }
+      const body = (part.data as { text?: string } | undefined)?.text
+      const list = part.type === 'data-pastedContent' ? pasted : quoted
+      if (body) list.push(body)
     } else if (part.type === 'data-sourceUrl') {
       const url = (part.data as { url?: string } | undefined)?.url
       if (url) sources.push({ url, href: attachmentUrl(url, baseUrl) })
     }
   }
-  return { text: text.trim() ? text : '', photos, files, quotes, sources }
+  // As the web: legacy pasted blocks, then pasted parts, then quotes.
+  const { cards, rest } = splitPastedContent(text)
+  const quotes: Quote[] = [
+    ...[...cards.filter(Boolean), ...pasted].map(body => ({
+      label: 'Pasted content',
+      text: body
+    })),
+    ...quoted.map(body => ({ label: 'Quoted context', text: body }))
+  ]
+  return { text: rest, photos, files, quotes, sources }
 }
 
-function Icon({ d, className = 'size-5' }: { d: string; className?: string }) {
+function Icon({
+  d,
+  className = 'size-5',
+  testId
+}: {
+  d: string
+  className?: string
+  testId?: string
+}) {
   return (
     <svg
+      data-testid={testId}
       aria-hidden="true"
       viewBox="0 0 24 24"
       className={className}
@@ -110,30 +122,23 @@ const PHOTO_ICON = 'M4 5h16v14H4zM4 16l5-5 4 4 2-2 5 5M15.5 9.5a1 1 0 1 0 0-.01'
 const LINK_ICON =
   'M10 14a4 4 0 0 0 5.66 0l3-3a4 4 0 0 0-5.66-5.66l-1 1M14 10a4 4 0 0 0-5.66 0l-3 3a4 4 0 0 0 5.66 5.66l1-1'
 const QUOTE_ICON = 'M8 6h11M8 12h11M8 18h7M4 6v12'
-const CLOSE_ICON = 'M6 6l12 12M18 6L6 18'
 const CHEVRON_ICON = 'M6 9l6 6 6-6'
 
 /** A photo that shows a placeholder, not a broken image, when it fails. */
-function Picture({ photo, className }: { photo: Photo; className: string }) {
-  const [failed, setFailed] = useState(false)
-  if (failed) {
-    return (
-      <div
-        data-testid="image-placeholder"
-        className="flex size-full items-center justify-center text-foreground/40"
-      >
-        <Icon d={PHOTO_ICON} className="size-8" />
-      </div>
-    )
-  }
+function Picture({ photo }: { photo: Photo }) {
   return (
-    <img
+    <FallbackImage
       src={photo.src}
       alt={photo.name}
-      loading="lazy"
-      decoding="async"
-      onError={() => setFailed(true)}
-      className={className}
+      className="size-full object-cover"
+      fallback={
+        <div
+          data-testid="image-placeholder"
+          className="flex size-full items-center justify-center text-foreground/40"
+        >
+          <Icon d={PHOTO_ICON} className="size-8" />
+        </div>
+      }
     />
   )
 }
@@ -166,7 +171,7 @@ function PhotoGrid({
               : 'aspect-square rounded-xl'
           }`}
         >
-          <Picture photo={photo} className="size-full object-cover" />
+          <Picture photo={photo} />
           {i === GRID_MAX - 1 && more > 0 && (
             <span className="absolute inset-0 flex items-center justify-center bg-black/45 text-xl font-semibold text-white">
               +{more}
@@ -175,64 +180,6 @@ function PhotoGrid({
         </button>
       ))}
     </div>
-  )
-}
-
-/** The photos full size, one per page, swiped sideways from `start`. */
-function PhotoViewer({
-  photos,
-  start,
-  onClose
-}: {
-  photos: Photo[]
-  start: number
-  onClose: () => void
-}) {
-  const [index, setIndex] = useState(start)
-  const strip = useRef<HTMLDivElement>(null)
-
-  useLayoutEffect(() => {
-    const el = strip.current!
-    el.scrollLeft = start * el.clientWidth
-  }, [start])
-
-  const onScroll = () => {
-    const el = strip.current!
-    const page = Math.round(el.scrollLeft / Math.max(1, el.clientWidth))
-    setIndex(Math.min(photos.length - 1, Math.max(0, page)))
-  }
-
-  const title =
-    photos.length > 1 ? `Image ${index + 1} of ${photos.length}` : 'Image'
-  return (
-    <Sheet open onClose={onClose} title={title}>
-      <button
-        type="button"
-        aria-label="Close"
-        onClick={onClose}
-        className="absolute top-2 right-3 flex size-11 touch-manipulation items-center justify-center rounded-full text-foreground/70 active:bg-foreground/10"
-      >
-        <Icon d={CLOSE_ICON} className="size-6" />
-      </button>
-      <div
-        ref={strip}
-        data-testid="viewer-strip"
-        onScroll={onScroll}
-        className="-mx-4 flex snap-x snap-mandatory overflow-x-auto overscroll-x-contain pb-6"
-      >
-        {photos.map((photo, i) => (
-          <div
-            key={i}
-            className="flex h-[70vh] w-full shrink-0 snap-center items-center justify-center px-4"
-          >
-            <Picture
-              photo={photo}
-              className="max-h-full max-w-full rounded-xl object-contain"
-            />
-          </div>
-        ))}
-      </div>
-    </Sheet>
   )
 }
 
@@ -283,7 +230,14 @@ function SourceChip({ source }: { source: Source }) {
       onClick={() => openLink(href)}
       className={`${look} touch-manipulation active:opacity-60`}
     >
-      <Icon d={LINK_ICON} className="size-4 shrink-0" />
+      <FallbackImage
+        src={faviconUrl(host)}
+        alt=""
+        className="size-4 shrink-0 rounded-sm"
+        fallback={
+          <Icon d={LINK_ICON} className="size-4 shrink-0" testId="link-icon" />
+        }
+      />
       <span className="truncate">{host}</span>
     </button>
   )
@@ -363,13 +317,12 @@ export function UserMessage({ message, baseUrl }: UserMessageProps) {
           ))}
         </div>
       )}
-      {viewing !== null && (
-        <PhotoViewer
-          photos={photos}
-          start={viewing}
-          onClose={() => setViewing(null)}
-        />
-      )}
+      <ImageViewer
+        open={viewing !== null}
+        images={photos.map(photo => ({ src: photo.src, alt: photo.name }))}
+        start={viewing ?? 0}
+        onClose={() => setViewing(null)}
+      />
     </div>
   )
 }

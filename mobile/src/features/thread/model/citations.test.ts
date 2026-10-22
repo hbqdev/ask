@@ -2,6 +2,7 @@ import type { UIMessage } from 'ai'
 import { describe, expect, it } from 'vitest'
 
 import {
+  faviconUrl,
   copyableAnswer,
   listSources,
   renderableAnswer,
@@ -212,5 +213,19 @@ describe('sourceForHref', () => {
     )
     expect(rendered(url)).not.toBe(url)
     expect(sourceForHref(rendered(url), only)?.url).toBe(url)
+  })
+})
+
+describe('faviconUrl', () => {
+  it("is the site's icon from Google's favicon service", () => {
+    expect(faviconUrl('example.org')).toBe(
+      'https://www.google.com/s2/favicons?domain=example.org&sz=64'
+    )
+  })
+
+  it('encodes the host', () => {
+    expect(faviconUrl('a b&c')).toBe(
+      'https://www.google.com/s2/favicons?domain=a%20b%26c&sz=64'
+    )
   })
 })

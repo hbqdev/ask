@@ -301,3 +301,9 @@ body {
 .citation-chip {
   vertical-align: 0.1em;
 }
+
+/* --- Image viewer -------------------------------------------------------------
+   The full-screen viewer fades in over the page. */
+.image-viewer {
+  animation: stack-fade-in 200ms linear;
+}

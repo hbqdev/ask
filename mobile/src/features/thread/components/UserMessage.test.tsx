@@ -174,6 +174,9 @@ describe('UserMessage: image viewer', () => {
     fireEvent.click(screen.getByRole('button', { name: 'View 2.png' }))
 
     const viewer = screen.getByRole('dialog', { name: 'Image 2 of 3' })
+    // The full-screen viewer, not a sheet.
+    expect(viewer).toHaveClass('fixed', 'inset-0', 'bg-black')
+    expect(within(viewer).getByText('2 / 3')).toBeVisible()
     expect(within(viewer).getAllByRole('img')).toHaveLength(3)
     expect(within(viewer).getByRole('img', { name: '2.png' })).toHaveAttribute(
       'src',
@@ -219,7 +222,7 @@ describe('UserMessage: image viewer', () => {
     fireEvent.click(screen.getByRole('button', { name: 'View 1.png' }))
     const viewer = screen.getByRole('dialog')
     fireEvent.error(within(viewer).getByRole('img', { name: '1.png' }))
-    expect(within(viewer).getByTestId('image-placeholder')).toBeInTheDocument()
+    expect(within(viewer).getByTestId('viewer-placeholder')).toBeInTheDocument()
   })
 })
 
@@ -265,10 +268,27 @@ describe('UserMessage: source URLs', () => {
       name: 'Open https://www.example.test/a'
     })
     expect(chip).toHaveTextContent('example.test')
+    // The site's icon, as the sources show it.
+    expect(chip.querySelector('img')).toHaveAttribute(
+      'src',
+      'https://www.google.com/s2/favicons?domain=example.test&sz=64'
+    )
     fireEvent.click(chip)
     expect(Browser.open).toHaveBeenCalledWith({
       url: 'https://www.example.test/a'
     })
+  })
+
+  it('shows a link icon when the site icon fails to load', () => {
+    renderMessage([
+      { type: 'data-sourceUrl', data: { url: 'https://example.test/a' } }
+    ])
+    const chip = screen.getByRole('button', {
+      name: 'Open https://example.test/a'
+    })
+    fireEvent.error(chip.querySelector('img')!)
+    expect(chip.querySelector('img')).toBeNull()
+    expect(within(chip).getByTestId('link-icon')).toBeInTheDocument()
   })
 
   it('shows an unsafe URL as plain text that does not open', () => {
@@ -316,5 +336,40 @@ describe('UserMessage: pasted and quoted content', () => {
     const toggle = screen.getByRole('button', { name: /Quoted context/ })
     fireEvent.click(toggle)
     expect(screen.getByRole('blockquote')).toHaveTextContent('Earlier answer')
+  })
+
+  it('splits legacy <user-content> blocks out of the text, as the web does', () => {
+    renderMessage([
+      {
+        type: 'text',
+        text: '<user-content>\nold paste\n</user-content>\n\nSummarise this'
+      },
+      { type: 'data-pastedContent', data: { text: 'new paste' } },
+      { type: 'data-quotedContext', data: { text: 'quoted' } }
+    ])
+    expect(screen.getByTestId('user-bubble')).toHaveTextContent(
+      /^Summarise this$/
+    )
+    expect(screen.queryByText(/user-content/)).not.toBeInTheDocument()
+
+    // The legacy card first, then the new pasted part, then the quote.
+    const toggles = screen.getAllByRole('button', { expanded: false })
+    expect(toggles.map(t => t.textContent)).toEqual([
+      'Pasted content · 9 chars',
+      'Pasted content · 9 chars',
+      'Quoted context · 6 chars'
+    ])
+    fireEvent.click(toggles[0])
+    expect(screen.getByRole('blockquote')).toHaveTextContent(/^old paste$/)
+  })
+
+  it('shows no bubble when the text is only a legacy pasted block', () => {
+    renderMessage([
+      { type: 'text', text: '<user-content>only paste</user-content>' }
+    ])
+    expect(screen.queryByTestId('user-bubble')).not.toBeInTheDocument()
+    expect(
+      screen.getByRole('button', { name: /Pasted content · 10 chars/ })
+    ).toBeVisible()
   })
 })

@@ -1,0 +1,143 @@
+// A full-screen image viewer: the images edge to edge on black, one per
+// page, swiped sideways with native scroll-snap paging. A page count
+// ("2 / 5") sits above the home indicator and a close button below the
+// status bar, both clear of the safe-area insets. Escape closes it too.
+
+import { useEffect, useLayoutEffect, useRef, useState } from 'react'
+import { createPortal } from 'react-dom'
+
+import { haptic } from '@/core/haptics'
+import { FallbackImage } from '@/core/ui/FallbackImage'
+
+export type ViewerImage = { src: string; alt: string }
+
+export type ImageViewerProps = {
+  open: boolean
+  images: ViewerImage[]
+  /** The image it opens on. */
+  start: number
+  onClose: () => void
+}
+
+export function ImageViewer({ open, ...props }: ImageViewerProps) {
+  if (!open) return null
+  return <ViewerPanel {...props} />
+}
+
+function Placeholder() {
+  return (
+    <div
+      data-testid="viewer-placeholder"
+      className="flex size-full items-center justify-center text-white/40"
+    >
+      <svg
+        aria-hidden="true"
+        viewBox="0 0 24 24"
+        className="size-12"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth={1.5}
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      >
+        <path d="M4 5h16v14H4zM4 16l5-5 4 4 2-2 5 5M15.5 9.5a1 1 0 1 0 0-.01" />
+      </svg>
+    </div>
+  )
+}
+
+function ViewerPanel({
+  images,
+  start,
+  onClose
+}: Omit<ImageViewerProps, 'open'>) {
+  const [index, setIndex] = useState(start)
+  const dialog = useRef<HTMLDivElement>(null)
+  const strip = useRef<HTMLDivElement>(null)
+  // The latest onClose, so the key listener isn't re-added on each render.
+  const close = useRef(onClose)
+  close.current = onClose
+
+  useLayoutEffect(() => {
+    const el = strip.current!
+    el.scrollLeft = start * el.clientWidth
+  }, [start])
+
+  useEffect(() => {
+    dialog.current!.focus()
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') close.current()
+    }
+    document.addEventListener('keydown', onKey)
+    return () => document.removeEventListener('keydown', onKey)
+  }, [])
+
+  const onScroll = () => {
+    const el = strip.current!
+    const page = Math.round(el.scrollLeft / Math.max(1, el.clientWidth))
+    setIndex(Math.min(images.length - 1, Math.max(0, page)))
+  }
+
+  const many = images.length > 1
+  return createPortal(
+    <div
+      ref={dialog}
+      role="dialog"
+      aria-modal="true"
+      aria-label={many ? `Image ${index + 1} of ${images.length}` : 'Image'}
+      tabIndex={-1}
+      className="image-viewer fixed inset-0 z-50 bg-black text-white outline-none"
+    >
+      <div
+        ref={strip}
+        data-testid="viewer-strip"
+        onScroll={onScroll}
+        className="flex size-full snap-x snap-mandatory overflow-x-auto overscroll-contain"
+      >
+        {images.map((image, i) => (
+          <div
+            key={i}
+            className="flex size-full shrink-0 snap-center snap-always items-center justify-center"
+          >
+            <FallbackImage
+              src={image.src}
+              alt={image.alt}
+              className="max-h-full max-w-full object-contain"
+              fallback={<Placeholder />}
+            />
+          </div>
+        ))}
+      </div>
+      <button
+        type="button"
+        aria-label="Close"
+        onClick={() => {
+          haptic('light')
+          onClose()
+        }}
+        className="absolute top-[max(0.5rem,env(safe-area-inset-top))] right-[max(0.5rem,env(safe-area-inset-right))] flex size-11 touch-manipulation items-center justify-center rounded-full bg-white/15 text-white backdrop-blur active:bg-white/30"
+      >
+        <svg
+          aria-hidden="true"
+          viewBox="0 0 24 24"
+          className="size-6"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth={2}
+          strokeLinecap="round"
+        >
+          <path d="M6 6l12 12M18 6L6 18" />
+        </svg>
+      </button>
+      {many && (
+        <p
+          aria-hidden="true"
+          className="pointer-events-none absolute inset-x-0 bottom-[max(1rem,env(safe-area-inset-bottom))] text-center text-sm font-medium text-white/80 tabular-nums"
+        >
+          {index + 1} / {images.length}
+        </p>
+      )}
+    </div>,
+    document.body
+  )
+}
