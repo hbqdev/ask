@@ -112,6 +112,25 @@ describe('GET /api/chats bearer', () => {
     expect(getChatsPage).toHaveBeenCalledWith(20, 0, 'recent')
   })
 
+  it('in anonymous mode (ENABLE_AUTH=false) an invalid bearer changes nothing: the page as before, no bearer check', async () => {
+    vi.stubEnv('ENABLE_AUTH', 'false')
+    vi.mocked(getCurrentUser).mockResolvedValue(null)
+
+    const res = await GET(
+      getRequest('?withCount=1', { authorization: 'Bearer bad' })
+    )
+
+    expect(res.status).toBe(200)
+    expect(await res.json()).toEqual({
+      chats: [],
+      nextOffset: null,
+      badges: {},
+      total: 0
+    })
+    expect(getChatsPage).toHaveBeenCalledWith(20, 0, 'recent')
+    expect(getCurrentUser).not.toHaveBeenCalled()
+  })
+
   it('a request without Authorization keeps the guest 200 body and never resolves the bearer', async () => {
     const res = await GET(getRequest(''))
 
