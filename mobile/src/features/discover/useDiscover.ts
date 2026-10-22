@@ -30,6 +30,11 @@ export type Discover = {
   loadMore(): Promise<void>
   /** Loads the topic again from page 1, whatever the cache holds. */
   refresh(): Promise<void>
+  /**
+   * Repeats the load that failed last: the next page after a failed
+   * loadMore, page 1 after a failed first load or refresh.
+   */
+  retry(): Promise<void>
 }
 
 // Each page costs the server ~12 SearXNG queries plus degoog, so paging stops
@@ -64,6 +69,8 @@ type State = TopicList & {
   topic: Topic
   status: DiscoverStatus
   error?: string
+  /** Which load the error is from: page 1, or a next page (loadMore). */
+  failed?: 'first' | 'next'
 }
 
 /** What a topic shows before any request: its cached list, if any. */
@@ -140,7 +147,8 @@ export function useDiscover(topic: Topic): Discover {
     setState(s => ({
       ...s,
       status: s.items.length ? 'refreshing' : 'loading',
-      error: undefined
+      error: undefined,
+      failed: undefined
     }))
     try {
       const page = await fetchDiscoverPage(client, topic, 1)
@@ -149,7 +157,12 @@ export function useDiscover(topic: Topic): Discover {
       commit(withPage(fresh, 1, page))
     } catch (error) {
       if (mine !== generation.current) return
-      setState(s => ({ ...s, status: 'error', error: errorMessage(error) }))
+      setState(s => ({
+        ...s,
+        status: 'error',
+        error: errorMessage(error),
+        failed: 'first'
+      }))
     }
   }, [client, topic, commit])
 
@@ -182,11 +195,28 @@ export function useDiscover(topic: Topic): Discover {
       commit(withPage(base, base.nextPage, page))
     } catch (error) {
       if (mine !== generation.current) return
-      setState(s => ({ ...s, status: 'error', error: errorMessage(error) }))
+      setState(s => ({
+        ...s,
+        status: 'error',
+        error: errorMessage(error),
+        failed: 'next'
+      }))
     } finally {
       if (loadingMoreIn.current === mine) loadingMoreIn.current = null
     }
   }, [client, topic, commit])
+
+  const retry = useCallback(async () => {
+    if (stateRef.current.failed !== 'next') return loadFirstPage()
+    // The failure stops showing while the page loads again.
+    setState(s => ({
+      ...s,
+      status: 'ready',
+      error: undefined,
+      failed: undefined
+    }))
+    return loadMore()
+  }, [loadFirstPage, loadMore])
 
   // Another topic's items are never shown, even for one render.
   const current = state.topic === topic ? state : initialState(topic)
@@ -196,6 +226,7 @@ export function useDiscover(topic: Topic): Discover {
     error: current.error,
     hasMore: current.hasMore,
     loadMore,
-    refresh: loadFirstPage
+    refresh: loadFirstPage,
+    retry
   }
 }

@@ -10,7 +10,15 @@ import {
 } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import type { FunctionComponent } from 'react'
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import {
+  afterEach,
+  beforeEach,
+  describe,
+  expect,
+  it,
+  vi,
+  type MockInstance
+} from 'vitest'
 
 import { Tabs } from '@/app/Tabs'
 import { haptic } from '@/core/haptics'
@@ -77,6 +85,7 @@ function feed(topic: Topic, over: Partial<Discover> = {}): Discover {
     hasMore: false,
     loadMore: vi.fn(async () => {}),
     refresh: vi.fn(async () => {}),
+    retry: vi.fn(async () => {}),
     ...over
   }
 }
@@ -86,14 +95,27 @@ let feeds: Map<Topic, Discover>
 
 const HOME = { key: 'tabs', render: () => <DiscoverScreen /> }
 
+/** Every addEventListener call, with the element it was made on. */
+let addListener: MockInstance<EventTarget['addEventListener']>
+
+/** Whether `el` listens for touches: the pull to refresh is bound to it. */
+const listensForTouch = (el: Element) =>
+  addListener.mock.calls.some(
+    ([type], i) => type === 'touchstart' && addListener.mock.contexts[i] === el
+  )
+
 /**
- * Waits for the feed, which shows once the stored topic loads (outside act),
- * and then for its effects: the pull and the end-of-feed watch bind in them,
- * and a busy run can show the DOM before they have run.
+ * Waits for the feed and then for its effects to have run. The feed shows
+ * once the stored topic loads, an update outside act: React puts it on the
+ * page at once but runs its effects in a later task, so the page can be
+ * there before the pull (and the end-of-feed watch, in the same commit's
+ * effects) are bound. The pull's touch listener on the scroller is what
+ * says they have run.
  */
 async function shown() {
   await screen.findByRole('radiogroup', { name: 'Topics' })
-  await act(async () => {})
+  const scroller = screen.getByTestId('discover-scroll')
+  await waitFor(() => expect(listensForTouch(scroller)).toBe(true))
 }
 
 /** The screen as the stack's root, once the stored topic has loaded. */
@@ -160,6 +182,7 @@ beforeEach(() => {
   prefsData.clear()
   vi.clearAllMocks()
   feeds = new Map()
+  addListener = vi.spyOn(EventTarget.prototype, 'addEventListener')
   vi.mocked(useDiscover).mockImplementation(topic => {
     if (!feeds.has(topic)) feeds.set(topic, feed(topic))
     return feeds.get(topic)!
@@ -416,7 +439,8 @@ describe('DiscoverScreen states', () => {
     expect(alert).toHaveTextContent('Couldn’t load the news')
     expect(alert).toHaveTextContent('Network error. Check your connection.')
     fireEvent.click(within(alert).getByRole('button', { name: 'Retry' }))
-    expect(tech.refresh).toHaveBeenCalledOnce()
+    expect(tech.retry).toHaveBeenCalledOnce()
+    expect(tech.refresh).not.toHaveBeenCalled()
   })
 
   it('keeps the stories under a banner when a later load fails', async () => {
@@ -427,7 +451,8 @@ describe('DiscoverScreen states', () => {
     expect(screen.getByTestId('discover-lead')).toBeInTheDocument()
     expect(screen.getAllByRole('listitem')).toHaveLength(2)
     fireEvent.click(within(alert).getByRole('button', { name: 'Retry' }))
-    expect(tech.refresh).toHaveBeenCalledOnce()
+    expect(tech.retry).toHaveBeenCalledOnce()
+    expect(tech.refresh).not.toHaveBeenCalled()
   })
 
   it('says when a topic has no stories, and offers a refresh', async () => {

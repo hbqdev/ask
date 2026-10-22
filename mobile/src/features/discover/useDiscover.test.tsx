@@ -587,4 +587,106 @@ describe('useDiscover', () => {
       expect(urls(result.current.items)).toEqual(pageUrls('tech', 1))
     })
   })
+
+  describe('retry', () => {
+    it('after a failed next page asks for that page again, not page 1', async () => {
+      server.on('tech', 2, () => json({ message: 'boom' }, 500))
+      const { result } = renderDiscover()
+      await waitFor(() => expect(result.current.status).toBe('ready'))
+      await act(() => result.current.loadMore())
+      expect(result.current.status).toBe('error')
+
+      const page2 = deferred<Response>()
+      server.on('tech', 2, () => page2.promise)
+      let retried!: Promise<void>
+      act(() => {
+        retried = result.current.retry()
+      })
+      // The failure is no longer shown while the page loads again.
+      expect(result.current.status).toBe('ready')
+      expect(result.current.error).toBeUndefined()
+      await act(async () => {
+        page2.resolve(json({ blogs: defaultPage('tech', 2) }))
+        await retried
+      })
+      expect(urls(result.current.items)).toEqual([
+        ...pageUrls('tech', 1),
+        ...pageUrls('tech', 2)
+      ])
+      expect(server.requests()).toEqual(['tech:1', 'tech:2', 'tech:2'])
+    })
+
+    it('shows the failure again when the retried page fails too', async () => {
+      server.on('tech', 2, () => json({ message: 'boom' }, 500))
+      server.on('tech', 2, () => json({ message: 'boom' }, 502))
+      const { result } = renderDiscover()
+      await waitFor(() => expect(result.current.status).toBe('ready'))
+      await act(() => result.current.loadMore())
+      await act(() => result.current.retry())
+      expect(result.current.status).toBe('error')
+      expect(result.current.error).toBe('Request failed (502)')
+      expect(server.requests()).toEqual(['tech:1', 'tech:2', 'tech:2'])
+    })
+
+    it('after a failed page 1 asks for page 1 again', async () => {
+      server.on('tech', 1, () => json({ message: 'boom' }, 500))
+      const { result } = renderDiscover()
+      await waitFor(() => expect(result.current.status).toBe('error'))
+      await act(() => result.current.retry())
+      expect(result.current.status).toBe('ready')
+      expect(urls(result.current.items)).toEqual(pageUrls('tech', 1))
+      expect(server.requests()).toEqual(['tech:1', 'tech:1'])
+    })
+
+    it('after a failed refresh of a loaded list starts again from page 1', async () => {
+      const { result } = renderDiscover()
+      await waitFor(() => expect(result.current.status).toBe('ready'))
+      await act(() => result.current.loadMore())
+      server.on('tech', 1, () => json({ message: 'boom' }, 500))
+      await act(() => result.current.refresh())
+      expect(result.current.status).toBe('error')
+
+      await act(() => result.current.retry())
+      expect(result.current.status).toBe('ready')
+      expect(urls(result.current.items)).toEqual(pageUrls('tech', 1))
+      expect(server.requests()).toEqual([
+        'tech:1',
+        'tech:2',
+        'tech:1',
+        'tech:1'
+      ])
+    })
+
+    it('retries the latest failure: a failed refresh after a failed page', async () => {
+      server.on('tech', 2, () => json({ message: 'boom' }, 500))
+      const { result } = renderDiscover()
+      await waitFor(() => expect(result.current.status).toBe('ready'))
+      await act(() => result.current.loadMore())
+      server.on('tech', 1, () => json({ message: 'boom' }, 500))
+      await act(() => result.current.refresh())
+
+      await act(() => result.current.retry())
+      expect(server.requests()).toEqual([
+        'tech:1',
+        'tech:2',
+        'tech:1',
+        'tech:1'
+      ])
+      expect(urls(result.current.items)).toEqual(pageUrls('tech', 1))
+    })
+
+    it('after a failed page loaded nothing yet, asks for that page again', async () => {
+      server.on('tech', 1, () => json({ blogs: [] }))
+      server.on('tech', 2, () => json({ message: 'boom' }, 500))
+      const { result } = renderDiscover()
+      await waitFor(() => expect(result.current.status).toBe('ready'))
+      await act(() => result.current.loadMore())
+      expect(result.current.status).toBe('error')
+      expect(result.current.items).toEqual([])
+
+      await act(() => result.current.retry())
+      expect(urls(result.current.items)).toEqual(pageUrls('tech', 2))
+      expect(server.requests()).toEqual(['tech:1', 'tech:2', 'tech:2'])
+    })
+  })
 })

@@ -13,16 +13,15 @@ import {
   useRef,
   useState,
   type FormEvent,
-  type ReactNode,
   type RefObject
 } from 'react'
 
 import { useSelectTab, useTabActive } from '@/app/Tabs'
 import { useStack } from '@/core/nav/stack'
 import { ConfirmSheet } from '@/core/ui/ConfirmSheet'
+import { PullScroller } from '@/core/ui/PullScroller'
 import { Sheet } from '@/core/ui/Sheet'
 import { TextPromptSheet } from '@/core/ui/TextPromptSheet'
-import { usePullToRefresh } from '@/core/ui/usePullToRefresh'
 import { ChatRowItem } from '@/features/library/ChatRowItem'
 import { groupByDate } from '@/features/library/group-by-date'
 import {
@@ -103,7 +102,11 @@ function LibraryList({
         onSort={changeSort}
         search={search}
       />
-      <PullScroller scroller={scroller} onRefresh={library.refresh}>
+      <PullScroller
+        scroller={scroller}
+        onRefresh={library.refresh}
+        testId="library"
+      >
         {searching ? (
           <SearchResults search={search} onOpen={open} />
         ) : (
@@ -268,70 +271,6 @@ function LibraryHeader({
         </div>
       </Sheet>
     </header>
-  )
-}
-
-// --- Pull to refresh ------------------------------------------------------------
-
-/**
- * The scroller, with pull to refresh. The pull is state here, not in the
- * screen: each touchmove renders only this wrapper and the indicator, while
- * `children` (the same element as before) is not rendered again. The scroller
- * stays mounted for the screen's whole life, as the pull hook binds to it once.
- */
-function PullScroller({
-  scroller,
-  onRefresh,
-  children
-}: {
-  scroller: RefObject<HTMLDivElement | null>
-  onRefresh: () => Promise<void>
-  children: ReactNode
-}) {
-  const { pull, refreshing } = usePullToRefresh(scroller, onRefresh)
-  // Back at rest (or held while refreshing), the list settles with a
-  // transition; under the finger it follows without one.
-  const settling = pull === 0 || refreshing
-  return (
-    <div
-      ref={scroller}
-      data-testid="library-scroll"
-      className="relative min-h-0 flex-1 overflow-y-auto overscroll-contain"
-    >
-      <PullIndicator pull={pull} refreshing={refreshing} />
-      <div
-        data-testid="library-content"
-        className={`relative bg-background pb-6 ${settling ? 'pull-settle' : ''}`}
-        style={pull ? { transform: `translate3d(0, ${pull}px, 0)` } : undefined}
-      >
-        {children}
-      </div>
-    </div>
-  )
-}
-
-function PullIndicator({
-  pull,
-  refreshing
-}: {
-  pull: number
-  refreshing: boolean
-}) {
-  return (
-    <div
-      aria-hidden={!refreshing}
-      className="absolute inset-x-0 top-0 flex h-16 items-center justify-center"
-      style={{ opacity: refreshing ? 1 : Math.min(1, pull / 64) }}
-    >
-      <span
-        role={refreshing ? 'status' : undefined}
-        aria-label={refreshing ? 'Refreshing' : undefined}
-        className={`size-6 rounded-full border-2 border-foreground/20 border-t-foreground/70 ${
-          refreshing ? 'animate-spin' : ''
-        }`}
-        style={refreshing ? undefined : { transform: `rotate(${pull * 4}deg)` }}
-      />
-    </div>
   )
 }
 

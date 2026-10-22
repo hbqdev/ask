@@ -240,10 +240,10 @@ body {
   }
 }
 
-/* --- Library ----------------------------------------------------------------
-   Pulled down, the list follows the finger with no transition; released (or
-   held while refreshing) it settles on the navigation curve. The search field
-   has its own clear button, so WebKit's is hidden. */
+/* --- Pull to refresh and the Library -----------------------------------------
+   Pulled down, a list (PullScroller) follows the finger with no transition;
+   released (or held while refreshing) it settles on the navigation curve. The
+   Library's search field has its own clear button, so WebKit's is hidden. */
 @media (prefers-reduced-motion: no-preference) {
   .pull-settle {
     transition: transform var(--nav-duration) var(--nav-ease);

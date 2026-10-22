@@ -9,14 +9,13 @@ import {
   useEffect,
   useLayoutEffect,
   useRef,
-  type ReactNode,
   type RefObject
 } from 'react'
 
 import { useTabActive } from '@/app/Tabs'
 import { haptic } from '@/core/haptics'
 import { useStack } from '@/core/nav/stack'
-import { usePullToRefresh } from '@/core/ui/usePullToRefresh'
+import { PullScroller } from '@/core/ui/PullScroller'
 import { TOPICS, type Topic } from '@/features/discover/discover-api'
 import { useDiscoverTopic } from '@/features/discover/discover-topic'
 import { DiscoverLeadCard, DiscoverRow } from '@/features/discover/DiscoverCard'
@@ -88,7 +87,11 @@ function DiscoverFeed({
         <Title />
         <TopicChips topic={topic} onTopic={changeTopic} />
       </header>
-      <PullScroller scroller={scroller} onRefresh={discover.refresh}>
+      <PullScroller
+        scroller={scroller}
+        onRefresh={discover.refresh}
+        testId="discover"
+      >
         {/* Memoized on these fields (all stable between changes), so the
             feed does not render again for a pull. */}
         <Feed
@@ -98,6 +101,7 @@ function DiscoverFeed({
           hasMore={discover.hasMore}
           loadMore={discover.loadMore}
           refresh={discover.refresh}
+          retry={discover.retry}
           scroller={scroller}
           onOpen={openLink}
           onSummarize={summarize}
@@ -155,75 +159,11 @@ function TopicChips({
   )
 }
 
-// --- Pull to refresh ------------------------------------------------------------
-
-/**
- * The scroller, with pull to refresh. The pull is state here, not in the
- * screen: each touchmove renders only this wrapper and the indicator, while
- * `children` (the same element as before) is not rendered again. The scroller
- * stays mounted for the screen's whole life, as the pull hook binds to it once.
- */
-function PullScroller({
-  scroller,
-  onRefresh,
-  children
-}: {
-  scroller: RefObject<HTMLDivElement | null>
-  onRefresh: () => Promise<void>
-  children: ReactNode
-}) {
-  const { pull, refreshing } = usePullToRefresh(scroller, onRefresh)
-  // Back at rest (or held while refreshing), the feed settles with a
-  // transition; under the finger it follows without one.
-  const settling = pull === 0 || refreshing
-  return (
-    <div
-      ref={scroller}
-      data-testid="discover-scroll"
-      className="relative min-h-0 flex-1 overflow-y-auto overscroll-contain"
-    >
-      <PullIndicator pull={pull} refreshing={refreshing} />
-      <div
-        data-testid="discover-content"
-        className={`relative bg-background pb-6 ${settling ? 'pull-settle' : ''}`}
-        style={pull ? { transform: `translate3d(0, ${pull}px, 0)` } : undefined}
-      >
-        {children}
-      </div>
-    </div>
-  )
-}
-
-function PullIndicator({
-  pull,
-  refreshing
-}: {
-  pull: number
-  refreshing: boolean
-}) {
-  return (
-    <div
-      aria-hidden={!refreshing}
-      className="absolute inset-x-0 top-0 flex h-16 items-center justify-center"
-      style={{ opacity: refreshing ? 1 : Math.min(1, pull / 64) }}
-    >
-      <span
-        role={refreshing ? 'status' : undefined}
-        aria-label={refreshing ? 'Refreshing' : undefined}
-        className={`size-6 rounded-full border-2 border-foreground/20 border-t-foreground/70 ${
-          refreshing ? 'animate-spin' : ''
-        }`}
-        style={refreshing ? undefined : { transform: `rotate(${pull * 4}deg)` }}
-      />
-    </div>
-  )
-}
-
 // --- The feed -------------------------------------------------------------------
 
 type FeedProps = Pick<
   Discover,
-  'items' | 'status' | 'error' | 'hasMore' | 'loadMore' | 'refresh'
+  'items' | 'status' | 'error' | 'hasMore' | 'loadMore' | 'refresh' | 'retry'
 > & {
   scroller: RefObject<HTMLDivElement | null>
   onOpen: (url: string) => void
@@ -237,6 +177,7 @@ const Feed = memo(function Feed({
   hasMore,
   loadMore,
   refresh,
+  retry,
   scroller,
   onOpen,
   onSummarize
@@ -283,7 +224,7 @@ const Feed = memo(function Feed({
           <p className="text-sm text-muted-foreground">{error}</p>
           <button
             type="button"
-            onClick={() => void refresh()}
+            onClick={() => void retry()}
             className={`${PILL} bg-foreground text-background`}
           >
             Retry
@@ -328,7 +269,7 @@ const Feed = memo(function Feed({
           <p className="min-w-0 flex-1">{error}</p>
           <button
             type="button"
-            onClick={() => void refresh()}
+            onClick={() => void retry()}
             className="min-h-11 shrink-0 touch-manipulation rounded-full px-3 font-semibold active:opacity-50"
           >
             Retry
