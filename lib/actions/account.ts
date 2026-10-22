@@ -47,7 +47,10 @@ export async function deleteAccount(): Promise<{
 
   // Every DB step runs before the auth user is deleted, the point of no
   // return. A failure in any of them returns an error with the account and
-  // its upload files intact, so the user stays signed in and can retry.
+  // its upload files intact, so the user stays signed in and can retry. The
+  // steps are not one transaction: those that ran before a failure (e.g. the
+  // memories and settings) stay done, so a failed deletion may already have
+  // removed some data, and a retry finishes the rest.
   try {
     await clearMemories(user.id)
   } catch (error) {

@@ -1,7 +1,8 @@
 // The Ask tab: the mark, "Ask anything" and the composer. A typed question
 // (with any attached files) opens a new thread that asks it; an ask:// link
-// or an item shared from another app (Share to Ask) only fills the box. The next chat's id is made up front, so attachments
-// upload under the chat they will be asked in, as on the web.
+// or an item shared from another app (Share to Ask) only fills the box. The
+// next chat's id is made up front, so attachments upload under the chat they
+// will be asked in, as on the web.
 
 import { useCallback, useState } from 'react'
 

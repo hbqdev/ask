@@ -3,7 +3,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import { Tabs, type TabSpec } from '@/app/Tabs'
 import type { AuthStorage } from '@/core/auth/preferences-storage'
-import { E2E_SCREEN_KEY, parseE2eScreen, useE2eScreen } from '@/core/e2e-screen'
+import { E2E_SCREEN_KEY, parseE2eScreen, useE2eScreen } from '@/app/e2e-screen'
 import { StackProvider, useStack } from '@/core/nav/stack'
 import { memoryStorage } from '@/test/memory-storage'
 
