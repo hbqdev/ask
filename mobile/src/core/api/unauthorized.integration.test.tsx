@@ -276,8 +276,7 @@ describe('a server 401', () => {
     renderApp(supabase, { loads: 0 })
     await screen.findByText('Library')
     fetchMock.mockImplementation(async () => unauthorized())
-    const send = (path: string) =>
-      api!.client.fetch(path).then(r => r.status)
+    const send = (path: string) => api!.client.fetch(path).then(r => r.status)
     const flush = async () => {
       for (let i = 0; i < 10; i++) await act(async () => {})
     }

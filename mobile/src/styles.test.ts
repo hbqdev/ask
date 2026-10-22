@@ -291,7 +291,9 @@ describe('tap targets', () => {
     // absolute / fixed / sticky on the same control; in the components layer
     // the utility wins, and those are containing blocks for the area too.
     const layer = atBlock('@layer components')
-    expect(layer).toMatch(/(^|\})\s*\.hit-target\s*\{\s*position:\s*relative;?\s*\}/)
+    expect(layer).toMatch(
+      /(^|\})\s*\.hit-target\s*\{\s*position:\s*relative;?\s*\}/
+    )
     expect(layer).toMatch(/\.hit-target::after\s*\{/)
     // The chip's cap stays unlayered, so it beats the area's height.
     expect(layer).not.toContain('citation-chip')
@@ -300,9 +302,9 @@ describe('tap targets', () => {
   it('no .hit-target control draws its own ::after, constants included (an after: utility would move its area)', () => {
     const constants = classConstants()
     expect(constants.get('SEPARATOR')).toContain('after:')
-    expect(
-      sourceFindings(text => hitTargetWithAfter(text, constants))
-    ).toEqual([])
+    expect(sourceFindings(text => hitTargetWithAfter(text, constants))).toEqual(
+      []
+    )
   })
 
   it('the ::after scan sees through class constants', () => {
@@ -310,7 +312,9 @@ describe('tap targets', () => {
       ['SEP', 'after:absolute after:h-px'],
       ['ROUND', 'size-9 rounded-full']
     ])
-    expect(hitTargetWithAfter(`'hit-target after:left-4'`, constants)).toHaveLength(1)
+    expect(
+      hitTargetWithAfter(`'hit-target after:left-4'`, constants)
+    ).toHaveLength(1)
     expect(hitTargetWithAfter('`hit-target ${SEP}`', constants)).toHaveLength(1)
     expect(hitTargetWithAfter('`${ROUND} hit-target`', constants)).toEqual([])
     expect(hitTargetWithAfter(`'hit-target size-9'`, constants)).toEqual([])
@@ -340,8 +344,9 @@ function hitTargetWithAfter(
 ): string[] {
   return classStrings(text)
     .map(s =>
-      s.replace(/\$\{([A-Z][A-Z0-9_]*)\}/g, (all, name: string) =>
-        constants.get(name) ?? all
+      s.replace(
+        /\$\{([A-Z][A-Z0-9_]*)\}/g,
+        (all, name: string) => constants.get(name) ?? all
       )
     )
     .filter(s => /\bhit-target\b/.test(s) && /\bafter:/.test(s))
@@ -444,8 +449,8 @@ describe('one colour system in the sources', () => {
       `'bg-red-500 text-white'`,
       `"text-white px-2 bg-mark-blue"`,
       '`rounded bg-red-500/90 text-white`',
-      '`px-2 ${on ? \'bg-red-500\' : \'bg-muted\'} text-white`',
-      '`${on ? \'text-white\' : \'\'} p-1 bg-[#3694f2]`'
+      "`px-2 ${on ? 'bg-red-500' : 'bg-muted'} text-white`",
+      "`${on ? 'text-white' : ''} p-1 bg-[#3694f2]`"
     ]) {
       expect(whiteOnLowFill(bad)).toHaveLength(1)
     }

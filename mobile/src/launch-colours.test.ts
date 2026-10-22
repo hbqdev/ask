@@ -122,7 +122,13 @@ describe('the launch mark', () => {
       kids(el, 'constraints').flatMap(c => kids(c, 'constraint'))
     const attrs = (c: Element) =>
       Object.fromEntries(
-        ['firstItem', 'firstAttribute', 'secondItem', 'secondAttribute', 'constant']
+        [
+          'firstItem',
+          'firstAttribute',
+          'secondItem',
+          'secondAttribute',
+          'constant'
+        ]
           .filter(a => c.hasAttribute(a))
           .map(a => [a, c.getAttribute(a)])
       )

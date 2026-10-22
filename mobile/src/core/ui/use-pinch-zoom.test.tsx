@@ -392,7 +392,9 @@ describe('usePinchZoom', () => {
     const { unmount } = setup()
     unmount()
     const types = remove.mock.calls.map(([type]) => type)
-    expect(types).toEqual(expect.arrayContaining(['resize', 'orientationchange']))
+    expect(types).toEqual(
+      expect.arrayContaining(['resize', 'orientationchange'])
+    )
   })
 
   it('does not pan an unzoomed image', () => {
