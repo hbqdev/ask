@@ -1,8 +1,11 @@
 // Simulator E2E only: a screen seeded in Capacitor Preferences before launch
 // is opened once the app is signed in, so a screenshot run needs no taps (it
-// cannot tap over SSH). The run seeds it with
-//   xcrun simctl spawn <udid> defaults write win.hbqnexus.ask \
-//     CapacitorStorage.e2e-screen -string 'library'
+// cannot tap over SSH). The run writes `CapacitorStorage.e2e-screen` (e.g.
+// 'library') into the app container's
+// `Library/Preferences/win.hbqnexus.ask.plist`
+// (`xcrun simctl get_app_container <udid> win.hbqnexus.ask data`) while the
+// app is terminated. Never use `simctl spawn … defaults write`: cfprefsd
+// caching made a seeded question run twice (duplicate lab chats).
 // A default or device build never reads the key.
 import { useEffect, useRef } from 'react'
 
@@ -14,6 +17,7 @@ import {
 import { isE2eAutoSend } from '@/core/config'
 import { useStack, type ScreenEntry } from '@/core/nav/stack'
 import { openMemory } from '@/features/settings/MemoryScreen'
+import { openPrivacy } from '@/features/settings/PrivacyScreen'
 
 /** The Preferences key that holds the seeded screen. */
 export const E2E_SCREEN_KEY = 'e2e-screen'
@@ -37,6 +41,10 @@ const E2E_SCREENS = {
   'settings/memory': nav => {
     nav.selectTab('settings')
     openMemory(nav.push)
+  },
+  'settings/privacy': nav => {
+    nav.selectTab('settings')
+    openPrivacy(nav.push)
   }
 } satisfies Record<string, ((nav: E2eNav) => void) | null>
 

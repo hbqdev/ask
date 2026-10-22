@@ -1,5 +1,5 @@
 import { act, fireEvent, render, screen, within } from '@testing-library/react'
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { useApi, type Api } from '@/core/api/ApiProvider'
 import { createApiClient } from '@/core/api/client'
@@ -100,12 +100,30 @@ beforeEach(() => {
   resetModelChoice()
 })
 
+afterEach(() => {
+  delete (Element.prototype as Partial<Element>).scrollIntoView
+})
+
 describe('OptionsSheet', () => {
   it('renders nothing and loads nothing when closed', () => {
     const fetchImpl = serve({ models: async () => json(DATA) })
     setup({ open: false })
     expect(screen.queryByRole('dialog')).toBeNull()
     expect(fetchImpl).not.toHaveBeenCalled()
+  })
+
+  it('opening scrolls the checked model into view', async () => {
+    const scrollIntoView = vi.fn()
+    // jsdom has no scrollIntoView.
+    Element.prototype.scrollIntoView = scrollIntoView
+    serve({ models: async () => json(DATA) })
+    setup()
+    await screen.findByRole('radiogroup', { name: 'Model' })
+    expect(scrollIntoView).toHaveBeenCalledExactlyOnceWith({ block: 'center' })
+    expect(scrollIntoView.mock.contexts[0]).toHaveAttribute(
+      'aria-checked',
+      'true'
+    )
   })
 
   it('closes from the sheet', () => {

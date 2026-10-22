@@ -1,9 +1,12 @@
 // Simulator E2E only: a question seeded in Capacitor Preferences before
 // launch is asked once the app is signed in and its settings have loaded.
 // (`simctl openurl` with the ask:// scheme stops at iOS's "Open in Ask?"
-// prompt, which cannot be tapped over SSH.) The E2E run seeds it with
-//   xcrun simctl spawn <udid> defaults write win.hbqnexus.ask \
-//     CapacitorStorage.e2e-ask -string '<question>'
+// prompt, which cannot be tapped over SSH.) The run writes
+// `CapacitorStorage.e2e-ask` (the question) into the app container's
+// `Library/Preferences/win.hbqnexus.ask.plist`
+// (`xcrun simctl get_app_container <udid> win.hbqnexus.ask data`) while the
+// app is terminated. Never use `simctl spawn … defaults write`: cfprefsd
+// caching made a seeded question run twice (duplicate lab chats).
 // A default or device build never reads the key.
 import { useEffect, useRef } from 'react'
 

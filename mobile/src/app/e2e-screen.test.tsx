@@ -1,3 +1,6 @@
+import { readFileSync } from 'node:fs'
+import { resolve } from 'node:path'
+
 import { act, render, renderHook, screen } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
@@ -68,12 +71,16 @@ function selectedTab() {
 }
 
 describe('parseE2eScreen', () => {
-  it.each(['ask', 'discover', 'library', 'settings', 'settings/memory'])(
-    'accepts %s',
-    value => {
-      expect(parseE2eScreen(value)).toBe(value)
-    }
-  )
+  it.each([
+    'ask',
+    'discover',
+    'library',
+    'settings',
+    'settings/memory',
+    'settings/privacy'
+  ])('accepts %s', value => {
+    expect(parseE2eScreen(value)).toBe(value)
+  })
 
   it('trims the value', () => {
     expect(parseE2eScreen('  library \n')).toBe('library')
@@ -188,6 +195,16 @@ describe('useE2eScreen', () => {
     expect(storage.data.has(E2E_SCREEN_KEY)).toBe(false)
   })
 
+  it('opens Settings, then the Privacy screen, for "settings/privacy"', async () => {
+    const storage = memoryStorage({ [E2E_SCREEN_KEY]: 'settings/privacy' })
+    renderShell({ enabled: true, storage })
+    await settle()
+
+    expect(selectedTab()).toBe('Settings')
+    expect(stackKeys).toEqual(['tabs', 'settings:privacy'])
+    expect(storage.data.has(E2E_SCREEN_KEY)).toBe(false)
+  })
+
   it('pushes nothing for a tab', async () => {
     const storage = memoryStorage({ [E2E_SCREEN_KEY]: 'settings' })
     renderShell({ enabled: true, storage })
@@ -240,5 +257,23 @@ describe('useE2eScreen', () => {
     renderShell({ enabled: true })
     await settle()
     expect(Preferences.get).toHaveBeenCalledWith({ key: E2E_SCREEN_KEY })
+  })
+})
+
+describe('e2e-screen.ts notes', () => {
+  const source = readFileSync(resolve(__dirname, 'e2e-screen.ts'), 'utf8')
+
+  it('never tells a run to seed with defaults write, only warns against it (cfprefsd ran a seed twice)', () => {
+    // The only mention is the warning: no `defaults write <domain> <key>`.
+    expect(source.match(/defaults write/g)).toEqual(['defaults write'])
+    expect(source).toContain('Never use `simctl spawn … defaults write`')
+    expect(source).not.toMatch(/defaults write win\.hbqnexus|-string/)
+  })
+
+  it('tells a run to write the app container’s plist while the app is terminated', () => {
+    expect(source).toContain('Library/Preferences/win.hbqnexus.ask.plist')
+    expect(source).toContain(
+      'xcrun simctl get_app_container <udid> win.hbqnexus.ask data'
+    )
   })
 })

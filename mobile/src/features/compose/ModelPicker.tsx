@@ -4,7 +4,7 @@
 // through one store every picker shares (model-choice.ts). Used by the
 // composer's options sheet and by Settings.
 
-import { useEffect, useId, useState, useSyncExternalStore } from 'react'
+import { useEffect, useId, useRef, useState, useSyncExternalStore } from 'react'
 
 import { useTabActive } from '@/app/Tabs'
 import { useApi } from '@/core/api/ApiProvider'
@@ -26,14 +26,26 @@ export const MODEL_SAVE_ERROR = 'Couldn’t change the model. Try again.'
 /**
  * The model picker. It loads the list when it mounts and again each time its
  * tab is shown (the pick may have changed elsewhere meanwhile), keeping the
- * list it has while a reload is on its way.
+ * list it has while a reload is on its way. A list that failed to load offers
+ * Retry. With `revealChecked` (the composer's options sheet), the checked
+ * model is scrolled into view when the list first shows, as a long list in a
+ * sheet would hide it; Settings leaves its page at the top.
  */
-export function ModelPicker() {
+export function ModelPicker({
+  revealChecked = false
+}: {
+  /** Scroll the checked model into view once, when the list first shows. */
+  revealChecked?: boolean
+}) {
   const { client } = useApi()
   const active = useTabActive()
   const modelLabel = useId()
   const [data, setData] = useState<ModelSelectorData | null>(null)
   const [loadFailed, setLoadFailed] = useState(false)
+  // Bumped by Retry, to run the load again.
+  const [attempt, setAttempt] = useState(0)
+  const group = useRef<HTMLDivElement>(null)
+  const scrolled = useRef(false)
   const { selected, saveFailed } = useSyncExternalStore(
     subscribeModelChoice,
     getModelChoice
@@ -58,13 +70,36 @@ export function ModelPicker() {
     return () => {
       live = false
     }
-  }, [client, active])
+  }, [client, active, attempt])
+
+  // Once, when the list first shows: the checked model into view.
+  useEffect(() => {
+    if (!revealChecked || !data || scrolled.current) return
+    scrolled.current = true
+    group.current
+      ?.querySelector<HTMLElement>('[aria-checked="true"]')
+      // Missing where there is no layout (jsdom).
+      ?.scrollIntoView?.({ block: 'center' })
+  }, [revealChecked, data])
 
   if (!data) {
+    if (!loadFailed) {
+      return <p className="px-4 text-sm text-foreground/60">Loading models…</p>
+    }
     return (
-      <p className="px-4 text-sm text-foreground/60">
-        {loadFailed ? MODEL_LOAD_ERROR : 'Loading models…'}
-      </p>
+      <div role="alert" className="flex items-center gap-3 px-4">
+        <p className="flex-1 text-sm text-foreground/60">{MODEL_LOAD_ERROR}</p>
+        <button
+          type="button"
+          onClick={() => {
+            setLoadFailed(false)
+            setAttempt(a => a + 1)
+          }}
+          className="min-h-11 touch-manipulation px-2 text-sm font-semibold text-accent active:opacity-50"
+        >
+          Retry
+        </button>
+      </div>
     )
   }
   if (!data.enabled || !data.hasAvailableModels) return null
@@ -84,6 +119,7 @@ export function ModelPicker() {
         </p>
       )}
       <div
+        ref={group}
         role="radiogroup"
         aria-labelledby={modelLabel}
         className="flex flex-col gap-3"

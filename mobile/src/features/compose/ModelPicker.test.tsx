@@ -1,5 +1,5 @@
 import { act, fireEvent, render, screen, within } from '@testing-library/react'
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { Tabs, type TabSpec } from '@/app/Tabs'
 import { useApi, type Api } from '@/core/api/ApiProvider'
@@ -305,6 +305,112 @@ describe('ModelPicker', () => {
     setup()
     expect(await screen.findByText(MODEL_LOAD_ERROR)).toBeInTheDocument()
     expect(screen.queryByRole('radiogroup', { name: 'Model' })).toBeNull()
+  })
+
+  it('Retry reloads the models', async () => {
+    const models = vi
+      .fn<Route>()
+      .mockResolvedValueOnce(json({ error: 'boom' }, 500))
+    const fetchImpl = serve({ models })
+    setup()
+    const alert = await screen.findByRole('alert')
+    expect(alert).toHaveTextContent(MODEL_LOAD_ERROR)
+    const retry = within(alert).getByRole('button', { name: 'Retry' })
+    // A 44 pt control.
+    expect(retry).toHaveClass('min-h-11')
+
+    const reload = deferred()
+    models.mockReturnValueOnce(reload.promise)
+    fireEvent.click(retry)
+    // The tap shows at once: the loading line, and no second Retry.
+    expect(screen.getByText('Loading models…')).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Retry' })).toBeNull()
+    await act(async () => reload.resolve(json(DATA)))
+    expect(models).toHaveBeenCalledTimes(2)
+    expect(fetchImpl).toHaveBeenCalledTimes(2)
+    expect(modelRadio('Qwen 3')).toHaveAttribute('aria-checked', 'true')
+    expect(screen.queryByText(MODEL_LOAD_ERROR)).toBeNull()
+  })
+
+  it('a Retry that fails shows the error and Retry again', async () => {
+    serve({ models: async () => json({ error: 'boom' }, 500) })
+    setup()
+    fireEvent.click(await screen.findByRole('button', { name: 'Retry' }))
+    expect(await screen.findByRole('alert')).toHaveTextContent(MODEL_LOAD_ERROR)
+    expect(screen.getByRole('button', { name: 'Retry' })).toBeInTheDocument()
+  })
+
+  describe('scrolling the pick into view', () => {
+    const scrollIntoView = vi.fn()
+    beforeEach(() => {
+      // jsdom has no scrollIntoView.
+      Element.prototype.scrollIntoView = scrollIntoView
+    })
+    afterEach(() => {
+      delete (Element.prototype as Partial<Element>).scrollIntoView
+    })
+
+    it('scrolls the checked model into view once', async () => {
+      const fetchImpl = serve({
+        models: async () => json(DATA),
+        save: async () => json({ ok: true, selectedModelKey: 'ollama:gemma' })
+      })
+      render(
+        <Tabs
+          tabs={[
+            { id: 'ask', label: 'Ask', icon: <svg />, render: () => <p /> },
+            {
+              id: 'settings',
+              label: 'Settings',
+              icon: <svg />,
+              render: () => <ModelPicker revealChecked />
+            }
+          ]}
+          initial="settings"
+        />
+      )
+      await screen.findByRole('radiogroup', { name: 'Model' })
+      expect(scrollIntoView).toHaveBeenCalledExactlyOnceWith({
+        block: 'center'
+      })
+      expect(scrollIntoView.mock.contexts[0]).toBe(modelRadio('Qwen 3'))
+
+      // Not again on a pick, nor on the reload when its tab is shown again.
+      await act(async () => fireEvent.click(modelRadio('Gemma')))
+      expect(modelRadio('Gemma')).toHaveAttribute('aria-checked', 'true')
+      await act(async () =>
+        fireEvent.click(screen.getByRole('tab', { name: 'Ask' }))
+      )
+      await act(async () =>
+        fireEvent.click(screen.getByRole('tab', { name: 'Settings' }))
+      )
+      expect(
+        fetchImpl.mock.calls.filter(
+          ([url]) => String(url) === `${BASE}/api/models`
+        )
+      ).toHaveLength(2)
+      expect(scrollIntoView).toHaveBeenCalledOnce()
+    })
+
+    it('leaves the page where it is without revealChecked (Settings opens at its top)', async () => {
+      serve({ models: async () => json(DATA) })
+      setup()
+      await screen.findByRole('radiogroup', { name: 'Model' })
+      expect(modelRadio('Qwen 3')).toHaveAttribute('aria-checked', 'true')
+      expect(scrollIntoView).not.toHaveBeenCalled()
+    })
+
+    it('scrolls nothing while loading or when no model is checked', async () => {
+      const response = deferred()
+      serve({ models: () => response.promise })
+      render(<ModelPicker revealChecked />)
+      expect(scrollIntoView).not.toHaveBeenCalled()
+      await act(async () =>
+        response.resolve(json({ ...DATA, selectedModelKey: 'gone:model' }))
+      )
+      expect(screen.getByRole('radiogroup', { name: 'Model' })).toBeVisible()
+      expect(scrollIntoView).not.toHaveBeenCalled()
+    })
   })
 
   it('ignores a model list that arrives after it unmounted', async () => {

@@ -33,7 +33,8 @@ export function OptionsSheet({
       <div className="flex flex-col gap-6 pb-2">
         <SearchModeField settings={settings} onSettings={onSettings} />
         <SourcesField settings={settings} onSettings={onSettings} />
-        <ModelPicker />
+        {/* A long list would hide the pick below the sheet's fold. */}
+        <ModelPicker revealChecked />
       </div>
     </Sheet>
   )

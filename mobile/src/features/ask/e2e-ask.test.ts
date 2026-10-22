@@ -1,3 +1,6 @@
+import { readFileSync } from 'node:fs'
+import { resolve } from 'node:path'
+
 import { act, renderHook } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
@@ -118,5 +121,23 @@ describe('useE2eAsk', () => {
     renderHook(() => useE2eAsk(vi.fn(), { enabled: true, ready: true }))
     await settle()
     expect(Preferences.get).toHaveBeenCalledWith({ key: E2E_ASK_KEY })
+  })
+})
+
+describe('e2e-ask.ts notes', () => {
+  const source = readFileSync(resolve(__dirname, 'e2e-ask.ts'), 'utf8')
+
+  it('never tells a run to seed with defaults write, only warns against it (cfprefsd ran a seed twice)', () => {
+    // The only mention is the warning: no `defaults write <domain> <key>`.
+    expect(source.match(/defaults write/g)).toEqual(['defaults write'])
+    expect(source).toContain('Never use `simctl spawn … defaults write`')
+    expect(source).not.toMatch(/defaults write win\.hbqnexus|-string/)
+  })
+
+  it('tells a run to write the app container’s plist while the app is terminated', () => {
+    expect(source).toContain('Library/Preferences/win.hbqnexus.ask.plist')
+    expect(source).toContain(
+      'xcrun simctl get_app_container <udid> win.hbqnexus.ask data'
+    )
   })
 })

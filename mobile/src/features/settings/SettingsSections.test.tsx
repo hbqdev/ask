@@ -18,6 +18,7 @@ import {
 import { LIBRARY_CACHE_KEY } from '@/features/library/library-cache'
 import { openMemory } from '@/features/settings/MemoryScreen'
 import { CUSTOM_INSTRUCTIONS_KEY } from '@/features/settings/custom-instructions'
+import { openPrivacy } from '@/features/settings/PrivacyScreen'
 import {
   AboutSection,
   AccountSection,
@@ -42,6 +43,7 @@ import { memoryStorage } from '@/test/memory-storage'
 vi.mock('@/core/api/ApiProvider', () => ({ useApi: vi.fn() }))
 vi.mock('@/core/auth/AuthProvider', () => ({ useAuth: vi.fn() }))
 vi.mock('@/features/settings/MemoryScreen', () => ({ openMemory: vi.fn() }))
+vi.mock('@/features/settings/PrivacyScreen', () => ({ openPrivacy: vi.fn() }))
 
 const prefs = vi.hoisted(() => new Map<string, string>())
 vi.mock('@capacitor/preferences', () => ({
@@ -798,11 +800,19 @@ describe('DataSection', () => {
 
 // --- About ------------------------------------------------------------------
 
+/** About, in the stack its Privacy row pushes onto. */
+const renderAbout = () =>
+  render(
+    <StackProvider root={{ key: 'tabs', render: () => null }}>
+      <AboutSection />
+    </StackProvider>
+  )
+
 describe('AboutSection', () => {
   it('shows the installed app’s version and the server host', async () => {
     app.getInfo.mockResolvedValue({ version: '1.4.0', build: '12' })
     serve()
-    render(<AboutSection />)
+    renderAbout()
     expect(await screen.findByText('1.4.0')).toBeInTheDocument()
     expect(screen.queryByText('0.0.0-test')).toBeNull()
     expect(screen.getByText('ask.test.invalid')).toBeInTheDocument()
@@ -810,9 +820,27 @@ describe('AboutSection', () => {
 
   it('shows the bundled version where the app info is not available (the web)', async () => {
     serve()
-    render(<AboutSection />)
+    renderAbout()
     await flush()
     expect(app.getInfo).toHaveBeenCalled()
     expect(screen.getByText('0.0.0-test')).toBeInTheDocument()
+  })
+
+  it('the Privacy row opens the Privacy screen', async () => {
+    serve()
+    renderAbout()
+    await flush()
+    const row = screen.getByRole('button', { name: 'Privacy' })
+    // Under the version and server, a row like the Memory one (48 pt, over
+    // the 44 pt minimum).
+    expect(screen.getByText('Server').compareDocumentPosition(row)).toBe(
+      Node.DOCUMENT_POSITION_FOLLOWING
+    )
+    expect(row).toHaveClass('min-h-12')
+    expect(row.querySelector('svg[aria-hidden="true"]')).not.toBeNull()
+    expect(openPrivacy).not.toHaveBeenCalled()
+    fireEvent.click(row)
+    expect(openPrivacy).toHaveBeenCalledOnce()
+    expect(openPrivacy).toHaveBeenCalledWith(expect.any(Function))
   })
 })

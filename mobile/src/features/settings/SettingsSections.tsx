@@ -35,6 +35,7 @@ import {
   saveCustomInstructions
 } from '@/features/settings/custom-instructions'
 import { openMemory } from '@/features/settings/MemoryScreen'
+import { openPrivacy } from '@/features/settings/PrivacyScreen'
 import {
   useReadAloud,
   useStopReadingOnLeave
@@ -47,6 +48,24 @@ export const DELETE_ALL_ERROR = 'Couldn’t delete your chats. Try again.'
 
 const ROW_BUTTON = `${GROUP} min-h-12 w-full touch-manipulation px-4 text-base font-medium active:opacity-60`
 const NOTE = 'px-4 pt-2 text-sm'
+
+/** The chevron on a row that opens a screen. */
+function Chevron() {
+  return (
+    <svg
+      aria-hidden="true"
+      viewBox="0 0 24 24"
+      className="size-5 shrink-0 text-foreground/40"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth={2}
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    >
+      <path d="M9 5l7 7-7 7" />
+    </svg>
+  )
+}
 
 // --- Account ----------------------------------------------------------------
 
@@ -416,18 +435,7 @@ export function MemorySection() {
         className={`${ROW_BUTTON} flex items-center gap-3 text-left`}
       >
         <span className="flex-1">Memory and past chats</span>
-        <svg
-          aria-hidden="true"
-          viewBox="0 0 24 24"
-          className="size-5 shrink-0 text-foreground/40"
-          fill="none"
-          stroke="currentColor"
-          strokeWidth={2}
-          strokeLinecap="round"
-          strokeLinejoin="round"
-        >
-          <path d="M9 5l7 7-7 7" />
-        </svg>
+        <Chevron />
       </button>
       <p className={`${NOTE} text-foreground/60`}>
         What Ask remembers about you, and whether it uses your past chats.
@@ -541,12 +549,13 @@ export function DataSection() {
 // --- About ------------------------------------------------------------------
 
 /**
- * The app version and the Ask server it talks to. The version is the
- * installed app's (its bundle version); where that is not available (the
- * web), the version this code was built with.
+ * The app version and the Ask server it talks to, then the way to the Privacy
+ * screen. The version is the installed app's (its bundle version); where that
+ * is not available (the web), the version this code was built with.
  */
 export function AboutSection() {
   const { baseUrl } = useApi()
+  const { push } = useStack()
   const [version, setVersion] = useState(__APP_VERSION__)
   useEffect(() => {
     let current = true
@@ -583,6 +592,14 @@ export function AboutSection() {
           </div>
         ))}
       </dl>
+      <button
+        type="button"
+        onClick={() => openPrivacy(push)}
+        className={`${ROW_BUTTON} mt-3 flex items-center gap-3 text-left`}
+      >
+        <span className="flex-1">Privacy</span>
+        <Chevron />
+      </button>
     </section>
   )
 }
