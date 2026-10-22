@@ -658,6 +658,38 @@ describe('useThread', () => {
     expect(result.current.title).toBe('Streamed title')
   })
 
+  it('reads whether a saved chat is shared from the server', async () => {
+    serve({
+      messages: [
+        () => json({ messages: [user('u1', 'Q')], visibility: 'public' })
+      ]
+    })
+    const { result } = renderThread(false)
+    expect(result.current.savedVisibility).toBeUndefined()
+
+    await waitFor(() => expect(result.current.loading).toBe(false))
+    expect(result.current.savedVisibility).toBe('public')
+  })
+
+  it('has no saved visibility for a new chat, or when the server sends none or another value', async () => {
+    serve({
+      messages: [
+        () => json({ messages: [user('u1', 'Q')] }),
+        () => json({ messages: [user('u1', 'Q')], visibility: 'unlisted' })
+      ]
+    })
+    const { result } = renderThread(false)
+    await waitFor(() => expect(result.current.loading).toBe(false))
+    expect(result.current.savedVisibility).toBeUndefined()
+
+    const other = renderThread(false)
+    await waitFor(() => expect(other.result.current.loading).toBe(false))
+    expect(other.result.current.savedVisibility).toBeUndefined()
+
+    const fresh = renderThread(true)
+    expect(fresh.result.current.savedVisibility).toBeUndefined()
+  })
+
   it('has no saved title for a new chat, or when the server sends none', async () => {
     serve({ messages: [() => json({ messages: [user('u1', 'Q')] })] })
     const { result } = renderThread(false)

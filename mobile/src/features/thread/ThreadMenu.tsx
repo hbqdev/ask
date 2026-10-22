@@ -1,12 +1,18 @@
-// The thread header's "…" menu: rename or delete the open chat. Each change
-// tells the chat list (chats-changed), so the Library shows it; a failure is
-// said in a line under the header that the user can dismiss.
+// The thread header's "…" menu: share the open chat as a public link (and,
+// once shared, copy the link or stop sharing), rename it or delete it. A
+// rename or delete tells the chat list (chats-changed), so the Library shows
+// it. Making the link happens with the menu open, and a failure to make or
+// copy it is said there; any other failure is said in a line under the
+// header that the user can dismiss. A cancelled share sheet is no failure.
 
+import { Clipboard } from '@capacitor/clipboard'
+import { Share } from '@capacitor/share'
 import { useEffect, useRef, useState } from 'react'
 
 import { useApi } from '@/core/api/ApiProvider'
 import { ApiError } from '@/core/api/errors'
 import { emitChatsChanged } from '@/core/chats-events'
+import { haptic } from '@/core/haptics'
 import { ConfirmSheet } from '@/core/ui/ConfirmSheet'
 import { Sheet } from '@/core/ui/Sheet'
 import { TextPromptSheet } from '@/core/ui/TextPromptSheet'
@@ -15,6 +21,11 @@ import {
   deleteChat,
   renameChat
 } from '@/features/library/library-api'
+import {
+  COPIED_MS,
+  SHARE_LINK_ERROR
+} from '@/features/thread/components/MessageActions'
+import { isShareCancelled } from '@/features/thread/share-api'
 
 export type ThreadMenuProps = {
   chatId: string
@@ -24,9 +35,18 @@ export type ThreadMenuProps = {
   onRenamed: (title: string) => void
   /** The chat is gone: leave its screen. */
   onDeleted: () => void
+  /** The chat is public: offer Copy link and Stop sharing. */
+  shared: boolean
+  /** Makes the chat public and resolves with its link. */
+  createLink: () => Promise<string>
+  /** Makes the chat private again. */
+  stopSharing: () => Promise<void>
 }
 
-type Open = 'menu' | 'rename' | 'delete' | null
+type Open = 'menu' | 'rename' | 'delete' | 'unshare' | null
+
+/** Which menu item is making the link. */
+type Making = 'share' | 'copy' | null
 
 const reasonOf = (error: unknown) =>
   error instanceof Error ? error.message : String(error)
@@ -38,14 +58,39 @@ export function ThreadMenu({
   chatId,
   title,
   onRenamed,
-  onDeleted
+  onDeleted,
+  shared,
+  createLink,
+  stopSharing
 }: ThreadMenuProps) {
   const { client } = useApi()
   const [open, setOpen] = useState<Open>(null)
   const [failure, setFailure] = useState<string>()
   // A delete on its way: the menu can't be opened again until it ends.
   const [deleting, setDeleting] = useState(false)
-  const close = () => setOpen(null)
+  // Making the link, a failure said in the menu, and "Copied" after a copy.
+  const [making, setMaking] = useState<Making>(null)
+  const [menuFailure, setMenuFailure] = useState<string>()
+  const [copied, setCopied] = useState(false)
+  const copiedTimer = useRef<ReturnType<typeof setTimeout>>(undefined)
+  useEffect(() => () => clearTimeout(copiedTimer.current), [])
+  // Bumped whenever the menu closes, so a link made after the user closed it
+  // opens no share sheet and says nothing.
+  const menuOpening = useRef(0)
+
+  const close = () => {
+    menuOpening.current++
+    setMaking(null)
+    setOpen(null)
+  }
+
+  const openMenu = () => {
+    setFailure(undefined)
+    setMenuFailure(undefined)
+    clearTimeout(copiedTimer.current)
+    setCopied(false)
+    setOpen('menu')
+  }
 
   // Whether this screen is still up: a delete that lands after the user left
   // must not pop whatever screen is now on top.
@@ -64,6 +109,61 @@ export function ThreadMenu({
       onRenamed(saved)
     } catch (error) {
       setFailure(`Couldn’t rename the chat. ${reasonOf(error)}`)
+    }
+  }
+
+  // The chat's link, made with the menu open; undefined when it failed (said
+  // in the menu) or the menu was closed meanwhile.
+  const makeLink = async (by: Exclude<Making, null>) => {
+    const opening = menuOpening.current
+    setMenuFailure(undefined)
+    setMaking(by)
+    let url: string
+    try {
+      url = await createLink()
+    } catch (error) {
+      if (opening === menuOpening.current) {
+        setMaking(null)
+        setMenuFailure(`Couldn’t create the link. ${reasonOf(error)}`)
+      }
+      return undefined
+    }
+    if (opening !== menuOpening.current) return undefined
+    setMaking(null)
+    return url
+  }
+
+  const shareLink = async () => {
+    const url = await makeLink('share')
+    if (!url) return
+    close()
+    try {
+      await Share.share({ title, url })
+    } catch (error) {
+      if (!isShareCancelled(error)) setFailure(SHARE_LINK_ERROR)
+    }
+  }
+
+  const copyLink = async () => {
+    const url = await makeLink('copy')
+    if (!url) return
+    try {
+      await Clipboard.write({ string: url })
+    } catch {
+      setMenuFailure('Couldn’t copy the link.')
+      return
+    }
+    haptic('success')
+    setCopied(true)
+    clearTimeout(copiedTimer.current)
+    copiedTimer.current = setTimeout(() => setCopied(false), COPIED_MS)
+  }
+
+  const unshare = async () => {
+    try {
+      await stopSharing()
+    } catch (error) {
+      setFailure(`Couldn’t stop sharing. ${reasonOf(error)}`)
     }
   }
 
@@ -90,10 +190,7 @@ export function ThreadMenu({
         aria-label="Chat options"
         aria-busy={deleting || undefined}
         disabled={deleting}
-        onClick={() => {
-          setFailure(undefined)
-          setOpen('menu')
-        }}
+        onClick={openMenu}
         className="flex size-11 shrink-0 touch-manipulation items-center justify-center rounded-full text-foreground/70 active:opacity-50"
       >
         {deleting ? (
@@ -142,18 +239,62 @@ export function ThreadMenu({
         <div className="flex flex-col gap-1 pb-2">
           <button
             type="button"
+            aria-busy={making === 'share' || undefined}
+            disabled={making !== null}
+            onClick={() => void shareLink()}
+            className={`${MENU_ITEM} text-foreground disabled:opacity-50`}
+          >
+            {making === 'share' ? 'Creating link…' : 'Share link'}
+          </button>
+          {shared && (
+            <>
+              <button
+                type="button"
+                aria-busy={making === 'copy' || undefined}
+                disabled={making !== null}
+                onClick={() => void copyLink()}
+                className={`${MENU_ITEM} text-foreground disabled:opacity-50`}
+              >
+                {making === 'copy'
+                  ? 'Creating link…'
+                  : copied
+                    ? 'Copied'
+                    : 'Copy link'}
+              </button>
+              <button
+                type="button"
+                disabled={making !== null}
+                onClick={() => setOpen('unshare')}
+                className={`${MENU_ITEM} text-foreground disabled:opacity-50`}
+              >
+                Stop sharing
+              </button>
+            </>
+          )}
+          <button
+            type="button"
+            disabled={making !== null}
             onClick={() => setOpen('rename')}
-            className={`${MENU_ITEM} text-foreground`}
+            className={`${MENU_ITEM} text-foreground disabled:opacity-50`}
           >
             Rename
           </button>
           <button
             type="button"
+            disabled={making !== null}
             onClick={() => setOpen('delete')}
-            className={`${MENU_ITEM} text-red-600 dark:text-red-400`}
+            className={`${MENU_ITEM} text-red-600 disabled:opacity-50 dark:text-red-400`}
           >
             Delete chat
           </button>
+          {menuFailure && (
+            <p
+              role="alert"
+              className="px-4 pt-1 text-sm text-red-600 dark:text-red-400"
+            >
+              {menuFailure}
+            </p>
+          )}
         </div>
       </Sheet>
       <TextPromptSheet
@@ -163,6 +304,15 @@ export function ThreadMenu({
         maxLength={CHAT_TITLE_MAX_LENGTH}
         confirmLabel="Rename"
         onSubmit={next => void rename(next)}
+        onClose={close}
+      />
+      <ConfirmSheet
+        open={open === 'unshare'}
+        title="Stop sharing this chat?"
+        message="The link will stop working for anyone who has it."
+        confirmLabel="Stop sharing"
+        tone="destructive"
+        onConfirm={() => void unshare()}
         onClose={close}
       />
       <ConfirmSheet

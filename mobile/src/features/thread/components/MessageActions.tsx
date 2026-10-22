@@ -1,30 +1,35 @@
 // The actions under an answer: copy it, share it with the native share sheet,
 // read it aloud, retry the turn, and list its sources. Copy and Share use the
 // same text as the web's Copy (citations as source links, spec fences gone);
-// Share adds the cited URLs. Read aloud is a speaker that turns into a
-// spinner while the audio loads and a stop button while it plays; a tap on
-// either stops.
+// Share adds the cited URLs. In a saved chat, Share first asks whether to
+// share the answer or a public link to the chat; the link is made with that
+// choice open, and a failure to make it is said there. Read aloud is a
+// speaker that turns into a spinner while the audio loads and a stop button
+// while it plays; a tap on either stops.
 
 import { Clipboard } from '@capacitor/clipboard'
 import { Share } from '@capacitor/share'
 import { useEffect, useRef, useState, type ReactNode } from 'react'
 
 import { haptic } from '@/core/haptics'
+import { Sheet } from '@/core/ui/Sheet'
 import { SourcesSheet } from '@/features/thread/components/SourcesSheet'
 import {
   copyableAnswer,
   type CitationMaps,
   type Source
 } from '@/features/thread/model/citations'
+import { isShareCancelled } from '@/features/thread/share-api'
 import type { ReadAloud } from '@/features/voice/useReadAloud'
 
 /** How long Copy reads "Copied" after a copy. */
 export const COPIED_MS = 1500
 export const COPY_ERROR = 'Couldn’t copy the answer.'
 export const SHARE_ERROR = 'Couldn’t share the answer.'
+export const SHARE_LINK_ERROR = 'Couldn’t share the link.'
 
-/** The share sheet rejects with "Share canceled" when the user dismisses it. */
-const CANCELLED_RE = /cancel/i
+/** A chat's public link, and the title it is shared under. */
+export type ChatLink = { title: string; url: string }
 
 export type MessageActionsProps = {
   /** The answer text as the model wrote it. */
@@ -36,7 +41,18 @@ export type MessageActionsProps = {
   onRetry: () => void
   /** This answer's read-aloud (its turn owns it, for auto-read). */
   readAloud: ReadAloud
+  /**
+   * Makes the chat's public link. Absent while the chat isn't saved, when
+   * Share shares the answer at once.
+   */
+  linkToChat?: () => Promise<ChatLink>
 }
+
+const reasonOf = (error: unknown) =>
+  error instanceof Error ? error.message : String(error)
+
+const CHOICE =
+  'min-h-12 touch-manipulation rounded-xl px-4 text-left text-base text-foreground active:bg-muted disabled:opacity-50'
 
 /** The answer as shared: the copied text, then the cited URLs, if any. */
 function shareText(text: string, maps: CitationMaps, sources: Source[]) {
@@ -157,11 +173,19 @@ export function MessageActions({
   question,
   sources,
   onRetry,
-  readAloud
+  readAloud,
+  linkToChat
 }: MessageActionsProps) {
   const [copied, setCopied] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [sourcesOpen, setSourcesOpen] = useState(false)
+  // The share choice: open, making the link, and a failure said in it.
+  const [choosing, setChoosing] = useState(false)
+  const [makingLink, setMakingLink] = useState(false)
+  const [choiceError, setChoiceError] = useState<string | null>(null)
+  // Bumped whenever the choice closes, so a link made after the user closed
+  // it opens no share sheet and says nothing.
+  const choiceOpening = useRef(0)
   const copiedTimer = useRef<ReturnType<typeof setTimeout> | undefined>(
     undefined
   )
@@ -182,18 +206,59 @@ export function MessageActions({
     copiedTimer.current = setTimeout(() => setCopied(false), COPIED_MS)
   }
 
+  /** Opens the share sheet; a failure other than a cancel says `failure`. */
+  const present = async (
+    options: Parameters<typeof Share.share>[0],
+    failure: string
+  ) => {
+    try {
+      await Share.share(options)
+    } catch (e) {
+      if (!isShareCancelled(e)) setError(failure)
+    }
+  }
+
+  const shareAnswer = () =>
+    present(
+      { title: question, text: shareText(text, maps, sources) },
+      SHARE_ERROR
+    )
+
+  const closeChoice = () => {
+    choiceOpening.current++
+    setMakingLink(false)
+    setChoosing(false)
+  }
+
   const share = async () => {
     setError(null)
+    if (!linkToChat) return shareAnswer()
+    setChoiceError(null)
+    setChoosing(true)
+  }
+
+  const chooseAnswer = () => {
+    closeChoice()
+    return shareAnswer()
+  }
+
+  const chooseLink = async () => {
+    const opening = choiceOpening.current
+    setChoiceError(null)
+    setMakingLink(true)
+    let link: ChatLink
     try {
-      await Share.share({
-        title: question,
-        text: shareText(text, maps, sources)
-      })
+      link = await linkToChat!()
     } catch (e) {
-      if (!CANCELLED_RE.test(e instanceof Error ? e.message : String(e))) {
-        setError(SHARE_ERROR)
+      if (opening === choiceOpening.current) {
+        setMakingLink(false)
+        setChoiceError(`Couldn’t create the link. ${reasonOf(e)}`)
       }
+      return
     }
+    if (opening !== choiceOpening.current) return
+    closeChoice()
+    await present({ title: link.title, url: link.url }, SHARE_LINK_ERROR)
   }
 
   return (
@@ -223,6 +288,35 @@ export function MessageActions({
           {error ?? readAloud.error}
         </p>
       )}
+      <Sheet open={choosing} onClose={closeChoice} title="Share">
+        <div className="flex flex-col gap-1 pb-2">
+          <button
+            type="button"
+            disabled={makingLink}
+            onClick={() => void chooseAnswer()}
+            className={CHOICE}
+          >
+            Share answer
+          </button>
+          <button
+            type="button"
+            aria-busy={makingLink || undefined}
+            disabled={makingLink}
+            onClick={() => void chooseLink()}
+            className={CHOICE}
+          >
+            {makingLink ? 'Creating link…' : 'Share link to chat'}
+          </button>
+          {choiceError && (
+            <p
+              role="alert"
+              className="px-4 pt-1 text-sm text-red-600 dark:text-red-400"
+            >
+              {choiceError}
+            </p>
+          )}
+        </div>
+      </Sheet>
       <SourcesSheet
         open={sourcesOpen}
         onClose={() => setSourcesOpen(false)}

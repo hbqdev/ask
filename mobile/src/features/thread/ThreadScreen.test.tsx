@@ -13,12 +13,14 @@ import { Share } from '@capacitor/share'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { useApi, type Api } from '@/core/api/ApiProvider'
+import type { ApiClient } from '@/core/api/client'
 import { useAuth, type Auth } from '@/core/auth/AuthProvider'
 import { StackProvider, StackView, useStack } from '@/core/nav/stack'
 import { SEARCH_SETTINGS_KEY } from '@/features/compose/search-settings'
 import { SearchSettingsProvider } from '@/features/compose/SearchSettingsProvider'
 import { uploadFile } from '@/features/compose/upload'
 import { deleteChat, renameChat } from '@/features/library/library-api'
+import { shareChat, unshareChat } from '@/features/thread/share-api'
 import type { ChatErrorView } from '@/features/thread/model/chat-errors'
 import { openThread, ThreadScreen } from '@/features/thread/ThreadScreen'
 import { useThread, type ThreadSession } from '@/features/thread/useThread'
@@ -36,6 +38,11 @@ vi.mock('@/features/library/library-api', async importOriginal => ({
   ...(await importOriginal<typeof import('@/features/library/library-api')>()),
   renameChat: vi.fn(),
   deleteChat: vi.fn()
+}))
+vi.mock('@/features/thread/share-api', async importOriginal => ({
+  ...(await importOriginal<typeof import('@/features/thread/share-api')>()),
+  shareChat: vi.fn(),
+  unshareChat: vi.fn()
 }))
 // A plain function, not vi.fn: a mock records each promise it returns, which
 // would mark a rejection as handled and hide the bug the test looks for.
@@ -77,6 +84,7 @@ const DOC = {
   mediaType: 'application/pdf'
 }
 const signOut = vi.fn(async () => {})
+const client = { url: vi.fn() } as unknown as ApiClient
 
 // --- Fixtures ----------------------------------------------------------------
 
@@ -184,7 +192,7 @@ const composer = () => screen.getByRole('textbox', { name: 'Ask a follow-up' })
 beforeEach(() => {
   vi.clearAllMocks()
   vi.mocked(useAuth).mockReturnValue({ signOut } as unknown as Auth)
-  vi.mocked(useApi).mockReturnValue({ baseUrl: BASE } as Api)
+  vi.mocked(useApi).mockReturnValue({ baseUrl: BASE, client } as Api)
 })
 
 // --- openThread --------------------------------------------------------------
@@ -298,7 +306,7 @@ describe('openThread', () => {
     await userEvent.click(screen.getByRole('button', { name: 'Delete chat' }))
     await userEvent.click(screen.getByRole('button', { name: 'Delete' }))
 
-    expect(deleteChat).toHaveBeenCalledWith(undefined, 'saved-1')
+    expect(deleteChat).toHaveBeenCalledWith(client, 'saved-1')
     expect(screen.getByTestId('keys')).toHaveTextContent(/^home$/)
   })
 
@@ -574,6 +582,131 @@ describe('ThreadScreen', () => {
 
       update(session({ messages: TURN, title: 'Streamed', saved: true }))
       expect(menuButton()).toBeInTheDocument()
+    })
+
+    describe('sharing', () => {
+      const LINK = 'https://ask.example.invalid/search/c1'
+      const menuItems = async () => {
+        await userEvent.click(menuButton()!)
+        const items = within(
+          screen.getByRole('dialog', { name: 'Chat options' })
+        )
+          .getAllByRole('button')
+          .map(b => b.textContent)
+        await userEvent.keyboard('{Escape}')
+        return items
+      }
+
+      beforeEach(() => {
+        vi.mocked(shareChat).mockResolvedValue(LINK)
+        vi.mocked(unshareChat).mockResolvedValue()
+      })
+
+      it('offers Stop sharing for a chat saved as public, and not for a private one', async () => {
+        const { update } = renderScreen(
+          session({ messages: TURN, saved: true, savedVisibility: 'private' })
+        )
+        expect(await menuItems()).not.toContain('Stop sharing')
+
+        update(
+          session({ messages: TURN, saved: true, savedVisibility: 'public' })
+        )
+        expect(await menuItems()).toContain('Stop sharing')
+      })
+
+      it('shares the chat’s link from the menu under its title, then offers Stop sharing', async () => {
+        renderScreen(
+          session({ messages: TURN, title: 'Streamed', saved: true })
+        )
+        expect(await menuItems()).not.toContain('Stop sharing')
+
+        await userEvent.click(menuButton()!)
+        await userEvent.click(
+          screen.getByRole('button', { name: 'Share link' })
+        )
+
+        expect(shareChat).toHaveBeenCalledExactlyOnceWith(client, 'c1')
+        expect(Share.share).toHaveBeenCalledExactlyOnceWith({
+          title: 'Streamed',
+          url: LINK
+        })
+        expect(await menuItems()).toContain('Stop sharing')
+      })
+
+      it('a cancelled share still leaves the chat shared', async () => {
+        vi.mocked(Share.share).mockRejectedValueOnce(
+          new Error('Share canceled')
+        )
+        renderScreen(session({ messages: TURN, saved: true }))
+        await userEvent.click(menuButton()!)
+        await userEvent.click(
+          screen.getByRole('button', { name: 'Share link' })
+        )
+
+        expect(screen.queryByRole('alert')).not.toBeInTheDocument()
+        expect(await menuItems()).toContain('Stop sharing')
+      })
+
+      it('stops sharing a public chat, and then no longer offers it', async () => {
+        renderScreen(
+          session({ messages: TURN, saved: true, savedVisibility: 'public' })
+        )
+        await userEvent.click(menuButton()!)
+        await userEvent.click(
+          screen.getByRole('button', { name: 'Stop sharing' })
+        )
+        await userEvent.click(
+          within(
+            screen.getByRole('dialog', { name: 'Stop sharing this chat?' })
+          ).getByRole('button', { name: 'Stop sharing' })
+        )
+
+        expect(unshareChat).toHaveBeenCalledExactlyOnceWith(client, 'c1')
+        expect(await menuItems()).not.toContain('Stop sharing')
+      })
+
+      it('a failed link keeps the chat as it was', async () => {
+        vi.mocked(shareChat).mockRejectedValue(new Error('Server error'))
+        renderScreen(session({ messages: TURN, saved: true }))
+        await userEvent.click(menuButton()!)
+        await userEvent.click(
+          screen.getByRole('button', { name: 'Share link' })
+        )
+        await userEvent.keyboard('{Escape}')
+
+        expect(await menuItems()).not.toContain('Stop sharing')
+      })
+
+      it('shares a link to the chat from an answer, under the chat’s title, and the menu then offers Stop sharing', async () => {
+        renderScreen(
+          session({ messages: TURN, title: 'Streamed', saved: true })
+        )
+        await userEvent.click(screen.getByRole('button', { name: 'Share' }))
+        await userEvent.click(
+          within(screen.getByRole('dialog', { name: 'Share' })).getByRole(
+            'button',
+            { name: 'Share link to chat' }
+          )
+        )
+
+        expect(shareChat).toHaveBeenCalledExactlyOnceWith(client, 'c1')
+        expect(Share.share).toHaveBeenCalledExactlyOnceWith({
+          title: 'Streamed',
+          url: LINK
+        })
+        expect(await menuItems()).toContain('Stop sharing')
+      })
+
+      it('an answer in a chat not saved yet shares only its text', async () => {
+        renderScreen(session({ messages: TURN, saved: false }), {
+          isNew: true
+        })
+        await userEvent.click(screen.getByRole('button', { name: 'Share' }))
+
+        expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+        expect(Share.share).toHaveBeenCalledOnce()
+        expect(shareChat).not.toHaveBeenCalled()
+      })
     })
 
     it('heads the screen with the new title after a rename, over the streamed one', async () => {

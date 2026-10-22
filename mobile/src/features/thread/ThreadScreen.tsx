@@ -1,9 +1,11 @@
 // One chat: a header (back, title, sources, and the chat menu once the chat
 // is saved), the turns, and a composer for follow-ups. The list follows the
 // answer as it streams unless the user has scrolled up to read, when "Jump to
-// latest" brings them back. Its answers are read aloud only while it is shown:
-// leaving it (another tab, a screen pushed over it, going back) or the app
-// going to the background stops the reading.
+// latest" brings them back. A saved chat can be shared as a public link from
+// the menu or from an answer's Share; whether it is public is the server's
+// word when it loaded, then whatever was done here. Its answers are read
+// aloud only while it is shown: leaving it (another tab, a screen pushed over
+// it, going back) or the app going to the background stops the reading.
 
 import type { UIMessage } from 'ai'
 import {
@@ -32,6 +34,11 @@ import { SourcesSheet } from '@/features/thread/components/SourcesSheet'
 import { UserMessage } from '@/features/thread/components/UserMessage'
 import type { ChatErrorView } from '@/features/thread/model/chat-errors'
 import { listSources } from '@/features/thread/model/citations'
+import {
+  shareChat,
+  unshareChat,
+  type ChatVisibility
+} from '@/features/thread/share-api'
 import { ThreadMenu } from '@/features/thread/ThreadMenu'
 import { useThread } from '@/features/thread/useThread'
 import { useStopReadingOnLeave } from '@/features/voice/useReadAloud'
@@ -194,7 +201,7 @@ export function ThreadScreen({
 }: ThreadScreenProps) {
   const { pop } = useStack()
   const { signOut } = useAuth()
-  const { baseUrl } = useApi()
+  const { baseUrl, client } = useApi()
   const [settings, setSettings, settingsLoaded] = useSharedSearchSettings()
   const thread = useThread({ chatId, isNew, settings })
   const { messages, status, send } = thread
@@ -303,6 +310,30 @@ export function ThreadScreen({
     (firstQuestion ? textOf(firstQuestion) : initialQuestion) ||
     'Chat'
 
+  // --- Sharing ----------------------------------------------------------------
+  // A share or stop here wins over what the server said when the chat loaded.
+  const [visibility, setVisibility] = useState<ChatVisibility>()
+  const shared = (visibility ?? thread.savedVisibility) === 'public'
+  const createLink = useCallback(async () => {
+    const url = await shareChat(client, chatId)
+    setVisibility('public')
+    return url
+  }, [client, chatId])
+  const stopSharing = useCallback(async () => {
+    await unshareChat(client, chatId)
+    setVisibility('private')
+  }, [client, chatId])
+  // The answers' link shares the chat under the title shown; read through a
+  // ref so a new title doesn't re-render every (memoized) turn.
+  const titleRef = useRef(title)
+  useEffect(() => {
+    titleRef.current = title
+  }, [title])
+  const linkToChat = useCallback(
+    async () => ({ title: titleRef.current, url: await createLink() }),
+    [createLink]
+  )
+
   const lastAnswer = messages.findLast(m => m.role === 'assistant')
   const sources = useMemo(
     () => (lastAnswer ? listSources(lastAnswer) : []),
@@ -335,6 +366,9 @@ export function ThreadScreen({
               title={title}
               onRenamed={setRenamedTitle}
               onDeleted={pop}
+              shared={shared}
+              createLink={createLink}
+              stopSharing={stopSharing}
             />
           )}
         </div>
@@ -375,6 +409,7 @@ export function ThreadScreen({
                       onRetry={thread.retry}
                       baseUrl={baseUrl}
                       autoRead={message.id === thread.freshAnswerId}
+                      linkToChat={thread.saved ? linkToChat : undefined}
                     />
                   )
                 })}

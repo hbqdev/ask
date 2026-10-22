@@ -11,7 +11,10 @@ import { lazy, memo, Suspense, useEffect, useMemo, useRef } from 'react'
 import { useTabActive } from '@/app/Tabs'
 import { useScreenActive } from '@/core/nav/stack'
 import { GeneratedImage } from '@/features/thread/components/GeneratedImage'
-import { MessageActions } from '@/features/thread/components/MessageActions'
+import {
+  MessageActions,
+  type ChatLink
+} from '@/features/thread/components/MessageActions'
 import { RelatedQuestions } from '@/features/thread/components/RelatedQuestions'
 import { ResearchSection } from '@/features/thread/components/ResearchSection'
 import { SpecImages } from '@/features/thread/components/SpecImages'
@@ -46,6 +49,8 @@ export type AssistantTurnProps = {
    * Its spoken answer is then read aloud by itself.
    */
   autoRead?: boolean
+  /** Makes the chat's public link; absent while the chat isn't saved. */
+  linkToChat?: () => Promise<ChatLink>
 }
 
 type AnswerBlock = Extract<Block, { kind: 'answer' }>
@@ -109,7 +114,8 @@ export const AssistantTurn = memo(function AssistantTurn({
   onAsk,
   onRetry,
   baseUrl,
-  autoRead = false
+  autoRead = false,
+  linkToChat
 }: AssistantTurnProps) {
   const blocks = useMemo(
     () => layoutAssistantMessage(message, streaming),
@@ -176,6 +182,7 @@ export const AssistantTurn = memo(function AssistantTurn({
           sources={sources}
           onRetry={() => onRetry(message.id)}
           readAloud={readAloud}
+          linkToChat={linkToChat}
         />
       )}
     </article>

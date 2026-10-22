@@ -29,6 +29,7 @@ import {
   type ChatErrorView
 } from '@/features/thread/model/chat-errors'
 import { titleOf } from '@/features/thread/model/research'
+import type { ChatVisibility } from '@/features/thread/share-api'
 import { loadVoiceSettings } from '@/features/voice/voice-settings'
 import {
   ResumableChatTransport,
@@ -53,6 +54,11 @@ export type ThreadSession = {
    * messages load. The streamed title in those messages is never renamed.
    */
   savedTitle?: string
+  /**
+   * Whether a saved chat is public (shared as a link) or private, as the
+   * server had it when its messages loaded.
+   */
+  savedVisibility?: ChatVisibility
   /** Asks `text` (trimmed) with any uploaded `files`; one of them is needed. */
   send(text: string, files?: FilePart[]): void
   stop(): Promise<void>
@@ -96,7 +102,14 @@ const isBusy = (status: ChatStatus) =>
 /** How a turn started: asked here, or resumed after the app was away. */
 type TurnKind = 'sent' | 'resumed'
 
-type MessagesResponse = { messages?: UIMessage[]; title?: string }
+type MessagesResponse = {
+  messages?: UIMessage[]
+  title?: string
+  visibility?: string
+}
+
+const visibilityOf = (value: unknown): ChatVisibility | undefined =>
+  value === 'public' || value === 'private' ? value : undefined
 
 export function useThread({
   chatId,
@@ -295,10 +308,12 @@ export function useThread({
   // An existing chat: show its saved messages (again on each reload).
   const [loadRequest, setLoadRequest] = useState(0)
   const [savedTitle, setSavedTitle] = useState<string>()
+  const [savedVisibility, setSavedVisibility] = useState<ChatVisibility>()
   useEffect(() => {
     setLoadError(undefined)
     setLoading(!isNew)
     setSavedTitle(undefined)
+    setSavedVisibility(undefined)
     if (isNew) return
     let cancelled = false
     client
@@ -307,6 +322,7 @@ export function useThread({
         data => {
           if (cancelled) return
           setSavedTitle(data.title || undefined)
+          setSavedVisibility(visibilityOf(data.visibility))
           // A question sent while loading wins over the saved copy.
           if (!inFlight()) setMessages(data.messages ?? [])
         },
@@ -480,6 +496,7 @@ export function useThread({
     error: errorView,
     title,
     savedTitle,
+    savedVisibility,
     send,
     stop,
     retry,
