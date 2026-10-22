@@ -3,6 +3,7 @@
 
 import { useId } from 'react'
 
+import { haptic } from '@/core/haptics'
 import type { SearchSettings } from '@/features/thread/chat-body'
 import type { SearchMode, SourceMode } from '@/lib/types/search'
 
@@ -39,8 +40,9 @@ export function SearchModeField({
 }: SearchOptionFieldProps) {
   const modeLabel = useId()
   const setMode = (searchMode: SearchMode) => {
-    if (searchMode !== settings.searchMode)
-      onSettings({ ...settings, searchMode })
+    if (searchMode === settings.searchMode) return
+    haptic('selection')
+    onSettings({ ...settings, searchMode })
   }
 
   return (
@@ -83,6 +85,7 @@ export function SourcesField({ settings, onSettings }: SearchOptionFieldProps) {
     const on = settings.sources.includes(source)
     // At least one source always stays on.
     if (on && settings.sources.length === 1) return
+    haptic('selection')
     const sources = SOURCES.map(s => s.value).filter(s =>
       s === source ? !on : settings.sources.includes(s)
     )

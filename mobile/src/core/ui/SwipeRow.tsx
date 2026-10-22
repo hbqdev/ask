@@ -7,6 +7,11 @@
 // The row moves with a transform only. It sets `touch-action: pan-y`, so a
 // vertical drag stays a native scroll (the browser cancels the pointer), and
 // it leaves drags that start in the stack's back-swipe edge zone alone.
+//
+// Haptics: a selection tick each time a drag crosses OPEN_AT (once going
+// past it, once more coming back, never on every move), and running an
+// action, by a full swipe or its button, warns for a destructive one and
+// taps light otherwise.
 
 import {
   useEffect,
@@ -17,6 +22,7 @@ import {
   type ReactNode
 } from 'react'
 
+import { haptic } from '@/core/haptics'
 import { EDGE_ZONE } from '@/core/nav/use-edge-swipe'
 
 export type SwipeAction = {
@@ -99,7 +105,23 @@ const ACTION_COLOURS = {
   plain: 'bg-muted-foreground text-background'
 }
 
-type Drag = { id: number; x: number; y: number; from: number; pos: number }
+type Drag = {
+  id: number
+  x: number
+  y: number
+  from: number
+  pos: number
+  /** The row is past OPEN_AT (it would stay open if released now). */
+  past: boolean
+}
+
+const pastOpen = (pos: number) => -pos > OPEN_AT
+
+/** Runs a swipe action, with its haptic. */
+function run(action: SwipeAction) {
+  haptic(action.tone === 'destructive' ? 'warning' : 'light')
+  action.onAction()
+}
 
 export function SwipeRow({ children, actions, onPress }: SwipeRowProps) {
   const root = useRef<HTMLDivElement>(null)
@@ -149,7 +171,8 @@ export function SwipeRow({ children, actions, onPress }: SwipeRowProps) {
         x: e.clientX,
         y: e.clientY,
         from,
-        pos: from
+        pos: from,
+        past: pastOpen(from)
       }
     },
     onPointerMove(e: PointerEvent<HTMLDivElement>) {
@@ -174,6 +197,10 @@ export function SwipeRow({ children, actions, onPress }: SwipeRowProps) {
       d.pos = Math.min(0, d.from + dx)
       if (width > 0) d.pos = Math.max(-width, d.pos)
       content.current!.style.transform = `translate3d(${d.pos}px, 0, 0)`
+      if (pastOpen(d.pos) !== d.past) {
+        d.past = !d.past
+        haptic('selection')
+      }
     },
     onPointerUp(e: PointerEvent<HTMLDivElement>) {
       const d = current(e)
@@ -185,9 +212,9 @@ export function SwipeRow({ children, actions, onPress }: SwipeRowProps) {
       const width = root.current!.clientWidth
       if (width > 0 && -d.pos > FULL_SWIPE * width) {
         settle(0)
-        actions[0]?.onAction()
+        if (actions[0]) run(actions[0])
       } else {
-        settle(-d.pos > OPEN_AT ? -openWidth : 0)
+        settle(d.past ? -openWidth : 0)
       }
     },
     onPointerCancel(e: PointerEvent<HTMLDivElement>) {
@@ -235,7 +262,7 @@ export function SwipeRow({ children, actions, onPress }: SwipeRowProps) {
             type="button"
             onClick={() => {
               settle(0)
-              action.onAction()
+              run(action)
             }}
             style={{ width: ACTION_WIDTH }}
             className={`flex touch-manipulation items-center justify-center text-sm font-medium active:opacity-60 ${

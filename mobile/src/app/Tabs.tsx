@@ -8,6 +8,8 @@ import {
   type ReactNode
 } from 'react'
 
+import { haptic } from '@/core/haptics'
+
 export type TabId = 'ask' | 'library' | 'settings'
 
 export type TabSpec = {
@@ -107,7 +109,12 @@ export function Tabs({ tabs, initial }: TabsProps) {
                 role="tab"
                 aria-selected={isActive}
                 aria-controls={opened.has(tab.id) ? panelId(tab.id) : undefined}
-                onClick={() => select(tab.id)}
+                onClick={() => {
+                  if (isActive) return
+                  // A tap on the bar ticks; a switch the app makes does not.
+                  haptic('selection')
+                  select(tab.id)
+                }}
                 className={`flex min-h-11 flex-1 touch-manipulation flex-col items-center justify-center gap-0.5 text-[11px] font-medium active:opacity-50 ${
                   isActive ? 'text-mark-blue' : 'text-foreground/55'
                 }`}

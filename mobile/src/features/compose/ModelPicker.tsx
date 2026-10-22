@@ -8,6 +8,7 @@ import { useEffect, useId, useState, useSyncExternalStore } from 'react'
 
 import { useTabActive } from '@/app/Tabs'
 import { useApi } from '@/core/api/ApiProvider'
+import { haptic } from '@/core/haptics'
 import {
   getModelChoice,
   modelListLoaded,
@@ -102,7 +103,11 @@ export function ModelPicker() {
                     type="button"
                     role="radio"
                     aria-checked={checked}
-                    onClick={() => pickModel(client, model)}
+                    onClick={() => {
+                      if (checked) return
+                      haptic('selection')
+                      pickModel(client, model)
+                    }}
                     className="flex min-h-11 w-full touch-manipulation items-center gap-3 px-4 text-left text-base active:opacity-50"
                   >
                     <span className="min-w-0 flex-1 truncate">

@@ -7,6 +7,7 @@ import { Clipboard } from '@capacitor/clipboard'
 import { Share } from '@capacitor/share'
 import { useEffect, useRef, useState, type ReactNode } from 'react'
 
+import { haptic } from '@/core/haptics'
 import { SourcesSheet } from '@/features/thread/components/SourcesSheet'
 import {
   copyableAnswer,
@@ -110,6 +111,7 @@ export function MessageActions({
       setError(COPY_ERROR)
       return
     }
+    haptic('success')
     setCopied(true)
     clearTimeout(copiedTimer.current)
     copiedTimer.current = setTimeout(() => setCopied(false), COPIED_MS)

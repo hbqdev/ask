@@ -13,6 +13,7 @@ import {
   type KeyboardEvent
 } from 'react'
 
+import { haptic } from '@/core/haptics'
 import { OptionsSheet } from '@/features/compose/OptionsSheet'
 import { SEARCH_MODE_LABELS } from '@/features/compose/SearchOptionFields'
 import type { SearchSettings } from '@/features/thread/chat-body'
@@ -107,6 +108,7 @@ export function Composer({
 
   const send = () => {
     if (!canSend) return
+    haptic('light')
     onSend(text.trim())
     setText('')
   }

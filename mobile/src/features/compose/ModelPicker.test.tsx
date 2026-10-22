@@ -4,6 +4,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { Tabs, type TabSpec } from '@/app/Tabs'
 import { useApi, type Api } from '@/core/api/ApiProvider'
 import { createApiClient } from '@/core/api/client'
+import { haptic } from '@/core/haptics'
 import {
   MODEL_LOAD_ERROR,
   MODEL_SAVE_ERROR,
@@ -13,6 +14,7 @@ import { resetModelChoice } from '@/features/compose/model-choice'
 import type { ModelSelectorData } from '@/lib/types/model-selector'
 
 vi.mock('@/core/api/ApiProvider', () => ({ useApi: vi.fn() }))
+vi.mock('@/core/haptics', () => ({ haptic: vi.fn() }))
 
 const BASE = 'https://ask.test.invalid'
 
@@ -518,5 +520,26 @@ describe('ModelPicker', () => {
         within(screen.getByTestId('a')).queryByText(MODEL_SAVE_ERROR)
       ).toBeNull()
     })
+  })
+})
+
+describe('ModelPicker haptics', () => {
+  it('picking another model ticks selection, once', async () => {
+    serve({
+      models: async () => json(DATA),
+      save: async () => json({ ok: true, selectedModelKey: 'cloud:kimi' })
+    })
+    setup()
+    await screen.findByRole('radiogroup', { name: 'Model' })
+    await act(async () => fireEvent.click(modelRadio('Kimi')))
+    expect(haptic).toHaveBeenCalledExactlyOnceWith('selection')
+  })
+
+  it('a tap on the model already chosen makes none', async () => {
+    serve({ models: async () => json(DATA) })
+    setup()
+    await screen.findByRole('radiogroup', { name: 'Model' })
+    fireEvent.click(modelRadio('Qwen 3'))
+    expect(haptic).not.toHaveBeenCalled()
   })
 })

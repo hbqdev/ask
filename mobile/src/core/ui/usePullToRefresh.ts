@@ -12,6 +12,8 @@
 
 import { useEffect, useRef, useState, type RefObject } from 'react'
 
+import { haptic } from '@/core/haptics'
+
 export type PullToRefreshOptions = {
   /** How far, in px, the (damped) pull must reach to refresh. Default 64. */
   threshold?: number
@@ -92,6 +94,7 @@ export function usePullToRefresh(
       distance = 0
       const { threshold, onRefresh } = latest.current
       if (e.type === 'touchend' && pulled >= threshold) {
+        haptic('medium')
         setPull(threshold)
         setRefreshing(true)
         latest.current.refreshing = true

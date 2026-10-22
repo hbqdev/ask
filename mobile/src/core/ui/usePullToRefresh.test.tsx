@@ -1,8 +1,11 @@
 import { act, fireEvent, render, screen } from '@testing-library/react'
 import { useRef } from 'react'
-import { describe, expect, it, vi } from 'vitest'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
 
+import { haptic } from '@/core/haptics'
 import { usePullToRefresh } from '@/core/ui/usePullToRefresh'
+
+vi.mock('@/core/haptics', () => ({ haptic: vi.fn() }))
 
 function Scroller(props: {
   onRefresh: () => Promise<void>
@@ -239,5 +242,37 @@ describe('usePullToRefresh', () => {
     pullThrough(list, [{ y: 100 }, { y: 400 }])
     release(list, { y: 400 })
     expect(onRefresh).not.toHaveBeenCalled()
+  })
+})
+
+describe('usePullToRefresh haptics', () => {
+  beforeEach(() => vi.mocked(haptic).mockClear())
+
+  it('a release that starts a refresh taps medium, once', async () => {
+    const { list, pending } = setup()
+    pullThrough(list, [{ y: 100 }, { y: 200 }, { y: 400 }])
+    expect(haptic).not.toHaveBeenCalled()
+    release(list, { y: 400 })
+    expect(haptic).toHaveBeenCalledExactlyOnceWith('medium')
+    await act(async () => pending.resolve())
+    expect(haptic).toHaveBeenCalledTimes(1)
+  })
+
+  it('a pull released short, cancelled, or made while refreshing makes none of its own', () => {
+    const { list } = setup()
+    pullThrough(list, [{ y: 100 }, { y: 150 }])
+    release(list, { y: 150 })
+    pullThrough(list, [{ y: 100 }, { y: 400 }])
+    fireEvent.touchCancel(list, {
+      touches: [],
+      changedTouches: [touch({ y: 400 })]
+    })
+    expect(haptic).not.toHaveBeenCalled()
+
+    pullThrough(list, [{ y: 100 }, { y: 400 }])
+    release(list, { y: 400 })
+    pullThrough(list, [{ y: 100 }, { y: 400 }])
+    release(list, { y: 400 })
+    expect(haptic).toHaveBeenCalledTimes(1)
   })
 })

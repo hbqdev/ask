@@ -1,7 +1,10 @@
 import { fireEvent, render, screen } from '@testing-library/react'
-import { describe, expect, it, vi } from 'vitest'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
 
+import { haptic } from '@/core/haptics'
 import { ConfirmSheet, type ConfirmSheetProps } from '@/core/ui/ConfirmSheet'
+
+vi.mock('@/core/haptics', () => ({ haptic: vi.fn() }))
 
 function setup(props: Partial<ConfirmSheetProps> = {}) {
   const onConfirm = vi.fn()
@@ -74,5 +77,29 @@ describe('ConfirmSheet', () => {
     const ok = screen.getByRole('button', { name: 'OK' })
     expect(ok.className).not.toContain('bg-red-500')
     expect(ok.className).toContain('bg-foreground')
+  })
+})
+
+describe('ConfirmSheet haptics', () => {
+  beforeEach(() => vi.mocked(haptic).mockClear())
+
+  it('a destructive confirm warns, once', () => {
+    const { onConfirm } = setup({ tone: 'destructive' })
+    fireEvent.click(screen.getByRole('button', { name: 'Delete' }))
+    expect(onConfirm).toHaveBeenCalledTimes(1)
+    expect(haptic).toHaveBeenCalledExactlyOnceWith('warning')
+  })
+
+  it('a plain confirm, or Cancel, makes none', () => {
+    setup()
+    fireEvent.click(screen.getByRole('button', { name: 'Delete' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Cancel' }))
+    expect(haptic).not.toHaveBeenCalled()
+  })
+
+  it('cancelling a destructive confirm makes none', () => {
+    setup({ tone: 'destructive' })
+    fireEvent.click(screen.getByRole('button', { name: 'Cancel' }))
+    expect(haptic).not.toHaveBeenCalled()
   })
 })

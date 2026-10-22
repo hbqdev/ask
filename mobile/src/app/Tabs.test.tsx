@@ -3,9 +3,12 @@ import { resolve } from 'node:path'
 
 import { fireEvent, render, screen } from '@testing-library/react'
 import { useState } from 'react'
-import { describe, expect, it, vi } from 'vitest'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { Tabs, useSelectTab, useTabActive, type TabSpec } from '@/app/Tabs'
+import { haptic } from '@/core/haptics'
+
+vi.mock('@/core/haptics', () => ({ haptic: vi.fn() }))
 
 // Vitest does not process CSS, so read the stylesheet as text.
 const css = readFileSync(resolve(__dirname, '../styles.css'), 'utf8')
@@ -191,5 +194,43 @@ describe('useTabActive', () => {
   it('is true outside the tab shell', () => {
     render(<ActiveProbe />)
     expect(screen.getByText('library shown')).toBeInTheDocument()
+  })
+})
+
+describe('Tabs haptics', () => {
+  beforeEach(() => vi.mocked(haptic).mockClear())
+
+  it('a tap that switches tabs ticks selection, once', () => {
+    render(<Tabs tabs={makeTabs()} />)
+    fireEvent.click(tab('Library'))
+    expect(haptic).toHaveBeenCalledExactlyOnceWith('selection')
+  })
+
+  it('a tap on the tab already shown makes none', () => {
+    render(<Tabs tabs={makeTabs()} />)
+    fireEvent.click(tab('Ask'))
+    expect(haptic).not.toHaveBeenCalled()
+  })
+
+  it('a switch made by the app (not a tab tap) makes none', () => {
+    function GoToSettings() {
+      const selectTab = useSelectTab()
+      return (
+        <button type="button" onClick={() => selectTab?.('settings')}>
+          Go to settings
+        </button>
+      )
+    }
+    render(
+      <Tabs
+        tabs={makeTabs(() => (
+          <GoToSettings />
+        ))}
+        initial="library"
+      />
+    )
+    fireEvent.click(screen.getByRole('button', { name: 'Go to settings' }))
+    expect(tab('Settings')).toHaveAttribute('aria-selected', 'true')
+    expect(haptic).not.toHaveBeenCalled()
   })
 })

@@ -4,6 +4,7 @@ import type { UIMessage } from 'ai'
 import { act, fireEvent, render, screen, within } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
+import { haptic } from '@/core/haptics'
 import {
   COPY_ERROR,
   COPIED_MS,
@@ -19,6 +20,7 @@ vi.mock('@capacitor/clipboard', () => ({
 vi.mock('@capacitor/share', () => ({
   Share: { share: vi.fn(async () => ({})) }
 }))
+vi.mock('@/core/haptics', () => ({ haptic: vi.fn() }))
 vi.mock('@capacitor/browser', () => ({
   Browser: { open: vi.fn(async () => {}) }
 }))
@@ -66,6 +68,7 @@ function actions(onRetry = vi.fn(), text = TEXT, list = sources) {
 }
 
 beforeEach(() => {
+  vi.mocked(haptic).mockClear()
   vi.mocked(Clipboard.write).mockReset().mockResolvedValue()
   vi.mocked(Share.share).mockReset().mockResolvedValue({})
 })
@@ -203,5 +206,24 @@ describe('MessageActions', () => {
     })
     unmount()
     expect(vi.getTimerCount()).toBe(0)
+  })
+})
+
+describe('MessageActions haptics', () => {
+  it('a copy that lands taps success, once', async () => {
+    actions()
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: 'Copy' }))
+    })
+    expect(haptic).toHaveBeenCalledExactlyOnceWith('success')
+  })
+
+  it('a copy that fails makes none', async () => {
+    vi.mocked(Clipboard.write).mockRejectedValue(new Error('denied'))
+    actions()
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: 'Copy' }))
+    })
+    expect(haptic).not.toHaveBeenCalled()
   })
 })

@@ -3,8 +3,9 @@ import { resolve } from 'node:path'
 
 import { fireEvent, render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import { afterEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
+import { haptic } from '@/core/haptics'
 import {
   Composer,
   COMPOSER_MAX_HEIGHT_PX,
@@ -32,6 +33,8 @@ vi.mock('@/features/compose/OptionsSheet', async importOriginal => ({
       </div>
     ) : null
 }))
+
+vi.mock('@/core/haptics', () => ({ haptic: vi.fn() }))
 
 const BALANCED: SearchSettings = { searchMode: 'balanced', sources: ['web'] }
 
@@ -248,5 +251,34 @@ describe('Composer', () => {
     expect(css).toMatch(
       /\.composer\s*\{[^}]*padding-bottom:\s*max\(env\(safe-area-inset-bottom\),\s*8px\)/
     )
+  })
+})
+
+describe('Composer haptics', () => {
+  beforeEach(() => vi.mocked(haptic).mockClear())
+
+  it('a send with the button taps light, once', async () => {
+    const user = userEvent.setup()
+    const { input } = setup()
+    await user.type(input, 'why')
+    expect(haptic).not.toHaveBeenCalled()
+    await user.click(sendButton())
+    expect(haptic).toHaveBeenCalledExactlyOnceWith('light')
+  })
+
+  it('a send on Enter taps light, once', async () => {
+    const user = userEvent.setup()
+    const { input } = setup()
+    await user.type(input, 'hello{Enter}')
+    expect(haptic).toHaveBeenCalledExactlyOnceWith('light')
+  })
+
+  it('no send, no haptic: a blank question, or a running turn', async () => {
+    const user = userEvent.setup()
+    const { input } = setup({ busy: true })
+    await user.type(input, 'next{Enter}')
+    fireEvent.change(input, { target: { value: '  ' } })
+    fireEvent.keyDown(input, { key: 'Enter' })
+    expect(haptic).not.toHaveBeenCalled()
   })
 })

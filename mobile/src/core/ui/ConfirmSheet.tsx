@@ -1,6 +1,8 @@
 // A confirmation in a bottom sheet: a title, an optional message, the
-// confirming button and Cancel. Confirming also closes the sheet.
+// confirming button and Cancel. Confirming also closes the sheet; a
+// destructive confirm warns with a haptic.
 
+import { haptic } from '@/core/haptics'
 import { Sheet } from '@/core/ui/Sheet'
 
 export type ConfirmSheetProps = {
@@ -41,6 +43,7 @@ export function ConfirmSheet({
         <button
           type="button"
           onClick={() => {
+            if (tone === 'destructive') haptic('warning')
             onConfirm()
             onClose()
           }}

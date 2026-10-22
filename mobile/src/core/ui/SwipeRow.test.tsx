@@ -1,8 +1,16 @@
 import { fireEvent, render, screen } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
+import { haptic } from '@/core/haptics'
 import { EDGE_ZONE } from '@/core/nav/use-edge-swipe'
-import { ACTION_WIDTH, SwipeRow, type SwipeAction } from '@/core/ui/SwipeRow'
+import {
+  ACTION_WIDTH,
+  OPEN_AT,
+  SwipeRow,
+  type SwipeAction
+} from '@/core/ui/SwipeRow'
+
+vi.mock('@/core/haptics', () => ({ haptic: vi.fn() }))
 
 const WIDTH = 375
 
@@ -433,5 +441,103 @@ describe('SwipeRow', () => {
     const rename = screen.getByRole('button', { name: 'Rename' })
     expect(del.className).toContain('bg-red-500')
     expect(rename.className).not.toContain('bg-red-500')
+  })
+})
+
+describe('SwipeRow haptics', () => {
+  beforeEach(() => vi.mocked(haptic).mockClear())
+
+  const kinds = () => vi.mocked(haptic).mock.calls.map(([kind]) => kind)
+
+  it('ticks selection once as a drag crosses the open threshold, however far it goes on', () => {
+    const { content } = setup()
+    fireEvent.pointerDown(content, at({ x: 300 }))
+    fireEvent.pointerMove(content, at({ x: 300 - OPEN_AT }))
+    expect(kinds()).toEqual([])
+    fireEvent.pointerMove(content, at({ x: 300 - OPEN_AT - 1 }))
+    fireEvent.pointerMove(content, at({ x: 180 }))
+    fireEvent.pointerMove(content, at({ x: 150 }))
+    fireEvent.pointerUp(content, at({ x: 150 }))
+    expect(kinds()).toEqual(['selection'])
+    expect(isOpen('Chat A')).toBe(true)
+  })
+
+  it('ticks again when the drag crosses back under the threshold', () => {
+    const { content } = setup()
+    drag(content, [{ x: 300 }, { x: 200 }, { x: 260 }, { x: 250 }])
+    expect(kinds()).toEqual(['selection', 'selection'])
+    expect(isOpen('Chat A')).toBe(false)
+  })
+
+  it('a drag short of the threshold, or a scroll, makes none', () => {
+    const { content } = setup()
+    drag(content, [{ x: 300 }, { x: 260 }])
+    drag(content, [
+      { x: 300, y: 100 },
+      { x: 290, y: 160 },
+      { x: 150, y: 170 }
+    ])
+    expect(kinds()).toEqual([])
+  })
+
+  it('an open row ticks once when dragged back under the threshold, not when dragged further open', () => {
+    const { content } = setup()
+    drag(content, [{ x: 300 }, { x: 200 }])
+    vi.mocked(haptic).mockClear()
+    drag(content, [{ x: 200 }, { x: 150 }])
+    expect(kinds()).toEqual([])
+    drag(content, [{ x: 100 }, { x: 200 }])
+    expect(kinds()).toEqual(['selection'])
+  })
+
+  it('a full swipe running a destructive action ends with a warning', () => {
+    const { content, del } = setup()
+    drag(content, [{ x: 340 }, { x: 200 }, { x: 340 - 0.6 * WIDTH - 1 }])
+    expect(del).toHaveBeenCalledTimes(1)
+    expect(kinds()).toEqual(['selection', 'warning'])
+  })
+
+  it('a full swipe running a plain action ends with a light tap', () => {
+    const run = vi.fn()
+    render(
+      <SwipeRow
+        actions={[{ label: 'Archive', onAction: run }]}
+        onPress={vi.fn()}
+      >
+        <span>Chat B</span>
+      </SwipeRow>
+    )
+    drag(content('Chat B'), [{ x: 340 }, { x: 200 }, { x: 100 }])
+    expect(run).toHaveBeenCalledTimes(1)
+    expect(kinds()).toEqual(['selection', 'light'])
+  })
+
+  it('tapping an action button: warning for Delete, light for Rename', () => {
+    const { del, rename } = setup()
+    fireEvent.click(screen.getByRole('button', { name: 'Delete' }))
+    expect(del).toHaveBeenCalledTimes(1)
+    expect(kinds()).toEqual(['warning'])
+    fireEvent.click(screen.getByRole('button', { name: 'Rename' }))
+    expect(rename).toHaveBeenCalledTimes(1)
+    expect(kinds()).toEqual(['warning', 'light'])
+  })
+
+  it('a full swipe on a row with no actions runs nothing and closes', () => {
+    render(
+      <SwipeRow actions={[]} onPress={vi.fn()}>
+        <span>Chat C</span>
+      </SwipeRow>
+    )
+    drag(content('Chat C'), [{ x: 340 }, { x: 200 }, { x: 100 }])
+    expect(content('Chat C').style.transform).toBe('')
+    expect(kinds()).not.toContain('light')
+    expect(kinds()).not.toContain('warning')
+  })
+
+  it('a tap on the row makes none', () => {
+    const { content, onPress } = setup()
+    tap(content)
+    expect(onPress).toHaveBeenCalledTimes(1)
+    expect(kinds()).toEqual([])
   })
 })
