@@ -21,9 +21,10 @@ const getAccessToken = vi.fn(async (): Promise<string | null> => 'fake-token')
 const refreshAccessToken = vi.fn<() => Promise<RefreshResult>>()
 const signOut = vi.fn(async () => {})
 
-function authAs(status: AuthStatus = 'signedIn') {
+function authAs(status: AuthStatus = 'signedIn', userId = 'user-1') {
   vi.mocked(useAuth).mockReturnValue({
     status,
+    session: { user: { id: userId } },
     getAccessToken,
     refreshAccessToken,
     signOut
@@ -181,7 +182,7 @@ describe('ApiProvider: handleUnauthorized', () => {
     expect(signOut).not.toHaveBeenCalled()
   })
 
-  it('a 401 after the retry signs out, once however many arrive', async () => {
+  it('a 401 again after a successful refresh stops and keeps the session (P6-R14)', async () => {
     const { result } = renderHook(() => useApi(), { wrapper })
     const { handleUnauthorized } = result.current
 
@@ -192,33 +193,94 @@ describe('ApiProvider: handleUnauthorized', () => {
         handleUnauthorized('afterRetry')
       ])
     })
+
+    expect(answers).toEqual(['stop', 'stop'])
+    expect(refreshAccessToken).not.toHaveBeenCalled()
+    expect(signOut).not.toHaveBeenCalled()
+  })
+
+  it('a refreshed token the server still refuses keeps the session, and the 401 reaches the caller', async () => {
+    const fetchMock = vi.fn<typeof fetch>(async () => status(401))
+    vi.stubGlobal('fetch', fetchMock)
+    refreshAccessToken.mockImplementation(async () => {
+      getAccessToken.mockResolvedValue('fake-fresh')
+      return { status: 'refreshed', token: 'fake-fresh' }
+    })
+    const { result } = renderHook(() => useApi(), { wrapper })
+
+    let caught: unknown
     await act(async () => {
-      answers.push(await handleUnauthorized('afterRetry'))
+      caught = await result.current.client.json('/api/chats').catch(e => e)
     })
 
-    expect(answers).toEqual(['stop', 'stop', 'stop'])
+    expect(caught).toMatchObject({ status: 401 })
+    expect(fetchMock).toHaveBeenCalledTimes(2)
+    expect(signOut).not.toHaveBeenCalled()
+  })
+
+  it('after its provider is gone, a 401 does nothing', async () => {
+    refreshAccessToken.mockResolvedValue({ status: 'failed' })
+    const { result, unmount } = renderHook(() => useApi(), { wrapper })
+    const { handleUnauthorized } = result.current
+    unmount()
+
+    await expect(handleUnauthorized('first')).resolves.toBe('stop')
     expect(refreshAccessToken).not.toHaveBeenCalled()
+    expect(signOut).not.toHaveBeenCalled()
+  })
+
+  it('a refresh that lands after its provider is gone never resends', async () => {
+    const settle = pendingRefresh()
+    const { result, unmount } = renderHook(() => useApi(), { wrapper })
+    let answer: Promise<string> | undefined
+    act(() => {
+      answer = result.current.handleUnauthorized('first')
+    })
+    unmount()
+    await settle({ status: 'refreshed', token: 'fake-fresh' })
+
+    await expect(answer).resolves.toBe('stop')
+  })
+
+  it('a refused refresh that lands after the provider is gone still signs out', async () => {
+    // supabase-js's own SIGNED_OUT may unmount the provider mid-refresh.
+    const settle = pendingRefresh()
+    const { result, unmount } = renderHook(() => useApi(), { wrapper })
+    let answer: Promise<string> | undefined
+    act(() => {
+      answer = result.current.handleUnauthorized('first')
+    })
+    unmount()
+    await settle({ status: 'failed' })
+
+    await expect(answer).resolves.toBe('stop')
     expect(signOut).toHaveBeenCalledExactlyOnceWith({
       notice: SIGNED_OUT_NOTICE
     })
   })
 
-  it('a refused refresh after a 401-after-retry signed out signs out only once', async () => {
-    const settle = pendingRefresh()
-    const { result } = renderHook(() => useApi(), { wrapper })
+  it('another account in the same provider: no refresh, no resend', async () => {
+    const { result, rerender } = renderHook(() => useApi(), { wrapper })
     const { handleUnauthorized } = result.current
+    authAs('signedIn', 'user-2')
+    rerender()
 
-    let first: Promise<string> | undefined
+    await expect(handleUnauthorized('first')).resolves.toBe('stop')
+    expect(refreshAccessToken).not.toHaveBeenCalled()
+  })
+
+  it('the account changing during the refresh: no resend', async () => {
+    const settle = pendingRefresh()
+    const { result, rerender } = renderHook(() => useApi(), { wrapper })
+    let answer: Promise<string> | undefined
     act(() => {
-      first = handleUnauthorized('first')
+      answer = result.current.handleUnauthorized('first')
     })
-    await act(async () => {
-      await handleUnauthorized('afterRetry')
-    })
-    await settle({ status: 'failed' })
+    authAs('signedIn', 'user-2')
+    rerender()
+    await settle({ status: 'refreshed', token: 'fake-b' })
 
-    await expect(first).resolves.toBe('stop')
-    expect(signOut).toHaveBeenCalledTimes(1)
+    await expect(answer).resolves.toBe('stop')
   })
 
   it('once signed out, a late 401 neither refreshes nor signs out again', async () => {

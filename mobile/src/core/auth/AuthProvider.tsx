@@ -92,6 +92,12 @@ function isNetworkFailure(err: unknown): boolean {
 
 const NETWORK_ERROR = 'Network error. Check your connection.'
 
+/**
+ * How long a refresh may take before it counts as offline: supabase-js keeps
+ * retrying a Supabase outage for up to ~30 s, and the 401'd requests wait.
+ */
+export const REFRESH_TIMEOUT_MS = 8_000
+
 const REFRESH_FAILED: RefreshResult = { status: 'failed' }
 const REFRESH_OFFLINE: RefreshResult = { status: 'offline' }
 
@@ -150,6 +156,9 @@ export function AuthProvider({
   // Set by signOut until the next signIn: a refresh that races the sign-out
   // must not sign the user back in.
   const signedOutHere = useRef(false)
+  // Bumped by every sign-out here, every sign-in and every change of account:
+  // a refresh that spans one belongs to a session that is gone.
+  const sessionEpoch = useRef(0)
 
   // The user the app last showed. Account state kept in memory (the shared
   // model pick and its save queue, the notes) is reset whenever the account
@@ -161,6 +170,7 @@ export function AuthProvider({
     if (signedOutHere.current) return
     const id = session.user.id
     if (accountId.current !== null && accountId.current !== id) {
+      sessionEpoch.current++
       resetModelChoice()
       resetNotesCache()
     }
@@ -223,6 +233,7 @@ export function AuthProvider({
         )
         if (authError) throw authError
         signedOutHere.current = false
+        sessionEpoch.current++
         showSession(data.session)
         return true
       } catch (err) {
@@ -247,6 +258,7 @@ export function AuthProvider({
         // As signIn: supabase-js has already emitted SIGNED_IN, which a
         // sign-out earlier in this run makes showSession ignore.
         signedOutHere.current = false
+        sessionEpoch.current++
         showSession(result.session)
         return true
       }
@@ -261,6 +273,7 @@ export function AuthProvider({
   const signOut = useCallback(
     async (options?: SignOutOptions) => {
       signedOutHere.current = true
+      sessionEpoch.current++
       // Before the server is awaited: supabase-js's SIGNED_OUT may show the
       // sign-in screen meanwhile, and it shows the notice from the start.
       setNotice(options?.notice ?? null)
@@ -300,14 +313,38 @@ export function AuthProvider({
   }, [client])
 
   const refreshAccessToken = useCallback(async (): Promise<RefreshResult> => {
-    try {
-      const { data, error: authError } = await client.auth.refreshSession()
-      if (authError) return refreshFailure(authError)
-      const token = data.session?.access_token
-      return token ? { status: 'refreshed', token } : REFRESH_FAILED
-    } catch (err) {
-      return refreshFailure(err)
+    // Once a sign-out here has begun (Settings, a deleted account), a late
+    // 401 changes nothing: no refresh, and never a second sign-out.
+    if (signedOutHere.current) return REFRESH_OFFLINE
+    const epoch = sessionEpoch.current
+    const account = accountId.current
+    let timer: ReturnType<typeof setTimeout> | undefined
+    const timedOut = new Promise<RefreshResult>(resolve => {
+      timer = setTimeout(() => resolve(REFRESH_OFFLINE), REFRESH_TIMEOUT_MS)
+    })
+    const refresh = async (): Promise<RefreshResult> => {
+      try {
+        const { data, error: authError } = await client.auth.refreshSession()
+        if (authError) return refreshFailure(authError)
+        const token = data.session?.access_token
+        return token ? { status: 'refreshed', token } : REFRESH_FAILED
+      } catch (err) {
+        return refreshFailure(err)
+      }
     }
+    const result = await Promise.race([refresh(), timedOut])
+    clearTimeout(timer)
+    // Signed out here, or another session (another account, or a new sign-in)
+    // since it began: the request that asked belongs to a session that is
+    // gone, so nothing is resent and nobody is signed out. Supabase dropping
+    // the session over this very refusal is not one of these: it stays failed.
+    if (signedOutHere.current || sessionEpoch.current !== epoch) {
+      return REFRESH_OFFLINE
+    }
+    if (result.status === 'refreshed' && accountId.current !== account) {
+      return REFRESH_OFFLINE
+    }
+    return result
   }, [client])
 
   const value = useMemo(

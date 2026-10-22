@@ -13,7 +13,12 @@ import { act, renderHook, waitFor } from '@testing-library/react'
 import type { ReactNode } from 'react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
-import { AuthProvider, useAuth, type Auth } from '@/core/auth/AuthProvider'
+import {
+  AuthProvider,
+  REFRESH_TIMEOUT_MS,
+  useAuth,
+  type Auth
+} from '@/core/auth/AuthProvider'
 import {
   BROWSER_CLOSED_GRACE_MS,
   deliverAuthCallback,
@@ -988,6 +993,126 @@ describe('AuthProvider: refreshAccessToken', () => {
     await expect(
       refreshWith({ throws: new Error('something odd') })
     ).resolves.toEqual({ status: 'offline' })
+  })
+})
+
+describe('AuthProvider: refreshAccessToken across a sign-out or another session', () => {
+  const fresh = { ...session, access_token: 'fake-fresh-token' }
+  const otherUser = {
+    ...session,
+    access_token: 'fake-access-token-b',
+    user: { id: 'user-2', email: 'other@example.test' }
+  } as unknown as Session
+
+  /** A refreshSession that settles when the test says so. */
+  function pendingRefresh(auth: ReturnType<typeof fakeClient>['auth']) {
+    let settle: (value: unknown) => void = () => {}
+    auth.refreshSession.mockReturnValue(
+      new Promise(resolve => {
+        settle = resolve
+      })
+    )
+    return settle
+  }
+
+  const refreshed = { data: { session: fresh, user: fresh.user }, error: null }
+  const refused = {
+    data: { session: null, user: null },
+    error: new AuthApiError(
+      'Invalid Refresh Token',
+      400,
+      'refresh_token_not_found'
+    )
+  }
+
+  it('does nothing once a sign-out here has begun', async () => {
+    const { auth, result } = await signedInAuth()
+    auth.signOut.mockReturnValue(never())
+    act(() => {
+      void result.current.signOut()
+    })
+
+    await expect(result.current.refreshAccessToken()).resolves.toEqual({
+      status: 'offline'
+    })
+    expect(auth.refreshSession).not.toHaveBeenCalled()
+  })
+
+  it('a sign-out here during the refresh makes it change nothing', async () => {
+    for (const outcome of [refreshed, refused]) {
+      const { auth, result, unmount } = await signedInAuth()
+      const settle = pendingRefresh(auth)
+      const refreshing = result.current.refreshAccessToken()
+      await act(async () => {
+        await result.current.signOut({ notice: 'Your account was deleted' })
+      })
+      settle(outcome)
+      await expect(refreshing).resolves.toEqual({ status: 'offline' })
+      unmount()
+    }
+  })
+
+  it('another account signed in during the refresh is never refreshed for', async () => {
+    const { auth, result, emit } = await signedInAuth()
+    const settle = pendingRefresh(auth)
+    const refreshing = result.current.refreshAccessToken()
+    emit('SIGNED_IN', otherUser)
+    settle(refreshed)
+    await expect(refreshing).resolves.toEqual({ status: 'offline' })
+  })
+
+  it('a new sign-in of the same account during the refresh: the old request is not resent', async () => {
+    const { auth, result } = await signedInAuth()
+    const settle = pendingRefresh(auth)
+    const refreshing = result.current.refreshAccessToken()
+    await act(async () => {
+      await result.current.signOut()
+    })
+    auth.signInWithPassword.mockResolvedValue({
+      data: { session, user: session.user },
+      error: null
+    })
+    await act(async () => {
+      await result.current.signIn('user@example.test', 'fake-password')
+    })
+    settle(refreshed)
+    await expect(refreshing).resolves.toEqual({ status: 'offline' })
+  })
+
+  it('Supabase dropping the session over this very refusal still reads as failed', async () => {
+    const { auth, result, emit } = await signedInAuth()
+    const settle = pendingRefresh(auth)
+    const refreshing = result.current.refreshAccessToken()
+    emit('SIGNED_OUT', null)
+    settle(refused)
+    await expect(refreshing).resolves.toEqual({ status: 'failed' })
+  })
+
+  it('a refresh that lands after Supabase dropped the session resends nothing', async () => {
+    const { auth, result, emit } = await signedInAuth()
+    const settle = pendingRefresh(auth)
+    const refreshing = result.current.refreshAccessToken()
+    emit('SIGNED_OUT', null)
+    settle(refreshed)
+    await expect(refreshing).resolves.toEqual({ status: 'offline' })
+  })
+
+  it('a refresh that hangs is offline after REFRESH_TIMEOUT_MS', async () => {
+    const { auth, result } = await signedInAuth()
+    auth.refreshSession.mockReturnValue(never())
+    vi.useFakeTimers()
+    try {
+      const refreshing = result.current.refreshAccessToken()
+      await vi.advanceTimersByTimeAsync(REFRESH_TIMEOUT_MS - 1)
+      let settled = false
+      void refreshing.then(() => (settled = true))
+      await vi.advanceTimersByTimeAsync(0)
+      expect(settled).toBe(false)
+      await vi.advanceTimersByTimeAsync(1)
+      await expect(refreshing).resolves.toEqual({ status: 'offline' })
+    } finally {
+      vi.useRealTimers()
+    }
   })
 })
 

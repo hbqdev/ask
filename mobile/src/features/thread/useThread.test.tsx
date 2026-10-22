@@ -1929,7 +1929,7 @@ describe('useThread: a 401 on /api/chat', () => {
     expect(signOut).not.toHaveBeenCalled()
   })
 
-  it('a second 401 signs out with the notice', async () => {
+  it('a second 401 after a refresh keeps the session and shows the error (P6-R14)', async () => {
     refreshAccessToken.mockResolvedValue({
       status: 'refreshed',
       token: 'fake-token'
@@ -1940,9 +1940,8 @@ describe('useThread: a 401 on /api/chat', () => {
     act(() => result.current.send('What is new?'))
 
     await waitFor(() => expect(result.current.status).toBe('error'))
-    expect(signOut).toHaveBeenCalledExactlyOnceWith({
-      notice: 'You’ve been signed out.'
-    })
+    expect(result.current.error?.message).toContain('Authentication required')
+    expect(signOut).not.toHaveBeenCalled()
     expect(requests('POST', '/api/chat')).toHaveLength(2)
   })
 })

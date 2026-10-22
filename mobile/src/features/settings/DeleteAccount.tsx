@@ -9,7 +9,7 @@
 import { useId, useRef, useState, type KeyboardEvent } from 'react'
 
 import { useApi } from '@/core/api/ApiProvider'
-import { SIGNED_OUT_MESSAGE, type ApiClient } from '@/core/api/client'
+import { isServerUnauthorized, type ApiClient } from '@/core/api/client'
 import { ApiError } from '@/core/api/errors'
 import { useAuth } from '@/core/auth/AuthProvider'
 import { haptic } from '@/core/haptics'
@@ -51,11 +51,7 @@ export async function deleteAccount(client: ApiClient): Promise<void> {
  * says nothing about the session.
  */
 export function sessionGone(err: unknown): boolean {
-  return (
-    err instanceof ApiError &&
-    err.status === 401 &&
-    err.message !== SIGNED_OUT_MESSAGE
-  )
+  return isServerUnauthorized(err)
 }
 
 /** The message for a failed deletion. */

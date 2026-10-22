@@ -47,7 +47,7 @@ describe('authRetryFetch', () => {
     expect(init?.body).toBe('{"a":1}')
   })
 
-  it('a second 401 after refresh signs out', async () => {
+  it('a second 401 after the resend goes to the handler as afterRetry and is returned', async () => {
     const second = status(401)
     const { fetchImpl, onUnauthorized, send } = setup([status(401), second])
 
@@ -116,6 +116,17 @@ describe('authRetryFetch', () => {
     const init = fetchImpl.mock.calls[1]![1]
     expect(authOf(init)).toBe('Bearer fake-fresh-token')
     expect(new Headers(init?.headers).get('X-Keep')).toBe('yes')
+  })
+
+  it('does not resend a Request whose body was used', async () => {
+    const first = status(401)
+    const { fetchImpl, onUnauthorized, send } = setup([first])
+    const request = new Request(URL_, { method: 'POST', body: 'x' })
+    await request.text()
+
+    await expect(send(request)).resolves.toBe(first)
+    expect(onUnauthorized).toHaveBeenCalledExactlyOnceWith('first')
+    expect(fetchImpl).toHaveBeenCalledTimes(1)
   })
 
   it('a network failure on the resend rejects as fetch does', async () => {
