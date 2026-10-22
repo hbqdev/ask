@@ -144,78 +144,138 @@ describe('Account Actions', () => {
     expect(trackAccountDeleted).toHaveBeenCalledTimes(1)
   })
 
-  it('deletes memories, settings and uploads before the existing steps', async () => {
-    // By the time chats are deleted, the new cleanup has already run.
-    let uploadsGoneBeforeChats: boolean | undefined
-    vi.mocked(dbActions.deleteUserChats).mockImplementation(async () => {
-      uploadsGoneBeforeChats = !existsSync(userUploads())
-      return { success: true }
-    })
-
+  it('deletes memories, settings and uploads', async () => {
     const result = await deleteAccount()
 
     expect(result).toEqual({ success: true })
     expect(memoryDb.clearMemories).toHaveBeenCalledWith(user.id)
     expect(memoryDb.deleteUserSettings).toHaveBeenCalledWith(user.id)
-    expect(uploadsGoneBeforeChats).toBe(true)
     expect(await readdir(uploadsDir)).toEqual(['other-user'])
 
+    // Every DB step runs before the auth user is deleted.
     const order = (fn: unknown) =>
       vi.mocked(fn as (...args: any[]) => unknown).mock.invocationCallOrder[0]
-    expect(order(memoryDb.clearMemories)).toBeLessThan(
-      order(memoryDb.deleteUserSettings)
-    )
-    expect(order(memoryDb.deleteUserSettings)).toBeLessThan(
-      order(dbActions.deleteUserChats)
-    )
+    const dbSteps = [
+      memoryDb.clearMemories,
+      memoryDb.deleteUserSettings,
+      dbActions.deleteUserChats,
+      dbActions.deleteUserNotes,
+      dbActions.deleteUserLibraryFiles,
+      dbActions.anonymizeUserFeedback,
+      deleteUserObjects
+    ]
+    for (let i = 1; i < dbSteps.length; i++) {
+      expect(order(dbSteps[i - 1])).toBeLessThan(order(dbSteps[i]))
+    }
     expect(order(deleteUserObjects)).toBeLessThan(order(deleteUser))
   })
 
-  it('stops before anything else, signed in, when memory deletion fails', async () => {
-    const error = vi.spyOn(console, 'error').mockImplementation(() => {})
-    vi.mocked(memoryDb.clearMemories).mockRejectedValue(new Error('db down'))
+  it('files are removed only after the auth user is deleted', async () => {
+    let uploadsPresentAtAuthDelete: boolean | undefined
+    deleteUser.mockImplementation(async () => {
+      uploadsPresentAtAuthDelete = existsSync(userUploads())
+      return { data: { user: null }, error: null }
+    })
 
     const result = await deleteAccount()
 
-    expect(result).toEqual({
-      success: false,
-      error: 'Failed to delete user memories'
-    })
-    expect(memoryDb.deleteUserSettings).not.toHaveBeenCalled()
-    expect(dbActions.deleteUserChats).not.toHaveBeenCalled()
-    expect(deleteUser).not.toHaveBeenCalled()
-    expect(trackAccountDeleted).not.toHaveBeenCalled()
-    expect(existsSync(userUploads())).toBe(true)
-    expect(error).toHaveBeenCalled()
+    expect(result).toEqual({ success: true })
+    expect(uploadsPresentAtAuthDelete).toBe(true)
+    expect(existsSync(userUploads())).toBe(false)
   })
 
-  it('stops before anything else, signed in, when settings deletion fails', async () => {
-    const error = vi.spyOn(console, 'error').mockImplementation(() => {})
-    vi.mocked(memoryDb.deleteUserSettings).mockRejectedValue(
-      new Error('db down')
-    )
+  it.each([
+    [
+      'memories',
+      () =>
+        vi.mocked(memoryDb.clearMemories).mockRejectedValue(new Error('db')),
+      'Failed to delete user memories'
+    ],
+    [
+      'settings',
+      () =>
+        vi
+          .mocked(memoryDb.deleteUserSettings)
+          .mockRejectedValue(new Error('db')),
+      'Failed to delete user settings'
+    ],
+    [
+      'chats',
+      () =>
+        vi
+          .mocked(dbActions.deleteUserChats)
+          .mockResolvedValue({ success: false, error: 'chats failed' }),
+      'chats failed'
+    ],
+    [
+      'notes',
+      () =>
+        vi
+          .mocked(dbActions.deleteUserNotes)
+          .mockResolvedValue({ success: false, error: 'notes failed' }),
+      'notes failed'
+    ],
+    [
+      'library file rows',
+      () =>
+        vi
+          .mocked(dbActions.deleteUserLibraryFiles)
+          .mockResolvedValue({ success: false, error: 'files failed' }),
+      'files failed'
+    ],
+    [
+      'feedback anonymization',
+      () =>
+        vi
+          .mocked(dbActions.anonymizeUserFeedback)
+          .mockResolvedValue({ success: false, error: 'feedback failed' }),
+      'feedback failed'
+    ],
+    [
+      'a thrown DB error',
+      () =>
+        vi
+          .mocked(dbActions.deleteUserNotes)
+          .mockRejectedValue(new Error('connection reset')),
+      'connection reset'
+    ]
+  ])(
+    'a DB step failure (%s) deletes no files and keeps the account',
+    async (_label, fail, message) => {
+      vi.spyOn(console, 'error').mockImplementation(() => {})
+      fail()
+
+      const result = await deleteAccount()
+
+      expect(result).toEqual({ success: false, error: message })
+      expect(existsSync(userUploads())).toBe(true)
+      expect(deleteUser).not.toHaveBeenCalled()
+      expect(trackAccountDeleted).not.toHaveBeenCalled()
+    }
+  )
+
+  it('an auth-delete failure deletes no files', async () => {
+    deleteUser.mockResolvedValue({
+      data: { user: null },
+      error: new Error('Auth deletion failed')
+    })
+    vi.spyOn(console, 'error').mockImplementation(() => {})
 
     const result = await deleteAccount()
 
-    expect(result).toEqual({
-      success: false,
-      error: 'Failed to delete user settings'
-    })
-    expect(dbActions.deleteUserChats).not.toHaveBeenCalled()
-    expect(deleteUser).not.toHaveBeenCalled()
+    expect(result).toEqual({ success: false, error: 'Auth deletion failed' })
     expect(existsSync(userUploads())).toBe(true)
-    expect(error).toHaveBeenCalled()
   })
 
-  it('logs an uploads-removal failure and still deletes the account', async () => {
+  it('an fs failure after auth deletion still returns ok', async () => {
     const error = vi.spyOn(console, 'error').mockImplementation(() => {})
     vi.spyOn(fsPromises, 'rm').mockRejectedValueOnce(new Error('EBUSY'))
 
     const result = await deleteAccount()
 
     expect(result).toEqual({ success: true })
-    expect(dbActions.deleteUserChats).toHaveBeenCalledWith(user.id)
     expect(deleteUser).toHaveBeenCalledWith(user.id)
+    expect(trackAccountDeleted).toHaveBeenCalledTimes(1)
     expect(error).toHaveBeenCalled()
   })
 

@@ -45,8 +45,9 @@ export async function deleteAccount(): Promise<{
     }
   }
 
-  // Memories and the settings row first. A failure here stops the deletion
-  // with the auth user intact, so the user stays signed in and can retry.
+  // Every DB step runs before the auth user is deleted, the point of no
+  // return. A failure in any of them returns an error with the account and
+  // its upload files intact, so the user stays signed in and can retry.
   try {
     await clearMemories(user.id)
   } catch (error) {
@@ -59,11 +60,6 @@ export async function deleteAccount(): Promise<{
     console.error(`Error deleting settings for user ${user.id}:`, error)
     return { success: false, error: 'Failed to delete user settings' }
   }
-
-  // The local upload tree (originals, RAG sidecars, generated images). Not
-  // fatal: removeUserUploads logs an unsafe id or fs failure itself, and the
-  // files are unreachable once the account is gone.
-  await removeUserUploads(user.id)
 
   try {
     const deleteChatsResult = await dbActions.deleteUserChats(user.id)
@@ -107,6 +103,11 @@ export async function deleteAccount(): Promise<{
     if (error) {
       throw error
     }
+
+    // Only now, with the account gone, the local upload tree (originals, RAG
+    // sidecars, generated images). Not fatal: removeUserUploads logs an
+    // unsafe id or fs failure itself, and the orphaned files are unreachable.
+    await removeUserUploads(user.id)
 
     revalidateTag('chat', 'max')
     await trackAccountDeleted(user.id)
