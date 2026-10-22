@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { getCurrentUserId } from '@/lib/auth/get-current-user'
 import * as memoryDb from '@/lib/db/memory-actions'
-import type { UserMemory } from '@/lib/db/schema'
+import type { MemoryListItem } from '@/lib/db/schema'
 
 import {
   clearMemoriesAction,
@@ -24,7 +24,7 @@ describe('Memory Actions', () => {
   describe('getMemories', () => {
     it('should return memories for authenticated user', async () => {
       const userId = 'user-123'
-      const mockMemories: UserMemory[] = [
+      const mockMemories: MemoryListItem[] = [
         {
           id: 'mem-1',
           userId,
@@ -32,7 +32,6 @@ describe('Memory Actions', () => {
           category: 'preference',
           status: 'confirmed',
           sightings: 2,
-          embedding: [],
           sourceChatId: null,
           createdAt: new Date(),
           updatedAt: new Date(),
@@ -85,12 +84,21 @@ describe('Memory Actions', () => {
     it('should delete the memory for authenticated user', async () => {
       const userId = 'user-123'
       vi.mocked(getCurrentUserId).mockResolvedValue(userId)
-      vi.mocked(memoryDb.deleteMemory).mockResolvedValue(undefined)
+      vi.mocked(memoryDb.deleteMemory).mockResolvedValue(true)
 
       const result = await deleteMemoryAction('mem-1')
 
-      expect(result).toEqual({ success: true })
+      expect(result).toEqual({ success: true, deleted: true })
       expect(memoryDb.deleteMemory).toHaveBeenCalledWith(userId, 'mem-1')
+    })
+
+    it('should report deleted:false when no such memory exists', async () => {
+      vi.mocked(getCurrentUserId).mockResolvedValue('user-123')
+      vi.mocked(memoryDb.deleteMemory).mockResolvedValue(false)
+
+      const result = await deleteMemoryAction('mem-x')
+
+      expect(result).toEqual({ success: true, deleted: false })
     })
 
     it('should return an error for unauthenticated user without calling the DB', async () => {

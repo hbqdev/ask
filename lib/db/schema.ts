@@ -482,6 +482,8 @@ export const userMemories = pgTable(
 ).enableRLS()
 
 export type UserMemory = InferSelectModel<typeof userMemories>
+// A memory as lists carry it: everything but the embedding vector.
+export type MemoryListItem = Omit<UserMemory, 'embedding'>
 
 // Conversation recall (feature B). Chunked copies of message text, embedded
 // for semantic retrieval. Unlike `user_memories` (whose source_chat_id has no

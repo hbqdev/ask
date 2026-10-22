@@ -5,7 +5,9 @@ import { revalidateTag } from 'next/cache'
 import { trackAccountDeleted } from '@/lib/analytics'
 import { getCurrentUser } from '@/lib/auth/get-current-user'
 import * as dbActions from '@/lib/db/actions'
+import { clearMemories, deleteUserSettings } from '@/lib/db/memory-actions'
 import { deleteUserObjects } from '@/lib/storage/r2-client'
+import { removeUserUploads } from '@/lib/storage/user-uploads'
 import { createAdminClient } from '@/lib/supabase/admin'
 
 function getErrorMessage(error: unknown) {
@@ -42,6 +44,26 @@ export async function deleteAccount(): Promise<{
       error: 'Account deletion is not configured. Set SUPABASE_SECRET_KEY.'
     }
   }
+
+  // Memories and the settings row first. A failure here stops the deletion
+  // with the auth user intact, so the user stays signed in and can retry.
+  try {
+    await clearMemories(user.id)
+  } catch (error) {
+    console.error(`Error deleting memories for user ${user.id}:`, error)
+    return { success: false, error: 'Failed to delete user memories' }
+  }
+  try {
+    await deleteUserSettings(user.id)
+  } catch (error) {
+    console.error(`Error deleting settings for user ${user.id}:`, error)
+    return { success: false, error: 'Failed to delete user settings' }
+  }
+
+  // The local upload tree (originals, RAG sidecars, generated images). Not
+  // fatal: removeUserUploads logs an unsafe id or fs failure itself, and the
+  // files are unreachable once the account is gone.
+  await removeUserUploads(user.id)
 
   try {
     const deleteChatsResult = await dbActions.deleteUserChats(user.id)
