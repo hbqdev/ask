@@ -16,6 +16,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import {
   AuthProvider,
   REFRESH_TIMEOUT_MS,
+  SIGNED_OUT_NOTICE,
   useAuth,
   type Auth
 } from '@/core/auth/AuthProvider'
@@ -251,6 +252,45 @@ describe('AuthProvider: session restore', () => {
     emit('SIGNED_OUT', null)
     expect(result.current.status).toBe('signedOut')
     expect(result.current.session).toBeNull()
+  })
+
+  it('a SIGNED_OUT Supabase sends by itself says so and drops a waiting share', async () => {
+    // Its background refresh was refused: the app did not start this one.
+    const { emit, result } = await signedInAuth()
+    vi.mocked(takeSharedItem).mockClear()
+    emit('SIGNED_OUT', null)
+    expect(result.current.status).toBe('signedOut')
+    expect(result.current.notice).toBe(SIGNED_OUT_NOTICE)
+    expect(takeSharedItem).toHaveBeenCalledTimes(1)
+  })
+
+  it('a SIGNED_OUT with no account shown says nothing and keeps a share', async () => {
+    const { emit, result } = await signedOutAuth()
+    vi.mocked(takeSharedItem).mockClear()
+    emit('SIGNED_OUT', null)
+    expect(result.current.notice).toBeNull()
+    expect(takeSharedItem).not.toHaveBeenCalled()
+  })
+
+  it('the SIGNED_OUT of a sign-out here keeps that sign-out’s notice and share choice', async () => {
+    for (const options of [
+      undefined,
+      { notice: 'Your account was deleted', keepSharedItem: true }
+    ]) {
+      const { auth, emit, result, unmount } = await signedInAuth()
+      // As supabase-js does: SIGNED_OUT while its signOut is under way.
+      auth.signOut.mockImplementation(async () => {
+        emit('SIGNED_OUT', null)
+        return { error: null }
+      })
+      vi.mocked(takeSharedItem).mockClear()
+      await act(async () => {
+        await result.current.signOut(options)
+      })
+      expect(result.current.notice).toBe(options?.notice ?? null)
+      expect(takeSharedItem).toHaveBeenCalledTimes(options ? 0 : 1)
+      unmount()
+    }
   })
 
   it('SIGNED_OUT clears the library cache', async () => {
@@ -1095,6 +1135,63 @@ describe('AuthProvider: refreshAccessToken across a sign-out or another session'
     emit('SIGNED_OUT', null)
     settle(refreshed)
     await expect(refreshing).resolves.toEqual({ status: 'offline' })
+  })
+
+  it('a sign-in still under way already counts as another session', async () => {
+    // Supabase dropped the session; the same account signs in again, and
+    // its SIGNED_IN is shown before the sign-in call returns.
+    const { auth, result, emit } = await signedInAuth()
+    const settle = pendingRefresh(auth)
+    const refreshing = result.current.refreshAccessToken()
+    emit('SIGNED_OUT', null)
+    let finish: () => void = () => {}
+    auth.signInWithPassword.mockImplementation(async () => {
+      emit('SIGNED_IN', session)
+      await new Promise<void>(resolve => {
+        finish = resolve
+      })
+      return { data: { session, user: session.user }, error: null }
+    })
+    let signingIn: Promise<boolean> = Promise.resolve(false)
+    act(() => {
+      signingIn = result.current.signIn('user@example.test', 'fake-password')
+    })
+    await waitFor(() => expect(result.current.status).toBe('signedIn'))
+    settle(refreshed)
+    await expect(refreshing).resolves.toEqual({ status: 'offline' })
+    await act(async () => {
+      finish()
+      await signingIn
+    })
+  })
+
+  it('a Google sign-in still under way already counts as another session', async () => {
+    const { auth, result, emit } = await signedInAuth()
+    const settle = pendingRefresh(auth)
+    const refreshing = result.current.refreshAccessToken()
+    emit('SIGNED_OUT', null)
+    let finish: () => void = () => {}
+    auth.exchangeCodeForSession.mockImplementation(async () => {
+      emit('SIGNED_IN', session)
+      await new Promise<void>(resolve => {
+        finish = resolve
+      })
+      return { data: { session, user: session.user }, error: null }
+    })
+    vi.mocked(Browser.open).mockClear()
+    let signingIn: Promise<boolean> = Promise.resolve(false)
+    act(() => {
+      signingIn = result.current.signInWithGoogle()
+    })
+    await waitFor(() => expect(Browser.open).toHaveBeenCalled())
+    await openAppUrl('ask://auth-callback?code=fake-code')
+    await waitFor(() => expect(result.current.status).toBe('signedIn'))
+    settle(refreshed)
+    await expect(refreshing).resolves.toEqual({ status: 'offline' })
+    await act(async () => {
+      finish()
+      await signingIn
+    })
   })
 
   it('a refresh that hangs is offline after REFRESH_TIMEOUT_MS', async () => {

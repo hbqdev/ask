@@ -37,6 +37,7 @@ export type Auth = {
   /**
    * Information for the sign-in screen, not an error: why the user was
    * signed out (e.g. "Your account was deleted"). Set by signOut's `notice`,
+   * or to SIGNED_OUT_NOTICE when Supabase drops the session by itself;
    * cleared by the next sign-in attempt. Stand-ins may leave it out.
    */
   notice?: string | null
@@ -190,13 +191,27 @@ export function AuthProvider({
     setView({ status: 'signedOut', session: null })
   }, [storage])
 
+  // Supabase dropped a session the app was showing, by itself (its
+  // background refresh was refused: revoked, expired, the user gone): as
+  // after an app sign-out, the sign-in screen says why and a waiting share
+  // is dropped, so it never reaches the next account's composer. A sign-out
+  // here has already set its own notice and share choice.
+  const signedOutBySupabase = useCallback(() => {
+    if (signedOutHere.current || accountId.current === null) return
+    setNotice(SIGNED_OUT_NOTICE)
+    // Taken and dropped; it never rejects.
+    void takeSharedItem()
+  }, [])
+
   useEffect(() => {
     // Only SIGNED_OUT (supabase-js emits it whenever it drops the session)
     // signs out here. A null INITIAL_SESSION also comes from a refresh that
     // failed offline, and the stored session is still good then.
     const { data } = client.auth.onAuthStateChange((event, next) => {
-      if (event === 'SIGNED_OUT') showSignedOut()
-      else if (next) showSession(next)
+      if (event === 'SIGNED_OUT') {
+        signedOutBySupabase()
+        showSignedOut()
+      } else if (next) showSession(next)
     })
 
     async function restore() {
@@ -221,12 +236,16 @@ export function AuthProvider({
     void restore()
 
     return () => data.subscription.unsubscribe()
-  }, [client, storage, showSession, showSignedOut])
+  }, [client, storage, showSession, showSignedOut, signedOutBySupabase])
 
   const signIn = useCallback(
     async (email: string, password: string) => {
       setError(null)
       setNotice(null)
+      // Before the call too: supabase-js shows the new session (SIGNED_IN)
+      // before the call returns, and a refresh settling in between must
+      // already see another session.
+      sessionEpoch.current++
       try {
         const { data, error: authError } = await client.auth.signInWithPassword(
           { email, password }
@@ -252,6 +271,8 @@ export function AuthProvider({
     if (googleSignInPending()) return false
     setError(null)
     setNotice(null)
+    // As signIn: before the call too.
+    sessionEpoch.current++
     try {
       const result = await runGoogleSignIn(client)
       if (result.outcome === 'signedIn') {

@@ -14,7 +14,11 @@ import { useEffect } from 'react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { ApiProvider, useApi } from '@/core/api/ApiProvider'
-import { AuthProvider, useAuth } from '@/core/auth/AuthProvider'
+import {
+  AuthProvider,
+  REFRESH_TIMEOUT_MS,
+  useAuth
+} from '@/core/auth/AuthProvider'
 import { AUTH_STORAGE_KEY } from '@/core/auth/supabase'
 import { takeSharedItem } from '@/core/shared-inbox'
 import { SignInScreen } from '@/features/auth/SignInScreen'
@@ -86,7 +90,7 @@ function fakeSupabase(initial: Session) {
       listener = cb
       return { data: { subscription: { unsubscribe: vi.fn() } } }
     }),
-    refreshSession: vi.fn(async () => refused()),
+    refreshSession: vi.fn(async (): Promise<unknown> => refused()),
     signInWithPassword: vi.fn(async ({ email }: { email: string }) => {
       current = sessionOf(email.split('@')[0]!)
       return { data: { session: current, user: current.user }, error: null }
@@ -103,6 +107,11 @@ function fakeSupabase(initial: Session) {
     drop: () => {
       current = null
       listener('SIGNED_OUT', null)
+    },
+    /** supabase-js storing a refreshed session. */
+    refreshTo: (next: Session) => {
+      current = next
+      listener('TOKEN_REFRESHED', next)
     }
   }
 }
@@ -132,6 +141,13 @@ function Library({ loads = 1 }: { loads?: number }) {
   return <p>Library</p>
 }
 
+/** The signed-in app's API, for a test to send its own requests. */
+let api: ReturnType<typeof useApi> | null = null
+function GrabApi() {
+  api = useApi()
+  return null
+}
+
 function Shell({
   loads,
   deleting = false
@@ -144,6 +160,7 @@ function Shell({
   if (status === 'signedOut') return <SignInScreen apiBaseUrl={BASE} />
   return (
     <ApiProvider baseUrl={BASE}>
+      <GrabApi />
       <Library loads={loads} />
       <button type="button" onClick={() => void signOut()}>
         Sign out here
@@ -221,6 +238,88 @@ describe('a server 401', () => {
     expect(supabase.auth.refreshSession).toHaveBeenCalledTimes(1)
     await waitFor(() => expect(supabase.auth.signOut).toHaveBeenCalledTimes(1))
     expect(screen.getAllByText(SIGNED_OUT)).toHaveLength(1)
+  })
+
+  it('Supabase dropping the session by itself (its background refresh refused): the notice, and a waiting share dropped', async () => {
+    fetchMock.mockImplementation(async () => new Response('[]'))
+    const supabase = fakeSupabase(sessionOf('a'))
+    renderApp(supabase)
+    await screen.findByText('Library')
+
+    act(() => supabase.drop())
+
+    expect(await screen.findByText(SIGNED_OUT)).toBeVisible()
+    expect(screen.getAllByText(SIGNED_OUT)).toHaveLength(1)
+    expect(takeSharedItem).toHaveBeenCalledTimes(1)
+    // The app started no sign-out of its own.
+    expect(supabase.auth.signOut).not.toHaveBeenCalled()
+  })
+
+  it('a burst that outlasts the refresh timeout: each ends 401 once, never resent; a later 401 joins the refresh still running and only it is resent', async () => {
+    const supabase = fakeSupabase(sessionOf('a'))
+    // One refresh at a time, shared by concurrent calls (as auth-js dedupes);
+    // it settles when the test says so.
+    let pending: Promise<unknown> | null = null
+    let succeed: () => void = () => {}
+    supabase.auth.refreshSession.mockImplementation(() => {
+      pending ??= new Promise(resolve => {
+        succeed = () => {
+          pending = null
+          const next = { ...sessionOf('a'), access_token: 'tok-a-1' } as Session
+          supabase.refreshTo(next)
+          resolve({ data: { session: next, user: next.user }, error: null })
+        }
+      })
+      return pending
+    })
+    fetchMock.mockImplementation(async () => new Response('[]'))
+    renderApp(supabase, { loads: 0 })
+    await screen.findByText('Library')
+    fetchMock.mockImplementation(async () => unauthorized())
+    const send = (path: string) =>
+      api!.client.fetch(path).then(r => r.status)
+    const flush = async () => {
+      for (let i = 0; i < 10; i++) await act(async () => {})
+    }
+
+    vi.useFakeTimers()
+    try {
+      const burst = ['/api/1', '/api/2', '/api/3'].map(send)
+      await flush()
+      expect(supabase.auth.refreshSession).toHaveBeenCalledTimes(1)
+      let settled = false
+      void Promise.all(burst).then(() => (settled = true))
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(REFRESH_TIMEOUT_MS - 1)
+      })
+      expect(settled).toBe(false)
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(1)
+      })
+      expect(await Promise.all(burst)).toEqual([401, 401, 401])
+      expect(vi.getTimerCount()).toBe(0)
+
+      // A 4th 401 while supabase-js is still refreshing joins that refresh.
+      const late = send('/api/4')
+      await flush()
+      expect(supabase.auth.refreshSession).toHaveBeenCalledTimes(2)
+      fetchMock.mockImplementation(async () => new Response('ok'))
+      await act(async () => succeed())
+      expect(await late).toBe(200)
+      await flush()
+    } finally {
+      vi.useRealTimers()
+    }
+
+    expect(sentAs('/api/')).toEqual([
+      ['/api/1', 'Bearer tok-a'],
+      ['/api/2', 'Bearer tok-a'],
+      ['/api/3', 'Bearer tok-a'],
+      ['/api/4', 'Bearer tok-a'],
+      ['/api/4', 'Bearer tok-a-1']
+    ])
+    expect(supabase.auth.signOut).not.toHaveBeenCalled()
+    expect(screen.getByText('Library')).toBeVisible()
   })
 
   it('a late 401 after a deliberate sign-out: no second sign-out, no notice', async () => {
