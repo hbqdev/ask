@@ -35,6 +35,33 @@ import {
 } from '@/features/settings/MemoryScreen'
 
 vi.mock('@/core/api/ApiProvider', () => ({ useApi: vi.fn() }))
+
+type AppListener = () => void
+const app = vi.hoisted(() => ({
+  listeners: new Map<string, Set<() => void>>(),
+  remove: vi.fn()
+}))
+vi.mock('@capacitor/app', () => ({
+  App: {
+    addListener: vi.fn(async (event: string, listener: AppListener) => {
+      const set = app.listeners.get(event) ?? new Set<AppListener>()
+      set.add(listener)
+      app.listeners.set(event, set)
+      return {
+        remove: async () => {
+          set.delete(listener)
+          app.remove()
+        }
+      }
+    })
+  }
+}))
+
+/** The app goes to the background (Capacitor's 'pause'). */
+const appPause = () =>
+  act(() => {
+    for (const listener of app.listeners.get('pause') ?? []) listener()
+  })
 vi.mock('@/core/haptics', () => ({ haptic: vi.fn() }))
 vi.mock('@/core/nav/stack', async importOriginal => ({
   ...(await importOriginal<typeof import('@/core/nav/stack')>()),
@@ -188,6 +215,7 @@ function swipeDelete(content: string) {
 
 beforeEach(() => {
   vi.clearAllMocks()
+  app.listeners.clear()
   serve()
   const client = createApiClient({
     baseUrl: BASE,
@@ -529,6 +557,70 @@ describe('MemoryScreen: recall index', () => {
       expect(rebuildButton()).toHaveTextContent('Rebuild index')
     )
     expect(screen.queryByRole('alert')).toBeNull()
+  })
+
+  it('pauses when the app goes to the background, and continues on request', async () => {
+    let posts = 0
+    routes['POST /api/memory/recall'] = init => {
+      posts++
+      if (posts === 1) return json({ messages: 50, chunks: 120, done: false })
+      if (posts === 2) return hang(init)
+      return json({ messages: 30, chunks: 70, done: true })
+    }
+    routes['GET /api/memory'] = sequence(
+      () => json(overview()),
+      () => json(overview({ recall: { chunks: 150, chats: 5 } })),
+      () => json(overview({ recall: { chunks: 220, chats: 8 } }))
+    )
+    await renderScreen()
+    fireEvent.click(rebuildButton())
+    await waitFor(() => expect(posts).toBe(2))
+    const [, init] = fetchImpl.mock.calls.at(-1)!
+    expect(init!.signal!.aborted).toBe(false)
+
+    await appPause()
+    expect(init!.signal!.aborted).toBe(true)
+    expect(
+      await screen.findByText('Rebuild paused — 5 chats indexed')
+    ).toBeInTheDocument()
+    // An aborted batch is not a failure, and nothing resumes by itself.
+    expect(screen.queryByRole('alert')).toBeNull()
+    expect(rebuildButton()).toHaveTextContent('Rebuild index')
+    await act(async () => {})
+    expect(posts).toBe(2)
+
+    fireEvent.click(screen.getByRole('button', { name: 'Continue' }))
+    expect(screen.queryByText(/Rebuild paused/)).toBeNull()
+    expect(await screen.findByText('Indexed 30 messages.')).toBeInTheDocument()
+    expect(posts).toBe(3)
+    expect(screen.getByText('8 chats indexed')).toBeInTheDocument()
+  })
+
+  it('pausing with no rebuild running does nothing', async () => {
+    await renderScreen()
+    await appPause()
+    expect(screen.queryByText(/Rebuild paused/)).toBeNull()
+    expect(sent()).not.toContain('POST /api/memory/recall')
+  })
+
+  it('stops listening for the background once gone', async () => {
+    const { unmount } = await renderScreen()
+    await waitFor(() => expect(app.listeners.get('pause')?.size).toBe(1))
+    unmount()
+    await waitFor(() => expect(app.remove).toHaveBeenCalledOnce())
+    expect(app.listeners.get('pause')?.size).toBe(0)
+  })
+
+  it('leaving a paused rebuild still stops it', async () => {
+    routes['POST /api/memory/recall'] = hang
+    const { unmount } = await renderScreen()
+    fireEvent.click(rebuildButton())
+    await waitFor(() => expect(sent()).toContain('POST /api/memory/recall'))
+    await appPause()
+    await screen.findByText(/Rebuild paused/)
+    unmount()
+    await act(async () => {})
+    expect(sent().filter(r => r === 'POST /api/memory/recall')).toHaveLength(1)
   })
 
   it('clears the index after a confirmation', async () => {

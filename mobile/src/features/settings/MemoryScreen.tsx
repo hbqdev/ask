@@ -4,8 +4,11 @@
 //
 // A rebuild runs one bounded batch per request (each can take most of a
 // minute), with progress after each, and stops when the screen is left or
-// covered. The rest of the screen stays usable meanwhile.
+// covered. Sending the app to the background pauses it (the batch in flight
+// is dropped) until the user taps Continue. The rest of the screen stays
+// usable meanwhile.
 
+import { App } from '@capacitor/app'
 import { useCallback, useEffect, useId, useRef, useState } from 'react'
 
 import { useApi } from '@/core/api/ApiProvider'
@@ -61,6 +64,9 @@ type Confirm =
   | null
 
 const BACK_ICON = 'M15 5l-7 7 7 7'
+
+/** The abort reason of a rebuild paused by the app going to the background. */
+const PAUSED = Symbol('paused')
 
 const SECTION_TITLE =
   'px-4 pb-2 text-xs font-medium uppercase tracking-wide text-foreground/50'
@@ -169,6 +175,8 @@ export function MemoryScreen() {
   const [rebuild, setRebuild] = useState({ running: false, batches: 0 })
   const [clearing, setClearing] = useState(false)
   const [clearingIndex, setClearingIndex] = useState(false)
+  // A rebuild the app's going to the background stopped, to continue.
+  const [paused, setPaused] = useState(false)
   const [confirm, setConfirm] = useState<Confirm>(null)
   const [viewing, setViewing] = useState<Memory | null>(null)
 
@@ -236,11 +244,20 @@ export function MemoryScreen() {
   useEffect(() => {
     if (!active) stopRebuild()
   }, [active, stopRebuild])
+  // To the background: pause, so the batch is not cut off mid-way by iOS.
+  useEffect(() => {
+    const handle = App.addListener('pause', () => {
+      rebuildAbort.current?.abort(PAUSED)
+      rebuildAbort.current = null
+    })
+    return () => void handle.then(h => h.remove())
+  }, [])
 
   const startRebuild = async () => {
     const controller = new AbortController()
     rebuildAbort.current = controller
     setIndexNote(null)
+    setPaused(false)
     setRebuild({ running: true, batches: 0 })
     try {
       const outcome = await rebuildRecallIndex(client, {
@@ -270,8 +287,10 @@ export function MemoryScreen() {
         })
       }
     } catch (error) {
-      // Stopped by leaving: nothing to say.
-      if (!controller.signal.aborted) {
+      // Paused: the user continues it. Stopped by leaving: nothing to say.
+      if (controller.signal.reason === PAUSED) {
+        setPaused(true)
+      } else if (!controller.signal.aborted) {
         setIndexNote({
           tone: 'alert',
           text: `${REBUILD_ERROR} ${memoryErrorText(error)}`
@@ -285,6 +304,7 @@ export function MemoryScreen() {
 
   const clearIndex = async () => {
     setIndexNote(null)
+    setPaused(false)
     setClearingIndex(true)
     try {
       await clearRecallIndex(client)
@@ -458,9 +478,25 @@ export function MemoryScreen() {
                   : `Indexed ${plural(recall.chats, 'chat', 'chats')}…`}
               </p>
               <p className={`${NOTE} text-foreground/50`}>
-                Keep this screen open: leaving it stops indexing.
+                Keep this screen open: leaving it stops indexing, and leaving
+                the app pauses it.
               </p>
             </>
+          )}
+          {paused && !rebuild.running && (
+            <div className={`${NOTE} flex items-center gap-3`}>
+              <p role="status" className="flex-1 text-foreground/60">
+                Rebuild paused — {plural(recall.chats, 'chat', 'chats')} indexed
+              </p>
+              <button
+                type="button"
+                disabled={clearingIndex || !switches.recallEnabled}
+                onClick={() => void startRebuild()}
+                className="min-h-11 shrink-0 touch-manipulation rounded-full bg-foreground px-4 text-sm font-semibold text-background active:opacity-50 disabled:opacity-40"
+              >
+                Continue
+              </button>
+            </div>
           )}
           <NoteLine note={indexNote} />
         </section>
