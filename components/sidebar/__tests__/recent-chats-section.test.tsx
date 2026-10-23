@@ -156,4 +156,24 @@ describe('RecentChatsSection', () => {
     expect(screen.getByText('Recent')).toBeInTheDocument()
     expect(screen.queryByText('Today chat')).not.toBeInTheDocument()
   })
+
+  test('scrolls only the chat list: the Recent header stays outside the scroller', () => {
+    renderSection(<RecentChatsSection chats={CHATS} />)
+    const header = screen.getByRole('button', { name: /recent/i })
+    const row = screen.getAllByRole('link')[0]
+    const scroller = row.closest('[data-recent-scroll]') as HTMLElement
+    expect(scroller).not.toBeNull()
+    expect(scroller.className).toMatch(/overflow-y-auto/)
+    expect(scroller.className).toMatch(/min-h-0/)
+    expect(scroller.contains(header)).toBe(false)
+  })
+
+  test('the section fills the space left under the nav', () => {
+    const { container } = renderSection(<RecentChatsSection chats={CHATS} />)
+    const group = container.querySelector(
+      '[data-sidebar="group"]'
+    ) as HTMLElement
+    expect(group.className).toMatch(/min-h-0/)
+    expect(group.className).toMatch(/flex-1/)
+  })
 })
