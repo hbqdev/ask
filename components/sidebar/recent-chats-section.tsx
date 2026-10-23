@@ -136,7 +136,9 @@ export function RecentChatsSection({
   }
 
   return (
-    <SidebarGroup className={className}>
+    // Fills what the nav leaves; the header stays put and only the list below
+    // it scrolls.
+    <SidebarGroup className={cn('min-h-0 flex-1', className)}>
       <SidebarGroupLabel asChild>
         <button
           type="button"
@@ -160,7 +162,7 @@ export function RecentChatsSection({
             No chats yet
           </p>
         ) : (
-          <>
+          <div data-recent-scroll className="min-h-0 flex-1 overflow-y-auto">
             {groups.map(group => (
               <div key={group.label} className="mb-1">
                 <div className="px-2 py-1 text-[11px] font-medium text-muted-foreground/70">
@@ -192,7 +194,7 @@ export function RecentChatsSection({
                 </SidebarMenuButton>
               </SidebarMenuItem>
             </SidebarMenu>
-          </>
+          </div>
         ))}
     </SidebarGroup>
   )

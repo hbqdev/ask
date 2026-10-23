@@ -169,6 +169,10 @@ export function ChatPanel({
   const [contentCards, setContentCards] = useState<string[]>([])
   // A single pasted URL becomes a lightweight favicon chip (see BARE_URL_RE).
   const [urlCards, setUrlCards] = useState<string[]>([])
+  // The model picked in this panel. Held here, not in the selector: the first
+  // message re-mounts the composer (home layout → thread layout), and a new
+  // selector would show the page-load model while the chat uses this pick.
+  const [pickedModelKey, setPickedModelKey] = useState<string | null>(null)
   const { close: closeArtifact } = useArtifact()
   const isLoading = status === 'submitted' || status === 'streaming'
   const hasPendingInput =
@@ -943,6 +947,10 @@ export function ChatPanel({
               <ModelSelectorClient
                 data={modelSelectorData}
                 crowded={messages.length > 0}
+                selectedModelKey={
+                  pickedModelKey ?? modelSelectorData.selectedModelKey
+                }
+                onSelectedModelKeyChange={setPickedModelKey}
               />
             )}
             {messages.length > 0 && (
