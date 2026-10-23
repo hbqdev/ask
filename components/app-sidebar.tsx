@@ -280,9 +280,11 @@ export default function AppSidebar({
         </Link>
       </SidebarHeader>
 
-      <SidebarContent className="px-2 py-2">
+      {/* The middle area does not scroll as a whole: the nav stays put and only
+          the Recent list scrolls (RecentChatsSection owns that scroller). */}
+      <SidebarContent className="overflow-hidden px-2 py-2">
         {/* Expanded nav — labelled rows. */}
-        <nav className="flex flex-col gap-0.5 px-1 group-data-[collapsible=icon]:hidden">
+        <nav className="flex shrink-0 flex-col gap-0.5 px-1 group-data-[collapsible=icon]:hidden">
           {NAV_ITEMS.map(({ href, icon: Icon, label, exact }) => {
             const isActive = exact
               ? pathname === href
@@ -309,7 +311,7 @@ export default function AppSidebar({
         </nav>
 
         {/* Collapsed nav — vertical icon tiles, matching today's rail. */}
-        <nav className="hidden flex-col items-center gap-1 group-data-[collapsible=icon]:flex">
+        <nav className="hidden shrink-0 flex-col items-center gap-1 group-data-[collapsible=icon]:flex">
           {NAV_ITEMS.map(({ href, icon: Icon, label, exact }) => {
             const isActive = exact
               ? pathname === href
