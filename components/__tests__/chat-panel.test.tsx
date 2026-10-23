@@ -1,6 +1,6 @@
 import React from 'react'
 
-import { render, waitFor } from '@testing-library/react'
+import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest'
 
 import { UploadedFile } from '@/lib/types'
@@ -29,7 +29,25 @@ vi.mock('../message-navigation-dots', () => ({
 }))
 
 vi.mock('../model-selector-client', () => ({
-  ModelSelectorClient: () => null
+  // Shows the key it is given and picks 'ollama:picked' on click, like the
+  // real selector's controlled mode.
+  ModelSelectorClient: ({
+    data,
+    selectedModelKey,
+    onSelectedModelKeyChange
+  }: {
+    data: { selectedModelKey: string }
+    selectedModelKey?: string
+    onSelectedModelKeyChange?: (key: string) => void
+  }) => (
+    <button
+      type="button"
+      data-testid="model-selector"
+      onClick={() => onSelectedModelKeyChange?.('ollama:picked')}
+    >
+      {selectedModelKey ?? data.selectedModelKey}
+    </button>
+  )
 }))
 
 vi.mock('../uploaded-file-list', () => ({
@@ -244,5 +262,58 @@ describe('ChatPanel ingest status polling', () => {
     // The interval must still be alive after a failed poll.
     await vi.advanceTimersByTimeAsync(5000)
     expect(fetchMock).toHaveBeenCalledTimes(2)
+  })
+})
+
+describe('ChatPanel model pick', () => {
+  const modelSelectorData = {
+    enabled: true,
+    hasAvailableModels: true,
+    modelsByProvider: {},
+    selectedModelKey: 'ollama:page-load'
+  } as unknown as React.ComponentProps<typeof ChatPanel>['modelSelectorData']
+
+  test('keeps the picked model when the first message moves the composer', () => {
+    const view = renderChatPanel({ modelSelectorData, messages: [] })
+    fireEvent.click(screen.getByTestId('model-selector'))
+    expect(screen.getByTestId('model-selector').textContent).toBe(
+      'ollama:picked'
+    )
+
+    // The first message re-renders the composer in the thread layout, which
+    // mounts a new selector: it must still show the pick, not the page-load
+    // model the server sent before the pick.
+    view.rerender(
+      <ChatPanel
+        chatId="chat-1"
+        input=""
+        handleInputChange={vi.fn()}
+        handleSubmit={vi.fn()}
+        status="streaming"
+        messages={[
+          { id: 'm1', role: 'user', parts: [{ type: 'text', text: 'hi' }] }
+        ]}
+        setMessages={vi.fn()}
+        stop={vi.fn()}
+        append={vi.fn()}
+        showScrollToBottomButton={false}
+        scrollContainerRef={React.createRef<HTMLDivElement>()}
+        uploadedFiles={[]}
+        setUploadedFiles={vi.fn()}
+        quotedContexts={[]}
+        setQuotedContexts={vi.fn()}
+        modelSelectorData={modelSelectorData}
+      />
+    )
+    expect(screen.getByTestId('model-selector').textContent).toBe(
+      'ollama:picked'
+    )
+  })
+
+  test('shows the server pick until the user picks', () => {
+    renderChatPanel({ modelSelectorData, messages: [] })
+    expect(screen.getByTestId('model-selector').textContent).toBe(
+      'ollama:page-load'
+    )
   })
 })

@@ -32,17 +32,26 @@ interface ModelSelectorClientProps {
    * drop the model name to icon-only on narrower phones there.
    */
   crowded?: boolean
+  /**
+   * Controlled pick. The chat panel holds it because the composer is mounted
+   * afresh when the first message moves it into the thread layout; a
+   * selector-local pick would be lost and the label would fall back to the
+   * page-load `data.selectedModelKey` while the chat runs on the new pick.
+   */
+  selectedModelKey?: string
+  onSelectedModelKeyChange?: (key: string) => void
 }
 
 export function ModelSelectorClient({
   data,
-  crowded = false
+  crowded = false,
+  selectedModelKey: controlledKey,
+  onSelectedModelKeyChange
 }: ModelSelectorClientProps) {
   const [open, setOpen] = useState(false)
   const [search, setSearch] = useState('')
-  const [selectedModelKey, setSelectedModelKey] = useState<string>(
-    data.selectedModelKey
-  )
+  const [localKey, setLocalKey] = useState<string>(data.selectedModelKey)
+  const selectedModelKey = controlledKey ?? localKey
 
   const providerEntries = useMemo(
     () =>
@@ -191,7 +200,8 @@ export function ModelSelectorClient({
                         onClick={() => {
                           const nextModel = selectableByKey[value]
                           if (!nextModel) return
-                          setSelectedModelKey(value)
+                          setLocalKey(value)
+                          onSelectedModelKeyChange?.(value)
                           setCookie(
                             MODEL_SELECTION_COOKIE,
                             serializeModelSelectionCookie({
