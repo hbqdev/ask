@@ -5,7 +5,7 @@ import type { ModelSelectorData } from '@/lib/types/model-selector'
 
 import { ModelSelectorClient } from '../model-selector-client'
 
-const saveModelPreference = vi.fn(() => Promise.resolve())
+const saveModelPreference = vi.fn((..._args: unknown[]) => Promise.resolve())
 vi.mock('@/lib/actions/model-preference', () => ({
   saveModelPreference: (...args: unknown[]) => saveModelPreference(...args)
 }))
