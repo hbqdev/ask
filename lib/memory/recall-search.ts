@@ -9,7 +9,8 @@ import {
 } from '@/lib/embeddings/transformers-embedding'
 import {
   crossEncoderScore,
-  isCrossEncoderConfigured
+  isCrossEncoderConfigured,
+  recallRerankerUrl
 } from '@/lib/utils/cross-encoder'
 
 import type { RecallCandidates, RecallHit, RecallOptions } from './recall-types'
@@ -155,7 +156,13 @@ export async function rankRecallCandidates(
   // cross-encoder may be unconfigured, there may be <2 hits to rank, or
   // crossEncoderScore may throw.
   let reranked = false
-  if (opts.useRerank && isCrossEncoderConfigured() && hits.length > 1) {
+  // RECALL_RERANKER_URL (a dedicated instance) when set, else RERANKER_URL.
+  const rerankerUrl = recallRerankerUrl()
+  if (
+    opts.useRerank &&
+    isCrossEncoderConfigured(rerankerUrl) &&
+    hits.length > 1
+  ) {
     // Cap only this path: the cap exists to bound rerank cost, and the
     // non-rerank path pays none, so truncating it would drop results for
     // nothing.
@@ -169,7 +176,11 @@ export async function rankRecallCandidates(
         query,
         candidatesToScore.map(h => h.content),
         // Cost is linear in passages x tokens — see rerankMaxLength.
-        { maxLength: rerankMaxLength(), timeoutMs: 10_000 }
+        {
+          maxLength: rerankMaxLength(),
+          timeoutMs: 10_000,
+          baseUrl: rerankerUrl
+        }
       )
       hits = candidatesToScore
         .map((h, i) => ({ ...h, score: scores[i] ?? 0 }))
@@ -179,7 +190,7 @@ export async function rankRecallCandidates(
       // Reranker down — keep the cosine ordering already computed. Log it:
       // with a rerank-scale minScore this fails closed below, silently
       // disabling recall for the turn. That must not be invisible.
-      console.warn('[recall] rerank failed:', error)
+      console.warn(`[recall] rerank failed (${rerankerUrl}):`, error)
     }
   }
 
@@ -192,7 +203,7 @@ export async function rankRecallCandidates(
     // everything.
     if (opts.useRerank && !reranked) {
       console.warn(
-        `[recall] fail-closed: rerank requested but did not run (configured=${isCrossEncoderConfigured()}, hits=${hits.length}) — no recall this turn`
+        `[recall] fail-closed: rerank requested but did not run (configured=${isCrossEncoderConfigured(rerankerUrl)}, url=${rerankerUrl}, hits=${hits.length}) — no recall this turn`
       )
       return []
     }

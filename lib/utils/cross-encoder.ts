@@ -5,12 +5,31 @@
  * than comparing separately-embedded vectors. Reached over the LAN with a
  * bearer token (the service is LAN-published, unlike the same-host
  * loopback services). Feature is inert unless both env vars are set.
+ *
+ * Memory recall may use its own instance (RECALL_RERANKER_URL, same token):
+ * recall has a 1.5s critical-path budget and must not queue behind
+ * 100+-passage search reranks on the shared one. See recallRerankerUrl.
  */
 
 const DEFAULT_TIMEOUT_MS = 20_000
 
-export function isCrossEncoderConfigured(): boolean {
-  return Boolean(process.env.RERANKER_URL && process.env.RERANKER_API_TOKEN)
+/**
+ * `baseUrl` defaults to RERANKER_URL (search reranking, upload/URL RAG);
+ * recall passes recallRerankerUrl(). Every instance shares RERANKER_API_TOKEN.
+ */
+export function isCrossEncoderConfigured(
+  baseUrl: string | undefined = process.env.RERANKER_URL
+): boolean {
+  return Boolean(baseUrl && process.env.RERANKER_API_TOKEN)
+}
+
+/**
+ * The reranker endpoint for memory recall: RECALL_RERANKER_URL when set (a
+ * dedicated instance, so recall's 1.5s RECALL_BUDGET_MS is not spent queued
+ * behind search reranks), else RERANKER_URL exactly as before.
+ */
+export function recallRerankerUrl(): string | undefined {
+  return process.env.RECALL_RERANKER_URL?.trim() || process.env.RERANKER_URL
 }
 
 /**
@@ -21,10 +40,11 @@ export function isCrossEncoderConfigured(): boolean {
 export async function crossEncoderScore(
   query: string,
   passages: string[],
-  opts?: { timeoutMs?: number; maxLength?: number }
+  opts?: { timeoutMs?: number; maxLength?: number; baseUrl?: string }
 ): Promise<number[]> {
   if (passages.length === 0) return []
-  const baseUrl = process.env.RERANKER_URL
+  // opts.baseUrl: another reranker instance (recall); default RERANKER_URL.
+  const baseUrl = opts?.baseUrl ?? process.env.RERANKER_URL
   const token = process.env.RERANKER_API_TOKEN
   if (!baseUrl || !token) {
     throw new Error('RERANKER_URL / RERANKER_API_TOKEN are not configured')
