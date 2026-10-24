@@ -1,9 +1,9 @@
 [Unit]
-Description=Evict model weights from the page cache after boot and every 30 min
+Description=Evict model weights from the page cache 4 min after boot and every 15 min
 
 [Timer]
-OnBootSec=10min
-OnUnitActiveSec=30min
+OnBootSec=4min
+OnUnitActiveSec=15min
 
 [Install]
 WantedBy=timers.target
