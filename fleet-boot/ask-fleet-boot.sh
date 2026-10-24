@@ -226,7 +226,7 @@ case "$HOST" in
     reconcile /home/nightfury/selfhosted/ingestor      ingestor-staging docker-compose.staging.yaml
     reconcile /home/nightfury/selfhosted/ingestor      ingestor-lab     docker-compose.lab.yaml
     reconcile /home/nightfury/selfhosted/whisper       ask-whisper
-    warm qwen3-vl:4b
+    warm qwen3-vl:8b
     warm_whisper
     # The Ask app tier moved here in the 2026-08-23 migration. Let Docker
     # Desktop networking settle, then reconcile all three app stacks (gates on

@@ -224,22 +224,22 @@ services:
       - model-cache-lab:/app/model-cache
 
   # Self-hosted Kokoro-82M TTS for the voice read-aloud feature. GPU image
-  # pinned to the Quadro P2200 (GPU1) via CUDA_VISIBLE_DEVICES: the compose
+  # pinned to the Quadro RTX 6000 via CUDA_VISIBLE_DEVICES: the compose
   # device_ids reservation below is IGNORED under WSL2 GPU-PV (the container
   # would otherwise see all 3 GPUs and Kokoro would grab the 2080 Ti). Shares
-  # the P2200 with the prod/staging ask-tts (Kokoro-82M is ~850MiB; two fit
-  # easily in 5GB). OpenAI-compatible Speech API at POST /v1/audio/speech:8880.
+  # the Quadro RTX 6000 with the prod/staging ask-tts (Kokoro-82M is ~850MiB; two fit
+  # easily). OpenAI-compatible Speech API at POST /v1/audio/speech:8880.
   ask-tts-lab:
     image: ghcr.io/remsky/kokoro-fastapi-gpu:latest
     container_name: ask-tts-lab
     environment:
-      - CUDA_VISIBLE_DEVICES=GPU-7b3c2a28-e2ae-9cd4-2e25-7e7d164548c9
+      - CUDA_VISIBLE_DEVICES=GPU-4b36f910-3b47-39df-16a1-d1273def9fb6
     deploy:
       resources:
         reservations:
           devices:
             - driver: nvidia
-              device_ids: ["GPU-7b3c2a28-e2ae-9cd4-2e25-7e7d164548c9"]
+              device_ids: ["GPU-4b36f910-3b47-39df-16a1-d1273def9fb6"]
               capabilities: [gpu]
     # LAN-exposed for direct inspection/smoke-tests, matching the lab's
     # searxng pattern; the app reaches it container-to-container regardless.
