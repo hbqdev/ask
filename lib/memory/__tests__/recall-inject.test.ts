@@ -68,6 +68,55 @@ describe('getRecallInjection', () => {
     )
   })
 
+  it('dedupes and drops echoes of the query (selection rules are injection options)', async () => {
+    vi.mocked(recallSearch).mockResolvedValue([])
+    await getRecallInjection('u1', 'what is a stack', 'c9')
+    expect(recallSearch).toHaveBeenCalledWith(
+      'u1',
+      'what is a stack',
+      expect.objectContaining({
+        dedupe: true,
+        dropEchoesOf: ['what is a stack']
+      })
+    )
+  })
+
+  it("also drops echoes of the user's literal message when the query is a rewrite", async () => {
+    vi.mocked(recallSearch).mockResolvedValue([])
+    await getRecallInjection(
+      'u1',
+      'Which of Redis or Memcached suits a home server cache?',
+      'c9',
+      undefined,
+      'which one would you pick then?'
+    )
+    expect(recallSearch).toHaveBeenCalledWith(
+      'u1',
+      'Which of Redis or Memcached suits a home server cache?',
+      expect.objectContaining({
+        dropEchoesOf: [
+          'Which of Redis or Memcached suits a home server cache?',
+          'which one would you pick then?'
+        ]
+      })
+    )
+  })
+
+  it('honours RECALL_INJECT_MIN_SCORE (set with RECALL_RERANKER_URL; 0.05 is the 8B default)', async () => {
+    vi.stubEnv('RECALL_INJECT_MIN_SCORE', '0.3')
+    try {
+      vi.mocked(recallSearch).mockResolvedValue([])
+      await getRecallInjection('u1', 'q', 'c9')
+      expect(recallSearch).toHaveBeenCalledWith(
+        'u1',
+        'q',
+        expect.objectContaining({ minScore: 0.3 })
+      )
+    } finally {
+      vi.unstubAllEnvs()
+    }
+  })
+
   it('never throws — an error yields an empty block', async () => {
     vi.mocked(recallSearch).mockRejectedValue(new Error('boom'))
     await expect(getRecallInjection('u1', 'q', 'c1')).resolves.toEqual({
@@ -111,7 +160,12 @@ describe('prefetchRecallCandidates + getRecallInjection(prefetched)', () => {
     expect(recallSearch).not.toHaveBeenCalled()
     expect(rankRecallCandidates).toHaveBeenCalledWith(
       candidates,
-      expect.objectContaining({ useRerank: true, minScore: 0.05 })
+      expect.objectContaining({
+        useRerank: true,
+        minScore: 0.05,
+        dedupe: true,
+        dropEchoesOf: ['q']
+      })
     )
   })
 
