@@ -11,13 +11,15 @@ vi.mock('@/lib/db/recall-actions', () => ({
 }))
 vi.mock('@/lib/utils/cross-encoder', () => ({
   isCrossEncoderConfigured: vi.fn(() => false),
-  crossEncoderScore: vi.fn(async () => [])
+  crossEncoderScore: vi.fn(async () => []),
+  recallRerankerUrl: vi.fn(() => 'http://search-reranker:8787')
 }))
 
 import * as db from '@/lib/db/recall-actions'
 import {
   crossEncoderScore,
-  isCrossEncoderConfigured
+  isCrossEncoderConfigured,
+  recallRerankerUrl
 } from '@/lib/utils/cross-encoder'
 
 import {
@@ -139,6 +141,27 @@ describe('recallSearch', () => {
     const hits = await recallSearch('u1', 'q', { topK: 5, useRerank: true })
     expect(hits.map(h => h.chunkId)).toEqual(['b', 'a'])
     expect(hits[0].score).toBe(0.99)
+  })
+
+  it('sends the recall rerank to the recall reranker endpoint', async () => {
+    // RECALL_RERANKER_URL (resolved by recallRerankerUrl, falling back to
+    // RERANKER_URL) gives recall its own reranker so its 1.5s budget does not
+    // queue behind search reranks on the shared one.
+    vi.mocked(recallRerankerUrl).mockReturnValue('http://recall-reranker:8789')
+    vi.mocked(db.vectorSearchChunks).mockResolvedValue([
+      row({ chunkId: 'a', score: 0.9 }),
+      row({ chunkId: 'b', score: 0.8 })
+    ])
+    vi.mocked(isCrossEncoderConfigured).mockReturnValue(true)
+    vi.mocked(crossEncoderScore).mockResolvedValue([0.1, 0.99])
+    await recallSearch('u1', 'q', { topK: 5, useRerank: true })
+    expect(isCrossEncoderConfigured).toHaveBeenCalledWith(
+      'http://recall-reranker:8789'
+    )
+    const [, , opts] = vi.mocked(crossEncoderScore).mock.calls[0]
+    expect(opts).toEqual(
+      expect.objectContaining({ baseUrl: 'http://recall-reranker:8789' })
+    )
   })
 
   it('sends the capped candidate set to the reranker, not the full union', async () => {
