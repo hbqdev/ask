@@ -190,6 +190,11 @@ services:
       UPLOAD_TTL_DAYS: '14'
       # Recall rerank pool 10->8 (bench 2026-09-24, 40 real prod queries: refetch p50 1365->1088ms vs 1500 budget, same injected set 40/40)
       RECALL_RERANK_POOL: '8'
+      # Dedicated recall reranker (2026-10-23): reranker-recall on the 2080 Ti
+      # (selfhosted/reranker-qwen/docker-compose.recall.yaml), same token as
+      # RERANKER_URL, so recall's 1.5s budget no longer queues behind search
+      # reranks on the Quadro's :8787. Unset = recall uses RERANKER_URL.
+      RECALL_RERANKER_URL: 'http://192.168.50.17:8789'
 
       # --- voice read-aloud (Slice 1) -------------------------------------
       # Lab-only: text users see zero change; these two flags light up the
@@ -239,7 +244,7 @@ services:
         reservations:
           devices:
             - driver: nvidia
-              device_ids: ["GPU-4b36f910-3b47-39df-16a1-d1273def9fb6"]
+              device_ids: ['GPU-4b36f910-3b47-39df-16a1-d1273def9fb6']
               capabilities: [gpu]
     # LAN-exposed for direct inspection/smoke-tests, matching the lab's
     # searxng pattern; the app reaches it container-to-container regardless.
