@@ -195,6 +195,15 @@ services:
       # RERANKER_URL, so recall's 1.5s budget no longer queues behind search
       # reranks on the Quadro's :8787. Unset = recall uses RERANKER_URL.
       RECALL_RERANKER_URL: 'http://192.168.50.17:8789'
+      # The injection gate is on the reranker's score scale, so it travels
+      # with RECALL_RERANKER_URL: the 4B scores everything higher than the 8B
+      # (the code default 0.05 is the 8B's, for envs on the shared reranker).
+      # 0.3 from the 2026-10-23 selection A/B (100 lab questions, after the
+      # echo-drop + dedupe fix): the 4B passes the same share of pool items at
+      # 0.20-0.26 as the 8B at 0.05; its 0.05-0.3 band was 9 junk vs 4 useful
+      # items by hand, while 0.3-0.5 cost as much useful as junk (2 vs 3).
+      # Unset this together with RECALL_RERANKER_URL.
+      RECALL_INJECT_MIN_SCORE: '0.3'
 
       # --- voice read-aloud (Slice 1) -------------------------------------
       # Lab-only: text users see zero change; these two flags light up the
