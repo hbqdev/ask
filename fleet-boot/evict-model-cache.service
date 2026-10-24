@@ -2,7 +2,8 @@
 Description=Evict GPU model weight files from the page cache (NightFuryX/WSL)
 # Not ordered after docker.service on purpose: on WSL nothing that waits for
 # Docker may sit in multi-user.target (see deploy.sh). The timer starts this
-# 10 minutes after boot, by which time every service has loaded its weights.
+# 4 minutes after boot, by which time every service has loaded its weights
+# (they finish ~2-3 min in), then every 15 min.
 
 [Service]
 Type=oneshot
