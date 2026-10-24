@@ -11,18 +11,24 @@ vi.mock('@/lib/db/recall-actions', () => ({
 }))
 vi.mock('@/lib/utils/cross-encoder', () => ({
   isCrossEncoderConfigured: vi.fn(() => false),
-  crossEncoderScore: vi.fn(async () => [])
+  crossEncoderScore: vi.fn(async () => []),
+  recallRerankerUrl: vi.fn(() => 'http://search-reranker:8787')
 }))
 
 import * as db from '@/lib/db/recall-actions'
 import {
   crossEncoderScore,
-  isCrossEncoderConfigured
+  isCrossEncoderConfigured,
+  recallRerankerUrl
 } from '@/lib/utils/cross-encoder'
 
 import {
+  dedupeByText,
+  isQueryEcho,
+  prepareRecallCandidates,
   rankRecallCandidates,
   recallSearch,
+  recallTextTokens,
   retrieveRecallCandidates,
   selectRerankCandidates
 } from '../recall-search'
@@ -139,6 +145,27 @@ describe('recallSearch', () => {
     const hits = await recallSearch('u1', 'q', { topK: 5, useRerank: true })
     expect(hits.map(h => h.chunkId)).toEqual(['b', 'a'])
     expect(hits[0].score).toBe(0.99)
+  })
+
+  it('sends the recall rerank to the recall reranker endpoint', async () => {
+    // RECALL_RERANKER_URL (resolved by recallRerankerUrl, falling back to
+    // RERANKER_URL) gives recall its own reranker so its 1.5s budget does not
+    // queue behind search reranks on the shared one.
+    vi.mocked(recallRerankerUrl).mockReturnValue('http://recall-reranker:8789')
+    vi.mocked(db.vectorSearchChunks).mockResolvedValue([
+      row({ chunkId: 'a', score: 0.9 }),
+      row({ chunkId: 'b', score: 0.8 })
+    ])
+    vi.mocked(isCrossEncoderConfigured).mockReturnValue(true)
+    vi.mocked(crossEncoderScore).mockResolvedValue([0.1, 0.99])
+    await recallSearch('u1', 'q', { topK: 5, useRerank: true })
+    expect(isCrossEncoderConfigured).toHaveBeenCalledWith(
+      'http://recall-reranker:8789'
+    )
+    const [, , opts] = vi.mocked(crossEncoderScore).mock.calls[0]
+    expect(opts).toEqual(
+      expect.objectContaining({ baseUrl: 'http://recall-reranker:8789' })
+    )
   })
 
   it('sends the capped candidate set to the reranker, not the full union', async () => {
@@ -323,5 +350,277 @@ describe('retrieveRecallCandidates / rankRecallCandidates (split stages)', () =>
       'the retrieved query'
     )
     expect(hits.map(h => h.chunkId)).toEqual(['b'])
+  })
+})
+
+describe('recallTextTokens (normalization for echo + dedupe)', () => {
+  it('folds case, whitespace and punctuation', () => {
+    expect(recallTextTokens('  What IS the difference —\n TCP/UDP?! ')).toEqual(
+      ['what', 'is', 'the', 'difference', 'tcp', 'udp']
+    )
+  })
+
+  it("expands contractions, straight or curly, so What's == What is", () => {
+    expect(recallTextTokens("What's")).toEqual(['what', 'is'])
+    expect(recallTextTokens('What’s')).toEqual(['what', 'is'])
+    expect(recallTextTokens("don't")).toEqual(['do', 'not'])
+  })
+
+  it('keeps non-Latin letters and digits', () => {
+    expect(recallTextTokens('Café 2026: naïve über-日本')).toEqual([
+      'café',
+      '2026',
+      'naïve',
+      'über',
+      '日本'
+    ])
+  })
+})
+
+describe('isQueryEcho', () => {
+  const q =
+    "What's the difference between self-drilling screws and structural screws for wood framing?"
+
+  it('catches an exact repeat after normalization', () => {
+    expect(
+      isQueryEcho(
+        'what is the difference between self drilling screws and structural screws for wood framing',
+        q
+      )
+    ).toBe(true)
+  })
+
+  it('catches the question plus trivial framing (up to 4 added words)', () => {
+    expect(isQueryEcho(`${q} Keep it short.`, q)).toBe(true)
+    expect(
+      isQueryEcho('In one sentence, what is a stack?', 'what is a stack')
+    ).toBe(true)
+    expect(
+      isQueryEcho(
+        'Model label check: reply with just OK.',
+        'Reply with just OK.'
+      )
+    ).toBe(true)
+  })
+
+  it('catches the reverse: a past question that is the current one minus framing', () => {
+    expect(
+      isQueryEcho('what is a stack', 'In one sentence, what is a stack?')
+    ).toBe(true)
+  })
+
+  it('catches a repeat that dropped a filler word', () => {
+    expect(
+      isQueryEcho(
+        'best budget gpu for plex hardware transcoding 2026',
+        'best budget GPU for plex hardware transcoding in 2026'
+      )
+    ).toBe(true)
+  })
+
+  it('does NOT treat a same-template question about another subject as an echo', () => {
+    expect(
+      isQueryEcho(
+        'In one sentence, what is a heap?',
+        'In one sentence, what is a stack?'
+      )
+    ).toBe(false)
+    expect(
+      isQueryEcho(
+        'No need to search the web. In one sentence, what is a prime number?',
+        'No need to search the web. In one sentence, what is a composite number?'
+      )
+    ).toBe(false)
+  })
+
+  it('does NOT drop a candidate that adds more than 4 words', () => {
+    expect(
+      isQueryEcho(
+        'what is a stack and how does it differ from a queue',
+        'what is a stack'
+      )
+    ).toBe(false)
+  })
+
+  it('does NOT drop an answer that merely contains the question', () => {
+    const answer =
+      'What is the difference between TCP and UDP? TCP is connection-oriented and guarantees ordered delivery; UDP is connectionless and does not.'
+    expect(
+      isQueryEcho(answer, 'What is the difference between TCP and UDP?')
+    ).toBe(false)
+  })
+
+  it('needs an exact match for very short texts (under 3 words)', () => {
+    expect(isQueryEcho('docker compose', 'docker')).toBe(false)
+    expect(isQueryEcho('Docker!', 'docker')).toBe(true)
+  })
+
+  it('is false for an empty query or candidate', () => {
+    expect(isQueryEcho('anything at all here', '  ')).toBe(false)
+    expect(isQueryEcho('', 'what is a stack')).toBe(false)
+  })
+})
+
+describe('dedupeByText', () => {
+  it('keeps the higher-scored of identical normalized texts, in input order', () => {
+    const out = dedupeByText([
+      row({ chunkId: 'a', content: 'Hello, world', score: 0.2 }),
+      row({ chunkId: 'b', content: 'something else', score: 0.5 }),
+      row({ chunkId: 'c', content: 'hello   WORLD!', score: 0.9 })
+    ])
+    expect(out.map(h => h.chunkId)).toEqual(['b', 'c'])
+  })
+
+  it('keeps the first of equal scores', () => {
+    const out = dedupeByText([
+      row({ chunkId: 'a', content: 'same', score: 0.5 }),
+      row({ chunkId: 'b', content: 'same', score: 0.5 })
+    ])
+    expect(out.map(h => h.chunkId)).toEqual(['a'])
+  })
+})
+
+describe('prepareRecallCandidates / rankRecallCandidates selection rules', () => {
+  beforeEach(() => {
+    vi.resetAllMocks()
+    vi.mocked(db.isRecallEnabled).mockResolvedValue(true)
+    vi.mocked(isCrossEncoderConfigured).mockReturnValue(true)
+  })
+
+  const Q = 'What is the difference between TCP and UDP?'
+
+  it('drops query echoes BEFORE the rerank, so their pool slots go to real candidates', async () => {
+    vi.stubEnv('RECALL_RERANK_POOL', '2')
+    try {
+      vi.mocked(crossEncoderScore).mockResolvedValue([0.9, 0.8])
+      const hits = await rankRecallCandidates(
+        {
+          query: Q,
+          vectorHits: [
+            row({ chunkId: 'echo1', role: 'user', content: Q, score: 0.99 }),
+            row({
+              chunkId: 'echo2',
+              role: 'user',
+              content: 'what is the difference between tcp and udp',
+              score: 0.98
+            }),
+            row({
+              chunkId: 'ans1',
+              content: 'TCP is reliable; UDP is not.',
+              score: 0.7
+            }),
+            row({
+              chunkId: 'ans2',
+              content: 'UDP suits games and VoIP.',
+              score: 0.6
+            })
+          ],
+          keywordHits: [
+            row({
+              chunkId: 'echo3',
+              role: 'user',
+              content: `${Q} Keep it short.`,
+              score: 0
+            })
+          ]
+        },
+        { topK: 2, useRerank: true, minScore: 0.05, dropEchoesOf: [Q] }
+      )
+      const [, passages] = vi.mocked(crossEncoderScore).mock.calls[0]
+      expect(passages).toEqual([
+        'TCP is reliable; UDP is not.',
+        'UDP suits games and VoIP.'
+      ])
+      expect(hits.map(h => h.chunkId)).toEqual(['ans1', 'ans2'])
+    } finally {
+      vi.unstubAllEnvs()
+    }
+  })
+
+  it('drops echoes of every text in dropEchoesOf (the rewrite AND the literal user message)', () => {
+    const out = prepareRecallCandidates(
+      {
+        query: 'Which of Redis or Memcached suits a small home server cache?',
+        vectorHits: [
+          row({
+            chunkId: 'u',
+            role: 'user',
+            content:
+              'which one would you pick for a small home server cache then?'
+          }),
+          row({ chunkId: 'a', content: 'Redis, for persistence.' })
+        ],
+        keywordHits: []
+      },
+      {
+        dropEchoesOf: [
+          'Which of Redis or Memcached suits a small home server cache?',
+          'Which one would you pick for a small home server cache then?'
+        ]
+      }
+    )
+    expect(out.vectorHits.map(h => h.chunkId)).toEqual(['a'])
+  })
+
+  it('keeps echoes when dropEchoesOf is not set (recall tool, Library)', () => {
+    const c = {
+      query: Q,
+      vectorHits: [row({ chunkId: 'echo', role: 'user' as const, content: Q })],
+      keywordHits: []
+    }
+    expect(prepareRecallCandidates(c, {}).vectorHits).toHaveLength(1)
+  })
+
+  it('dedupes identical text across both arms before the rerank (one copy scored)', async () => {
+    vi.mocked(crossEncoderScore).mockResolvedValue([0.9, 0.5])
+    const hits = await rankRecallCandidates(
+      {
+        query: 'backups',
+        vectorHits: [
+          row({ chunkId: 'a1', content: 'Use the 3-2-1 rule.', score: 0.8 }),
+          row({ chunkId: 'a2', content: 'use the 3 2 1 rule', score: 0.8 }),
+          row({ chunkId: 'b', content: 'Test your restores.', score: 0.7 })
+        ],
+        keywordHits: [
+          // Same text as a vector hit: not "keyword-only", must not take a
+          // reserve slot or be scored twice.
+          row({ chunkId: 'a3', content: 'USE THE 3-2-1 RULE!', score: 0 })
+        ]
+      },
+      { topK: 5, useRerank: true, dedupe: true }
+    )
+    const [, passages] = vi.mocked(crossEncoderScore).mock.calls[0]
+    expect(passages).toEqual(['Use the 3-2-1 rule.', 'Test your restores.'])
+    expect(hits.map(h => h.chunkId)).toEqual(['a1', 'b'])
+  })
+
+  it('dedupes on the non-rerank (cosine) path too, keeping the higher score', async () => {
+    const hits = await rankRecallCandidates(
+      {
+        query: 'q',
+        vectorHits: [
+          row({ chunkId: 'hi', content: 'same text', score: 0.9 }),
+          row({ chunkId: 'lo', content: 'Same text.', score: 0.4 })
+        ],
+        keywordHits: []
+      },
+      { topK: 5, useRerank: false, dedupe: true }
+    )
+    expect(hits.map(h => h.chunkId)).toEqual(['hi'])
+  })
+
+  it('leaves duplicates alone unless dedupe is requested (Library lists chats)', async () => {
+    const hits = await rankRecallCandidates(
+      {
+        query: 'q',
+        vectorHits: [
+          row({ chunkId: 'x', chatId: 'c1', content: 'same text', score: 0.9 }),
+          row({ chunkId: 'y', chatId: 'c2', content: 'same text', score: 0.9 })
+        ],
+        keywordHits: []
+      },
+      { topK: 5, useRerank: false }
+    )
+    expect(hits.map(h => h.chunkId)).toEqual(['x', 'y'])
   })
 })

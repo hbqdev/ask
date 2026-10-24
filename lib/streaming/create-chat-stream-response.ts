@@ -544,7 +544,9 @@ export async function createChatStreamResponse(
               : getRecallInjection(
                   userId,
                   classification.standaloneQuery,
-                  chatId
+                  chatId,
+                  undefined,
+                  latestMessageText
                 )
         // recall_ms is the TRUE background op cost. The recall work runs to
         // completion in the background even when the budget cap returns the

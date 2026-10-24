@@ -9,7 +9,8 @@ import {
 } from '@/lib/embeddings/transformers-embedding'
 import {
   crossEncoderScore,
-  isCrossEncoderConfigured
+  isCrossEncoderConfigured,
+  recallRerankerUrl
 } from '@/lib/utils/cross-encoder'
 
 import type { RecallCandidates, RecallHit, RecallOptions } from './recall-types'
@@ -87,6 +88,131 @@ export function selectRerankCandidates(
   return [...byId.values()]
 }
 
+const CONTRACTIONS: [RegExp, string][] = [
+  [/n't\b/g, ' not'],
+  [/'re\b/g, ' are'],
+  [/'s\b/g, ' is'],
+  [/'m\b/g, ' am'],
+  [/'ve\b/g, ' have'],
+  [/'ll\b/g, ' will'],
+  [/'d\b/g, ' would']
+]
+
+/**
+ * The comparison form of a recall text, as word tokens: Unicode NFKC,
+ * lowercased, curly apostrophes made straight, English contractions expanded
+ * ("what's" -> "what is"; possessive 's is expanded the same way on both
+ * sides, which is harmless for comparison), then every run of characters that
+ * is not a letter, mark or digit becomes a word break. Used only to compare
+ * texts (isQueryEcho, dedupeByText) — never shown or sent anywhere.
+ */
+export function recallTextTokens(text: string): string[] {
+  let s = text.normalize('NFKC').toLowerCase().replace(/[‘’]/g, "'")
+  for (const [re, to] of CONTRACTIONS) s = s.replace(re, to)
+  return s
+    .replace(/[^\p{L}\p{M}\p{N}]+/gu, ' ')
+    .split(' ')
+    .filter(Boolean)
+}
+
+/** Most words a framed repeat may add to (or drop from) the question. */
+const ECHO_MAX_EXTRA_WORDS = 4
+/** Texts shorter than this (in words) only echo on an exact match. */
+const ECHO_MIN_WORDS = 3
+
+/** `short` appears inside `long` in order, possibly with gaps. */
+function isSubsequence(short: string[], long: string[]): boolean {
+  let i = 0
+  for (const t of long) if (i < short.length && t === short[i]) i++
+  return i === short.length
+}
+
+/**
+ * Whether `candidate` is a near-verbatim repeat of `query` — a past copy of
+ * the question, which tells the model nothing it does not already have. The
+ * rule, on recallTextTokens of both:
+ *   1. identical token lists -> echo (case, whitespace, punctuation and
+ *      contractions do not matter); otherwise
+ *   2. the shorter text must have at least ECHO_MIN_WORDS (3) words, the
+ *      longer may have at most ECHO_MAX_EXTRA_WORDS (4) more, and the shorter
+ *      must appear inside the longer word-for-word in order, gaps allowed.
+ * Rule 2 catches the question plus trivial framing ("... Keep it short.",
+ * "In one sentence, ...", "Model label check: ..."), the reverse (a past
+ * question that is the current one minus such framing), and a dropped filler
+ * word ("... transcoding 2026" vs "... transcoding in 2026"). It does NOT
+ * catch a same-template question about something else ("what is a heap?" vs
+ * "what is a stack?": a substitution, not an addition), a text adding 5+
+ * words, or an answer that quotes the question and then answers it.
+ */
+export function isQueryEcho(candidate: string, query: string): boolean {
+  return isTokenEcho(recallTextTokens(candidate), recallTextTokens(query))
+}
+
+/** isQueryEcho on already-tokenized texts. */
+function isTokenEcho(a: string[], b: string[]): boolean {
+  if (a.length === 0 || b.length === 0) return false
+  const [short, long] = a.length <= b.length ? [a, b] : [b, a]
+  if (short.length === long.length) {
+    return short.every((t, i) => t === long[i])
+  }
+  if (short.length < ECHO_MIN_WORDS) return false
+  if (long.length - short.length > ECHO_MAX_EXTRA_WORDS) return false
+  return isSubsequence(short, long)
+}
+
+/**
+ * Collapse hits whose recallTextTokens are identical, keeping the
+ * higher-scored copy (the first on a tie). Survivors keep their input order.
+ */
+export function dedupeByText(hits: RecallHit[]): RecallHit[] {
+  const best = new Map<string, RecallHit>()
+  for (const h of hits) {
+    const key = recallTextTokens(h.content).join(' ')
+    const cur = best.get(key)
+    if (!cur || h.score > cur.score) best.set(key, h)
+  }
+  const keep = new Set([...best.values()])
+  return hits.filter(h => keep.has(h))
+}
+
+/**
+ * The selection rules that run before any rerank (see RecallOptions):
+ * drop near-verbatim repeats of opts.dropEchoesOf, then (opts.dedupe) collapse
+ * identical text. Applied to the retrieval arms rather than to the reranked
+ * list so that echoes and copies do not take rerank-pool slots — the pool is
+ * small (RECALL_RERANK_POOL 8-10) and on real history was a quarter echoes.
+ * Identical text gets an identical cross-encoder score, so keeping one copy
+ * before the rerank selects the same thing as keeping the better one after.
+ *
+ * Dedupe runs over both arms at once: a keyword hit whose text the vector arm
+ * already holds is not keyword-only, so it neither takes a keyword reserve
+ * slot nor gets scored twice (the same principle selectRerankCandidates
+ * applies to the same chunk id). The vector copy wins: its cosine is > 0 and
+ * keyword-only hits carry 0.
+ */
+export function prepareRecallCandidates(
+  candidates: RecallCandidates,
+  opts: Pick<RecallOptions, 'dedupe' | 'dropEchoesOf'>
+): RecallCandidates {
+  // Tokenize each echo source once, not once per candidate.
+  const echoSources = (opts.dropEchoesOf ?? [])
+    .map(recallTextTokens)
+    .filter(t => t.length > 0)
+  const notEcho = (h: RecallHit) => {
+    if (echoSources.length === 0) return true
+    const tokens = recallTextTokens(h.content)
+    return !echoSources.some(src => isTokenEcho(tokens, src))
+  }
+  let vectorHits = candidates.vectorHits.filter(notEcho)
+  let keywordHits = candidates.keywordHits.filter(notEcho)
+  if (opts.dedupe) {
+    const keep = new Set(dedupeByText([...vectorHits, ...keywordHits]))
+    vectorHits = vectorHits.filter(h => keep.has(h))
+    keywordHits = keywordHits.filter(h => keep.has(h))
+  }
+  return { query: candidates.query, vectorHits, keywordHits }
+}
+
 /**
  * Stage 1 of recall — the cheap part (~50-100ms): the enabled check, the
  * query embedding (remote embedder on .160) and both DB arms. No reranker
@@ -140,7 +266,11 @@ export async function rankRecallCandidates(
   candidates: RecallCandidates,
   opts: RecallOptions
 ): Promise<RecallHit[]> {
-  const { query, vectorHits, keywordHits } = candidates
+  // Echo / duplicate-text rules first, so neither takes a rerank-pool slot.
+  const { query, vectorHits, keywordHits } = prepareRecallCandidates(
+    candidates,
+    opts
+  )
 
   // Union, dedup by chunk id — a chunk found by both keeps its cosine score.
   const byId = new Map<string, RecallHit>()
@@ -155,7 +285,13 @@ export async function rankRecallCandidates(
   // cross-encoder may be unconfigured, there may be <2 hits to rank, or
   // crossEncoderScore may throw.
   let reranked = false
-  if (opts.useRerank && isCrossEncoderConfigured() && hits.length > 1) {
+  // RECALL_RERANKER_URL (a dedicated instance) when set, else RERANKER_URL.
+  const rerankerUrl = recallRerankerUrl()
+  if (
+    opts.useRerank &&
+    isCrossEncoderConfigured(rerankerUrl) &&
+    hits.length > 1
+  ) {
     // Cap only this path: the cap exists to bound rerank cost, and the
     // non-rerank path pays none, so truncating it would drop results for
     // nothing.
@@ -169,7 +305,11 @@ export async function rankRecallCandidates(
         query,
         candidatesToScore.map(h => h.content),
         // Cost is linear in passages x tokens — see rerankMaxLength.
-        { maxLength: rerankMaxLength(), timeoutMs: 10_000 }
+        {
+          maxLength: rerankMaxLength(),
+          timeoutMs: 10_000,
+          baseUrl: rerankerUrl
+        }
       )
       hits = candidatesToScore
         .map((h, i) => ({ ...h, score: scores[i] ?? 0 }))
@@ -179,7 +319,7 @@ export async function rankRecallCandidates(
       // Reranker down — keep the cosine ordering already computed. Log it:
       // with a rerank-scale minScore this fails closed below, silently
       // disabling recall for the turn. That must not be invisible.
-      console.warn('[recall] rerank failed:', error)
+      console.warn(`[recall] rerank failed (${rerankerUrl}):`, error)
     }
   }
 
@@ -192,7 +332,7 @@ export async function rankRecallCandidates(
     // everything.
     if (opts.useRerank && !reranked) {
       console.warn(
-        `[recall] fail-closed: rerank requested but did not run (configured=${isCrossEncoderConfigured()}, hits=${hits.length}) — no recall this turn`
+        `[recall] fail-closed: rerank requested but did not run (configured=${isCrossEncoderConfigured(rerankerUrl)}, url=${rerankerUrl}, hits=${hits.length}) — no recall this turn`
       )
       return []
     }

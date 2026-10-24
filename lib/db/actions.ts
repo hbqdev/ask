@@ -883,7 +883,10 @@ export async function searchUserChatsHybrid(
       const hits = await recallSearch(userId, query, {
         topK: limit,
         useRerank: true,
-        minScore: searchMinScore()
+        minScore: searchMinScore(),
+        // No text dedupe: this lists CHATS, and the same text in two chats
+        // is two results (per-chat collapse happens below).
+        dedupe: false
       })
       // One row per chat, best-scoring chunk wins (hits are already sorted).
       const byChat = new Map<string, ChatSearchResult>()

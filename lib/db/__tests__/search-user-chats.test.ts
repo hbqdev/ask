@@ -54,6 +54,19 @@ describe('searchUserChatsHybrid', () => {
     )
   })
 
+  it('does not text-dedupe or echo-drop: it lists chats, and identical text in two chats is two results', async () => {
+    vi.mocked(recallSearch).mockResolvedValue([])
+    await searchUserChatsHybrid(
+      'u1',
+      'backups',
+      20,
+      vi.fn(async () => [])
+    )
+    const opts = vi.mocked(recallSearch).mock.calls[0][2]
+    expect(opts.dedupe).toBe(false)
+    expect(opts.dropEchoesOf ?? []).toEqual([])
+  })
+
   it('dedups by chatId across the union, keeping the keyword row', async () => {
     vi.mocked(recallSearch).mockResolvedValue([hit]) // chatId c1
     const keywordSearch = vi.fn(async () => [keywordRow('c1', 'Keyword Title')])
