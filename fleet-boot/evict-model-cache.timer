@@ -1,0 +1,9 @@
+[Unit]
+Description=Evict model weights from the page cache after boot and every 30 min
+
+[Timer]
+OnBootSec=10min
+OnUnitActiveSec=30min
+
+[Install]
+WantedBy=timers.target
