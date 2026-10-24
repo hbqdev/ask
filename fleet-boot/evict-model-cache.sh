@@ -37,6 +37,7 @@ print(f"{total / 1e9:.1f}GB advised under {sys.argv[1:]}")'
 VOLUMES=(
   reranker-qwen-hf-cache      # search + recall rerankers (8B + 4B)
   ask-whisper-hf-cache        # dictation whisper
+  embedder-hf-cache           # embedder (Qwen3-Embedding-0.6B, 2080 Ti since 2026-10-23)
   ingestor-whisper-cache      # ingestor whisper (CPU)
   ingestor-staging-whisper-cache
   ingestor-lab-whisper-cache
