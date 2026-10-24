@@ -59,16 +59,24 @@ export function buildWarmRequests(
     })
   }
 
-  // Reranker: one query against one passage.
-  if (env.RERANKER_URL && env.RERANKER_API_TOKEN) {
-    requests.push({
-      url: `${trimSlash(env.RERANKER_URL)}/rerank`,
-      headers: {
-        ...JSON_HEADERS,
-        Authorization: `Bearer ${env.RERANKER_API_TOKEN}`
-      },
-      body: JSON.stringify({ query: 'warm', passages: ['warm'] })
-    })
+  // Rerankers: one query against one passage. The search reranker, plus the
+  // dedicated recall reranker (RECALL_RERANKER_URL, same token) when it is a
+  // different endpoint — recall runs early on the turn's critical path with a
+  // 1.5s budget, so its GPU must not be found at the P8 crawl clock.
+  if (env.RERANKER_API_TOKEN) {
+    const search = env.RERANKER_URL ? trimSlash(env.RERANKER_URL) : ''
+    const recall = trimSlash(env.RECALL_RERANKER_URL?.trim() || '')
+    for (const base of [search, recall !== search ? recall : '']) {
+      if (!base) continue
+      requests.push({
+        url: `${base}/rerank`,
+        headers: {
+          ...JSON_HEADERS,
+          Authorization: `Bearer ${env.RERANKER_API_TOKEN}`
+        },
+        body: JSON.stringify({ query: 'warm', passages: ['warm'] })
+      })
+    }
   }
 
   // Embedder: one short text.

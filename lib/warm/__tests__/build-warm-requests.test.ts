@@ -59,6 +59,30 @@ describe('buildWarmRequests', () => {
     expect(reqs[1].headers.Authorization).toBe('Bearer et')
   })
 
+  it('also warms the dedicated recall reranker with the shared token', () => {
+    const reqs = buildWarmRequests({
+      RERANKER_URL: 'http://reranker:8787',
+      RECALL_RERANKER_URL: 'http://recall:8789/',
+      RERANKER_API_TOKEN: 'rt'
+    })
+    expect(reqs.map(r => r.url)).toEqual([
+      'http://reranker:8787/rerank',
+      'http://recall:8789/rerank'
+    ])
+    expect(reqs[1].headers.Authorization).toBe('Bearer rt')
+  })
+
+  it('does not double-warm when RECALL_RERANKER_URL is unset, blank or the same endpoint', () => {
+    for (const recall of [undefined, '  ', 'http://reranker:8787/']) {
+      const reqs = buildWarmRequests({
+        RERANKER_URL: 'http://reranker:8787',
+        RECALL_RERANKER_URL: recall,
+        RERANKER_API_TOKEN: 'rt'
+      })
+      expect(reqs.map(r => r.url)).toEqual(['http://reranker:8787/rerank'])
+    }
+  })
+
   it('skips a service whose token is missing rather than firing an unauthorized ping', () => {
     const reqs = buildWarmRequests({
       RERANKER_URL: 'http://reranker:8787'
