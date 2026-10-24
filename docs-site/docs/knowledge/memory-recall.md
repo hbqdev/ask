@@ -160,14 +160,15 @@ resumable, and skips already-indexed messages. It has two entry points:
 `lib/memory/recall-search.ts` is shared by auto-injection, the `recall` tool and Library
 search. It is split into two stages so the chat turn can run the cheap one speculatively:
 `retrieveRecallCandidates` (steps 1–2, no GPU reranker work) and `rankRecallCandidates`
-(steps 3–4). `recallSearch` runs both.
+(steps 3–5). `recallSearch` runs both.
 
 1. Embed the query (**query** mode, so Qwen3 adds its retrieval instruction).
 2. Two arms in parallel, both scoped to the user and excluding the current chat:
    - **vector**: pgvector cosine (`<=>`) top `max(topK × 3, 30)`;
    - **keyword**: `ILIKE '%term%'` (keyword-only hits carry score 0).
-3. If reranking is requested and the cross-encoder is configured: `selectRerankCandidates` takes up to `RECALL_RERANK_POOL` passages (code default **10**, `lib/memory/recall-search.ts:28-31`; prod and lab set **8**), the best vector hits plus up to 5 reserved keyword-only hits, and scores them with the reranker at `RECALL_RERANK_MAX_LENGTH` (**384** tokens per pair, wrapper included; 10 s timeout). Both are capped because rerank cost is linear in passages × tokens. See [recall latency](#recall-latency) for the measurements behind 10 × 384 and the later move to 8.
-4. **Threshold, fail-closed.** If a `minScore` was requested on the rerank scale but the rerank did **not** run (unconfigured, fewer than 2 hits, or error), return `[]` and log `[recall] fail-closed`. Cosine scores cannot be gated reliably (relevant about 0.63 vs irrelevant about 0.57), while the reranker separates them by orders of magnitude (about 0.169 vs 0.0000164). No injection is better than wrong injection.
+3. **Selection rules, before the rerank** (`prepareRecallCandidates`, opt-in per caller). `dropEchoesOf` removes candidates that are a near-verbatim repeat of the question (`isQueryEcho`: after `recallTextTokens` normalisation — NFKC, lowercase, contractions expanded, punctuation dropped — the texts are identical, or the shorter has ≥ 3 words, the longer adds ≤ 4, and the shorter appears inside it in order). `dedupe` keeps one copy of each identical normalised text (the higher-scored; a keyword hit whose text the vector arm holds is not keyword-only). Auto-injection uses both, with the query and the user's literal message as echo sources; the `recall` tool uses `dedupe` only; Library search uses neither (it lists chats, and the same text in two chats is two results). Running them before the pool is chosen means echoes and copies never take a rerank slot: on 50 real lab questions a quarter of the old pool slots were echoes of the question.
+4. If reranking is requested and the cross-encoder is configured: `selectRerankCandidates` takes up to `RECALL_RERANK_POOL` passages (code default **10**, `lib/memory/recall-search.ts:28-31`; prod and lab set **8**), the best vector hits plus up to 5 reserved keyword-only hits, and scores them with the reranker at `RECALL_RERANK_MAX_LENGTH` (**384** tokens per pair, wrapper included; 10 s timeout). Both are capped because rerank cost is linear in passages × tokens. See [recall latency](#recall-latency) for the measurements behind 10 × 384 and the later move to 8.
+5. **Threshold, fail-closed.** If a `minScore` was requested on the rerank scale but the rerank did **not** run (unconfigured, fewer than 2 hits, or error), return `[]` and log `[recall] fail-closed`. Cosine scores cannot be gated reliably (relevant about 0.63 vs irrelevant about 0.57), while the reranker separates them by orders of magnitude (about 0.169 vs 0.0000164). No injection is better than wrong injection.
 
 ### Auto-injection on the critical path
 
@@ -194,7 +195,7 @@ sequenceDiagram
 - **Speculative prefetch** (`create-chat-stream-response.ts:324-340`): `prefetchRecallCandidates` embeds the raw message and runs both DB arms while the classifier runs (~50–100 ms). The **rerank is deferred** until `chooseRecall` decides, so a discarded query never costs reranker GPU time. **Speed mode skips recall entirely.**
 - **`chooseRecall`** (`lib/streaming/helpers/choose-recall.ts`): `gated` (skipSearch turn; the answer comes from this chat; no rerank at all), `speculative` (query unchanged: rerank the prefetched candidates), or `refetch` (the classifier rewrote the query: retrieve and rerank the resolved query). Either way the critical-path wait is roughly one rerank (~1.3 s at pool 10, ~1.1 s at pool 8).
 - **Budget race:** `RECALL_BUDGET_MS` (default 1500) caps the wait. If the timer wins, the turn proceeds with no recall; the recall work still completes in the background. Telemetry on the `[latency]` line: `recall_ms` (true background cost, stamped when it actually resolves), `recall_wait_ms` (critical-path wait), `recall_budget_hit`.
-- **Injection thresholds** (`lib/memory/recall-inject.ts`): `RECALL_INJECT_TOP_K` (2) hits with rerank score ≥ `RECALL_INJECT_MIN_SCORE` (0.05). Hits become a `## Relevant past conversations` block (chat title, date, excerpt) plus a `data-recall` stream part the UI renders as attribution chips.
+- **Injection thresholds** (`lib/memory/recall-inject.ts`): `RECALL_INJECT_TOP_K` (2) hits with rerank score ≥ `RECALL_INJECT_MIN_SCORE` (code default 0.05, calibrated for the shared Qwen3-Reranker-8B). The gate is on the reranker's scale, so it travels with `RECALL_RERANKER_URL`: the lab's dedicated Qwen3-Reranker-4B (`:8789`) runs **0.3**, set next to the URL in `docker-compose.lab.yaml` (the 4B passes the same share of candidates at 0.20–0.26 as the 8B at 0.05). Hits become a `## Relevant past conversations` block (chat title, date, excerpt) plus a `data-recall` stream part the UI renders as attribution chips.
 
 ### The `recall` tool and Library search
 
@@ -360,7 +361,8 @@ re-measure these gates after swapping `RERANKER_MODEL`.
 | `RECALL_BUDGET_MS` | 1500 | Critical-path timebox for auto-injection |
 | `RECALL_RERANK_POOL` | 10 | Passages sent to the reranker per recall (was 20 until 2026-09-23). **Prod and lab set 8** since 2026-09-25; staging runs the default. See [pool 10 → 8](#recall-pool-8) |
 | `RECALL_RERANK_MAX_LENGTH` | 384 | Per-pair reranker token budget for recall (was a hardcoded 512) |
-| `RECALL_INJECT_TOP_K` / `RECALL_INJECT_MIN_SCORE` | 2 / 0.05 | Auto-injection count and rerank-scale floor |
+| `RECALL_INJECT_TOP_K` / `RECALL_INJECT_MIN_SCORE` | 2 / 0.05 | Auto-injection count and rerank-scale floor. The floor is per reranker model: **lab sets 0.3** with `RECALL_RERANKER_URL` (4B) |
+| `RECALL_RERANKER_URL` | unset | Dedicated recall reranker (lab: Qwen3-Reranker-4B `:8789`); unset = `RERANKER_URL` |
 | `RECALL_TOOL_TOP_K` | 5 | Hits returned by the `recall` tool |
 | `RECALL_SEARCH_MIN_SCORE` | 0.01 | Library search semantic gate |
 | `EMBEDDING_MODEL` | MiniLM if unset; **must be** `Qwen/Qwen3-Embedding-0.6B` | See the danger box above |
