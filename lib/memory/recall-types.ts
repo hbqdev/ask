@@ -26,6 +26,23 @@ export interface RecallOptions {
    * scales.
    */
   minScore?: number
+  /**
+   * Collapse candidates whose normalized text is identical (see
+   * recallTextTokens), keeping the higher-scored copy, BEFORE the rerank pool
+   * is chosen — so pool slots and injected slots are not spent on the same
+   * text twice. Opt-in: the injection and the `recall` tool set it; the
+   * Library search does not, because it lists CHATS and identical text in two
+   * chats is two results there.
+   */
+  dedupe?: boolean
+  /**
+   * Drop candidates that are a near-verbatim repeat of any of these texts
+   * (see isQueryEcho), BEFORE the rerank pool is chosen. Auto-injection
+   * passes the query and the user's literal message: a past copy of the
+   * question tells the model nothing it does not already have. Unset/empty =
+   * off (the `recall` tool and the Library search keep them).
+   */
+  dropEchoesOf?: string[]
 }
 
 /**
