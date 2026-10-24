@@ -220,6 +220,8 @@ wait_docker
 case "$HOST" in
   NightFuryX)
     reconcile /home/nightfury/selfhosted/reranker-qwen reranker-qwen
+    # Dedicated memory-recall reranker on the 2080 Ti (:8789; RECALL_RERANKER_URL).
+    reconcile /home/nightfury/selfhosted/reranker-qwen reranker-recall docker-compose.recall.yaml
     reconcile /home/nightfury/selfhosted/ingestor      ingestor
     # One ingestor per env (each worker has a single ASK_URL): staging -> :3739,
     # lab -> :3742. Separate compose files with their own project names.
