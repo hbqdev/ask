@@ -51,4 +51,16 @@ describe('createRecallTool', () => {
       expect.objectContaining({ useRerank: true, excludeChatId: 'c1' })
     )
   })
+
+  it('dedupes identical text but keeps echoes of its own query', async () => {
+    // The model wrote this query; a past copy of it is a legitimate hit
+    // ("did I ask this before?"). Echo-dropping is for auto-injection only.
+    vi.mocked(isRecallEnabled).mockResolvedValue(true)
+    vi.mocked(recallSearch).mockResolvedValue([])
+    const tool = createRecallTool('u1', 'c1')
+    await tool.execute!({ query: 'backups' }, {} as any)
+    const opts = vi.mocked(recallSearch).mock.calls[0][2]
+    expect(opts.dedupe).toBe(true)
+    expect(opts.dropEchoesOf ?? []).toEqual([])
+  })
 })

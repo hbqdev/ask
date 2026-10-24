@@ -33,7 +33,11 @@ export function createRecallTool(
       const hits = await recallSearch(userId, query, {
         topK: toolTopK(),
         useRerank: true,
-        excludeChatId: currentChatId
+        excludeChatId: currentChatId,
+        // Identical text twice is a wasted result. Echoes of the query are
+        // kept: the model wrote it, and "did I ask this before?" is a
+        // legitimate recall (dropping them is for auto-injection only).
+        dedupe: true
       })
       return {
         results: hits.map(h => ({

@@ -52,12 +52,23 @@ export function buildRecallBlock(hits: RecallHit[]): string {
  * turn. The turn proceeds normally without a recall block, which is the
  * correct fail-safe (no injection beats wrong injection).
  */
-function injectOptions(currentChatId: string | undefined): RecallOptions {
+function injectOptions(
+  currentChatId: string | undefined,
+  echoSources: string[] = []
+): RecallOptions {
   return {
     topK: injectTopK(),
     useRerank: true,
     excludeChatId: currentChatId,
-    minScore: injectMinScore()
+    minScore: injectMinScore(),
+    // Selection rules (see prepareRecallCandidates): measured 2026-10-23 on
+    // 50 real lab questions, both rerankers injected verbatim past copies of
+    // the current question (8B 14, 4B 29 items) — the 4B scores them ~1.000,
+    // above the past answers — and identical-text pairs. A copy of the
+    // question tells the model nothing; a second copy of any text wastes the
+    // slot.
+    dedupe: true,
+    dropEchoesOf: [...new Set(echoSources.filter(t => t?.trim()))]
   }
 }
 
@@ -91,16 +102,22 @@ export function prefetchRecallCandidates(
  * `prefetched` (optional): candidates from prefetchRecallCandidates for this
  * same query and chat — only the rerank + gate run here. Omitted: the full
  * retrieve + rerank runs.
+ *
+ * `userText` (optional): the user's literal message, when `query` is the
+ * classifier's standalone rewrite of it. Past copies of EITHER are dropped as
+ * echoes — a verbatim earlier copy of the user's message does not resemble
+ * the rewrite of a follow-up.
  */
 export async function getRecallInjection(
   userId: string | undefined,
   query: string,
   currentChatId: string | undefined,
-  prefetched?: Promise<RecallCandidates | null>
+  prefetched?: Promise<RecallCandidates | null>,
+  userText?: string
 ): Promise<{ block: string; hits: RecallHit[] }> {
   if (!userId || !query?.trim()) return { block: '', hits: [] }
   try {
-    const opts = injectOptions(currentChatId)
+    const opts = injectOptions(currentChatId, [query, userText ?? ''])
     let hits: RecallHit[]
     if (prefetched) {
       const candidates = await prefetched
