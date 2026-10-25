@@ -44,6 +44,7 @@ thing.
 | [A planning draft shows while the answer streams](#a-planning-draft-shows-while-the-answer-streams) | chat | Low (the draft in the saved answer is cut since 2026-10-06 on every env; the 4 stored prod answers backfilled 2026-10-07) | none; the flash while streaming is by design |
 | [Snippet citations: wrong page and assembled numbers](#citations-point-at-a-snippet-instead-of-the-fetched-page) | chat | Med | code (open; measured on every turn since 2026-10-01) |
 | [todoWrite calls failed validation](#todowrite-calls-failed-validation) | chat | ~~Low~~ fixed 2026-09-29 (lab, staging, prod) | done |
+| [The search preview hid results from the model](#the-search-preview-hid-results-from-the-model) | search | ~~High~~ fixed 2026-10-24 (lab, staging, prod) | re-run the dedup-notice count after a week |
 | [Near-duplicate dedup drops templated queries](#near-duplicate-dedup-drops-templated-queries) | search | ~~Low~~ fixed 2026-10-01 (lab, staging, prod; 0 false skips on 446 labelled pairs) | watch `[search-dedup] kept` lines |
 | [The fetch-past-the-cap URL limit is advisory](#the-fetch-past-the-cap-url-limit-is-advisory) | search | Low | watch |
 | [Parallel search calls can overshoot the round cap](#parallel-search-calls-can-overshoot-the-round-cap) | search | Low (seen: budget 3, 5 searches ran) | code (open) |
@@ -1063,6 +1064,24 @@ These are decisions still pending, not bugs:
 ---
 
 ## Search, research and recall
+
+### The search preview hid results from the model
+
+- **Symptom.** The first search of a turn told the model "N of M result(s) were already returned
+  earlier in this turn" although no search had run before it, and the model answered from about
+  8 of the ~20 results it should have had.
+- **Cause.** The streamed search yields a UI-only preview chunk (state `complete`) before the
+  final chunk; AI SDK v6 gives the model only the last yield. `wrapSearchToolWithDedup` recorded
+  the preview's URLs as returned, so the final chunk dropped them as duplicates. It began when
+  the per-turn URL dedup (`53e86a80`, 2026-07-28) met the streaming preview (`6958b88c`,
+  2026-07-25).
+- **How big it was.** Prod, last 14 days before the fix: 81 of 88 first searches carried the
+  notice, ~12 results removed each. Found during the 2026-10-24 crawler-pool experiment.
+- **Status: fixed 2026-10-24** (lab `de2ea6fc`, staging and prod `63ca0634`). The preview chunk
+  carries `preview: true` and the dedup wrapper passes it through untouched. Cross-search dedup is
+  unchanged. Test: `lib/agents/__tests__/researcher-search-preview-dedup.test.ts`.
+- **Watch.** First searches carrying the "already returned earlier in this turn" notice should
+  drop to about 0. Prompt tokens per turn rise (the model now sees the full result set).
 
 ### Near-duplicate dedup drops templated queries
 

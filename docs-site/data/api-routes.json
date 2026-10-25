@@ -7,8 +7,24 @@
     "supabase-otp": "Supabase auth callback (OTP / OAuth code exchange)",
     "public": "No auth check detected in the handler file (may still be gated by a feature flag or proxy.ts)."
   },
-  "count": 29,
+  "count": 41,
   "routes": [
+    {
+      "path": "/api/account",
+      "methods": [
+        "DELETE"
+      ],
+      "auth": [
+        "user-session"
+      ],
+      "authVia": [
+        "lib/actions/account.ts"
+      ],
+      "guestAllowed": false,
+      "summary": null,
+      "file": "app/api/account/route.ts",
+      "dynamic": null
+    },
     {
       "path": "/api/advanced-search",
       "methods": [
@@ -83,18 +99,69 @@
     {
       "path": "/api/chats",
       "methods": [
-        "GET"
+        "GET",
+        "DELETE"
       ],
       "auth": [
         "user-session"
       ],
       "authVia": [
         "lib/actions/chat.ts",
+        "lib/auth/reject-invalid-bearer.ts",
         "lib/db/actions.ts"
       ],
       "guestAllowed": false,
       "summary": null,
       "file": "app/api/chats/route.ts",
+      "dynamic": null
+    },
+    {
+      "path": "/api/chats/:chatId",
+      "methods": [
+        "PATCH",
+        "DELETE"
+      ],
+      "auth": [
+        "user-session"
+      ],
+      "authVia": [
+        "lib/actions/chat.ts"
+      ],
+      "guestAllowed": false,
+      "summary": null,
+      "file": "app/api/chats/[chatId]/route.ts",
+      "dynamic": null
+    },
+    {
+      "path": "/api/chats/:chatId/share",
+      "methods": [
+        "POST",
+        "DELETE"
+      ],
+      "auth": [
+        "user-session"
+      ],
+      "authVia": [],
+      "guestAllowed": false,
+      "summary": null,
+      "file": "app/api/chats/[chatId]/share/route.ts",
+      "dynamic": null
+    },
+    {
+      "path": "/api/chats/:chatId/touch",
+      "methods": [
+        "POST"
+      ],
+      "auth": [
+        "user-session"
+      ],
+      "authVia": [
+        "lib/auth/reject-invalid-bearer.ts",
+        "lib/db/actions.ts"
+      ],
+      "guestAllowed": true,
+      "summary": "Bumps the chat's last_viewed_at for the \"recent\" sidebar order.",
+      "file": "app/api/chats/[chatId]/touch/route.ts",
       "dynamic": null
     },
     {
@@ -106,7 +173,8 @@
         "user-session"
       ],
       "authVia": [
-        "lib/actions/chat.ts"
+        "lib/actions/chat.ts",
+        "lib/auth/reject-invalid-bearer.ts"
       ],
       "guestAllowed": false,
       "summary": null,
@@ -268,6 +336,37 @@
       "dynamic": null
     },
     {
+      "path": "/api/memory",
+      "methods": [
+        "GET",
+        "DELETE"
+      ],
+      "auth": [
+        "user-session"
+      ],
+      "authVia": [],
+      "guestAllowed": true,
+      "summary": "GET /api/memory → the memory and recall toggles, the recall index status and the user's memories (no embeddings).",
+      "file": "app/api/memory/route.ts",
+      "dynamic": null
+    },
+    {
+      "path": "/api/memory/:memoryId",
+      "methods": [
+        "DELETE"
+      ],
+      "auth": [
+        "user-session"
+      ],
+      "authVia": [
+        "lib/actions/memory.ts"
+      ],
+      "guestAllowed": false,
+      "summary": null,
+      "file": "app/api/memory/[memoryId]/route.ts",
+      "dynamic": null
+    },
+    {
       "path": "/api/memory/consolidate",
       "methods": [
         "POST"
@@ -279,6 +378,23 @@
       "guestAllowed": false,
       "summary": null,
       "file": "app/api/memory/consolidate/route.ts",
+      "dynamic": null
+    },
+    {
+      "path": "/api/memory/recall",
+      "methods": [
+        "POST",
+        "DELETE"
+      ],
+      "auth": [
+        "user-session"
+      ],
+      "authVia": [
+        "lib/actions/recall.ts"
+      ],
+      "guestAllowed": false,
+      "summary": "POST /api/memory/recall → index ONE bounded batch → {messages, chunks, done}.",
+      "file": "app/api/memory/recall/route.ts",
       "dynamic": null
     },
     {
@@ -296,6 +412,57 @@
       "dynamic": null
     },
     {
+      "path": "/api/models",
+      "methods": [
+        "GET"
+      ],
+      "auth": [
+        "user-session"
+      ],
+      "authVia": [
+        "lib/auth/reject-invalid-bearer.ts",
+        "lib/model-selector/get-model-selector-data.ts"
+      ],
+      "guestAllowed": true,
+      "summary": "Model list + the caller's current pick, for non-browser clients (the mobile app) that can't consume the RSC payload the web selector uses.",
+      "file": "app/api/models/route.ts",
+      "dynamic": null
+    },
+    {
+      "path": "/api/notes",
+      "methods": [
+        "GET",
+        "POST"
+      ],
+      "auth": [
+        "user-session"
+      ],
+      "authVia": [
+        "lib/actions/notes.ts"
+      ],
+      "guestAllowed": false,
+      "summary": null,
+      "file": "app/api/notes/route.ts",
+      "dynamic": null
+    },
+    {
+      "path": "/api/notes/:noteId",
+      "methods": [
+        "GET",
+        "DELETE"
+      ],
+      "auth": [
+        "user-session"
+      ],
+      "authVia": [
+        "lib/actions/notes.ts"
+      ],
+      "guestAllowed": false,
+      "summary": null,
+      "file": "app/api/notes/[noteId]/route.ts",
+      "dynamic": null
+    },
+    {
       "path": "/api/quotes",
       "methods": [
         "GET"
@@ -310,9 +477,38 @@
       "dynamic": null
     },
     {
+      "path": "/api/settings/memory",
+      "methods": [
+        "PUT"
+      ],
+      "auth": [
+        "user-session"
+      ],
+      "authVia": [],
+      "guestAllowed": false,
+      "summary": null,
+      "file": "app/api/settings/memory/route.ts",
+      "dynamic": null
+    },
+    {
+      "path": "/api/settings/model",
+      "methods": [
+        "PUT"
+      ],
+      "auth": [
+        "user-session"
+      ],
+      "authVia": [],
+      "guestAllowed": false,
+      "summary": null,
+      "file": "app/api/settings/model/route.ts",
+      "dynamic": null
+    },
+    {
       "path": "/api/upload",
       "methods": [
-        "POST"
+        "POST",
+        "OPTIONS"
       ],
       "auth": [
         "user-session"
@@ -340,7 +536,8 @@
     {
       "path": "/api/voice/transcribe",
       "methods": [
-        "POST"
+        "POST",
+        "OPTIONS"
       ],
       "auth": [
         "user-session"

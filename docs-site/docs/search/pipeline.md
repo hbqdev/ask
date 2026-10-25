@@ -495,7 +495,11 @@ was once broken: every warm hit became a tool failure.
 default), the route sends a `preview` NDJSON line as soon as the fan-out
 resolves (~2s, `preview_ms`) and a `final` line after crawl and rerank. The
 preview only reaches the UI (source cards render early). The model only ever
-sees the `final` line.
+sees the `final` line. The tool marks the preview chunk `preview: true`, and the
+per-turn URL dedup (`wrapSearchToolWithDedup`, `lib/agents/researcher.ts`) passes
+it through without recording its URLs. Until 2026-10-24 it recorded them, so the
+`final` line of a turn's first search lost the results the preview had shown
+([known issues](/history/known-issues#the-search-preview-hid-results-from-the-model)).
 
 **The route's Redis client** (cache and the three budget helpers) comes from
 `createLocalRedisConnector('advanced-search')` (`route.ts:186`). While Redis is unreachable it

@@ -1,22 +1,22 @@
 {
   "generatedFrom": {
-    "ask": "ask-flow",
+    "ask": "ask",
     "ingestor": "ingestor"
   },
-  "count": 666,
+  "count": 689,
   "coverage": {
-    "files": 666,
-    "withPurpose": 666,
-    "header": 177,
-    "jsdoc": 38,
-    "derived": 59,
-    "override": 392,
-    "documented": 372
+    "files": 689,
+    "withPurpose": 689,
+    "header": 188,
+    "jsdoc": 49,
+    "derived": 61,
+    "override": 391,
+    "documented": 370
   },
   "kinds": {
     "dockerfile": 3,
-    "lib-module": 255,
-    "route-handler": 37,
+    "route-handler": 49,
+    "lib-module": 264,
     "page": 13,
     "stylesheet": 2,
     "layout": 2,
@@ -28,8 +28,8 @@
     "compose": 10,
     "migration": 22,
     "db-schema": 4,
-    "systemd-unit": 5,
-    "ops-script": 19,
+    "systemd-unit": 7,
+    "ops-script": 20,
     "hook": 12,
     "python-module": 11,
     "test-helper": 3,
@@ -37,7 +37,7 @@
     "server-action": 8,
     "types": 8,
     "middleware": 2,
-    "script": 21
+    "script": 20
   },
   "files": [
     {
@@ -117,6 +117,27 @@
           "anchor": "browser-side"
         }
       ]
+    },
+    {
+      "path": "app/api/account/route.ts",
+      "dir": "app/api/account",
+      "area": "app",
+      "project": "ask",
+      "kind": "route-handler",
+      "purpose": "DELETE /api/account {confirm:'DELETE'} → delete the signed-in user's data and auth user → {ok:true}.",
+      "purposeSource": "jsdoc",
+      "exports": [
+        "DELETE"
+      ],
+      "methods": [
+        "DELETE"
+      ],
+      "route": "/api/account",
+      "usedBy": [],
+      "tests": [
+        "app/api/account/__tests__/route.test.ts"
+      ],
+      "docs": []
     },
     {
       "path": "app/api/advanced-search/returned-ranks.ts",
@@ -257,7 +278,9 @@
       ],
       "route": "/api/chat/:chatId/messages",
       "usedBy": [],
-      "tests": [],
+      "tests": [
+        "app/api/chat/[chatId]/messages/__tests__/route.test.ts"
+      ],
       "docs": []
     },
     {
@@ -374,22 +397,93 @@
       ]
     },
     {
+      "path": "app/api/chats/[chatId]/route.ts",
+      "dir": "app/api/chats/[chatId]",
+      "area": "app",
+      "project": "ask",
+      "kind": "route-handler",
+      "purpose": "Native-client counterpart of the web's deleteChat server action, which a bearer-token client cannot invoke. deleteChat resolves the user itself and checks ownership.",
+      "purposeSource": "jsdoc",
+      "exports": [
+        "DELETE",
+        "PATCH"
+      ],
+      "methods": [
+        "PATCH",
+        "DELETE"
+      ],
+      "route": "/api/chats/:chatId",
+      "usedBy": [],
+      "tests": [
+        "app/api/chats/__tests__/chat-id-routes.test.ts"
+      ],
+      "docs": []
+    },
+    {
+      "path": "app/api/chats/[chatId]/share/route.ts",
+      "dir": "app/api/chats/[chatId]/share",
+      "area": "app",
+      "project": "ask",
+      "kind": "route-handler",
+      "purpose": "POST: make the chat public.",
+      "purposeSource": "jsdoc",
+      "exports": [
+        "POST",
+        "DELETE"
+      ],
+      "methods": [
+        "POST",
+        "DELETE"
+      ],
+      "route": "/api/chats/:chatId/share",
+      "usedBy": [],
+      "tests": [
+        "app/api/chats/__tests__/chat-share-route.test.ts"
+      ],
+      "docs": []
+    },
+    {
+      "path": "app/api/chats/[chatId]/touch/route.ts",
+      "dir": "app/api/chats/[chatId]/touch",
+      "area": "app",
+      "project": "ask",
+      "kind": "route-handler",
+      "purpose": "Bumps the chat's last_viewed_at for the \"recent\" sidebar order. touchChat is fire-and-forget: it resolves the user itself, silently skips guests and chats the user doesn't own, and never throws — so…",
+      "purposeSource": "header",
+      "exports": [
+        "POST"
+      ],
+      "methods": [
+        "POST"
+      ],
+      "route": "/api/chats/:chatId/touch",
+      "usedBy": [],
+      "tests": [
+        "app/api/chats/__tests__/chat-id-routes.test.ts"
+      ],
+      "docs": []
+    },
+    {
       "path": "app/api/chats/route.ts",
       "dir": "app/api/chats",
       "area": "app",
       "project": "ask",
       "kind": "route-handler",
-      "purpose": "GET route returning a paginated, sortable page of the user's chats with badges and an optional total COUNT for the sidebar and Library.",
-      "purposeSource": "override",
+      "purpose": "DELETE /api/chats: delete every chat of the current user.",
+      "purposeSource": "jsdoc",
       "exports": [
-        "GET"
+        "GET",
+        "DELETE"
       ],
       "methods": [
-        "GET"
+        "GET",
+        "DELETE"
       ],
       "route": "/api/chats",
       "usedBy": [],
-      "tests": [],
+      "tests": [
+        "app/api/chats/__tests__/chats-route.test.ts"
+      ],
       "docs": [
         {
           "page": "/request-lifecycle/auth-and-accounts",
@@ -415,7 +509,9 @@
       ],
       "route": "/api/chats/search",
       "usedBy": [],
-      "tests": [],
+      "tests": [
+        "app/api/chats/search/__tests__/route.test.ts"
+      ],
       "docs": []
     },
     {
@@ -684,6 +780,27 @@
       ]
     },
     {
+      "path": "app/api/memory/[memoryId]/route.ts",
+      "dir": "app/api/memory/[memoryId]",
+      "area": "app",
+      "project": "ask",
+      "kind": "route-handler",
+      "purpose": "DELETE /api/memory/{id} → {ok:true}.",
+      "purposeSource": "jsdoc",
+      "exports": [
+        "DELETE"
+      ],
+      "methods": [
+        "DELETE"
+      ],
+      "route": "/api/memory/:memoryId",
+      "usedBy": [],
+      "tests": [
+        "app/api/memory/__tests__/memory-routes.test.ts"
+      ],
+      "docs": []
+    },
+    {
       "path": "app/api/memory/consolidate/route.ts",
       "dir": "app/api/memory/consolidate",
       "area": "app",
@@ -699,6 +816,29 @@
       ],
       "route": "/api/memory/consolidate",
       "usedBy": [],
+      "tests": [],
+      "docs": []
+    },
+    {
+      "path": "app/api/memory/memory-response.ts",
+      "dir": "app/api/memory",
+      "area": "app",
+      "project": "ask",
+      "kind": "lib-module",
+      "purpose": "Shared by the memory routes: native-client wrappers around the self-resolving actions in lib/actions/memory.ts and recall.ts.",
+      "purposeSource": "header",
+      "exports": [
+        "toMemoryJson",
+        "unauthorized",
+        "memoryErrorResponse"
+      ],
+      "methods": [],
+      "route": null,
+      "usedBy": [
+        "app/api/memory/[memoryId]/route.ts",
+        "app/api/memory/recall/route.ts",
+        "app/api/memory/route.ts"
+      ],
       "tests": [],
       "docs": []
     },
@@ -719,6 +859,140 @@
       "route": "/api/memory/recall-backfill",
       "usedBy": [],
       "tests": [],
+      "docs": []
+    },
+    {
+      "path": "app/api/memory/recall/route.ts",
+      "dir": "app/api/memory/recall",
+      "area": "app",
+      "project": "ask",
+      "kind": "route-handler",
+      "purpose": "POST /api/memory/recall → index ONE bounded batch → {messages, chunks, done}.",
+      "purposeSource": "header",
+      "exports": [
+        "POST",
+        "DELETE"
+      ],
+      "methods": [
+        "POST",
+        "DELETE"
+      ],
+      "route": "/api/memory/recall",
+      "usedBy": [],
+      "tests": [
+        "app/api/memory/__tests__/memory-routes.test.ts"
+      ],
+      "docs": []
+    },
+    {
+      "path": "app/api/memory/route.ts",
+      "dir": "app/api/memory",
+      "area": "app",
+      "project": "ask",
+      "kind": "route-handler",
+      "purpose": "GET /api/memory → the memory and recall toggles, the recall index status and the user's memories (no embeddings).",
+      "purposeSource": "header",
+      "exports": [
+        "GET",
+        "DELETE"
+      ],
+      "methods": [
+        "GET",
+        "DELETE"
+      ],
+      "route": "/api/memory",
+      "usedBy": [],
+      "tests": [
+        "app/api/memory/__tests__/memory-routes.test.ts"
+      ],
+      "docs": []
+    },
+    {
+      "path": "app/api/models/route.ts",
+      "dir": "app/api/models",
+      "area": "app",
+      "project": "ask",
+      "kind": "route-handler",
+      "purpose": "Model list + the caller's current pick, for non-browser clients (the mobile app) that can't consume the RSC payload the web selector uses. getModelSelectorData resolves the user itself (cookie or…",
+      "purposeSource": "header",
+      "exports": [
+        "GET"
+      ],
+      "methods": [
+        "GET"
+      ],
+      "route": "/api/models",
+      "usedBy": [],
+      "tests": [
+        "app/api/models/__tests__/route.test.ts"
+      ],
+      "docs": []
+    },
+    {
+      "path": "app/api/notes/[noteId]/route.ts",
+      "dir": "app/api/notes/[noteId]",
+      "area": "app",
+      "project": "ask",
+      "kind": "route-handler",
+      "purpose": "GET /api/notes/{id} → {note}.",
+      "purposeSource": "jsdoc",
+      "exports": [
+        "GET",
+        "DELETE"
+      ],
+      "methods": [
+        "GET",
+        "DELETE"
+      ],
+      "route": "/api/notes/:noteId",
+      "usedBy": [],
+      "tests": [
+        "app/api/notes/__tests__/notes-routes.test.ts"
+      ],
+      "docs": []
+    },
+    {
+      "path": "app/api/notes/note-response.ts",
+      "dir": "app/api/notes",
+      "area": "app",
+      "project": "ask",
+      "kind": "lib-module",
+      "purpose": "Shared by the /api/notes routes: native-client wrappers around the self-resolving actions in lib/actions/notes.ts, which report failures as error strings.",
+      "purposeSource": "header",
+      "exports": [
+        "toNoteJson",
+        "noteErrorResponse"
+      ],
+      "methods": [],
+      "route": null,
+      "usedBy": [
+        "app/api/notes/[noteId]/route.ts",
+        "app/api/notes/route.ts"
+      ],
+      "tests": [],
+      "docs": []
+    },
+    {
+      "path": "app/api/notes/route.ts",
+      "dir": "app/api/notes",
+      "area": "app",
+      "project": "ask",
+      "kind": "route-handler",
+      "purpose": "GET /api/notes?limit&cursorUpdatedAt&cursorId: the user's notes, newest update first, keyset-paginated by (updatedAt, id).",
+      "purposeSource": "jsdoc",
+      "exports": [
+        "GET",
+        "POST"
+      ],
+      "methods": [
+        "GET",
+        "POST"
+      ],
+      "route": "/api/notes",
+      "usedBy": [],
+      "tests": [
+        "app/api/notes/__tests__/notes-routes.test.ts"
+      ],
       "docs": []
     },
     {
@@ -756,6 +1030,48 @@
       ]
     },
     {
+      "path": "app/api/settings/memory/route.ts",
+      "dir": "app/api/settings/memory",
+      "area": "app",
+      "project": "ask",
+      "kind": "route-handler",
+      "purpose": "PUT /api/settings/memory {memoryEnabled?, recallEnabled?} → the native counterpart of the settings panel's toggles.",
+      "purposeSource": "jsdoc",
+      "exports": [
+        "PUT"
+      ],
+      "methods": [
+        "PUT"
+      ],
+      "route": "/api/settings/memory",
+      "usedBy": [],
+      "tests": [
+        "app/api/settings/memory/__tests__/route.test.ts"
+      ],
+      "docs": []
+    },
+    {
+      "path": "app/api/settings/model/route.ts",
+      "dir": "app/api/settings/model",
+      "area": "app",
+      "project": "ask",
+      "kind": "route-handler",
+      "purpose": "Save the signed-in user's model pick — the non-browser counterpart of the saveModelPreference server action.",
+      "purposeSource": "jsdoc",
+      "exports": [
+        "PUT"
+      ],
+      "methods": [
+        "PUT"
+      ],
+      "route": "/api/settings/model",
+      "usedBy": [],
+      "tests": [
+        "app/api/settings/model/__tests__/route.test.ts"
+      ],
+      "docs": []
+    },
+    {
       "path": "app/api/upload/route.ts",
       "dir": "app/api/upload",
       "area": "app",
@@ -764,10 +1080,12 @@
       "purpose": "Local-only upload store.",
       "purposeSource": "header",
       "exports": [
+        "OPTIONS",
         "POST"
       ],
       "methods": [
-        "POST"
+        "POST",
+        "OPTIONS"
       ],
       "route": "/api/upload",
       "usedBy": [],
@@ -835,13 +1153,15 @@
       "area": "app",
       "project": "ask",
       "kind": "route-handler",
-      "purpose": "Feature-gated POST route that transcribes an uploaded audio clip (up to 25MB) via the Whisper STT client and returns the text.",
-      "purposeSource": "override",
+      "purpose": "This route is outside the proxy matcher (proxy.ts) so its multipart body is never cut at Next's 10 MB proxy limit; it therefore answers the app's CORS itself.",
+      "purposeSource": "jsdoc",
       "exports": [
+        "OPTIONS",
         "POST"
       ],
       "methods": [
-        "POST"
+        "POST",
+        "OPTIONS"
       ],
       "route": "/api/voice/transcribe",
       "usedBy": [],
@@ -2925,7 +3245,8 @@
         "components/chat-panel.tsx"
       ],
       "tests": [
-        "components/__tests__/chat-panel.test.tsx"
+        "components/__tests__/chat-panel.test.tsx",
+        "components/__tests__/model-selector-client.test.tsx"
       ],
       "docs": [
         {
@@ -5642,8 +5963,8 @@
         {
           "page": "/knowledge/memory-recall",
           "title": "Memory & recall",
-          "section": "Pool 10 → 8 (bench 2026-09-24, deployed 2026-09-25)",
-          "anchor": "recall-pool-8"
+          "section": "Auto-injection on the critical path",
+          "anchor": "auto-injection-on-the-critical-path"
         },
         {
           "page": "/knowledge/rag-uploads",
@@ -6795,7 +7116,8 @@
       "methods": [],
       "route": null,
       "usedBy": [
-        "fleet-boot/ask-fleet-boot.service"
+        "fleet-boot/ask-fleet-boot.service",
+        "fleet-boot/evict-model-cache.service"
       ],
       "tests": [],
       "docs": [
@@ -6808,8 +7130,8 @@
         {
           "page": "/history/changelog",
           "title": "Changelog",
-          "section": "2026-09 — September",
-          "anchor": "_2026-09-—-september"
+          "section": "2026-10 — October",
+          "anchor": "_2026-10-—-october"
         },
         {
           "page": "/history/decisions",
@@ -6900,6 +7222,51 @@
           "anchor": "what-automation-already-exists"
         }
       ]
+    },
+    {
+      "path": "fleet-boot/evict-model-cache.service",
+      "dir": "fleet-boot",
+      "area": "fleet-boot",
+      "project": "ask",
+      "kind": "systemd-unit",
+      "purpose": "systemd unit: Evict GPU model weight files from the page cache (NightFuryX/WSL)",
+      "purposeSource": "derived",
+      "exports": [],
+      "methods": [],
+      "route": null,
+      "usedBy": [],
+      "tests": [],
+      "docs": []
+    },
+    {
+      "path": "fleet-boot/evict-model-cache.sh",
+      "dir": "fleet-boot",
+      "area": "fleet-boot",
+      "project": "ask",
+      "kind": "ops-script",
+      "purpose": "Evict model weight files from the Linux page cache on NightFuryX.",
+      "purposeSource": "header",
+      "exports": [],
+      "methods": [],
+      "route": null,
+      "usedBy": [],
+      "tests": [],
+      "docs": []
+    },
+    {
+      "path": "fleet-boot/evict-model-cache.timer",
+      "dir": "fleet-boot",
+      "area": "fleet-boot",
+      "project": "ask",
+      "kind": "systemd-unit",
+      "purpose": "systemd timer: Evict model weights from the page cache 4 min after boot and every 15 min",
+      "purposeSource": "derived",
+      "exports": [],
+      "methods": [],
+      "route": null,
+      "usedBy": [],
+      "tests": [],
+      "docs": []
     },
     {
       "path": "fleet-boot/expire-uploads-daily.sh",
@@ -8584,6 +8951,7 @@
       "methods": [],
       "route": null,
       "usedBy": [
+        "app/api/account/route.ts",
         "components/settings-dialog.tsx"
       ],
       "tests": [
@@ -8627,8 +8995,10 @@
         "upsertMessage",
         "deleteChat",
         "clearChats",
+        "renameChat",
         "deleteMessagesAfter",
         "shareChat",
+        "unshareChat",
         "deleteMessagesFromIndex",
         "deleteMessages",
         "saveChatTitle"
@@ -8640,6 +9010,8 @@
         "app/api/chat/[chatId]/stop/route.ts",
         "app/api/chat/[chatId]/stream/route.ts",
         "app/api/chat/route.ts",
+        "app/api/chats/[chatId]/route.ts",
+        "app/api/chats/[chatId]/share/route.ts",
         "app/api/chats/route.ts",
         "app/api/chats/search/route.ts",
         "app/layout.tsx",
@@ -8655,6 +9027,11 @@
         "lib/streaming/helpers/prepare-messages.ts"
       ],
       "tests": [
+        "app/api/chat/[chatId]/messages/__tests__/route.test.ts",
+        "app/api/chats/__tests__/chat-id-routes.test.ts",
+        "app/api/chats/__tests__/chat-share-route.test.ts",
+        "app/api/chats/__tests__/chats-route.test.ts",
+        "app/api/chats/search/__tests__/route.test.ts",
         "app/library/__tests__/page.test.tsx",
         "components/sidebar/__tests__/recent-chats-section.test.tsx",
         "lib/actions/__tests__/chat.test.ts",
@@ -8741,10 +9118,14 @@
       "methods": [],
       "route": null,
       "usedBy": [
+        "app/api/memory/[memoryId]/route.ts",
+        "app/api/memory/route.ts",
+        "app/api/settings/memory/route.ts",
         "components/settings/memory-tab.tsx"
       ],
       "tests": [
         "components/__tests__/memory-tab.test.tsx",
+        "lib/actions/__tests__/memory-list.test.ts",
         "lib/actions/__tests__/memory.test.ts"
       ],
       "docs": [
@@ -8772,7 +9153,9 @@
       "usedBy": [
         "components/model-selector-client.tsx"
       ],
-      "tests": [],
+      "tests": [
+        "components/__tests__/model-selector-client.test.tsx"
+      ],
       "docs": []
     },
     {
@@ -8793,6 +9176,8 @@
       "methods": [],
       "route": null,
       "usedBy": [
+        "app/api/notes/[noteId]/route.ts",
+        "app/api/notes/route.ts",
         "components/answer-section.tsx",
         "components/library/library-panel.tsx",
         "components/message-actions.tsx"
@@ -8821,6 +9206,9 @@
       "methods": [],
       "route": null,
       "usedBy": [
+        "app/api/memory/recall/route.ts",
+        "app/api/memory/route.ts",
+        "app/api/settings/memory/route.ts",
         "components/settings/memory-tab.tsx"
       ],
       "tests": [
@@ -9588,6 +9976,7 @@
         "resolveTurnMode",
         "resolveForcedFirstSearch",
         "TurnPlan",
+        "wrapSearchToolWithDedup",
         "wrapSearchToolForSources",
         "getSourcesPromptAddendum",
         "createResearcher",
@@ -9605,6 +9994,7 @@
         "lib/agents/__tests__/researcher-always-search.test.ts",
         "lib/agents/__tests__/researcher-citation-reminder.test.ts",
         "lib/agents/__tests__/researcher-search-cap.test.ts",
+        "lib/agents/__tests__/researcher-search-preview-dedup.test.ts",
         "lib/agents/__tests__/researcher.test.ts",
         "lib/streaming/__tests__/create-ephemeral-chat-stream-response.test.ts"
       ],
@@ -9921,6 +10311,7 @@
         "lib/rate-limit/adaptive-limit.ts"
       ],
       "tests": [
+        "app/api/account/__tests__/route.test.ts",
         "lib/actions/__tests__/account.test.ts"
       ],
       "docs": []
@@ -10202,6 +10593,8 @@
       "purpose": "Server helpers getCurrentUser and getCurrentUserId that resolve the Supabase user, with an anonymous-user path when ENABLE_AUTH is false.",
       "purposeSource": "override",
       "exports": [
+        "bearerToken",
+        "isBearerAuthorization",
         "getCurrentUser",
         "getCurrentUserId"
       ],
@@ -10212,8 +10605,12 @@
         "app/api/chat/[chatId]/stop/route.ts",
         "app/api/chat/[chatId]/stream/route.ts",
         "app/api/chat/route.ts",
+        "app/api/chats/[chatId]/share/route.ts",
         "app/api/feedback/route.ts",
         "app/api/files/status/route.ts",
+        "app/api/memory/route.ts",
+        "app/api/settings/memory/route.ts",
+        "app/api/settings/model/route.ts",
         "app/api/upload/route.ts",
         "app/api/voice/speak/route.ts",
         "app/api/voice/transcribe/route.ts",
@@ -10228,21 +10625,36 @@
         "lib/actions/model-preference.ts",
         "lib/actions/notes.ts",
         "lib/actions/recall.ts",
+        "lib/auth/reject-invalid-bearer.ts",
         "lib/db/actions.ts",
         "lib/model-selector/get-model-selector-data.ts"
       ],
       "tests": [
+        "app/api/account/__tests__/route.test.ts",
+        "app/api/chat/[chatId]/messages/__tests__/route.test.ts",
+        "app/api/chats/__tests__/chat-id-routes.test.ts",
+        "app/api/chats/__tests__/chat-share-route.test.ts",
+        "app/api/chats/__tests__/chats-route.test.ts",
+        "app/api/chats/search/__tests__/route.test.ts",
         "app/api/feedback/__tests__/route.test.ts",
         "app/api/files/__tests__/status.test.ts",
+        "app/api/memory/__tests__/memory-routes.test.ts",
+        "app/api/models/__tests__/route.test.ts",
+        "app/api/notes/__tests__/notes-routes.test.ts",
+        "app/api/settings/memory/__tests__/route.test.ts",
+        "app/api/settings/model/__tests__/route.test.ts",
         "app/api/upload/__tests__/route.test.ts",
         "app/api/voice/__tests__/speak.test.ts",
         "app/api/voice/__tests__/transcribe.test.ts",
         "app/api/warm/__tests__/route.test.ts",
         "lib/actions/__tests__/account.test.ts",
         "lib/actions/__tests__/chat.test.ts",
+        "lib/actions/__tests__/memory-list.test.ts",
         "lib/actions/__tests__/memory.test.ts",
         "lib/actions/__tests__/notes.test.ts",
         "lib/actions/__tests__/recall.test.ts",
+        "lib/auth/__tests__/get-current-user.test.ts",
+        "lib/auth/__tests__/reject-invalid-bearer.test.ts",
         "lib/db/__tests__/rls-policies.integration.test.ts"
       ],
       "docs": [
@@ -10307,6 +10719,30 @@
           "anchor": "_2-route-entry-auth-gates-model"
         }
       ]
+    },
+    {
+      "path": "lib/auth/reject-invalid-bearer.ts",
+      "dir": "lib/auth",
+      "area": "lib",
+      "project": "ask",
+      "kind": "lib-module",
+      "purpose": "Routes that answer a missing user with an empty 200 or a 204 (the guest shape) call this first, so a native client whose bearer is invalid, expired or revoked gets a 401 instead of a silently empty…",
+      "purposeSource": "header",
+      "exports": [
+        "rejectInvalidBearer"
+      ],
+      "methods": [],
+      "route": null,
+      "usedBy": [
+        "app/api/chats/[chatId]/touch/route.ts",
+        "app/api/chats/route.ts",
+        "app/api/chats/search/route.ts",
+        "app/api/models/route.ts"
+      ],
+      "tests": [
+        "lib/auth/__tests__/reject-invalid-bearer.test.ts"
+      ],
+      "docs": []
     },
     {
       "path": "lib/config/default-model.ts",
@@ -10810,6 +11246,7 @@
       "methods": [],
       "route": null,
       "usedBy": [
+        "app/api/chats/[chatId]/touch/route.ts",
         "app/api/chats/route.ts",
         "app/library/page.tsx",
         "components/chat.tsx",
@@ -10820,11 +11257,16 @@
         "scripts/backfill-narration.ts"
       ],
       "tests": [
+        "app/api/account/__tests__/route.test.ts",
+        "app/api/chats/__tests__/chat-id-routes.test.ts",
+        "app/api/chats/__tests__/chat-share-route.test.ts",
+        "app/api/notes/__tests__/notes-routes.test.ts",
         "lib/actions/__tests__/account.test.ts",
         "lib/actions/__tests__/chat.test.ts",
         "lib/actions/__tests__/notes.test.ts",
         "lib/db/__tests__/count-user-chats.test.ts",
         "lib/db/__tests__/delete-messages-after.test.ts",
+        "lib/db/__tests__/delete-user-data.test.ts",
         "lib/db/__tests__/get-recent-chats.test.ts",
         "lib/db/__tests__/rls-policies.integration.test.ts",
         "lib/db/__tests__/search-user-chats.test.ts",
@@ -10862,6 +11304,7 @@
         "releaseFastPathToWorker",
         "findFileByObjectKey",
         "markFileReady",
+        "markProcessingFileReady",
         "claimNextIngestJob",
         "updateIngestProgress",
         "completeIngestFailure",
@@ -10952,6 +11395,7 @@
         "lib/agents/__tests__/memory-consolidator.test.ts",
         "lib/db/__tests__/count-user-chats.test.ts",
         "lib/db/__tests__/delete-messages-after.test.ts",
+        "lib/db/__tests__/delete-user-data.test.ts",
         "lib/db/__tests__/file-actions.test.ts",
         "lib/db/__tests__/get-recent-chats.test.ts",
         "lib/db/__tests__/messages-without-chunks-sql.test.ts",
@@ -11070,12 +11514,14 @@
         "clearMemories",
         "isMemoryEnabled",
         "setMemoryEnabled",
+        "deleteUserSettings",
         "embedTexts",
         "getConfiguredModel"
       ],
       "methods": [],
       "route": null,
       "usedBy": [
+        "lib/actions/account.ts",
         "lib/actions/memory.ts",
         "lib/agents/memory-consolidator.ts",
         "lib/memory/inject.ts",
@@ -11084,8 +11530,13 @@
         "lib/tools/remember.ts"
       ],
       "tests": [
+        "app/api/account/__tests__/route.test.ts",
+        "app/api/memory/__tests__/memory-routes.test.ts",
+        "app/api/settings/memory/__tests__/route.test.ts",
+        "lib/actions/__tests__/account.test.ts",
         "lib/actions/__tests__/memory.test.ts",
         "lib/agents/__tests__/memory-consolidator.test.ts",
+        "lib/db/__tests__/memory-actions-list.test.ts",
         "lib/memory/__tests__/save.test.ts",
         "lib/tools/__tests__/remember.test.ts"
       ],
@@ -11171,11 +11622,13 @@
       "methods": [],
       "route": null,
       "usedBy": [
+        "app/api/settings/model/route.ts",
         "lib/actions/model-preference.ts",
         "lib/model-selector/get-model-selector-data.ts",
         "lib/utils/model-selection.ts"
       ],
       "tests": [
+        "app/api/settings/model/__tests__/route.test.ts",
         "lib/utils/__tests__/model-selection.test.ts"
       ],
       "docs": []
@@ -11212,12 +11665,15 @@
         "scripts/backfill-narration.ts"
       ],
       "tests": [
+        "app/api/memory/__tests__/memory-routes.test.ts",
+        "app/api/settings/memory/__tests__/route.test.ts",
         "lib/actions/__tests__/recall.test.ts",
         "lib/db/__tests__/messages-without-chunks-sql.test.ts",
         "lib/memory/__tests__/recall-backfill.test.ts",
         "lib/memory/__tests__/recall-index.test.ts",
         "lib/memory/__tests__/recall-search.test.ts",
-        "lib/tools/__tests__/recall.test.ts"
+        "lib/tools/__tests__/recall.test.ts",
+        "lib/utils/__tests__/reranker-routing.test.ts"
       ],
       "docs": [
         {
@@ -11298,6 +11754,7 @@
         "Feedback",
         "userMemories",
         "UserMemory",
+        "MemoryListItem",
         "conversationChunks",
         "ConversationChunk",
         "userSettings",
@@ -11310,6 +11767,8 @@
         "app/api/chats/route.ts",
         "app/api/ingest/complete/route.ts",
         "app/api/ingest/file/[id]/route.ts",
+        "app/api/memory/memory-response.ts",
+        "app/api/notes/note-response.ts",
         "app/library/page.tsx",
         "components/chat.tsx",
         "components/library/library-context.tsx",
@@ -11340,8 +11799,11 @@
         "scripts/backfill-narration.ts"
       ],
       "tests": [
+        "app/api/chats/__tests__/chat-id-routes.test.ts",
+        "app/api/chats/__tests__/chat-share-route.test.ts",
         "lib/actions/__tests__/chat.test.ts",
         "lib/actions/__tests__/memory.test.ts",
+        "lib/db/__tests__/memory-actions-list.test.ts",
         "lib/db/__tests__/memory-actions-sql.test.ts",
         "lib/db/__tests__/memory-schema.test.ts",
         "lib/db/__tests__/recall-actions-sql.test.ts",
@@ -11417,6 +11879,8 @@
       ],
       "tests": [
         "lib/actions/__tests__/feedback.test.ts",
+        "lib/actions/__tests__/memory-list.test.ts",
+        "lib/db/__tests__/memory-actions-list.test.ts",
         "lib/db/__tests__/with-rls.test.ts"
       ],
       "docs": [
@@ -11451,6 +11915,29 @@
           "anchor": "how-pages-and-api-routes-check-auth"
         }
       ]
+    },
+    {
+      "path": "lib/discover/thumb-url.ts",
+      "dir": "lib/discover",
+      "area": "lib",
+      "project": "ask",
+      "kind": "lib-module",
+      "purpose": "Discover thumbnails come from the news engines as remote URLs.",
+      "purposeSource": "header",
+      "exports": [
+        "thumbUrl"
+      ],
+      "methods": [],
+      "route": null,
+      "usedBy": [
+        "app/discover/page.tsx",
+        "components/discover-briefing.tsx",
+        "components/news-article-widget.tsx"
+      ],
+      "tests": [
+        "lib/discover/__tests__/thumb-url.test.ts"
+      ],
+      "docs": []
     },
     {
       "path": "lib/embeddings/passage-budget.ts",
@@ -11512,7 +11999,8 @@
         "lib/embeddings/__tests__/rerank-cross-encoder.test.ts",
         "lib/embeddings/__tests__/rerank-passage-order.test.ts",
         "lib/embeddings/__tests__/rerank.test.ts",
-        "lib/tools/__tests__/search-speed-ollama-web.test.ts"
+        "lib/tools/__tests__/search-speed-ollama-web.test.ts",
+        "lib/utils/__tests__/reranker-routing.test.ts"
       ],
       "docs": [
         {
@@ -11553,10 +12041,11 @@
       "area": "lib",
       "project": "ask",
       "kind": "lib-module",
-      "purpose": "Port of Vane's splitText — splits on sentence/paragraph boundaries, chunks to maxTokens, prepends overlapTokens of context from the previous chunk.",
-      "purposeSource": "jsdoc",
+      "purpose": "Port of Vane's splitText: split on sentence/paragraph boundaries, pack the pieces into chunks of up to maxTokens, and start each chunk after the first with up to overlapTokens of the previous…",
+      "purposeSource": "header",
       "exports": [
-        "splitText"
+        "splitText",
+        "splitTextAsync"
       ],
       "methods": [],
       "route": null,
@@ -11568,7 +12057,9 @@
         "lib/search/crop-position.ts",
         "scripts/backfill-narration-plan.ts"
       ],
-      "tests": [],
+      "tests": [
+        "lib/embeddings/__tests__/split-text.test.ts"
+      ],
       "docs": [
         {
           "page": "/getting-started/repo-tour",
@@ -11611,10 +12102,13 @@
         "scripts/backfill-narration.ts"
       ],
       "tests": [
+        "lib/actions/__tests__/memory-list.test.ts",
+        "lib/db/__tests__/memory-actions-list.test.ts",
         "lib/embeddings/__tests__/rerank.test.ts",
         "lib/embeddings/__tests__/transformers-embedding.test.ts",
         "lib/embeddings/__tests__/upload-rag-fastpath.test.ts",
         "lib/embeddings/__tests__/upload-rag-rerank.test.ts",
+        "lib/embeddings/__tests__/upload-rag-store-extracted.test.ts",
         "lib/embeddings/__tests__/upload-rag-threshold.test.ts",
         "lib/embeddings/__tests__/url-rag.test.ts",
         "lib/memory/__tests__/recall-index.test.ts",
@@ -11622,7 +12116,8 @@
         "lib/memory/__tests__/save.test.ts",
         "lib/search/__tests__/crop-position.test.ts",
         "lib/tools/__tests__/search-dedup.test.ts",
-        "lib/tools/__tests__/search-round-cap-execute.test.ts"
+        "lib/tools/__tests__/search-round-cap-execute.test.ts",
+        "lib/utils/__tests__/reranker-routing.test.ts"
       ],
       "docs": [
         {
@@ -11676,9 +12171,11 @@
         "lib/db/__tests__/file-actions.test.ts",
         "lib/embeddings/__tests__/upload-rag-fastpath.test.ts",
         "lib/embeddings/__tests__/upload-rag-rerank.test.ts",
+        "lib/embeddings/__tests__/upload-rag-store-extracted.test.ts",
         "lib/embeddings/__tests__/upload-rag-threshold.test.ts",
         "lib/streaming/helpers/__tests__/transform-file-parts.test.ts",
-        "lib/tools/__tests__/generate-image.test.ts"
+        "lib/tools/__tests__/generate-image.test.ts",
+        "lib/utils/__tests__/reranker-routing.test.ts"
       ],
       "docs": [
         {
@@ -11917,6 +12414,53 @@
         "components/inspector/inspector-drawer.tsx"
       ],
       "tests": [],
+      "docs": []
+    },
+    {
+      "path": "lib/http/app-cors.ts",
+      "dir": "lib/http",
+      "area": "lib",
+      "project": "ask",
+      "kind": "lib-module",
+      "purpose": "CORS for the bundled mobile app (Capacitor, web origin `capacitor://localhost`) calling `/api/*` cross-origin with `Authorization: Bearer …`.",
+      "purposeSource": "header",
+      "exports": [
+        "allowedAppOrigins",
+        "appCorsHeaders",
+        "isCorsPreflight"
+      ],
+      "methods": [],
+      "route": null,
+      "usedBy": [
+        "lib/http/with-app-cors.ts",
+        "proxy.ts"
+      ],
+      "tests": [
+        "lib/http/__tests__/app-cors.test.ts"
+      ],
+      "docs": []
+    },
+    {
+      "path": "lib/http/with-app-cors.ts",
+      "dir": "lib/http",
+      "area": "lib",
+      "project": "ask",
+      "kind": "lib-module",
+      "purpose": "CORS for the bundled mobile app on routes the proxy does not run for.",
+      "purposeSource": "header",
+      "exports": [
+        "withAppCors",
+        "appPreflight"
+      ],
+      "methods": [],
+      "route": null,
+      "usedBy": [
+        "app/api/upload/route.ts",
+        "app/api/voice/transcribe/route.ts"
+      ],
+      "tests": [
+        "lib/http/__tests__/with-app-cors.test.ts"
+      ],
       "docs": []
     },
     {
@@ -12770,6 +13314,7 @@
         "lib/agents/__tests__/researcher-always-search.test.ts",
         "lib/agents/__tests__/researcher-citation-reminder.test.ts",
         "lib/agents/__tests__/researcher-search-cap.test.ts",
+        "lib/agents/__tests__/researcher-search-preview-dedup.test.ts",
         "lib/agents/__tests__/researcher.test.ts",
         "lib/memory/__tests__/inject.test.ts"
       ],
@@ -12809,6 +13354,8 @@
         "lib/actions/recall.ts"
       ],
       "tests": [
+        "app/api/memory/__tests__/memory-routes.test.ts",
+        "app/api/settings/memory/__tests__/route.test.ts",
         "lib/actions/__tests__/recall.test.ts",
         "lib/memory/__tests__/recall-backfill.test.ts"
       ],
@@ -12922,6 +13469,10 @@
       "purposeSource": "jsdoc",
       "exports": [
         "selectRerankCandidates",
+        "recallTextTokens",
+        "isQueryEcho",
+        "dedupeByText",
+        "prepareRecallCandidates",
         "retrieveRecallCandidates",
         "rankRecallCandidates",
         "recallSearch"
@@ -12937,7 +13488,8 @@
         "lib/db/__tests__/search-user-chats.test.ts",
         "lib/memory/__tests__/recall-inject.test.ts",
         "lib/memory/__tests__/recall-search.test.ts",
-        "lib/tools/__tests__/recall.test.ts"
+        "lib/tools/__tests__/recall.test.ts",
+        "lib/utils/__tests__/reranker-routing.test.ts"
       ],
       "docs": [
         {
@@ -13072,11 +13624,14 @@
       "methods": [],
       "route": null,
       "usedBy": [
+        "app/api/models/route.ts",
         "app/page.tsx",
         "app/search/[id]/page.tsx",
         "app/search/page.tsx"
       ],
-      "tests": [],
+      "tests": [
+        "app/api/models/__tests__/route.test.ts"
+      ],
       "docs": [
         {
           "page": "/search/models-reasoning",
@@ -13129,10 +13684,12 @@
       "methods": [],
       "route": null,
       "usedBy": [
+        "app/api/settings/model/route.ts",
         "lib/model-selector/get-model-selector-data.ts",
         "lib/utils/model-selection.ts"
       ],
       "tests": [
+        "app/api/settings/model/__tests__/route.test.ts",
         "lib/models/__tests__/fetch-models.test.ts"
       ],
       "docs": [
@@ -13765,6 +14322,27 @@
           "anchor": "the-files-in-lib-render"
         }
       ]
+    },
+    {
+      "path": "lib/render/pasted-content.ts",
+      "dir": "lib/render",
+      "area": "lib",
+      "project": "ask",
+      "kind": "lib-module",
+      "purpose": "Splits legacy <user-content> pasted material out of an old message so it renders as a collapsed card; shared by web and the mobile app.",
+      "purposeSource": "override",
+      "exports": [
+        "splitPastedContent"
+      ],
+      "methods": [],
+      "route": null,
+      "usedBy": [
+        "components/user-text-section.tsx"
+      ],
+      "tests": [
+        "lib/render/__tests__/pasted-content.test.ts"
+      ],
+      "docs": []
     },
     {
       "path": "lib/render/prompt.ts",
@@ -14429,7 +15007,8 @@
         "app/api/advanced-search/route.ts"
       ],
       "tests": [
-        "lib/search/__tests__/snippet-gate.test.ts"
+        "lib/search/__tests__/snippet-gate.test.ts",
+        "lib/utils/__tests__/reranker-routing.test.ts"
       ],
       "docs": [
         {
@@ -14500,6 +15079,7 @@
         "lib/streaming/helpers/prepare-messages.ts"
       ],
       "tests": [
+        "app/api/account/__tests__/route.test.ts",
         "lib/actions/__tests__/account.test.ts",
         "lib/storage/__tests__/r2-client.test.ts",
         "lib/streaming/helpers/__tests__/prepare-messages.test.ts"
@@ -14549,6 +15129,28 @@
           "anchor": "components-at-a-glance"
         }
       ]
+    },
+    {
+      "path": "lib/storage/user-uploads.ts",
+      "dir": "lib/storage",
+      "area": "lib",
+      "project": "ask",
+      "kind": "lib-module",
+      "purpose": "Resolves a user's local upload tree under UPLOADS_DIR, rejecting unsafe user ids so the path is always a direct child of the uploads root.",
+      "purposeSource": "override",
+      "exports": [
+        "userUploadsDir",
+        "removeUserUploads"
+      ],
+      "methods": [],
+      "route": null,
+      "usedBy": [
+        "lib/actions/account.ts"
+      ],
+      "tests": [
+        "lib/storage/__tests__/user-uploads.test.ts"
+      ],
+      "docs": []
     },
     {
       "path": "lib/streaming/active-generations.ts",
@@ -15694,6 +16296,7 @@
         "lib/actions/account.ts"
       ],
       "tests": [
+        "app/api/account/__tests__/route.test.ts",
         "lib/actions/__tests__/account.test.ts"
       ],
       "docs": [
@@ -15858,7 +16461,9 @@
         "app/layout.tsx",
         "lib/auth/get-current-user.ts"
       ],
-      "tests": [],
+      "tests": [
+        "lib/auth/__tests__/get-current-user.test.ts"
+      ],
       "docs": [
         {
           "page": "/request-lifecycle/auth-and-accounts",
@@ -16427,6 +17032,7 @@
         "lib/agents/__tests__/researcher-always-search.test.ts",
         "lib/agents/__tests__/researcher-citation-reminder.test.ts",
         "lib/agents/__tests__/researcher-search-cap.test.ts",
+        "lib/agents/__tests__/researcher-search-preview-dedup.test.ts",
         "lib/render/__tests__/llm-image-output.e2e.test.ts",
         "lib/tools/__tests__/search-advanced-timeout.test.ts",
         "lib/tools/__tests__/search-dedup.test.ts",
@@ -17166,6 +17772,7 @@
         "scripts/backfill-narration-plan.ts"
       ],
       "tests": [
+        "app/api/chat/[chatId]/messages/__tests__/route.test.ts",
         "components/__tests__/render-message.test.tsx",
         "components/__tests__/research-process-section.test.tsx",
         "components/__tests__/research-process-skipped-calls.test.tsx",
@@ -17359,7 +17966,9 @@
         "components/model-selector-client.tsx",
         "lib/model-selector/get-model-selector-data.ts"
       ],
-      "tests": [],
+      "tests": [
+        "components/__tests__/model-selector-client.test.tsx"
+      ],
       "docs": []
     },
     {
@@ -17416,7 +18025,6 @@
       "methods": [],
       "route": null,
       "usedBy": [
-        "app/api/chat/route.ts",
         "components/chat-panel.tsx",
         "components/keyboard-shortcut-handler.tsx",
         "components/search-mode-selector.tsx",
@@ -17437,7 +18045,8 @@
         "lib/tools/search.ts",
         "lib/types/ai.ts",
         "lib/types/index.ts",
-        "lib/utils/model-selection.ts"
+        "lib/utils/model-selection.ts",
+        "lib/utils/request-search-settings.ts"
       ],
       "tests": [
         "lib/utils/__tests__/model-selection.test.ts"
@@ -17799,6 +18408,7 @@
       "purposeSource": "header",
       "exports": [
         "isCrossEncoderConfigured",
+        "recallRerankerUrl",
         "crossEncoderScore"
       ],
       "methods": [],
@@ -18011,8 +18621,7 @@
         "lib/agents/query-classifier.ts",
         "lib/agents/query-expander.ts",
         "lib/agents/title-generator.ts",
-        "lib/utils/registry.ts",
-        "lib/voice/spoken-gist.ts"
+        "lib/utils/registry.ts"
       ],
       "tests": [
         "lib/agents/__tests__/memory-extractor.test.ts",
@@ -18220,6 +18829,28 @@
       ]
     },
     {
+      "path": "lib/utils/ingest-complete-body.ts",
+      "dir": "lib/utils",
+      "area": "lib",
+      "project": "ask",
+      "kind": "lib-module",
+      "purpose": "Reads the ingest worker's POST /api/ingest/complete body with bounded memory.",
+      "purposeSource": "header",
+      "exports": [
+        "IngestCompleteBody",
+        "readIngestCompleteBody"
+      ],
+      "methods": [],
+      "route": null,
+      "usedBy": [
+        "app/api/ingest/complete/route.ts"
+      ],
+      "tests": [
+        "lib/utils/__tests__/ingest-complete-body.test.ts"
+      ],
+      "docs": []
+    },
+    {
       "path": "lib/utils/ingest-heartbeat.ts",
       "dir": "lib/utils",
       "area": "lib",
@@ -18376,8 +19007,7 @@
       "usedBy": [
         "lib/agents/memory-extractor.ts",
         "lib/agents/query-expander.ts",
-        "lib/agents/title-generator.ts",
-        "lib/voice/spoken-gist.ts"
+        "lib/agents/title-generator.ts"
       ],
       "tests": [],
       "docs": [
@@ -18607,6 +19237,7 @@
       "tests": [
         "app/api/advanced-search/__tests__/redis-resilience.test.ts",
         "app/api/advanced-search/__tests__/searxng-failure.test.ts",
+        "lib/agents/__tests__/researcher-search-preview-dedup.test.ts",
         "lib/tools/__tests__/search-advanced-timeout.test.ts",
         "lib/tools/__tests__/search-dedup.test.ts",
         "lib/tools/__tests__/search-round-cap-execute.test.ts",
@@ -18625,7 +19256,6 @@
       "purposeSource": "header",
       "exports": [
         "AnswerThink",
-        "AnswerTurnMode",
         "ANSWER_THINK_DEFAULT",
         "resolveAnswerThink",
         "thinkEnabledForOllama"
@@ -18803,6 +19433,27 @@
           "anchor": "cloud-means-ollama-cloud-and-nothing-else"
         }
       ]
+    },
+    {
+      "path": "lib/utils/request-search-settings.ts",
+      "dir": "lib/utils",
+      "area": "lib",
+      "project": "ask",
+      "kind": "lib-module",
+      "purpose": "Resolve the search mode and sources for a chat request.",
+      "purposeSource": "jsdoc",
+      "exports": [
+        "resolveSearchSettings"
+      ],
+      "methods": [],
+      "route": null,
+      "usedBy": [
+        "app/api/chat/route.ts"
+      ],
+      "tests": [
+        "lib/utils/__tests__/request-search-settings.test.ts"
+      ],
+      "docs": []
     },
     {
       "path": "lib/utils/rerank-telemetry.ts",
@@ -19250,10 +19901,13 @@
       "methods": [],
       "route": null,
       "usedBy": [
+        "app/api/chats/[chatId]/share/route.ts",
         "app/auth/oauth/route.ts",
         "lib/tools/search.ts"
       ],
       "tests": [
+        "app/api/chats/__tests__/chat-share-route.test.ts",
+        "lib/agents/__tests__/researcher-search-preview-dedup.test.ts",
         "lib/tools/__tests__/search-advanced-timeout.test.ts"
       ],
       "docs": []
@@ -19281,6 +19935,7 @@
       ],
       "tests": [
         "lib/agents/__tests__/citation-handles-e2e.test.ts",
+        "lib/agents/__tests__/researcher-search-preview-dedup.test.ts",
         "lib/tools/__tests__/fetch-citation-handles.test.ts",
         "lib/tools/__tests__/fetch-rounds-cap.test.ts",
         "lib/tools/__tests__/fetch-tool-call-id.test.ts",
@@ -19336,7 +19991,6 @@
         "app/api/voice/speak/route.ts",
         "app/api/voice/transcribe/route.ts",
         "lib/streaming/create-chat-stream-response.ts",
-        "lib/voice/spoken-gist.ts",
         "lib/voice/stt-client.ts",
         "lib/voice/tts-client.ts"
       ],
@@ -19423,46 +20077,12 @@
       ]
     },
     {
-      "path": "lib/voice/spoken-gist.ts",
-      "dir": "lib/voice",
-      "area": "lib",
-      "project": "ask",
-      "kind": "lib-module",
-      "purpose": "Condenses a finished answer into a 2-3 sentence read-aloud gist using a local Ollama model with a timeout, for voice read-aloud.",
-      "purposeSource": "override",
-      "exports": [
-        "buildGistPrompt",
-        "condenseForSpeech"
-      ],
-      "methods": [],
-      "route": null,
-      "usedBy": [],
-      "tests": [
-        "lib/voice/__tests__/spoken-gist-provider.test.ts",
-        "lib/voice/__tests__/spoken-gist.test.ts"
-      ],
-      "docs": [
-        {
-          "page": "/history/known-issues",
-          "title": "Known issues",
-          "section": "Other stale comments and docs",
-          "anchor": "other-stale-comments-and-docs"
-        },
-        {
-          "page": "/knowledge/media",
-          "title": "Media, voice, weather & Discover",
-          "section": "Read-aloud (Kokoro TTS)",
-          "anchor": "read-aloud-kokoro-tts"
-        }
-      ]
-    },
-    {
       "path": "lib/voice/strip-for-speech.ts",
       "dir": "lib/voice",
       "area": "lib",
       "project": "ask",
       "kind": "lib-module",
-      "purpose": "Turn written answer text into something a TTS model should read aloud: no citation anchors, tables, URLs, or markdown syntax.",
+      "purpose": "Turn written answer text into something a TTS model should read aloud: no citation anchors, tables, code blocks, URLs, or markdown syntax.",
       "purposeSource": "header",
       "exports": [
         "stripForSpeech",
@@ -19471,8 +20091,7 @@
       "methods": [],
       "route": null,
       "usedBy": [
-        "lib/voice/emit-spoken-gist.ts",
-        "lib/voice/spoken-gist.ts"
+        "lib/voice/emit-spoken-gist.ts"
       ],
       "tests": [
         "lib/voice/__tests__/strip-for-speech.test.ts"
@@ -19486,7 +20105,7 @@
       "project": "ask",
       "kind": "lib-module",
       "purpose": "POST recorded audio to the self-hosted Whisper service (OpenAI-compatible transcription API) and return the transcript.",
-      "purposeSource": "header",
+      "purposeSource": "jsdoc",
       "exports": [
         "transcribeAudio"
       ],
@@ -20493,35 +21112,6 @@
       ]
     },
     {
-      "path": "scripts/eval/harvest-pairs.py",
-      "dir": "scripts/eval",
-      "area": "scripts",
-      "project": "ask",
-      "kind": "script",
-      "purpose": "Harvest per-turn telemetry and answers for browser-driven staging/lab chats.",
-      "purposeSource": "header",
-      "exports": [
-        "sh",
-        "psql",
-        "turns",
-        "latency",
-        "summarise",
-        "main"
-      ],
-      "methods": [],
-      "route": null,
-      "usedBy": [],
-      "tests": [],
-      "docs": [
-        {
-          "page": "/operations/evaluation",
-          "title": "Evaluation harnesses & scripts",
-          "section": "Map of the harnesses",
-          "anchor": "map-of-the-harnesses"
-        }
-      ]
-    },
-    {
       "path": "scripts/eval/judge-flow-arms.py",
       "dir": "scripts/eval",
       "area": "scripts",
@@ -20536,8 +21126,7 @@
       "methods": [],
       "route": null,
       "usedBy": [
-        "scripts/eval/analyze-flow-arms.py",
-        "scripts/eval/harvest-pairs.py"
+        "scripts/eval/analyze-flow-arms.py"
       ],
       "tests": [],
       "docs": [
