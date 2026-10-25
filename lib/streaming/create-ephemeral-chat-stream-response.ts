@@ -31,6 +31,7 @@ import { isUsageLogging, logUsage } from '../utils/usage-logging'
 
 import { convertDataPart } from './helpers/convert-data-part'
 import { stripCitationAnchorsFromHistory } from './helpers/strip-citation-anchors-from-history'
+import { stripExpandedQueriesFromHistory } from './helpers/strip-expanded-queries-from-history'
 import { stripNarrationFromMessages } from './helpers/strip-narration-from-message'
 import { stripReasoningParts } from './helpers/strip-reasoning-parts'
 import { stripSpecFromMessages } from './helpers/strip-spec-from-messages'
@@ -130,7 +131,7 @@ export async function createEphemeralChatStreamResponse(
 
         const isOpenAI = modelId.startsWith('openai:')
         const messagesWithoutSpec = stripCitationAnchorsFromHistory(
-          stripSpecFromMessages(messages)
+          stripExpandedQueriesFromHistory(stripSpecFromMessages(messages))
         )
         const messagesToConvert = isOpenAI
           ? stripReasoningParts(messagesWithoutSpec)

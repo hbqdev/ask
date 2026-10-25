@@ -447,11 +447,12 @@ main results. Expansion is skipped for speed and skipped turns.
 `QUERY_EXPANSION_ENABLED=false` turns it off (`lib/agents/classifier-expansion.ts`).
 Telemetry: `[latency:search] {kind:"expansion", variants, cache_misses, failed, returned}`.
 
-The variants run **inside** that first `search` call (`lib/tools/search.ts:716-734`, merged at
-`:1151-1193`), so the UI shows a single search entry and the turn's `tool_calls` counts one call,
+The variants run **inside** that first `search` call (`lib/tools/search.ts:717-758`, merged at
+`:1192-1239`), so the UI shows a single search entry and the turn's `tool_calls` counts one call,
 although up to four queries ran. That entry's card lists the variants it ran (a `+N` after the query
 and an "Also searched" list above Sources, also under the step on iOS), read from `expandedQueries` on
-the tool output, which `toModelOutput` strips from the result the model reads for that call.
+the tool output; `toModelOutput` strips it from the live call and `stripExpandedQueriesFromHistory`
+(`lib/streaming/helpers/`) from replayed history, so it never reaches the model.
 On a forced turn ([D37](/history/decisions#d37-always-search-every-question))
 that one entry is the forced search. It is only the first of the turn's searches: the forced-search
 prompt tells the model to go on searching with different queries as its mode's protocol

@@ -96,4 +96,45 @@ describe('createEphemeralChatStreamResponse', () => {
     expect(modelText).not.toContain(vi_chatter)
     expect(modelText).not.toContain('Bây giờ viết câu trả lời')
   })
+
+  it("never replays a prior search's expandedQueries to the model", async () => {
+    vi.spyOn(console, 'error').mockImplementation(() => {})
+    const output = {
+      state: 'complete',
+      query: 'rtx 5090 price',
+      images: [],
+      results: [{ title: 'A', url: 'https://a.test/', content: 'alpha' }],
+      number_of_results: 1
+    }
+    const response = await createEphemeralChatStreamResponse({
+      messages: [
+        { id: 'u1', role: 'user', parts: [{ type: 'text', text: 'price?' }] },
+        {
+          id: 'a1',
+          role: 'assistant',
+          parts: [
+            {
+              type: 'tool-search',
+              toolCallId: 's1',
+              state: 'output-available',
+              input: { query: 'rtx 5090 price' },
+              output: { ...output, expandedQueries: ['variant zebra'] }
+            },
+            { type: 'text', text: 'About $1999.' }
+          ]
+        },
+        { id: 'u2', role: 'user', parts: [{ type: 'text', text: '5080?' }] }
+      ] as any,
+      model: { providerId: 'openai', id: 'gpt-4o-mini' } as any,
+      abortSignal: new AbortController().signal,
+      searchMode: 'balanced'
+    })
+    await response.text()
+
+    const modelText = JSON.stringify(captured.modelMessages)
+    expect(modelText).not.toContain('expandedQueries')
+    expect(modelText).not.toContain('variant zebra')
+    // The rest of the replayed search result is untouched.
+    expect(modelText).toContain(JSON.stringify(output))
+  })
 })
