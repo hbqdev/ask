@@ -449,7 +449,10 @@ Telemetry: `[latency:search] {kind:"expansion", variants, cache_misses, failed, 
 
 The variants run **inside** that first `search` call (`lib/tools/search.ts:716-734`, merged at
 `:1151-1193`), so the UI shows a single search entry and the turn's `tool_calls` counts one call,
-although up to four queries ran. On a forced turn ([D37](/history/decisions#d37-always-search-every-question))
+although up to four queries ran. That entry's card lists the variants it ran (a `+N` after the query
+and an "Also searched" list above Sources, also under the step on iOS), read from `expandedQueries` on
+the tool output, which `toModelOutput` strips from the result the model reads for that call.
+On a forced turn ([D37](/history/decisions#d37-always-search-every-question))
 that one entry is the forced search. It is only the first of the turn's searches: the forced-search
 prompt tells the model to go on searching with different queries as its mode's protocol
 describes ([D37 addendum](/history/decisions#addendum-2026-09-27-the-forced-search-is-the-first-search)).

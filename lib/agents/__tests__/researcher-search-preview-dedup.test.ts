@@ -177,6 +177,56 @@ describe('wrapSearchToolWithDedup: preview chunks', () => {
   })
 })
 
+// The final chunk of the turn's first search carries `expandedQueries` (the
+// expansion variants it also searched) for the search card. The wrapper
+// rewrites that chunk, so the field must ride through both rewrites: the
+// plain one and the one that adds a dedup notice.
+describe('wrapSearchToolWithDedup: expandedQueries', () => {
+  const final = (query: string, letters: string[]): Chunk => ({
+    state: 'complete',
+    results: letters.map(item),
+    images: [],
+    query,
+    number_of_results: letters.length,
+    expandedQueries: [`${query} variant one`, `${query} variant two`]
+  })
+
+  it('keeps expandedQueries on a final chunk with nothing deduped', async () => {
+    const wrapped = wrapSearchToolWithDedup(
+      fakeSearchTool([[final('q1', ['A', 'B'])]]),
+      new Set(),
+      new Map()
+    )
+    const out = (await collect(wrapped, 'q1')).at(-1)
+    expect(out?.notice).toBeUndefined()
+    expect(out?.expandedQueries).toEqual(['q1 variant one', 'q1 variant two'])
+  })
+
+  it('keeps expandedQueries when the chunk is rewritten with a dedup notice', async () => {
+    const wrapped = wrapSearchToolWithDedup(
+      fakeSearchTool([[final('q1', ['A'])], [final('q2', ['A', 'B'])]]),
+      new Set(),
+      new Map()
+    )
+    await collect(wrapped, 'first query')
+    const out = (await collect(wrapped, 'second different query')).at(-1)
+    expect(out?.deduped).toBe(1)
+    expect(urls(out)).toEqual(['https://example.com/B'])
+    expect(out?.expandedQueries).toEqual(['q2 variant one', 'q2 variant two'])
+  })
+
+  it('does not add expandedQueries to a final chunk without it', async () => {
+    const { expandedQueries: _drop, ...plain } = final('q1', ['A'])
+    const wrapped = wrapSearchToolWithDedup(
+      fakeSearchTool([[plain]]),
+      new Set(),
+      new Map()
+    )
+    const out = (await collect(wrapped, 'q1')).at(-1)
+    expect(out).not.toHaveProperty('expandedQueries')
+  })
+})
+
 // The REAL search tool against a local /api/advanced-search that streams
 // NDJSON, wrapped exactly as the researcher wraps it.
 let server: http.Server

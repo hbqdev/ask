@@ -9,6 +9,9 @@ export type SearchResults = {
   query: string
   toolCallId?: string // ID of the search tool call
   citationMap?: Record<number, SearchResultItem> // Maps citation number to search result
+  // Expansion variants this search also ran (first search of a turn only), in
+  // order. Display-only: the search card lists them; never sent to the model.
+  expandedQueries?: string[]
 }
 
 // If include_images_description is true, images are objects with url/description.

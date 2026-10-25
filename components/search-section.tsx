@@ -69,6 +69,10 @@ export function SearchSection({
 
   const { open } = useArtifact()
 
+  // The expansion variants the turn's first search also ran (see
+  // SearchResults.expandedQueries). Absent on older saved messages.
+  const expandedQueries = searchResults?.expandedQueries ?? []
+
   const totalResults =
     (searchResults?.results?.length || 0) +
     (searchResults?.videos?.length || 0) +
@@ -83,6 +87,17 @@ export function SearchSection({
         <div className="flex items-center gap-2 min-w-0 overflow-hidden">
           <SearchIcon className="h-4 w-4 shrink-0 text-muted-foreground" />
           <span className="truncate block min-w-0 max-w-full">{`${query}${includeDomainsString}`}</span>
+          {expandedQueries.length > 0 && (
+            <span
+              className="shrink-0 text-muted-foreground/70"
+              title={`Also searched:\n${expandedQueries.join('\n')}`}
+            >
+              <span aria-hidden="true">+{expandedQueries.length}</span>
+              <span className="sr-only">
+                {`also searched ${expandedQueries.length} more ${expandedQueries.length === 1 ? 'query' : 'queries'}`}
+              </span>
+            </span>
+          )}
         </div>
       }
       meta={
@@ -164,6 +179,21 @@ export function SearchSection({
                   />
                 </Section>
               )}
+            {expandedQueries.length > 0 && (
+              <Section title="Also searched">
+                <ul className="flex flex-col gap-1">
+                  {expandedQueries.map((variant, i) => (
+                    <li
+                      key={i}
+                      className="flex items-start gap-1.5 text-xs text-muted-foreground break-words"
+                    >
+                      <SearchIcon className="h-3 w-3 shrink-0 mt-0.5" />
+                      <span className="min-w-0">{variant}</span>
+                    </li>
+                  ))}
+                </ul>
+              </Section>
+            )}
             {isError ? (
               <Section>
                 <div className="bg-card rounded-lg">

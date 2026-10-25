@@ -712,25 +712,32 @@ export function createSearchTool(
       // done) the turn proceeds single-query — never blocked, never an
       // error.
       const EXPANSION_MERGE_WAIT_MS = 12_000
-      let variantResultsPromise: Promise<SearchResults['results']> | null = null
+      // `variants` is what was actually searched (empty when the expander
+      // timed out, failed or returned none), so the card can list them.
+      let expansionPromise: Promise<{
+        variants: string[]
+        results: SearchResults['results']
+      }> | null = null
       if (!expansionUsed && toolOptions?.expandedQueries) {
         expansionUsed = true
-        variantResultsPromise = Promise.race([
+        expansionPromise = Promise.race([
           toolOptions.expandedQueries,
           new Promise<string[]>(resolve =>
             setTimeout(() => resolve([]), EXPANSION_MERGE_WAIT_MS)
           )
         ])
-          .then(variants =>
-            variants.length > 0
-              ? searchExpansionVariants(
-                  variants,
-                  toolOptions.timeRange,
-                  toolOptions.chatId
-                )
-              : []
-          )
-          .catch(() => [])
+          .then(async variants => ({
+            variants,
+            results:
+              variants.length > 0
+                ? await searchExpansionVariants(
+                    variants,
+                    toolOptions.timeRange,
+                    toolOptions.chatId
+                  )
+                : []
+          }))
+          .catch(() => ({ variants: [], results: [] }))
       }
 
       // Determine which provider to use based on type
@@ -1156,13 +1163,13 @@ export function createSearchTool(
       // Merge expansion-variant results (first search of the turn only):
       // unique URLs appended after the main results so the primary
       // phrasing's ranking stays on top.
-      if (variantResultsPromise) {
+      if (expansionPromise) {
         // Timed separately because the variants run CONCURRENTLY with the
         // main search: this awaits whatever is still outstanding, so a large
         // variant_wait_ms means the variants — not the main search — set the
         // floor for this tool call.
         const variantStart = performance.now()
-        const variantResults = await variantResultsPromise
+        const { variants, results: variantResults } = await expansionPromise
         toolTimer?.mark('variant_wait_ms', performance.now() - variantStart)
         if (variantResults.length > 0) {
           // normalizeUrl, not raw string equality. Every other merge in the
@@ -1194,6 +1201,11 @@ export function createSearchTool(
           toolTimer?.set('variant_found', variantResults.length)
           toolTimer?.set('variant_added', added)
           searchResult = { ...searchResult, results: merged }
+        }
+        // Set whenever variants ran, even if they added nothing: the card
+        // shows what was searched, not what was new. toModelOutput drops it.
+        if (variants.length > 0) {
+          searchResult = { ...searchResult, expandedQueries: variants }
         }
       }
 
@@ -1299,6 +1311,9 @@ export function createSearchTool(
       }
       delete modelView.citationMap
       delete modelView.state
+      // Display-only (the card's "Also searched" list): the model's view is
+      // exactly what it was before the field existed.
+      delete modelView.expandedQueries
       return { type: 'json', value: modelView as JSONValue }
     }
   })
