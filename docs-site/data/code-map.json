@@ -3,11 +3,11 @@
     "ask": "ask-prod",
     "ingestor": "ingestor"
   },
-  "count": 689,
+  "count": 690,
   "coverage": {
-    "files": 689,
-    "withPurpose": 689,
-    "header": 188,
+    "files": 690,
+    "withPurpose": 690,
+    "header": 189,
     "jsdoc": 49,
     "derived": 61,
     "override": 391,
@@ -16,7 +16,7 @@
   "kinds": {
     "dockerfile": 3,
     "route-handler": 49,
-    "lib-module": 264,
+    "lib-module": 265,
     "page": 13,
     "stylesheet": 2,
     "layout": 2,
@@ -1966,7 +1966,8 @@
       "tests": [
         "components/__tests__/chat-panel.test.tsx",
         "components/__tests__/reasoning-section.test.tsx",
-        "components/__tests__/research-process-skipped-calls.test.tsx"
+        "components/__tests__/research-process-skipped-calls.test.tsx",
+        "components/__tests__/search-section.test.tsx"
       ],
       "docs": [
         {
@@ -3720,7 +3721,9 @@
       "usedBy": [
         "components/tool-section.tsx"
       ],
-      "tests": [],
+      "tests": [
+        "components/__tests__/search-section.test.tsx"
+      ],
       "docs": [
         {
           "page": "/request-lifecycle/generative-ui",
@@ -9996,6 +9999,7 @@
         "lib/agents/__tests__/researcher-search-cap.test.ts",
         "lib/agents/__tests__/researcher-search-preview-dedup.test.ts",
         "lib/agents/__tests__/researcher.test.ts",
+        "lib/streaming/__tests__/create-chat-stream-response-history.test.ts",
         "lib/streaming/__tests__/create-ephemeral-chat-stream-response.test.ts"
       ],
       "docs": [
@@ -10179,7 +10183,8 @@
       ],
       "tests": [
         "lib/actions/__tests__/chat.test.ts",
-        "lib/agents/__tests__/title-generator.test.ts"
+        "lib/agents/__tests__/title-generator.test.ts",
+        "lib/streaming/__tests__/create-chat-stream-response-history.test.ts"
       ],
       "docs": [
         {
@@ -14652,6 +14657,7 @@
         "lib/search/__tests__/basic-search-cache.test.ts",
         "lib/tools/__tests__/search-advanced-timeout.test.ts",
         "lib/tools/__tests__/search-dedup.test.ts",
+        "lib/tools/__tests__/search-expansion-output.test.ts",
         "lib/tools/__tests__/search-round-cap-execute.test.ts"
       ],
       "docs": [
@@ -15230,7 +15236,9 @@
       "usedBy": [
         "app/api/chat/route.ts"
       ],
-      "tests": [],
+      "tests": [
+        "lib/streaming/__tests__/create-chat-stream-response-history.test.ts"
+      ],
       "docs": [
         {
           "page": "/getting-started/overview",
@@ -15617,6 +15625,7 @@
         "lib/streaming/create-chat-stream-response.ts"
       ],
       "tests": [
+        "lib/streaming/__tests__/create-chat-stream-response-history.test.ts",
         "lib/streaming/helpers/__tests__/persist-stream-results.test.ts"
       ],
       "docs": [
@@ -15651,6 +15660,7 @@
         "lib/streaming/create-chat-stream-response.ts"
       ],
       "tests": [
+        "lib/streaming/__tests__/create-chat-stream-response-history.test.ts",
         "lib/streaming/helpers/__tests__/prepare-messages.test.ts"
       ],
       "docs": [
@@ -15822,6 +15832,28 @@
           "anchor": "unresolved-citations"
         }
       ]
+    },
+    {
+      "path": "lib/streaming/helpers/strip-expanded-queries-from-history.ts",
+      "dir": "lib/streaming/helpers",
+      "area": "lib",
+      "project": "ask",
+      "kind": "lib-module",
+      "purpose": "Removes `expandedQueries` from search tool outputs before the history is converted to model messages.",
+      "purposeSource": "header",
+      "exports": [
+        "stripExpandedQueriesFromHistory"
+      ],
+      "methods": [],
+      "route": null,
+      "usedBy": [
+        "lib/streaming/create-chat-stream-response.ts",
+        "lib/streaming/create-ephemeral-chat-stream-response.ts"
+      ],
+      "tests": [
+        "lib/streaming/helpers/__tests__/strip-expanded-queries-from-history.test.ts"
+      ],
+      "docs": []
     },
     {
       "path": "lib/streaming/helpers/strip-narration-from-message.ts",
@@ -16170,7 +16202,9 @@
         "app/api/chat/[chatId]/stream/route.ts",
         "lib/streaming/create-chat-stream-response.ts"
       ],
-      "tests": [],
+      "tests": [
+        "lib/streaming/__tests__/create-chat-stream-response-history.test.ts"
+      ],
       "docs": [
         {
           "page": "/getting-started/recipes",
@@ -17037,6 +17071,7 @@
         "lib/tools/__tests__/search-advanced-timeout.test.ts",
         "lib/tools/__tests__/search-dedup.test.ts",
         "lib/tools/__tests__/search-depth-tiering.test.ts",
+        "lib/tools/__tests__/search-expansion-output.test.ts",
         "lib/tools/__tests__/search-round-cap-execute.test.ts",
         "lib/tools/__tests__/search-round-cap.test.ts",
         "lib/tools/__tests__/search-speed-ollama-web.test.ts",
@@ -17336,6 +17371,7 @@
       "tests": [
         "lib/tools/__tests__/search-advanced-timeout.test.ts",
         "lib/tools/__tests__/search-dedup.test.ts",
+        "lib/tools/__tests__/search-expansion-output.test.ts",
         "lib/tools/__tests__/search-round-cap-execute.test.ts"
       ],
       "docs": [
@@ -17776,6 +17812,7 @@
         "components/__tests__/render-message.test.tsx",
         "components/__tests__/research-process-section.test.tsx",
         "components/__tests__/research-process-skipped-calls.test.tsx",
+        "components/__tests__/search-section.test.tsx",
         "components/__tests__/tool-section.test.tsx",
         "lib/actions/__tests__/chat.test.ts",
         "lib/db/__tests__/rls-policies.integration.test.ts",
@@ -19240,6 +19277,7 @@
         "lib/agents/__tests__/researcher-search-preview-dedup.test.ts",
         "lib/tools/__tests__/search-advanced-timeout.test.ts",
         "lib/tools/__tests__/search-dedup.test.ts",
+        "lib/tools/__tests__/search-expansion-output.test.ts",
         "lib/tools/__tests__/search-round-cap-execute.test.ts",
         "lib/tools/__tests__/search-speed-ollama-web.test.ts",
         "lib/utils/__tests__/ollama-search-client.test.ts"
@@ -19496,6 +19534,7 @@
         "lib/streaming/create-ephemeral-chat-stream-response.ts"
       ],
       "tests": [
+        "lib/streaming/__tests__/create-chat-stream-response-history.test.ts",
         "lib/streaming/__tests__/create-ephemeral-chat-stream-response.test.ts",
         "lib/utils/__tests__/resolve-context-window.test.ts"
       ],
@@ -19942,6 +19981,7 @@
         "lib/tools/__tests__/fetch.test.ts",
         "lib/tools/__tests__/search-advanced-timeout.test.ts",
         "lib/tools/__tests__/search-dedup.test.ts",
+        "lib/tools/__tests__/search-expansion-output.test.ts",
         "lib/tools/__tests__/search-round-cap-execute.test.ts"
       ],
       "docs": []

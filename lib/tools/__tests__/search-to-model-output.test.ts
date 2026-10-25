@@ -133,3 +133,43 @@ describe('search tool toModelOutput — CITATION_HANDLES', () => {
     expect(JSON.stringify(value)).toBe(JSON.stringify(expected))
   })
 })
+
+// expandedQueries (the first search's expansion variants) is display-only: the
+// search card lists them, but the model must read exactly the output it read
+// before the field existed, with citation handles on or off.
+describe('search tool toModelOutput — expandedQueries', () => {
+  const tool = createSearchTool('google:gemini-3-flash-preview')
+  const base = {
+    state: 'complete',
+    query: 'node 24',
+    number_of_results: 1,
+    results: [{ title: 'A', url: 'https://a.test/', content: 'alpha' }],
+    images: [],
+    toolCallId: 'call_exp'
+  }
+  const view = async (output: unknown) =>
+    (
+      (await tool.toModelOutput?.({
+        toolCallId: 'call_exp',
+        input: {} as never,
+        output: output as never
+      })) as { type: 'json'; value: Record<string, unknown> }
+    ).value
+
+  afterEach(() => {
+    vi.unstubAllEnvs()
+  })
+
+  it.each(['', 'off'])(
+    'is not sent to the model (CITATION_HANDLES=%j), and the view is unchanged',
+    async flag => {
+      vi.stubEnv('CITATION_HANDLES', flag)
+      const withVariants = { ...base, expandedQueries: ['node 24 lts', 'x'] }
+      const value = await view(withVariants)
+      expect(value).not.toHaveProperty('expandedQueries')
+      expect(JSON.stringify(value)).toBe(JSON.stringify(await view(base)))
+      // The UI/persisted output keeps it.
+      expect(withVariants.expandedQueries).toEqual(['node 24 lts', 'x'])
+    }
+  )
+})

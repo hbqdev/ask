@@ -79,6 +79,7 @@ import {
 import { smoothAndStripNarration } from './helpers/smooth-and-strip-narration'
 import { streamPartTimer } from './helpers/stream-part-timer'
 import { stripCitationAnchorsFromHistory } from './helpers/strip-citation-anchors-from-history'
+import { stripExpandedQueriesFromHistory } from './helpers/strip-expanded-queries-from-history'
 import {
   stripNarrationFromMessage,
   stripNarrationFromMessages
@@ -382,8 +383,11 @@ export async function createChatStreamResponse(
         const isOpenAI = context.modelId.startsWith('openai:')
         // History anchors name earlier turns' tool calls, which are pruned
         // below — strip them so the model can't copy dead ids into this turn.
+        // expandedQueries is display-only; history replays tool outputs raw.
         const messagesWithoutSpec = stripCitationAnchorsFromHistory(
-          stripSpecFromMessages(historyForModel)
+          stripExpandedQueriesFromHistory(
+            stripSpecFromMessages(historyForModel)
+          )
         )
         const messagesToConvert = isOpenAI
           ? stripReasoningParts(messagesWithoutSpec)
