@@ -18,6 +18,11 @@ behind the change. Lab-first work lives on `flow-design`. `git cherry-pick -x` l
 
 ## 2026-10 — October
 
+- **10-25** — Search card shows the query-expansion variants: a `+N` after the query and an
+  "Also searched" list above the sources (`expandedQueries` on the tool output; stripped from the
+  model's view and from replayed history). Lab `f06ca99c`, `5a7a80c6`, `334814da`.
+  *Lab only, not shipped:* a facets prompt for the variants (one query per part of a multi-part
+  question) changed the classifier's list on 1 of 40 questions, so it was dropped before any search.
 - **10-24** — Search fix: the streaming preview no longer counts as "already returned" in the
   per-turn URL dedup (`63ca0634`, lab `de2ea6fc`). Since late July the first search of most turns
   had handed the model ~8 of its ~20 results (81 of 88 prod first searches in 14 days). See
