@@ -18,6 +18,13 @@ behind the change. Lab-first work lives on `flow-design`. `git cherry-pick -x` l
 
 ## 2026-10 — October
 
+- **10-24** — Search fix: the streaming preview no longer counts as "already returned" in the
+  per-turn URL dedup (`63ca0634`, lab `de2ea6fc`). Since late July the first search of most turns
+  had handed the model ~8 of its ~20 results (81 of 88 prod first searches in 14 days). See
+  [known issues](/history/known-issues#the-search-preview-hid-results-from-the-model).
+  *Lab only, not shipped:* a crawl-depth experiment (8 or 15 pages, SearXNG in balanced, a
+  multi-host crawl4ai pool) found no answer-quality gain and +3–5 s per turn, so balanced keeps
+  Brave's top 3.
 - **10-19** — Model roster: `minimax-m3.1-flash:cloud`, `beam:cloud` and `muse-spark-open:cloud`
   **added** in all three envs (config only, no code change). Prod via the Model Manager (backup
   `.env.bak.2026-10-20T05-11-17-578Z`); staging and lab via `.env` plus `--force-recreate --no-deps ask`.

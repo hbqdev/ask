@@ -980,8 +980,13 @@ export function createSearchTool(
                   // Intermediate yields are UI-only — the model receives the
                   // FINAL yield — so showing preliminary sources here cannot
                   // put un-crawled content in front of the model.
+                  // `preview: true` marks it for wrappers that inspect
+                  // 'complete' chunks: the state stays 'complete' so the UI
+                  // renders sources, but wrapSearchToolWithDedup must not
+                  // count these URLs as returned (see researcher.ts).
                   yield {
                     state: 'complete' as const,
+                    preview: true as const,
                     results: msg.results ?? [],
                     images: [],
                     query: filledQuery,

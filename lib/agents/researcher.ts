@@ -284,11 +284,9 @@ const URL_ONLY = /^https?:\/\/\S+$/i
 // So the fix is to stop returning an ambiguous signal. A duplicate query gets
 // an explicit instruction instead of empty results, and dedup announces itself
 // rather than silently shrinking the list.
-function wrapSearchToolWithDedup<T extends ReturnType<typeof createSearchTool>>(
-  originalTool: T,
-  seenUrls: Set<string>,
-  seenQueries: Map<string, number>
-): T {
+export function wrapSearchToolWithDedup<
+  T extends ReturnType<typeof createSearchTool>
+>(originalTool: T, seenUrls: Set<string>, seenQueries: Map<string, number>): T {
   return tool({
     description: originalTool.description,
 
@@ -353,7 +351,22 @@ function wrapSearchToolWithDedup<T extends ReturnType<typeof createSearchTool>>(
             })()
 
       for await (const chunk of iterable) {
-        const c = chunk as { state?: string; results?: Array<{ url?: string }> }
+        const c = chunk as {
+          state?: string
+          preview?: boolean
+          results?: Array<{ url?: string }>
+        }
+        // The streamed advanced search's preview chunk is state 'complete'
+        // too, but it is UI-only: AI SDK v6 gives the model only the LAST
+        // yield. Recording its URLs here made the final chunk — the one the
+        // model reads — drop them as "already returned earlier in this turn",
+        // on the turn's FIRST search. Prod, 14 days to 2026-10-24: 81 of 88
+        // first searches carried that notice, ~12 results removed on average.
+        // Only URLs the model actually receives count as returned.
+        if (c.preview === true) {
+          yield chunk
+          continue
+        }
         if (c.state === 'complete' && Array.isArray(c.results)) {
           const before = c.results.length
           const deduped = c.results.filter(r => {

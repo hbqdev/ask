@@ -3,13 +3,13 @@
     "ask": "ask-prod",
     "ingestor": "ingestor"
   },
-  "count": 686,
+  "count": 689,
   "coverage": {
-    "files": 686,
-    "withPurpose": 686,
-    "header": 187,
+    "files": 689,
+    "withPurpose": 689,
+    "header": 188,
     "jsdoc": 49,
-    "derived": 59,
+    "derived": 61,
     "override": 391,
     "documented": 370
   },
@@ -28,8 +28,8 @@
     "compose": 10,
     "migration": 22,
     "db-schema": 4,
-    "systemd-unit": 5,
-    "ops-script": 19,
+    "systemd-unit": 7,
+    "ops-script": 20,
     "hook": 12,
     "python-module": 11,
     "test-helper": 3,
@@ -3245,7 +3245,8 @@
         "components/chat-panel.tsx"
       ],
       "tests": [
-        "components/__tests__/chat-panel.test.tsx"
+        "components/__tests__/chat-panel.test.tsx",
+        "components/__tests__/model-selector-client.test.tsx"
       ],
       "docs": [
         {
@@ -5962,8 +5963,8 @@
         {
           "page": "/knowledge/memory-recall",
           "title": "Memory & recall",
-          "section": "Pool 10 → 8 (bench 2026-09-24, deployed 2026-09-25)",
-          "anchor": "recall-pool-8"
+          "section": "Auto-injection on the critical path",
+          "anchor": "auto-injection-on-the-critical-path"
         },
         {
           "page": "/knowledge/rag-uploads",
@@ -7115,7 +7116,8 @@
       "methods": [],
       "route": null,
       "usedBy": [
-        "fleet-boot/ask-fleet-boot.service"
+        "fleet-boot/ask-fleet-boot.service",
+        "fleet-boot/evict-model-cache.service"
       ],
       "tests": [],
       "docs": [
@@ -7220,6 +7222,51 @@
           "anchor": "what-automation-already-exists"
         }
       ]
+    },
+    {
+      "path": "fleet-boot/evict-model-cache.service",
+      "dir": "fleet-boot",
+      "area": "fleet-boot",
+      "project": "ask",
+      "kind": "systemd-unit",
+      "purpose": "systemd unit: Evict GPU model weight files from the page cache (NightFuryX/WSL)",
+      "purposeSource": "derived",
+      "exports": [],
+      "methods": [],
+      "route": null,
+      "usedBy": [],
+      "tests": [],
+      "docs": []
+    },
+    {
+      "path": "fleet-boot/evict-model-cache.sh",
+      "dir": "fleet-boot",
+      "area": "fleet-boot",
+      "project": "ask",
+      "kind": "ops-script",
+      "purpose": "Evict model weight files from the Linux page cache on NightFuryX.",
+      "purposeSource": "header",
+      "exports": [],
+      "methods": [],
+      "route": null,
+      "usedBy": [],
+      "tests": [],
+      "docs": []
+    },
+    {
+      "path": "fleet-boot/evict-model-cache.timer",
+      "dir": "fleet-boot",
+      "area": "fleet-boot",
+      "project": "ask",
+      "kind": "systemd-unit",
+      "purpose": "systemd timer: Evict model weights from the page cache 4 min after boot and every 15 min",
+      "purposeSource": "derived",
+      "exports": [],
+      "methods": [],
+      "route": null,
+      "usedBy": [],
+      "tests": [],
+      "docs": []
     },
     {
       "path": "fleet-boot/expire-uploads-daily.sh",
@@ -9106,7 +9153,9 @@
       "usedBy": [
         "components/model-selector-client.tsx"
       ],
-      "tests": [],
+      "tests": [
+        "components/__tests__/model-selector-client.test.tsx"
+      ],
       "docs": []
     },
     {
@@ -9927,6 +9976,7 @@
         "resolveTurnMode",
         "resolveForcedFirstSearch",
         "TurnPlan",
+        "wrapSearchToolWithDedup",
         "wrapSearchToolForSources",
         "getSourcesPromptAddendum",
         "createResearcher",
@@ -9944,6 +9994,7 @@
         "lib/agents/__tests__/researcher-always-search.test.ts",
         "lib/agents/__tests__/researcher-citation-reminder.test.ts",
         "lib/agents/__tests__/researcher-search-cap.test.ts",
+        "lib/agents/__tests__/researcher-search-preview-dedup.test.ts",
         "lib/agents/__tests__/researcher.test.ts",
         "lib/streaming/__tests__/create-ephemeral-chat-stream-response.test.ts"
       ],
@@ -11621,7 +11672,8 @@
         "lib/memory/__tests__/recall-backfill.test.ts",
         "lib/memory/__tests__/recall-index.test.ts",
         "lib/memory/__tests__/recall-search.test.ts",
-        "lib/tools/__tests__/recall.test.ts"
+        "lib/tools/__tests__/recall.test.ts",
+        "lib/utils/__tests__/reranker-routing.test.ts"
       ],
       "docs": [
         {
@@ -11947,7 +11999,8 @@
         "lib/embeddings/__tests__/rerank-cross-encoder.test.ts",
         "lib/embeddings/__tests__/rerank-passage-order.test.ts",
         "lib/embeddings/__tests__/rerank.test.ts",
-        "lib/tools/__tests__/search-speed-ollama-web.test.ts"
+        "lib/tools/__tests__/search-speed-ollama-web.test.ts",
+        "lib/utils/__tests__/reranker-routing.test.ts"
       ],
       "docs": [
         {
@@ -12063,7 +12116,8 @@
         "lib/memory/__tests__/save.test.ts",
         "lib/search/__tests__/crop-position.test.ts",
         "lib/tools/__tests__/search-dedup.test.ts",
-        "lib/tools/__tests__/search-round-cap-execute.test.ts"
+        "lib/tools/__tests__/search-round-cap-execute.test.ts",
+        "lib/utils/__tests__/reranker-routing.test.ts"
       ],
       "docs": [
         {
@@ -12120,7 +12174,8 @@
         "lib/embeddings/__tests__/upload-rag-store-extracted.test.ts",
         "lib/embeddings/__tests__/upload-rag-threshold.test.ts",
         "lib/streaming/helpers/__tests__/transform-file-parts.test.ts",
-        "lib/tools/__tests__/generate-image.test.ts"
+        "lib/tools/__tests__/generate-image.test.ts",
+        "lib/utils/__tests__/reranker-routing.test.ts"
       ],
       "docs": [
         {
@@ -13259,6 +13314,7 @@
         "lib/agents/__tests__/researcher-always-search.test.ts",
         "lib/agents/__tests__/researcher-citation-reminder.test.ts",
         "lib/agents/__tests__/researcher-search-cap.test.ts",
+        "lib/agents/__tests__/researcher-search-preview-dedup.test.ts",
         "lib/agents/__tests__/researcher.test.ts",
         "lib/memory/__tests__/inject.test.ts"
       ],
@@ -13413,6 +13469,10 @@
       "purposeSource": "jsdoc",
       "exports": [
         "selectRerankCandidates",
+        "recallTextTokens",
+        "isQueryEcho",
+        "dedupeByText",
+        "prepareRecallCandidates",
         "retrieveRecallCandidates",
         "rankRecallCandidates",
         "recallSearch"
@@ -13428,7 +13488,8 @@
         "lib/db/__tests__/search-user-chats.test.ts",
         "lib/memory/__tests__/recall-inject.test.ts",
         "lib/memory/__tests__/recall-search.test.ts",
-        "lib/tools/__tests__/recall.test.ts"
+        "lib/tools/__tests__/recall.test.ts",
+        "lib/utils/__tests__/reranker-routing.test.ts"
       ],
       "docs": [
         {
@@ -14268,7 +14329,7 @@
       "area": "lib",
       "project": "ask",
       "kind": "lib-module",
-      "purpose": "Splits legacy <user-content> pasted material out of old messages so web and app render it as a collapsed card.",
+      "purpose": "Splits legacy <user-content> pasted material out of an old message so it renders as a collapsed card; shared by web and the mobile app.",
       "purposeSource": "override",
       "exports": [
         "splitPastedContent"
@@ -14946,7 +15007,8 @@
         "app/api/advanced-search/route.ts"
       ],
       "tests": [
-        "lib/search/__tests__/snippet-gate.test.ts"
+        "lib/search/__tests__/snippet-gate.test.ts",
+        "lib/utils/__tests__/reranker-routing.test.ts"
       ],
       "docs": [
         {
@@ -15074,7 +15136,7 @@
       "area": "lib",
       "project": "ask",
       "kind": "lib-module",
-      "purpose": "A user's local upload tree (originals, .chunks.json sidecars, generated images) and its path-guarded removal on account deletion.",
+      "purpose": "Resolves a user's local upload tree under UPLOADS_DIR, rejecting unsafe user ids so the path is always a direct child of the uploads root.",
       "purposeSource": "override",
       "exports": [
         "userUploadsDir",
@@ -16970,6 +17032,7 @@
         "lib/agents/__tests__/researcher-always-search.test.ts",
         "lib/agents/__tests__/researcher-citation-reminder.test.ts",
         "lib/agents/__tests__/researcher-search-cap.test.ts",
+        "lib/agents/__tests__/researcher-search-preview-dedup.test.ts",
         "lib/render/__tests__/llm-image-output.e2e.test.ts",
         "lib/tools/__tests__/search-advanced-timeout.test.ts",
         "lib/tools/__tests__/search-dedup.test.ts",
@@ -17903,7 +17966,9 @@
         "components/model-selector-client.tsx",
         "lib/model-selector/get-model-selector-data.ts"
       ],
-      "tests": [],
+      "tests": [
+        "components/__tests__/model-selector-client.test.tsx"
+      ],
       "docs": []
     },
     {
@@ -18343,6 +18408,7 @@
       "purposeSource": "header",
       "exports": [
         "isCrossEncoderConfigured",
+        "recallRerankerUrl",
         "crossEncoderScore"
       ],
       "methods": [],
@@ -19171,6 +19237,7 @@
       "tests": [
         "app/api/advanced-search/__tests__/redis-resilience.test.ts",
         "app/api/advanced-search/__tests__/searxng-failure.test.ts",
+        "lib/agents/__tests__/researcher-search-preview-dedup.test.ts",
         "lib/tools/__tests__/search-advanced-timeout.test.ts",
         "lib/tools/__tests__/search-dedup.test.ts",
         "lib/tools/__tests__/search-round-cap-execute.test.ts",
@@ -19840,6 +19907,7 @@
       ],
       "tests": [
         "app/api/chats/__tests__/chat-share-route.test.ts",
+        "lib/agents/__tests__/researcher-search-preview-dedup.test.ts",
         "lib/tools/__tests__/search-advanced-timeout.test.ts"
       ],
       "docs": []
@@ -19867,6 +19935,7 @@
       ],
       "tests": [
         "lib/agents/__tests__/citation-handles-e2e.test.ts",
+        "lib/agents/__tests__/researcher-search-preview-dedup.test.ts",
         "lib/tools/__tests__/fetch-citation-handles.test.ts",
         "lib/tools/__tests__/fetch-rounds-cap.test.ts",
         "lib/tools/__tests__/fetch-tool-call-id.test.ts",
