@@ -49,35 +49,69 @@ describe('SearchSection: expansion variants', () => {
       'title',
       `Also searched:\n${VARIANTS.join('\n')}`
     )
-    // The header button's accessible name says what +2 means.
+    // The header button's accessible name says what +2 means, set off from
+    // the query by a comma so it never runs into it.
     expect(
-      screen.getByRole('button', { name: /also searched 2 more queries/ })
+      screen.getByRole('button', {
+        name: /rtx 5090 price\s?, also searched 2 more queries/
+      })
     ).toBeInTheDocument()
-    // The +N must survive the query's truncation.
+    // The +N must survive the query's truncation: it sits OUTSIDE the
+    // truncating span and does not shrink.
+    const querySpan = screen.getByText('rtx 5090 price')
+    expect(querySpan).toHaveClass('truncate')
+    expect(querySpan.contains(badge)).toBe(false)
+    expect(querySpan.parentElement).toBe(badge.parentElement)
     expect(badge).toHaveClass('shrink-0')
-    expect(screen.getByText('rtx 5090 price')).toHaveClass('truncate')
   })
 
   it('says "query" for a single variant', () => {
     renderCard(searchPart({ expandedQueries: ['only one'] }), false)
-    expect(screen.getByText('also searched 1 more query')).toBeInTheDocument()
+    expect(screen.getByText(', also searched 1 more query')).toBeInTheDocument()
   })
 
   it('lists each variant under "Also searched", above Sources', () => {
     const { container } = renderCard(searchPart({ expandedQueries: VARIANTS }))
 
-    const heading = screen.getByText('Also searched')
-    const section = heading.closest('section')!
+    const label = screen.getByText('Also searched')
+    const section = label.closest('section')!
     const items = within(section).getAllByRole('listitem')
     expect(items.map(li => li.textContent)).toEqual(VARIANTS)
-    // Wrapping, never truncated.
-    for (const li of items) expect(li).not.toHaveClass('truncate')
+    // Wraps even a long unbroken token, inside a body that can shrink.
+    for (const v of VARIANTS) {
+      expect(within(section).getByText(v)).toHaveClass(
+        '[overflow-wrap:anywhere]'
+      )
+    }
+    expect(section.parentElement).toHaveClass('flex-1', 'min-w-0')
 
     const sections = [...container.querySelectorAll('section')]
     const sourcesIndex = sections.findIndex(s =>
       s.textContent?.includes('Sources')
     )
     expect(sourcesIndex).toBeGreaterThan(sections.indexOf(section))
+  })
+
+  it('labels "Also searched" with the same small badge as Sources, not a heading', () => {
+    renderCard(searchPart({ expandedQueries: VARIANTS }))
+    const label = screen.getByText('Also searched')
+    const sources = screen.getByText('Sources')
+    expect(label.tagName).toBe(sources.tagName)
+    expect(label.className).toBe(sources.className)
+    expect(
+      screen.queryByRole('heading', { name: 'Also searched' })
+    ).not.toBeInTheDocument()
+    // No icon in the label: the variant rows carry the search icons.
+    expect(label.querySelector('svg')).toBeNull()
+  })
+
+  it('shows neither on a streamed preview chunk', () => {
+    const preview = searchPart({ preview: true })
+    renderCard(preview)
+    expect(screen.queryByText('Also searched')).not.toBeInTheDocument()
+    expect(screen.queryByText(/^\+\d+$/)).not.toBeInTheDocument()
+    // The preview's sources still render.
+    expect(screen.getByText('Result A')).toBeInTheDocument()
   })
 
   it.each([

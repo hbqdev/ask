@@ -62,6 +62,11 @@ export const Section: React.FC<SectionProps> = ({
     case 'Follow-up':
       icon = <MessageCircleMore size={iconSize} className={iconClassName} />
       break
+    case 'Also searched':
+      // Badge like Sources, without an icon: each variant row has its own.
+      icon = null
+      type = 'badge'
+      break
     case 'Content':
       icon = <File size={iconSize} className={iconClassName} />
       type = 'badge'

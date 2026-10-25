@@ -94,7 +94,7 @@ export function SearchSection({
             >
               <span aria-hidden="true">+{expandedQueries.length}</span>
               <span className="sr-only">
-                {`also searched ${expandedQueries.length} more ${expandedQueries.length === 1 ? 'query' : 'queries'}`}
+                {`, also searched ${expandedQueries.length} more ${expandedQueries.length === 1 ? 'query' : 'queries'}`}
               </span>
             </span>
           )}
@@ -159,7 +159,7 @@ export function SearchSection({
               <div className="w-2 shrink-0" />
             </>
           )}
-          <div className="flex-1">
+          <div className="flex-1 min-w-0">
             {searchResults &&
               searchResults.images &&
               searchResults.images.length > 0 && (
@@ -185,10 +185,12 @@ export function SearchSection({
                   {expandedQueries.map((variant, i) => (
                     <li
                       key={i}
-                      className="flex items-start gap-1.5 text-xs text-muted-foreground break-words"
+                      className="flex items-start gap-1.5 text-xs text-muted-foreground"
                     >
                       <SearchIcon className="h-3 w-3 shrink-0 mt-0.5" />
-                      <span className="min-w-0">{variant}</span>
+                      <span className="min-w-0 [overflow-wrap:anywhere]">
+                        {variant}
+                      </span>
                     </li>
                   ))}
                 </ul>
