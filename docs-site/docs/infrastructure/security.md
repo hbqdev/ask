@@ -304,6 +304,10 @@ scheduled for rotation. See runbook section B.
   with argv arrays, no shell (for example `pdftotext`).
 - **Chat ownership on the stream path:** `create-chat-stream-response.ts` fails closed when a
   non-new chat can't be loaded (RLS already blocks it in prod; this is defence in depth).
+- **Mobile app CORS:** `/api/*` answers cross-origin only for the Capacitor app origins
+  (`capacitor://localhost` on iOS, `https://localhost` on Android, overridable with
+  `APP_CORS_ORIGINS`), echoing the origin and never sending `*` or credentials
+  (`lib/http/app-cors.ts`).
 - **Calculator:** input capped at 512 characters, and power towers (`9^9^9^9`) are rejected, so
   mathjs can't stall the single event loop. There's no hard synchronous timeout. That would need
   a worker thread.

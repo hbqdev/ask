@@ -18,6 +18,10 @@ behind the change. Lab-first work lives on `flow-design`. `git cherry-pick -x` l
 
 ## 2026-10 — October
 
+- **10-30** — Android app: the API's app CORS now allows `https://localhost` (the Android web
+  view origin) next to iOS's `capacitor://localhost`. `APP_CORS_ORIGINS` still overrides the
+  pair. The app itself (Capacitor Android: back handling, share-to-Ask for links, text and photos,
+  dictation, HEIC conversion) is lab only (`mobile/`) and not deployed to a server. Lab `cb4cb58e`.
 - **10-25** — Search card shows the query-expansion variants: a `+N` after the query and an
   "Also searched" list above the sources (`expandedQueries` on the tool output; stripped from the
   model's view and from replayed history). Lab `f06ca99c`, `5a7a80c6`, `334814da`.

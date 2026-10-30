@@ -1,12 +1,13 @@
-// CORS for the bundled mobile app (Capacitor, web origin `capacitor://localhost`)
-// calling `/api/*` cross-origin with `Authorization: Bearer …`.
+// CORS for the bundled mobile app (Capacitor) calling `/api/*` cross-origin
+// with `Authorization: Bearer …`. Its web view origin is `capacitor://localhost`
+// on iOS and `https://localhost` on Android.
 //
 // Only origins on an explicit allow-list are echoed back — never `*` — and
 // `Access-Control-Allow-Credentials` is deliberately absent: the app
 // authenticates with a bearer token, not cookies. Same-origin web requests
 // carry no (or the site's own) Origin and are left untouched.
 
-const DEFAULT_APP_ORIGINS = ['capacitor://localhost']
+const DEFAULT_APP_ORIGINS = ['capacitor://localhost', 'https://localhost']
 
 /** Allowed app origins: `APP_CORS_ORIGINS` (comma-separated) or the default. */
 export function allowedAppOrigins(

@@ -7,19 +7,42 @@ import {
 } from '@/lib/http/app-cors'
 
 const APP = 'capacitor://localhost'
+const ANDROID_APP = 'https://localhost'
 
 describe('allowedAppOrigins', () => {
   afterEach(() => {
     vi.unstubAllEnvs()
   })
 
-  it('defaults to the Capacitor app origin', () => {
+  it('defaults to the Capacitor app origins', () => {
     vi.stubEnv('APP_CORS_ORIGINS', '')
-    expect(allowedAppOrigins()).toEqual([APP])
+    expect(allowedAppOrigins()).toEqual([APP, ANDROID_APP])
   })
 
   it('defaults when APP_CORS_ORIGINS is absent from the given env', () => {
-    expect(allowedAppOrigins({} as NodeJS.ProcessEnv)).toEqual([APP])
+    expect(allowedAppOrigins({} as NodeJS.ProcessEnv)).toEqual([
+      APP,
+      ANDROID_APP
+    ])
+  })
+
+  it('allows the Android app origin by default', () => {
+    const defaults = allowedAppOrigins({} as NodeJS.ProcessEnv)
+    expect(defaults).toEqual(['capacitor://localhost', 'https://localhost'])
+    expect(
+      appCorsHeaders('https://localhost', defaults)?.[
+        'Access-Control-Allow-Origin'
+      ]
+    ).toBe('https://localhost')
+  })
+
+  it('still refuses other https origins', () => {
+    expect(
+      appCorsHeaders(
+        'https://evil.example',
+        allowedAppOrigins({} as NodeJS.ProcessEnv)
+      )
+    ).toBeNull()
   })
 
   it('splits APP_CORS_ORIGINS on commas, trims, and drops empty entries', () => {
