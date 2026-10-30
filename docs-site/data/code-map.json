@@ -11,7 +11,7 @@
     "jsdoc": 49,
     "derived": 61,
     "override": 391,
-    "documented": 370
+    "documented": 371
   },
   "kinds": {
     "dockerfile": 3,
@@ -12427,7 +12427,7 @@
       "area": "lib",
       "project": "ask",
       "kind": "lib-module",
-      "purpose": "CORS for the bundled mobile app (Capacitor, web origin `capacitor://localhost`) calling `/api/*` cross-origin with `Authorization: Bearer …`.",
+      "purpose": "CORS for the bundled mobile app (Capacitor) calling `/api/*` cross-origin with `Authorization: Bearer …`.",
       "purposeSource": "header",
       "exports": [
         "allowedAppOrigins",
@@ -12443,7 +12443,14 @@
       "tests": [
         "lib/http/__tests__/app-cors.test.ts"
       ],
-      "docs": []
+      "docs": [
+        {
+          "page": "/infrastructure/security",
+          "title": "Security",
+          "section": "Other hardening in place",
+          "anchor": "other-hardening-in-place"
+        }
+      ]
     },
     {
       "path": "lib/http/with-app-cors.ts",
