@@ -260,10 +260,13 @@ case "$HOST" in
     # ensure_degoog staging 4446
     # ensure_degoog lab 4447
     reconcile /home/nightfury/selfhosted/ask/selfhosted/model-manager model-manager
+    # Embedder on the 2080 Ti (moved from NightFuryS 2026-10-23; the .160
+    # copy was removed 2026-11-11). Preloads its own model on start (compose
+    # start_period 300s).
+    reconcile /home/nightfury/selfhosted/embedder embedder
     ;;
   NightFuryS)
-    reconcile /home/nightfury/selfhosted/embedder embedder
-    # embedder preloads its own model on start (compose start_period 300s)
+    # Nothing Ask-related runs here any more (embedder removed 2026-11-11).
     ;;
   Serenity)
     warm gemma4:12b
