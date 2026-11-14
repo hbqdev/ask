@@ -9,27 +9,33 @@ export const MAX_FOLLOWUP_CHARS = 150
 const norm = (s: string) => s.trim().toLowerCase()
 
 /**
- * Pull the follow-up questions out of the model's text. Models wrap the array
- * in prose or a ```json fence, so take the first `[` to the last `]` and parse
- * that span. Anything unusable is dropped rather than repaired: strings only,
- * 1-150 chars, no repeats of each other or of questions already asked.
+ * The JSON array in the model's text, or null when there is none. Models wrap
+ * the array in prose or a ```json fence, so take the first `[` to the last `]`
+ * and parse that span.
  */
-export function parseFollowups(text: string, asked: string[]): string[] {
+function readArray(text: string): unknown[] | null {
   const start = text.indexOf('[')
   const end = text.lastIndexOf(']')
-  if (start === -1 || end <= start) return []
+  if (start === -1 || end <= start) return null
 
   let parsed: unknown
   try {
     parsed = JSON.parse(text.slice(start, end + 1))
   } catch {
-    return []
+    return null
   }
-  if (!Array.isArray(parsed)) return []
+  return Array.isArray(parsed) ? parsed : null
+}
 
+/**
+ * The usable follow-up questions in an array: strings only, 1-150 chars, no
+ * repeats of each other or of questions already asked, at most 3. Anything
+ * unusable is dropped rather than repaired.
+ */
+function cleanFollowups(items: unknown[], asked: string[]): string[] {
   const seen = new Set(asked.map(norm))
   const out: string[] = []
-  for (const item of parsed) {
+  for (const item of items) {
     if (typeof item !== 'string') continue
     const q = item.trim()
     if (q.length < 1 || q.length > MAX_FOLLOWUP_CHARS) continue
@@ -40,6 +46,23 @@ export function parseFollowups(text: string, asked: string[]): string[] {
     if (out.length === MAX_FOLLOWUPS) break
   }
   return out
+}
+
+/** Pull the follow-up questions out of the model's text ([] when none). */
+export function parseFollowups(text: string, asked: string[]): string[] {
+  const items = readArray(text)
+  return items ? cleanFollowups(items, asked) : []
+}
+
+const MAX_LOGGED_ERROR_CHARS = 120
+
+/** `<name>:<message>` of a thrown value, on one line, message cut to 120. */
+function describeError(err: unknown): string {
+  const name = err instanceof Error ? err.name : typeof err
+  const message = (err instanceof Error ? err.message : String(err))
+    .replace(/\s+/g, ' ')
+    .slice(0, MAX_LOGGED_ERROR_CHARS)
+  return `${name}:${message}`
 }
 
 export type FollowupInput = {
@@ -110,13 +133,17 @@ export async function generateFollowups(
 ): Promise<FollowupResult> {
   const startedAt = performance.now()
   const model = followupModelId()
+  // `extra` ends the log line: err=<name>:<message> on an error, parse=ok|fail
+  // once the model replied (fail: no JSON array in its text, which is still
+  // a skip to the caller but a prompt/model problem to whoever reads the log).
   const done = (
     outcome: FollowupResult['outcome'],
-    questions: string[] = []
+    questions: string[] = [],
+    extra = ''
   ): FollowupResult => {
     const ms = Math.round(performance.now() - startedAt)
     console.info(
-      `[followups] model=${model} ms=${ms} outcome=${outcome} n=${questions.length}`
+      `[followups] model=${model} ms=${ms} outcome=${outcome} n=${questions.length}${extra}`
     )
     return { questions, outcome, ms, model }
   }
@@ -150,13 +177,19 @@ export async function generateFollowups(
       prompt: buildPrompt(input),
       abortSignal: signal
     })
-    const questions = parseFollowups(text, [
-      input.question,
-      ...input.previousQuestions
-    ])
-    return done(questions.length ? 'ok' : 'skip', questions)
-  } catch {
-    return done(timedOut ? 'timeout' : 'error')
+    const items = readArray(text)
+    const questions = items
+      ? cleanFollowups(items, [input.question, ...input.previousQuestions])
+      : []
+    return done(
+      questions.length ? 'ok' : 'skip',
+      questions,
+      ` parse=${items ? 'ok' : 'fail'}`
+    )
+  } catch (err) {
+    return timedOut
+      ? done('timeout')
+      : done('error', [], ` err=${describeError(err)}`)
   } finally {
     clearTimeout(timer)
   }

@@ -232,4 +232,74 @@ describe('generateFollowups', () => {
       /model=deepseek-v4-pro:cloud ms=\d+ outcome=ok n=2/
     )
   })
+
+  const followupLine = () => {
+    const lines = vi
+      .mocked(console.info)
+      .mock.calls.map(c => String(c[0]))
+      .filter(l => l.startsWith('[followups]'))
+    expect(lines).toHaveLength(1)
+    return lines[0]
+  }
+
+  it('logs the error name and message on error', async () => {
+    vi.mocked(generateText).mockRejectedValue(new TypeError('model down'))
+    await call()
+    expect(followupLine()).toMatch(
+      /outcome=error n=0 err=TypeError:model down$/
+    )
+  })
+
+  it('cuts the logged error message to 120 chars on one line', async () => {
+    vi.mocked(generateText).mockRejectedValue(
+      new Error('line one\nline two ' + 'x'.repeat(200))
+    )
+    await call()
+    const line = followupLine()
+    const message = line.slice(line.indexOf('err=Error:') + 'err=Error:'.length)
+    expect(message).toHaveLength(120)
+    expect(message.startsWith('line one line two x')).toBe(true)
+    expect(line).not.toContain('\n')
+  })
+
+  it('logs something usable when a non-Error is thrown', async () => {
+    vi.mocked(generateText).mockRejectedValue('plain string')
+    await call()
+    expect(followupLine()).toMatch(/err=string:plain string$/)
+  })
+
+  it.each([
+    ['prose with no array', 'Sorry, I cannot help.'],
+    ['an array that is not JSON', '[What next?, Why?]']
+  ])(
+    'keeps skip but logs parse=fail when the reply holds %s',
+    async (_n, text) => {
+      gen(text)
+      const r = await call()
+      expect(r.outcome).toBe('skip')
+      expect(followupLine()).toMatch(/outcome=skip n=0 parse=fail$/)
+    }
+  )
+
+  it.each([
+    ['ok', '["A?"]', /outcome=ok n=1 parse=ok$/],
+    ['skip', '[]', /outcome=skip n=0 parse=ok$/],
+    ['skip', '["What is X?"]', /outcome=skip n=0 parse=ok$/]
+  ])(
+    'logs parse=ok when a JSON array was read (outcome %s from %s)',
+    async (_o, text, line) => {
+      gen(text)
+      await call()
+      expect(followupLine()).toMatch(line)
+    }
+  )
+
+  it('logs neither err= nor parse= on timeout', async () => {
+    vi.useFakeTimers()
+    hangUntilAbort()
+    const p = call()
+    await vi.advanceTimersByTimeAsync(6000)
+    await p
+    expect(followupLine()).toMatch(/outcome=timeout n=0$/)
+  })
 })
