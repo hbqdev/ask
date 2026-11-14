@@ -214,6 +214,78 @@ export async function upsertMessage(
 }
 
 /**
+ * Read the follow-up questions saved on an assistant message.
+ * Returns null when the message is missing, is not in `chatId`, is not the
+ * user's, or has no follow-ups yet. Ownership is enforced by RLS AND by the
+ * explicit chats.userId filter (the owner-role fallback bypasses RLS).
+ */
+export async function getMessageFollowups(
+  chatId: string,
+  messageId: string,
+  userId: string
+): Promise<string[] | null> {
+  return withRLS(userId, async tx => {
+    const [row] = await tx
+      .select({ metadata: messages.metadata })
+      .from(messages)
+      .innerJoin(chats, eq(chats.id, messages.chatId))
+      .where(
+        and(
+          eq(messages.id, messageId),
+          eq(messages.chatId, chatId),
+          eq(chats.userId, userId)
+        )
+      )
+      .limit(1)
+
+    const followups = row?.metadata?.followups
+    return Array.isArray(followups) ? (followups as string[]) : null
+  })
+}
+
+/**
+ * Merge `followups` into an assistant message's metadata (other keys such as
+ * modelId / traceId are kept). The message row may not be persisted yet when
+ * the client asks right after the stream ends, so a 0-row update is retried
+ * `retries` times, `delayMs` apart (default 30 x 500 ms = 15 s).
+ * Returns true when a row was updated.
+ */
+export async function saveMessageFollowups(
+  chatId: string,
+  messageId: string,
+  userId: string,
+  questions: string[],
+  opts: { retries?: number; delayMs?: number } = {}
+): Promise<boolean> {
+  const retries = opts.retries ?? 30
+  const delayMs = opts.delayMs ?? 500
+  const value = JSON.stringify(questions)
+
+  for (let attempt = 0; attempt <= retries; attempt++) {
+    if (attempt > 0) await new Promise(r => setTimeout(r, delayMs))
+
+    const updated = await withRLS(userId, async tx =>
+      tx
+        .update(messages)
+        .set({
+          metadata: sql`coalesce(${messages.metadata}, '{}'::jsonb) || jsonb_build_object('followups', ${value}::jsonb)`
+        })
+        .where(
+          and(
+            eq(messages.id, messageId),
+            eq(messages.chatId, chatId),
+            sql`exists (select 1 from ${chats} where ${chats.id} = ${messages.chatId} and ${chats.userId} = ${userId})`
+          )
+        )
+        .returning({ id: messages.id })
+    )
+
+    if (updated.length > 0) return true
+  }
+  return false
+}
+
+/**
  * Load chat messages with parts
  * Note: Caller should verify chat access permissions before calling this
  */

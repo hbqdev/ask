@@ -23,6 +23,8 @@ export interface UIMessageMetadata {
   modelId?: string
   /** Set when the user pressed Stop (sanitizeStoppedMessage / markMessageStopped). */
   stopped?: boolean
+  /** Follow-up questions for this assistant turn (saveMessageFollowups). */
+  followups?: string[]
   [key: string]: any
 }
 
