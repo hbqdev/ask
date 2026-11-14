@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 // after() needs a live Next request scope; capture its tasks instead so a
 // test decides when the background save runs (runAfterTasks below).
@@ -32,15 +32,15 @@ import {
   saveMessageFollowups
 } from '@/lib/db/actions'
 
-import { OPTIONS, POST } from '../route'
+import { POST } from '../route'
 
 const USER = 'user-1'
 const QS = ['How much does it cost?', 'Is it open on Sunday?', 'Where is it?']
 
-function makeRequest(body: unknown, headers: Record<string, string> = {}) {
+function makeRequest(body: unknown) {
   return new Request('http://localhost:3000/api/chat/followups', {
     method: 'POST',
-    headers: { 'content-type': 'application/json', ...headers },
+    headers: { 'content-type': 'application/json' },
     body: typeof body === 'string' ? body : JSON.stringify(body)
   })
 }
@@ -260,50 +260,5 @@ describe('POST /api/chat/followups', () => {
       return POST(makeRequest(base))
     })()
     expect(unauth.headers.get('cache-control')).toBe('no-store')
-  })
-})
-
-describe('/api/chat/followups CORS for the app origin', () => {
-  const APP = 'capacitor://localhost'
-
-  beforeEach(() => vi.stubEnv('APP_CORS_ORIGINS', ''))
-  afterEach(() => vi.unstubAllEnvs())
-
-  const preflight = (origin: string) =>
-    new Request('http://localhost:3000/api/chat/followups', {
-      method: 'OPTIONS',
-      headers: {
-        Origin: origin,
-        'Access-Control-Request-Method': 'POST',
-        'Access-Control-Request-Headers': 'authorization, content-type'
-      }
-    })
-
-  it('answers an allowed-origin preflight with 204 and CORS headers', async () => {
-    const res = await OPTIONS(preflight(APP))
-    expect(res.status).toBe(204)
-    expect(res.headers.get('access-control-allow-origin')).toBe(APP)
-  })
-
-  it('answers a foreign-origin preflight with 204 and no CORS headers', async () => {
-    const res = await OPTIONS(preflight('https://evil.example'))
-    expect(res.status).toBe(204)
-    expect(res.headers.get('access-control-allow-origin')).toBeNull()
-  })
-
-  it('adds CORS headers to success and error responses from the app', async () => {
-    const ok = await POST(makeRequest(base, { origin: APP }))
-    expect(ok.status).toBe(200)
-    expect(ok.headers.get('access-control-allow-origin')).toBe(APP)
-    expect(ok.headers.get('cache-control')).toBe('no-store')
-
-    const bad = await POST(makeRequest({}, { origin: APP }))
-    expect(bad.status).toBe(400)
-    expect(bad.headers.get('access-control-allow-origin')).toBe(APP)
-  })
-
-  it('adds no CORS headers for a same-origin web request', async () => {
-    const res = await POST(makeRequest(base))
-    expect(res.headers.get('access-control-allow-origin')).toBeNull()
   })
 })

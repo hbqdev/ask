@@ -8,7 +8,6 @@ import {
   saveMessageFollowups
 } from '@/lib/db/actions'
 import type { FollowupRequest } from '@/lib/followups/types'
-import { appPreflight, withAppCors } from '@/lib/http/with-app-cors'
 
 // Bounds on what the client may send. The generator cuts the answer again
 // (it only needs the opening); these keep a hostile body from reaching it.
@@ -17,14 +16,11 @@ const MAX_ANSWER_CHARS = 20000
 const MAX_PREVIOUS_QUESTIONS = 10
 const MAX_PREVIOUS_QUESTION_CHARS = 300
 
-export function OPTIONS(req: Request): Response {
-  return appPreflight(req)
-}
-
+// App CORS (preflight + headers) comes from proxy.ts, which runs for /api/*.
 export async function POST(req: Request): Promise<Response> {
   const res = await followups(req)
   res.headers.set('Cache-Control', 'no-store')
-  return withAppCors(res, req.headers.get('origin'))
+  return res
 }
 
 function json(body: unknown, status = 200): Response {
