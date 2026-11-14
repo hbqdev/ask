@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 // after() needs a live Next request scope; capture its tasks instead so a
 // test decides when the background save runs (runAfterTasks below).
@@ -31,6 +31,7 @@ import {
   getMessageFollowups,
   saveMessageFollowups
 } from '@/lib/db/actions'
+import { resetFollowupRateLimit } from '@/lib/followups/rate-limit'
 
 import { POST } from '../route'
 
@@ -62,6 +63,11 @@ beforeEach(() => {
   vi.mocked(getChat).mockResolvedValue({ id: 'c1', userId: USER } as any)
   vi.mocked(getMessageFollowups).mockResolvedValue(null)
   vi.mocked(saveMessageFollowups).mockResolvedValue(true)
+  resetFollowupRateLimit()
+})
+
+afterEach(() => {
+  vi.useRealTimers()
 })
 
 const base = { question: 'Best ramen in Hanoi?', answer: 'Try X and Y.' }
@@ -70,7 +76,7 @@ const saved = { ...base, chatId: 'c1', messageId: 'm1' }
 describe('POST /api/chat/followups', () => {
   it('401 without a user', async () => {
     vi.mocked(getCurrentUserId).mockResolvedValue(undefined as any)
-    const res = await POST(makeRequest(base))
+    const res = await POST(makeRequest(saved))
     expect(res.status).toBe(401)
     expect(generateFollowups).not.toHaveBeenCalled()
   })
@@ -113,21 +119,18 @@ describe('POST /api/chat/followups', () => {
     expect(saveMessageFollowups).toHaveBeenCalledWith('c1', 'm1', USER, QS)
   })
 
-  it('generates without saving when chatId/messageId are absent', async () => {
-    const res = await POST(makeRequest(base))
-    expect(res.status).toBe(200)
-    expect(await res.json()).toEqual({ questions: QS })
+  it.each([
+    ['both ids are absent', base],
+    ['only chatId is given', { ...base, chatId: 'c1' }],
+    ['only messageId is given', { ...base, messageId: 'm1' }],
+    ['chatId is empty', { ...base, chatId: '', messageId: 'm1' }],
+    ['messageId is not a string', { ...base, chatId: 'c1', messageId: 7 }]
+  ])('400 without looking up or generating when %s', async (_name, body) => {
+    const res = await POST(makeRequest(body))
+    expect(res.status).toBe(400)
     expect(getChat).not.toHaveBeenCalled()
     expect(getMessageFollowups).not.toHaveBeenCalled()
-    await runAfterTasks()
-    expect(after).not.toHaveBeenCalled()
-    expect(saveMessageFollowups).not.toHaveBeenCalled()
-  })
-
-  it('generates without saving when only one of chatId/messageId is given', async () => {
-    const res = await POST(makeRequest({ ...base, chatId: 'c1' }))
-    expect(await res.json()).toEqual({ questions: QS })
-    expect(getChat).not.toHaveBeenCalled()
+    expect(generateFollowups).not.toHaveBeenCalled()
     expect(after).not.toHaveBeenCalled()
   })
 
@@ -155,13 +158,13 @@ describe('POST /api/chat/followups', () => {
       ms: 6000,
       model: 'm'
     })
-    let res = await POST(makeRequest(base))
+    let res = await POST(makeRequest(saved))
     expect(res.status).toBe(200)
     expect(await res.json()).toEqual({ questions: [] })
 
     // Even a generator that breaks its never-throws contract fails silently.
     vi.mocked(generateFollowups).mockRejectedValue(new Error('boom'))
-    res = await POST(makeRequest(base))
+    res = await POST(makeRequest(saved))
     expect(res.status).toBe(200)
     expect(await res.json()).toEqual({ questions: [] })
   })
@@ -172,6 +175,7 @@ describe('POST /api/chat/followups', () => {
     )
     await POST(
       makeRequest({
+        ...saved,
         question: 'q'.repeat(2500),
         answer: 'a'.repeat(25000),
         previousQuestions: [...previous.slice(0, 2), 42, ...previous.slice(2)]
@@ -187,7 +191,7 @@ describe('POST /api/chat/followups', () => {
   })
 
   it('treats a non-array previousQuestions as none', async () => {
-    await POST(makeRequest({ ...base, previousQuestions: 'nope' }))
+    await POST(makeRequest({ ...saved, previousQuestions: 'nope' }))
     expect(
       vi.mocked(generateFollowups).mock.calls[0][0].previousQuestions
     ).toEqual([])
@@ -253,12 +257,79 @@ describe('POST /api/chat/followups', () => {
   })
 
   it('sets Cache-Control: no-store', async () => {
-    const res = await POST(makeRequest(base))
+    const res = await POST(makeRequest(saved))
     expect(res.headers.get('cache-control')).toBe('no-store')
     const unauth = await (async () => {
       vi.mocked(getCurrentUserId).mockResolvedValue(undefined as any)
-      return POST(makeRequest(base))
+      return POST(makeRequest(saved))
     })()
     expect(unauth.headers.get('cache-control')).toBe('no-store')
+  })
+
+  describe('per-user rate limit (20 per rolling 60 s)', () => {
+    beforeEach(() => {
+      vi.useFakeTimers()
+      vi.setSystemTime(new Date('2026-11-14T00:00:00Z'))
+    })
+
+    it('429 { questions: [] } without generating on the 21st request in 60 s', async () => {
+      for (let i = 0; i < 20; i++) {
+        const res = await POST(makeRequest(saved))
+        expect(res.status).toBe(200)
+      }
+      expect(generateFollowups).toHaveBeenCalledTimes(20)
+
+      const res = await POST(makeRequest(saved))
+      expect(res.status).toBe(429)
+      expect(await res.json()).toEqual({ questions: [] })
+      expect(res.headers.get('cache-control')).toBe('no-store')
+      expect(generateFollowups).toHaveBeenCalledTimes(20)
+      expect(after).toHaveBeenCalledTimes(20)
+    })
+
+    it('frees up again once the window has rolled past', async () => {
+      for (let i = 0; i < 20; i++) await POST(makeRequest(saved))
+      expect((await POST(makeRequest(saved))).status).toBe(429)
+      vi.advanceTimersByTime(60_000)
+      const res = await POST(makeRequest(saved))
+      expect(res.status).toBe(200)
+      expect(await res.json()).toEqual({ questions: QS })
+      expect(generateFollowups).toHaveBeenCalledTimes(21)
+    })
+
+    it('limits each user on their own', async () => {
+      for (let i = 0; i < 20; i++) await POST(makeRequest(saved))
+      expect((await POST(makeRequest(saved))).status).toBe(429)
+      vi.mocked(getCurrentUserId).mockResolvedValue('user-2')
+      vi.mocked(getChat).mockResolvedValue({
+        id: 'c1',
+        userId: 'user-2'
+      } as any)
+      expect((await POST(makeRequest(saved))).status).toBe(200)
+    })
+
+    it('checks ownership before the limit: a foreign chat is 404 even when limited', async () => {
+      for (let i = 0; i < 20; i++) await POST(makeRequest(saved))
+      vi.mocked(getChat).mockResolvedValue({ id: 'c1', userId: 'other' } as any)
+      expect((await POST(makeRequest(saved))).status).toBe(404)
+    })
+
+    it('serves already-saved questions even when limited (no generation)', async () => {
+      for (let i = 0; i < 20; i++) await POST(makeRequest(saved))
+      vi.mocked(getMessageFollowups).mockResolvedValue(['Saved one?'])
+      const res = await POST(makeRequest(saved))
+      expect(res.status).toBe(200)
+      expect(await res.json()).toEqual({ questions: ['Saved one?'] })
+      expect(generateFollowups).toHaveBeenCalledTimes(20)
+    })
+
+    it('rejected requests (400/404) do not use up slots', async () => {
+      for (let i = 0; i < 30; i++) await POST(makeRequest(base))
+      vi.mocked(getChat).mockResolvedValueOnce(null)
+      await POST(makeRequest(saved))
+      for (let i = 0; i < 20; i++) {
+        expect((await POST(makeRequest(saved))).status).toBe(200)
+      }
+    })
   })
 })

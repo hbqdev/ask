@@ -4,7 +4,11 @@ export type FollowupRequest = {
   answer: string
   /** Earlier user questions in the chat, oldest first. */
   previousQuestions?: string[]
-  /** Both set: the questions are saved on (and read back from) this message. */
+  /**
+   * The message the questions are saved on (and read back from). The
+   * endpoint requires both (400 otherwise); a request built without a chat
+   * id simply gets no questions.
+   */
   chatId?: string
   messageId?: string
 }

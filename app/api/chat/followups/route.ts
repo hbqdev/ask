@@ -7,6 +7,7 @@ import {
   getMessageFollowups,
   saveMessageFollowups
 } from '@/lib/db/actions'
+import { takeFollowupSlot } from '@/lib/followups/rate-limit'
 import type { FollowupRequest } from '@/lib/followups/types'
 
 // Bounds on what the client may send. The generator cuts the answer again
@@ -39,24 +40,33 @@ async function followups(req: Request): Promise<Response> {
   }
   const input = parseRequest(body)
   if (!input) {
-    return json({ error: 'question and answer must be strings' }, 400)
+    return json(
+      { error: 'question, answer, chatId and messageId must be strings' },
+      400
+    )
   }
 
   const { chatId, messageId } = input
-  const persisted = Boolean(chatId && messageId)
 
+  // Ownership first: nothing else (not even the limit) answers for a chat
+  // that isn't the caller's.
   try {
-    if (persisted) {
-      const chat = await getChat(chatId!, userId)
-      if (!chat || chat.userId !== userId) {
-        return json({ error: 'Not found' }, 404)
-      }
-      const existing = await getMessageFollowups(chatId!, messageId!, userId)
-      if (existing) return json({ questions: existing })
+    const chat = await getChat(chatId, userId)
+    if (!chat || chat.userId !== userId) {
+      return json({ error: 'Not found' }, 404)
     }
+    const existing = await getMessageFollowups(chatId, messageId, userId)
+    if (existing) return json({ questions: existing })
   } catch (error) {
     console.error('[followups] lookup failed', error)
     return json({ error: 'Internal error' }, 500)
+  }
+
+  // Only a generation (a model call) uses up a slot; saved questions above
+  // are served regardless.
+  if (!takeFollowupSlot(userId)) {
+    console.warn(`[followups] rate limited user=${userId}`)
+    return json({ questions: [] }, 429)
   }
 
   // No abort signal: the client may leave (new turn, closed tab) and the
@@ -73,13 +83,13 @@ async function followups(req: Request): Promise<Response> {
     return json({ questions: [] })
   }
 
-  if (persisted && result.outcome === 'ok' && result.questions.length > 0) {
+  if (result.outcome === 'ok' && result.questions.length > 0) {
     const questions = result.questions
     after(async () => {
       try {
         const ok = await saveMessageFollowups(
-          chatId!,
-          messageId!,
+          chatId,
+          messageId,
           userId,
           questions
         )
@@ -100,10 +110,10 @@ async function followups(req: Request): Promise<Response> {
   return json({ questions: result.questions })
 }
 
-type ParsedRequest = Required<Pick<FollowupRequest, 'question' | 'answer'>> & {
+type ParsedRequest = Required<
+  Pick<FollowupRequest, 'question' | 'answer' | 'chatId' | 'messageId'>
+> & {
   previousQuestions: string[]
-  chatId?: string
-  messageId?: string
 }
 
 function parseRequest(body: unknown): ParsedRequest | null {
@@ -112,6 +122,9 @@ function parseRequest(body: unknown): ParsedRequest | null {
   if (typeof b.question !== 'string' || typeof b.answer !== 'string') {
     return null
   }
+  const chatId = nonEmptyString(b.chatId)
+  const messageId = nonEmptyString(b.messageId)
+  if (!chatId || !messageId) return null
   const previous = Array.isArray(b.previousQuestions)
     ? b.previousQuestions.filter((q): q is string => typeof q === 'string')
     : []
@@ -121,8 +134,8 @@ function parseRequest(body: unknown): ParsedRequest | null {
     previousQuestions: previous
       .slice(-MAX_PREVIOUS_QUESTIONS)
       .map(q => q.slice(0, MAX_PREVIOUS_QUESTION_CHARS)),
-    chatId: nonEmptyString(b.chatId),
-    messageId: nonEmptyString(b.messageId)
+    chatId,
+    messageId
   }
 }
 
