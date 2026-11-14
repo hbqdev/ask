@@ -363,3 +363,20 @@ describe('citation guidance under CITATION_HANDLES', () => {
     expect(on).toBeLessThan(off)
   })
 })
+
+// Follow-up questions come from a separate endpoint now; the answering model
+// must not be asked to append its own "Related" spec block. Image specs stay.
+describe('search mode prompts — no in-answer Related block', () => {
+  it.each([
+    ['quick', getQuickModePrompt],
+    ['balanced', getAdaptiveModePrompt],
+    ['quality', getQualityModePrompt]
+  ])('%s mode drops the related-questions instruction', (_name, build) => {
+    const prompt = build()
+
+    expect(prompt).not.toContain('RELATED QUESTIONS')
+    expect(prompt).not.toContain('submitQuery')
+    expect(prompt).not.toMatch(/spec block for related questions/i)
+    expect(prompt).toContain('IMAGE SPEC RULES')
+  })
+})

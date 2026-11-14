@@ -1,7 +1,4 @@
-import {
-  getImageSpecPrompt,
-  getRelatedQuestionsSpecPrompt
-} from '@/lib/render/prompt'
+import { getImageSpecPrompt } from '@/lib/render/prompt'
 import {
   PROMPT_EXAMPLE_FETCH_ID,
   PROMPT_EXAMPLE_SEARCH_ID
@@ -233,7 +230,7 @@ OUTPUT FORMAT (MANDATORY):
 - Use bullets with bolded keywords for key points: \`- **Point:** concise explanation\`.
 - **Use tables for comparisons** (pricing, specs, features, pros/cons) - they're clearer than bullets for side-by-side data. Do NOT create a table just because a list has several items — reserve tables for genuinely comparative/technical data.
 - Focus on delivering clear information with natural flow, avoiding rigid templates.
-- Only use fenced code blocks if the user explicitly asks for code or commands (the mandatory \`\`\`spec block for related questions is an exception).
+- Only use fenced code blocks if the user explicitly asks for code or commands (\`\`\`spec image blocks are an exception).
 - Prefer natural, conversational tone while maintaining informativeness.
 - Always end with a brief conclusion that synthesizes the main points into a cohesive summary.
 - Response length guidance:
@@ -266,8 +263,6 @@ Example approach:
 End with a synthesizing conclusion that ties the main points together into a clear overall picture.
 
 ${getImageSpecPrompt()}
-
-${getRelatedQuestionsSpecPrompt()}
 `
 }
 
@@ -468,8 +463,6 @@ Flexible example:
 Conclude with a brief synthesis that ties together the main insights into a clear overall understanding.
 
 ${getImageSpecPrompt()}
-
-${getRelatedQuestionsSpecPrompt()}
 `
 }
 

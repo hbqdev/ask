@@ -18,7 +18,6 @@ import type { ResearcherTools } from '@/lib/types/agent'
 import { type Model } from '@/lib/types/models'
 
 import { getMemoryInjection } from '../memory/inject'
-import { getRelatedQuestionsSpecPrompt } from '../render/prompt'
 import type { FullContentByToolCall } from '../search/rehydrate-full-content'
 import { calculateTool } from '../tools/calculate'
 import { createFetchTool } from '../tools/fetch'
@@ -130,8 +129,6 @@ You are continuing an ongoing conversation. The user's latest message looks answ
 - Do not add citations when you used no tools — you're restating what was already discussed.
 - Format as Markdown. A heading is optional: use one only if it genuinely helps organize a longer answer; for a short confirmation or clarification, plain prose is fine.
 - ALWAYS respond in the user's language.
-
-${getRelatedQuestionsSpecPrompt()}
 `
 
 // Sibling of DIRECT_ANSWER_PROMPT for a DIFFERENT situation, and the two must
@@ -167,8 +164,6 @@ Answer the user's question directly, from your own knowledge. This question was 
 - Be substantive: this is a full answer to a real question, not a summary. Cover the question properly.
 - Format as Markdown. Use headings only if they genuinely help organize a longer answer.
 - ALWAYS respond in the user's language.
-
-${getRelatedQuestionsSpecPrompt()}
 `
 
 /**

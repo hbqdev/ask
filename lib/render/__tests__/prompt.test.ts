@@ -1,20 +1,22 @@
 import { describe, expect, test } from 'vitest'
 
-import { getImageSpecPrompt, getRelatedQuestionsSpecPrompt } from '../prompt'
+import * as prompts from '../prompt'
 
+// Follow-up questions now come from a separate endpoint (lib/agents/
+// followup-generator.ts), so the answering model is no longer asked to append a
+// "Related" spec block. Old messages that already carry one still render and
+// strip (spec-block.tsx / strip-spec-blocks.ts) — only the instruction is gone.
 describe('render prompts', () => {
-  test('makes related questions conditional instead of mandatory', () => {
-    const prompt = getRelatedQuestionsSpecPrompt()
-
-    expect(prompt).toContain('Generate related questions only when')
-    expect(prompt).toContain('SKIP the spec block entirely')
-    expect(prompt).toContain('When in doubt, skip the related questions')
-    expect(prompt).not.toContain('RELATED QUESTIONS (MANDATORY)')
-    expect(prompt).not.toContain('MUST generate exactly 3')
-    expect(prompt).not.toContain('Emit exactly ONE related questions')
+  test('no longer exports a related-questions instruction', () => {
+    expect('getRelatedQuestionsSpecPrompt' in prompts).toBe(false)
   })
 
-  test('describes the related block as optional alongside image specs', () => {
-    expect(getImageSpecPrompt()).toContain('which is itself optional')
+  test('image spec rules no longer mention a related-questions block', () => {
+    const prompt = prompts.getImageSpecPrompt()
+
+    expect(prompt).toContain('IMAGE SPEC RULES')
+    expect(prompt).not.toMatch(/related-questions/i)
+    expect(prompt).not.toContain('RELATED QUESTIONS')
+    expect(prompt).not.toContain('submitQuery')
   })
 })
