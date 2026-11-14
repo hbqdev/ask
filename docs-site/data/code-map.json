@@ -3,26 +3,26 @@
     "ask": "ask-prod",
     "ingestor": "ingestor"
   },
-  "count": 690,
+  "count": 698,
   "coverage": {
-    "files": 690,
-    "withPurpose": 690,
-    "header": 189,
-    "jsdoc": 49,
+    "files": 698,
+    "withPurpose": 698,
+    "header": 192,
+    "jsdoc": 53,
     "derived": 61,
-    "override": 391,
-    "documented": 371
+    "override": 392,
+    "documented": 375
   },
   "kinds": {
     "dockerfile": 3,
-    "route-handler": 49,
-    "lib-module": 265,
+    "route-handler": 50,
+    "lib-module": 271,
     "page": 13,
     "stylesheet": 2,
     "layout": 2,
     "route-boundary": 1,
     "config": 22,
-    "component": 121,
+    "component": 122,
     "ui-primitive": 47,
     "data": 37,
     "compose": 10,
@@ -320,6 +320,34 @@
       "usedBy": [],
       "tests": [],
       "docs": []
+    },
+    {
+      "path": "app/api/chat/followups/route.ts",
+      "dir": "app/api/chat/followups",
+      "area": "app",
+      "project": "ask",
+      "kind": "route-handler",
+      "purpose": "App CORS (preflight + headers) comes from proxy.ts, which runs for /api/*.",
+      "purposeSource": "jsdoc",
+      "exports": [
+        "POST"
+      ],
+      "methods": [
+        "POST"
+      ],
+      "route": "/api/chat/followups",
+      "usedBy": [],
+      "tests": [
+        "app/api/chat/followups/__tests__/route.test.ts"
+      ],
+      "docs": [
+        {
+          "page": "/request-lifecycle/generative-ui",
+          "title": "Generative UI, specs and the Inspector",
+          "section": "Follow-up questions (since 2026-11-14)",
+          "anchor": "followups"
+        }
+      ]
     },
     {
       "path": "app/api/chat/route.ts",
@@ -1834,6 +1862,7 @@
         "components/render-message.tsx"
       ],
       "tests": [
+        "components/__tests__/answer-section-followups.test.tsx",
         "components/__tests__/render-message.test.tsx"
       ],
       "docs": [
@@ -1854,6 +1883,12 @@
           "title": "Frontend",
           "section": "Main components",
           "anchor": "main-components"
+        },
+        {
+          "page": "/request-lifecycle/generative-ui",
+          "title": "Generative UI, specs and the Inspector",
+          "section": "Follow-up questions (since 2026-11-14)",
+          "anchor": "followups"
         },
         {
           "page": "/search/models-reasoning",
@@ -2799,6 +2834,35 @@
       "docs": []
     },
     {
+      "path": "components/followup-questions.tsx",
+      "dir": "components",
+      "area": "components",
+      "project": "ask",
+      "kind": "component",
+      "purpose": "The \"Related\" follow-up questions under an answer.",
+      "purposeSource": "jsdoc",
+      "exports": [
+        "FollowupQuestions"
+      ],
+      "methods": [],
+      "route": null,
+      "usedBy": [
+        "components/answer-section.tsx"
+      ],
+      "tests": [
+        "components/__tests__/answer-section-followups.test.tsx",
+        "components/__tests__/followup-questions.test.tsx"
+      ],
+      "docs": [
+        {
+          "page": "/request-lifecycle/generative-ui",
+          "title": "Generative UI, specs and the Inspector",
+          "section": "Follow-up questions (since 2026-11-14)",
+          "anchor": "followups"
+        }
+      ]
+    },
+    {
       "path": "components/forgot-password-form.tsx",
       "dir": "components",
       "area": "components",
@@ -3048,6 +3112,7 @@
         "components/message-actions.tsx"
       ],
       "tests": [
+        "components/__tests__/answer-section-followups.test.tsx",
         "components/__tests__/message-actions-stopped.test.tsx"
       ],
       "docs": []
@@ -3122,6 +3187,7 @@
         "components/answer-section.tsx"
       ],
       "tests": [
+        "components/__tests__/answer-section-followups.test.tsx",
         "components/__tests__/message-actions-stopped.test.tsx"
       ],
       "docs": [
@@ -3205,6 +3271,7 @@
       ],
       "tests": [
         "components/__tests__/answer-image.test.tsx",
+        "components/__tests__/answer-section-followups.test.tsx",
         "components/__tests__/markdown-message-streaming-links.test.tsx",
         "components/__tests__/reasoning-section.test.tsx"
       ],
@@ -4634,6 +4701,7 @@
         "components/chat-share.tsx",
         "components/error-modal.tsx",
         "components/file-upload-button.tsx",
+        "components/followup-questions.tsx",
         "components/forgot-password-form.tsx",
         "components/guest-menu.tsx",
         "components/library/library-panel.tsx",
@@ -9186,6 +9254,7 @@
         "components/message-actions.tsx"
       ],
       "tests": [
+        "components/__tests__/answer-section-followups.test.tsx",
         "components/__tests__/message-actions-stopped.test.tsx",
         "lib/actions/__tests__/notes.test.ts"
       ],
@@ -9594,6 +9663,40 @@
       ]
     },
     {
+      "path": "lib/agents/followup-generator.ts",
+      "dir": "lib/agents",
+      "area": "lib",
+      "project": "ask",
+      "kind": "lib-module",
+      "purpose": "Writes 3 follow-up questions for a finished answer with the classifier model (FOLLOWUP_MODEL_ID override) and parses them",
+      "purposeSource": "override",
+      "exports": [
+        "MAX_FOLLOWUPS",
+        "MAX_FOLLOWUP_CHARS",
+        "parseFollowups",
+        "FollowupInput",
+        "FollowupResult",
+        "generateFollowups"
+      ],
+      "methods": [],
+      "route": null,
+      "usedBy": [
+        "app/api/chat/followups/route.ts"
+      ],
+      "tests": [
+        "app/api/chat/followups/__tests__/route.test.ts",
+        "lib/agents/__tests__/followup-generator.test.ts"
+      ],
+      "docs": [
+        {
+          "page": "/request-lifecycle/generative-ui",
+          "title": "Generative UI, specs and the Inspector",
+          "section": "Follow-up questions (since 2026-11-14)",
+          "anchor": "followups"
+        }
+      ]
+    },
+    {
       "path": "lib/agents/memory-consolidator.ts",
       "dir": "lib/agents",
       "area": "lib",
@@ -9710,7 +9813,8 @@
         "getQualityModePrompt",
         "SPEED_MODE_PROMPT",
         "QUICK_MODE_PROMPT",
-        "UNTRUSTED_CONTENT_RULE"
+        "UNTRUSTED_CONTENT_RULE",
+        "NO_FOLLOWUP_SUGGESTIONS_RULE"
       ],
       "methods": [],
       "route": null,
@@ -9996,6 +10100,7 @@
         "lib/agents/__tests__/citation-handles-e2e.test.ts",
         "lib/agents/__tests__/researcher-always-search.test.ts",
         "lib/agents/__tests__/researcher-citation-reminder.test.ts",
+        "lib/agents/__tests__/researcher-no-related-block.test.ts",
         "lib/agents/__tests__/researcher-search-cap.test.ts",
         "lib/agents/__tests__/researcher-search-preview-dedup.test.ts",
         "lib/agents/__tests__/researcher.test.ts",
@@ -10078,8 +10183,8 @@
         {
           "page": "/request-lifecycle/generative-ui",
           "title": "Generative UI, specs and the Inspector",
-          "section": "Where the prompts are included",
-          "anchor": "where-the-prompts-are-included"
+          "section": "Add a new spec component",
+          "anchor": "add-a-new-spec-component"
         },
         {
           "page": "/search/models-reasoning",
@@ -10268,6 +10373,7 @@
       "methods": [],
       "route": null,
       "usedBy": [
+        "components/answer-section.tsx",
         "components/chat.tsx"
       ],
       "tests": [
@@ -10347,14 +10453,19 @@
         "components/answer-section.tsx",
         "components/chat-panel.tsx",
         "components/chat.tsx",
+        "components/followup-questions.tsx",
         "components/library/library-panel.tsx",
         "components/message-actions.tsx",
         "components/posthog-provider.tsx",
         "components/spec-block.tsx",
+        "lib/followups/after-finish.ts",
         "lib/render/components/image.tsx"
       ],
       "tests": [
-        "components/__tests__/message-actions-stopped.test.tsx"
+        "components/__tests__/answer-section-followups.test.tsx",
+        "components/__tests__/followup-questions.test.tsx",
+        "components/__tests__/message-actions-stopped.test.tsx",
+        "lib/followups/__tests__/after-finish.test.ts"
       ],
       "docs": [
         {
@@ -10609,6 +10720,7 @@
         "app/api/chat/[chatId]/messages/route.ts",
         "app/api/chat/[chatId]/stop/route.ts",
         "app/api/chat/[chatId]/stream/route.ts",
+        "app/api/chat/followups/route.ts",
         "app/api/chat/route.ts",
         "app/api/chats/[chatId]/share/route.ts",
         "app/api/feedback/route.ts",
@@ -10637,6 +10749,7 @@
       "tests": [
         "app/api/account/__tests__/route.test.ts",
         "app/api/chat/[chatId]/messages/__tests__/route.test.ts",
+        "app/api/chat/followups/__tests__/route.test.ts",
         "app/api/chats/__tests__/chat-id-routes.test.ts",
         "app/api/chats/__tests__/chat-share-route.test.ts",
         "app/api/chats/__tests__/chats-route.test.ts",
@@ -11129,9 +11242,12 @@
       "route": null,
       "usedBy": [
         "components/chat.tsx",
+        "components/followup-questions.tsx",
         "components/spec-block.tsx"
       ],
-      "tests": [],
+      "tests": [
+        "components/__tests__/followup-questions.test.tsx"
+      ],
       "docs": [
         {
           "page": "/request-lifecycle/auth-and-accounts",
@@ -11217,6 +11333,8 @@
         "createChat",
         "getChat",
         "upsertMessage",
+        "getMessageFollowups",
+        "saveMessageFollowups",
         "loadChat",
         "loadChatWithMessages",
         "deleteMessagesAfter",
@@ -11251,6 +11369,7 @@
       "methods": [],
       "route": null,
       "usedBy": [
+        "app/api/chat/followups/route.ts",
         "app/api/chats/[chatId]/touch/route.ts",
         "app/api/chats/route.ts",
         "app/library/page.tsx",
@@ -11263,6 +11382,7 @@
       ],
       "tests": [
         "app/api/account/__tests__/route.test.ts",
+        "app/api/chat/followups/__tests__/route.test.ts",
         "app/api/chats/__tests__/chat-id-routes.test.ts",
         "app/api/chats/__tests__/chat-share-route.test.ts",
         "app/api/notes/__tests__/notes-routes.test.ts",
@@ -11273,6 +11393,7 @@
         "lib/db/__tests__/delete-messages-after.test.ts",
         "lib/db/__tests__/delete-user-data.test.ts",
         "lib/db/__tests__/get-recent-chats.test.ts",
+        "lib/db/__tests__/message-followups.test.ts",
         "lib/db/__tests__/rls-policies.integration.test.ts",
         "lib/db/__tests__/search-user-chats.test.ts",
         "lib/db/__tests__/update-chat-title.test.ts",
@@ -11291,6 +11412,12 @@
           "title": "Memory & recall",
           "section": "The recall tool and Library search",
           "anchor": "the-recall-tool-and-library-search"
+        },
+        {
+          "page": "/request-lifecycle/generative-ui",
+          "title": "Generative UI, specs and the Inspector",
+          "section": "Follow-up questions (since 2026-11-14)",
+          "anchor": "followups"
         }
       ]
     },
@@ -11403,6 +11530,7 @@
         "lib/db/__tests__/delete-user-data.test.ts",
         "lib/db/__tests__/file-actions.test.ts",
         "lib/db/__tests__/get-recent-chats.test.ts",
+        "lib/db/__tests__/message-followups.test.ts",
         "lib/db/__tests__/messages-without-chunks-sql.test.ts",
         "lib/db/__tests__/update-chat-title.test.ts",
         "lib/db/__tests__/upsert-message.test.ts",
@@ -12348,6 +12476,125 @@
       "usedBy": [
         "lib/firecrawl/client.ts",
         "lib/firecrawl/index.ts"
+      ],
+      "tests": [],
+      "docs": []
+    },
+    {
+      "path": "lib/followups/after-finish.ts",
+      "dir": "lib/followups",
+      "area": "lib",
+      "project": "ask",
+      "kind": "lib-module",
+      "purpose": "Called from useChat's onFinish: ask for follow-up questions for a completed answer in the chat on screen and store them on the message's metadata, where AnswerSection renders them.",
+      "purposeSource": "jsdoc",
+      "exports": [
+        "loadFollowupsAfterFinish"
+      ],
+      "methods": [],
+      "route": null,
+      "usedBy": [
+        "components/chat.tsx"
+      ],
+      "tests": [
+        "lib/followups/__tests__/after-finish.test.ts"
+      ],
+      "docs": [
+        {
+          "page": "/request-lifecycle/generative-ui",
+          "title": "Generative UI, specs and the Inspector",
+          "section": "Follow-up questions (since 2026-11-14)",
+          "anchor": "followups"
+        }
+      ]
+    },
+    {
+      "path": "lib/followups/build-request.ts",
+      "dir": "lib/followups",
+      "area": "lib",
+      "project": "ask",
+      "kind": "lib-module",
+      "purpose": "The follow-up request for a finished assistant message, or null when it should get none: not an assistant message, a clarifying question (the user answers that instead), or no answer text.",
+      "purposeSource": "jsdoc",
+      "exports": [
+        "buildFollowupRequest"
+      ],
+      "methods": [],
+      "route": null,
+      "usedBy": [
+        "lib/followups/after-finish.ts"
+      ],
+      "tests": [
+        "lib/followups/__tests__/build-request.test.ts"
+      ],
+      "docs": []
+    },
+    {
+      "path": "lib/followups/fetch-followups.ts",
+      "dir": "lib/followups",
+      "area": "lib",
+      "project": "ask",
+      "kind": "lib-module",
+      "purpose": "Ask the server for follow-up questions.",
+      "purposeSource": "header",
+      "exports": [
+        "fetchFollowups"
+      ],
+      "methods": [],
+      "route": null,
+      "usedBy": [
+        "lib/followups/after-finish.ts"
+      ],
+      "tests": [
+        "lib/followups/__tests__/after-finish.test.ts",
+        "lib/followups/__tests__/fetch-followups.test.ts"
+      ],
+      "docs": []
+    },
+    {
+      "path": "lib/followups/rate-limit.ts",
+      "dir": "lib/followups",
+      "area": "lib",
+      "project": "ask",
+      "kind": "lib-module",
+      "purpose": "Per-user cap on follow-up generations: each one is a classifier-model call, and the endpoint is reachable by any signed-in user.",
+      "purposeSource": "header",
+      "exports": [
+        "FOLLOWUP_RATE_LIMIT",
+        "FOLLOWUP_RATE_WINDOW_MS",
+        "takeFollowupSlot",
+        "trackedFollowupUsers",
+        "resetFollowupRateLimit"
+      ],
+      "methods": [],
+      "route": null,
+      "usedBy": [
+        "app/api/chat/followups/route.ts"
+      ],
+      "tests": [
+        "app/api/chat/followups/__tests__/route.test.ts",
+        "lib/followups/__tests__/rate-limit.test.ts"
+      ],
+      "docs": []
+    },
+    {
+      "path": "lib/followups/types.ts",
+      "dir": "lib/followups",
+      "area": "lib",
+      "project": "ask",
+      "kind": "lib-module",
+      "purpose": "FollowupRequest: the body clients send to POST /api/chat/followups",
+      "purposeSource": "override",
+      "exports": [
+        "FollowupRequest",
+        "FollowupResponse"
+      ],
+      "methods": [],
+      "route": null,
+      "usedBy": [
+        "app/api/chat/followups/route.ts",
+        "lib/followups/build-request.ts",
+        "lib/followups/fetch-followups.ts"
       ],
       "tests": [],
       "docs": []
@@ -13325,6 +13572,7 @@
         "lib/agents/__tests__/citation-handles-e2e.test.ts",
         "lib/agents/__tests__/researcher-always-search.test.ts",
         "lib/agents/__tests__/researcher-citation-reminder.test.ts",
+        "lib/agents/__tests__/researcher-no-related-block.test.ts",
         "lib/agents/__tests__/researcher-search-cap.test.ts",
         "lib/agents/__tests__/researcher-search-preview-dedup.test.ts",
         "lib/agents/__tests__/researcher.test.ts",
@@ -14341,7 +14589,7 @@
       "area": "lib",
       "project": "ask",
       "kind": "lib-module",
-      "purpose": "Splits legacy <user-content> pasted material out of an old message so it renders as a collapsed card; shared by web and the mobile app.",
+      "purpose": "Splits legacy <user-content> pasted material out of old messages so web and app render it as a collapsed card.",
       "purposeSource": "override",
       "exports": [
         "splitPastedContent"
@@ -14362,17 +14610,15 @@
       "area": "lib",
       "project": "ask",
       "kind": "lib-module",
-      "purpose": "System-prompt sections instructing the model to emit spec fenced blocks for related follow-up questions and inline image groups.",
-      "purposeSource": "override",
+      "purpose": "Returns the prompt section that instructs the LLM to optionally embed inline image groups as ```spec fenced blocks within the response body.",
+      "purposeSource": "header",
       "exports": [
-        "getRelatedQuestionsSpecPrompt",
         "getImageSpecPrompt"
       ],
       "methods": [],
       "route": null,
       "usedBy": [
-        "lib/agents/prompts/search-mode-prompts.ts",
-        "lib/agents/researcher.ts"
+        "lib/agents/prompts/search-mode-prompts.ts"
       ],
       "tests": [
         "lib/render/__tests__/prompt.test.ts"
@@ -14510,6 +14756,7 @@
       "usedBy": [
         "components/chat.tsx",
         "components/message-actions.tsx",
+        "lib/followups/build-request.ts",
         "lib/streaming/helpers/strip-spec-from-messages.ts",
         "lib/voice/strip-for-speech.ts"
       ],
@@ -15149,7 +15396,7 @@
       "area": "lib",
       "project": "ask",
       "kind": "lib-module",
-      "purpose": "Resolves a user's local upload tree under UPLOADS_DIR, rejecting unsafe user ids so the path is always a direct child of the uploads root.",
+      "purpose": "A user's local upload tree (originals, .chunks.json sidecars, generated images) and its path-guarded removal on account deletion.",
       "purposeSource": "override",
       "exports": [
         "userUploadsDir",
@@ -17808,6 +18055,8 @@
         "lib/actions/chat.ts",
         "lib/actions/feedback.ts",
         "lib/db/actions.ts",
+        "lib/followups/after-finish.ts",
+        "lib/followups/build-request.ts",
         "lib/streaming/helpers/types.ts",
         "lib/types/message-persistence.ts",
         "lib/utils/citation.ts",
@@ -17823,6 +18072,8 @@
         "components/__tests__/tool-section.test.tsx",
         "lib/actions/__tests__/chat.test.ts",
         "lib/db/__tests__/rls-policies.integration.test.ts",
+        "lib/followups/__tests__/after-finish.test.ts",
+        "lib/followups/__tests__/build-request.test.ts",
         "lib/streaming/helpers/__tests__/document-retrieval-part.test.ts",
         "lib/streaming/helpers/__tests__/prepare-messages.test.ts",
         "lib/tools/__tests__/fetch-citation-handles.test.ts",
@@ -18661,6 +18912,7 @@
       "methods": [],
       "route": null,
       "usedBy": [
+        "lib/agents/followup-generator.ts",
         "lib/agents/memory-extractor.ts",
         "lib/agents/query-classifier.ts",
         "lib/agents/query-expander.ts",
@@ -19150,6 +19402,7 @@
         "components/chat.tsx",
         "lib/actions/chat.ts",
         "lib/agents/query-classifier.ts",
+        "lib/followups/build-request.ts",
         "lib/streaming/create-chat-stream-response.ts",
         "lib/streaming/create-ephemeral-chat-stream-response.ts"
       ],
@@ -19445,6 +19698,7 @@
         "lib/agents/__tests__/citation-handles-e2e.test.ts",
         "lib/agents/__tests__/researcher-always-search.test.ts",
         "lib/agents/__tests__/researcher-citation-reminder.test.ts",
+        "lib/agents/__tests__/researcher-no-related-block.test.ts",
         "lib/agents/__tests__/researcher-search-cap.test.ts",
         "lib/agents/__tests__/title-generator.test.ts",
         "lib/model-selector/__tests__/get-model-selector-data.test.ts",

@@ -414,7 +414,9 @@ const SCRATCH_TOKEN_FAMILIES: readonly RegExp[] = [
   /\]\(#[0-9a-f][0-9a-f-]{3,}(?:\.{3}|…)\)/i,
   // "cite strings", "same cite id".
   /\bcite (?:strings?|ids?)\b/i,
-  // The related-questions "spec block" (the render prompt's own term).
+  // "spec block(s)" / "related-questions block": prompt jargon for the
+  // ```spec fences (image groups today; answers once also closed with a
+  // related-questions one) that leaks into scratch notes.
   /\b(?:spec|related[- ]questions?) blocks?\b/i
 ]
 const SCRATCH_TOKEN_ANY = new RegExp(

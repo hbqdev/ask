@@ -17,6 +17,7 @@ import {
   getPublicRateLimitDetails,
   toPublicErrorPayload
 } from '@/lib/errors/public-error'
+import { loadFollowupsAfterFinish } from '@/lib/followups/after-finish'
 import { SHORTCUT_EVENTS } from '@/lib/keyboard-shortcuts'
 import { stripSpecBlocks } from '@/lib/render/strip-spec-blocks'
 import {
@@ -281,7 +282,7 @@ export function Chat({
       resumeHooks
     ),
     messages: savedMessages,
-    onFinish: ({ message, messages: finishedMessages, isAbort }) => {
+    onFinish: ({ message, messages: finishedMessages, isAbort, isError }) => {
       // useChat routes EVERY Chat's callbacks through the latest render, so a
       // turn from a chat this instance has since left ("New chat" mid-answer)
       // finishes here too. Identify it by its conversation so it can't clear
@@ -325,6 +326,20 @@ export function Chat({
       if (summary) {
         captureClient('genui_component_shown', { chatId, ...summary })
       }
+
+      // Follow-up questions for a completed answer: written by the server
+      // after the turn, stored on the message's metadata (and saved there
+      // server-side, so a reload carries them). Never throws.
+      void loadFollowupsAfterFinish({
+        message,
+        messages: finishedMessages,
+        chatId,
+        isCurrentChat,
+        isAbort,
+        isError,
+        isGuest,
+        setMessages: update => setMessagesRef.current(update)
+      })
     },
     onError: error => {
       isStreamingRef.current = false

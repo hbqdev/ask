@@ -12,6 +12,7 @@ import { ChatRequestOptions } from 'ai'
 import { toast } from 'sonner'
 
 import { saveNote } from '@/lib/actions/notes'
+import { summarizeGenui } from '@/lib/analytics/genui-summary'
 import { captureClient } from '@/lib/analytics/posthog-client'
 import type { SearchResultItem } from '@/lib/types'
 import type {
@@ -32,6 +33,7 @@ import {
   DialogTitle
 } from './ui/dialog'
 import { CollapsibleMessage } from './collapsible-message'
+import { FollowupQuestions } from './followup-questions'
 import { MarkdownMessage } from './message'
 import { MessageActions } from './message-actions'
 
@@ -92,6 +94,13 @@ export function AnswerSection({
   const showSelectionSaveButton =
     libraryAvailable && (!isGuest || isCloudDeployment)
   const showSelectionDeepDiveButton = Boolean(onQuoteContext)
+  // Follow-ups show once the answer is done (actions visible: not the
+  // message still streaming, and only under its last text part). An older
+  // answer that carries a model-written Related block keeps showing that
+  // block instead, so the two never stack.
+  const followups = metadata?.followups ?? []
+  const showFollowups =
+    showActions && followups.length > 0 && !summarizeGenui(content)?.hasRelated
 
   useEffect(() => {
     if (!selection) return
@@ -316,6 +325,7 @@ export function AnswerSection({
                 )}
               </div>
             )}
+          {showFollowups && <FollowupQuestions questions={followups} />}
           <MessageActions
             message={content} // Provide original message; copy path remaps citations
             messageId={messageId}

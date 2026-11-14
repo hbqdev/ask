@@ -27,6 +27,8 @@ describe('proxy matcher', () => {
 
   it('still runs the proxy for the other API routes and pages', () => {
     expect(matches('/api/chat')).toBe(true)
+    // Gets its app CORS from the proxy; the route adds none itself.
+    expect(matches('/api/chat/followups')).toBe(true)
     expect(matches('/api/voice/speak')).toBe(true)
     expect(matches('/api/files/status')).toBe(true)
     expect(matches('/search/abc')).toBe(true)

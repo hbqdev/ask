@@ -9,7 +9,8 @@ import {
 import {
   getAdaptiveModePrompt,
   getQualityModePrompt,
-  getQuickModePrompt
+  getQuickModePrompt,
+  NO_FOLLOWUP_SUGGESTIONS_RULE
 } from '../search-mode-prompts'
 
 // Regression guard for a real production issue: models were decorating most
@@ -361,5 +362,44 @@ describe('citation guidance under CITATION_HANDLES', () => {
     vi.stubEnv('CITATION_HANDLES', 'off')
     const off = getAdaptiveModePrompt().length
     expect(on).toBeLessThan(off)
+  })
+})
+
+// Follow-up questions come from a separate endpoint now; the answering model
+// must not be asked to append its own "Related" spec block. Image specs stay.
+describe('search mode prompts — no in-answer Related block', () => {
+  it.each([
+    ['quick', getQuickModePrompt],
+    ['balanced', getAdaptiveModePrompt],
+    ['quality', getQualityModePrompt]
+  ])('%s mode drops the related-questions instruction', (_name, build) => {
+    const prompt = build()
+
+    expect(prompt).not.toContain('RELATED QUESTIONS')
+    expect(prompt).not.toContain('submitQuery')
+    expect(prompt).not.toMatch(/spec block for related questions/i)
+    expect(prompt).toContain('IMAGE SPEC RULES')
+  })
+})
+
+// The answering model must not close with its own follow-up offers ("Want me
+// to…?"): suggested follow-ups are shown separately under the answer. The
+// researcher appends this rule once to every answering prompt (see
+// researcher-no-related-block.test.ts), so the mode builders leave it out.
+describe('no trailing follow-up suggestions rule', () => {
+  it('forbids ending the answer with follow-up suggestions or questions', () => {
+    expect(NO_FOLLOWUP_SUGGESTIONS_RULE).toContain(
+      'Do NOT end your answer with follow-up suggestions or questions to the user (e.g. "Want me to…?"); suggested follow-ups are shown separately.'
+    )
+    expect(NO_FOLLOWUP_SUGGESTIONS_RULE).not.toContain('RELATED QUESTIONS')
+    expect(NO_FOLLOWUP_SUGGESTIONS_RULE).not.toContain('submitQuery')
+  })
+
+  it.each([
+    ['quick', getQuickModePrompt],
+    ['balanced', getAdaptiveModePrompt],
+    ['quality', getQualityModePrompt]
+  ])('%s mode builder leaves it to the researcher', (_name, build) => {
+    expect(build()).not.toContain('Do NOT end your answer with follow-up')
   })
 })

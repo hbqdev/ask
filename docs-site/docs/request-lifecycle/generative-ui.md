@@ -253,7 +253,7 @@ model is still typing the block.
 | `catalog.ts` | **The whitelist.** Components `Heading`, `Stack`, `Button`, `Grid`, `Image` with Zod prop schemas, and the single action `submitQuery` (`lib/render/catalog.ts:7`) |
 | `registry.tsx` | Binds each catalog component name to a React implementation (`lib/render/registry.tsx:12`). The `submitQuery` entry is a no-op placeholder — the real handler is supplied at render time by `ActionProvider` |
 | `components/*.tsx` | The React implementations. `shared.ts` holds the curated `iconMap` (`related`, `arrow-right`) and the gap scale |
-| `prompt.ts` | The prompt sections that teach the model the format: `getRelatedQuestionsSpecPrompt()` (`lib/render/prompt.ts:7`) and `getImageSpecPrompt()` (`lib/render/prompt.ts:69`) |
+| `prompt.ts` | The prompt section that teaches the model the format: `getImageSpecPrompt()`. The related-questions section (`getRelatedQuestionsSpecPrompt`) was removed on 2026-11-14, when follow-ups moved to their own endpoint (see [Follow-up questions](#followups)) |
 | `parse-spec-block.ts` | Two parsers: an incremental `createPartialSpecParser()` for streaming (`lib/render/parse-spec-block.ts:53`) and a strict `parseSpecBlock()` that validates against the catalog and throws (`lib/render/parse-spec-block.ts:94`) |
 | `spec-fence.ts` | `createSpecFenceEvaluator()` — wraps the partial parser and returns `{status:'pending'}` or `{status:'ready', spec}`; any parse error maps to `pending` (`lib/render/spec-fence.ts:21`) |
 | `migrations.ts` | Parse-time rename table for element types in historical messages (`typeMigrations`, empty today, `lib/render/migrations.ts:31`) |
@@ -264,12 +264,50 @@ model is still typing the block.
 
 | Prompt | Included by |
 |---|---|
-| Image spec + related questions | Quick/speed mode (`lib/agents/prompts/search-mode-prompts.ts:268`, `:270`), adaptive/balanced mode (`:470`, `:472`); quality mode starts from the adaptive prompt (`getQualityModePrompt`, `lib/agents/prompts/search-mode-prompts.ts:476`) |
-| Related questions only | The direct-answer and stable-knowledge turn prompts (`lib/agents/researcher.ts:134`, `lib/agents/researcher.ts:171`) — no search ran, so there are no images to embed |
+| Image spec | Quick/speed mode and adaptive/balanced mode (`lib/agents/prompts/search-mode-prompts.ts`); quality mode starts from the adaptive prompt (`getQualityModePrompt`). The direct-answer and stable-knowledge turn prompts get no image section, because no search ran |
 
-The related-questions prompt is deliberately restrictive ("When in doubt, skip"):
-follow-ups are omitted for greetings, trivial lookups and refusals, and the three
-questions must have distinct intents (deepen / act / broaden). The image prompt forbids
+Every answering prompt also gets one line, appended once by the researcher: do not end the
+answer with follow-up offers ("Want me to…?"), because follow-ups are shown separately.
+
+### Follow-up questions (since 2026-11-14) {#followups}
+
+Follow-ups are no longer written by the answering model. Before this change the model was
+asked to add a Related spec block and told "when in doubt, skip". Prod measured 32 of 184
+answers (17%) with one, and muse-spark-open 2 of 76. Now:
+
+1. **After the turn finishes,** the client (web `lib/followups/after-finish.ts`, apps
+   `mobile/src/features/thread/useThread.ts`) calls `POST /api/chat/followups`.
+   - **Body:** `{ question, answer, previousQuestions, chatId, messageId }`.
+   - **When not:** no call on Stop or error, when the turn ended in the `askQuestion`
+     tool, or when there is no answer text.
+   - **No blocking:** the answer counts as done first, so the composer and actions work
+     while the follow-ups load.
+2. **The route** (`app/api/chat/followups/route.ts`) checks the steps below, then returns
+   `{ questions }`. Every failure returns `200 { questions: [] }`, so nothing is shown.
+   - It needs a user (401) and both ids (400).
+   - It checks that the caller owns the chat (404).
+   - It caps each user at 20 requests per rolling minute (429).
+   - It returns already-saved questions without generating.
+   - Otherwise it calls `generateFollowups` (`lib/agents/followup-generator.ts`).
+     - **Model:** `FOLLOWUP_MODEL_ID`, else `CLASSIFIER_MODEL_ID`, else
+       `deepseek-v4-pro:cloud`. Host: `CLASSIFIER_OLLAMA_BASE_URL`, else `OLLAMA_BASE_URL`.
+     - **Settings:** `think:false`, `FOLLOWUP_TIMEOUT_MS` (default 6000).
+     - **Output:** exactly 3 questions, at most 150 characters each, deduplicated against
+       the questions already asked. It returns none only for a pure greeting or thanks.
+3. **Saving:** inside `after()`, `saveMessageFollowups` (`lib/db/actions.ts`) merges them
+   into the assistant message's `metadata.followups`.
+   - It retries for up to 15 s, because the answer row may not be saved yet.
+   - The request's abort signal is not passed in, so the save finishes even if the client
+     has left.
+4. **Rendering:** web `components/followup-questions.tsx` (in `answer-section.tsx`) and the
+   app's `RelatedQuestions` show `metadata.followups` in the same Related style.
+   - A tap goes through the same guard and send path as a spec-block `submitQuery`.
+   - An older answer that still carries a model-written Related block shows that block
+     instead, on both web and apps, never both.
+5. **Logs:** one `[followups] model=… ms=… outcome=ok|skip|timeout|error n=…` line per
+   generation, with `parse=ok|fail` and `err=` when relevant.
+
+The image prompt forbids
 fabricated URLs and requires every image group to be wrapped in a `Grid` with `columns`
 equal to the image count, so cell widths are reserved up front and streaming images do
 not reflow the page.

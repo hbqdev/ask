@@ -218,11 +218,13 @@ answer text
   (`components/message.tsx:88-94`), so a **reloaded** answer goes through the same
   incomplete-markdown repair as a live one. A message that was saved half-way (Stop) keeps
   whatever the repair does to its tail.
-- ```` ```spec ```` fenced blocks are rendered by `SpecFenceBlock` (json-render). This is
-  how the model emits structured UI such as **related questions**
-  (`getRelatedQuestionsSpecPrompt` in the researcher prompt); clicking one calls
-  `sendMessage` from `ChatContext`, throttled by `isStreamingRef` so it can't overlap a
-  running turn.
+- ```` ```spec ```` fenced blocks are rendered by `SpecFenceBlock` (json-render): image
+  grids, and the **related questions** that older answers carry. New answers get their
+  follow-ups from `POST /api/chat/followups` after the turn, rendered by
+  `FollowupQuestions` from `metadata.followups` (see
+  [Generative UI: follow-up questions](./generative-ui#followups)). Clicking either kind
+  calls `sendMessage` from `ChatContext`, throttled by `isStreamingRef` so it can't overlap
+  a running turn.
 
 ### Half-streamed links and the "[blocked]" flash {#blocked-flash}
 

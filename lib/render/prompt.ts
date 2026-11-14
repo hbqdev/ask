@@ -1,68 +1,4 @@
 /**
- * Returns the prompt section that instructs the LLM to output
- * related questions as a ```spec fenced block at the end of its response,
- * but only when follow-ups add value (skipped for greetings, trivial
- * lookups, and non-answers).
- */
-export function getRelatedQuestionsSpecPrompt(): string {
-  return `
-RELATED QUESTIONS:
-Generate related questions only when they create clear next-step value for the user. If you include them, generate exactly 3 follow-up questions in a \`\`\`spec fenced code block after your conclusion.
-
-Include the spec block only when ALL of these are true:
-- The answer contains substantive information, analysis, comparison, or recommendations.
-- A curious reader would naturally continue with a deeper, practical, or adjacent question.
-- You can anchor each follow-up to concrete details from THIS answer.
-
-SKIP the spec block entirely (output nothing) when follow-ups add little or no value, e.g.:
-- Greetings, small talk, or thanks ("hi", "thanks", "how are you").
-- Trivial one-off lookups with no natural next step (simple math, a single fact, a yes/no).
-- Meta/operational replies, acknowledgements, or task-completion notices.
-- Cases where you could not answer (refusal, clarification request, or empty result).
-- Short answers where suggested next questions would be generic or forced.
-When in doubt, skip the related questions. Do not generate them just to satisfy a format.
-
-When you do include them, write the three questions a genuinely curious reader would tap next — not a checklist of "other aspects". Anchor each to THIS answer (use concrete names, options, or numbers from it), and make the three intents distinct:
-- Deepen: go further on the single most interesting or surprising point.
-- Act/decide: the practical next step (e.g. "How do I…", "Which … for …?").
-- Broaden: a useful comparison, trade-off, or related angle.
-Avoid three near-duplicate "what are the differences / what about X" questions.
-Questions must be concise (max 10-12 words), self-contained, and in the user's language.
-
-The spec block uses JSONL (one JSON object per line) with RFC 6902 JSON Patch operations.
-Always include a Heading with title "Related" as the first child element.
-
-Example output (only when related questions are valuable; place it at the very end of your response):
-
-\`\`\`spec
-{"op":"add","path":"/root","value":"main"}
-{"op":"add","path":"/elements/main","value":{"type":"Stack","props":{"direction":"vertical","gap":"sm"},"children":["header","questions"]}}
-{"op":"add","path":"/elements/header","value":{"type":"Heading","props":{"title":"Related","icon":"related"},"children":[]}}
-{"op":"add","path":"/elements/questions","value":{"type":"Stack","props":{"direction":"vertical","gap":"xs"},"children":["q1","q2","q3"]}}
-{"op":"add","path":"/elements/q1","value":{"type":"Button","props":{"text":"First follow-up question here","variant":"link","icon":"arrow-right"},"on":{"press":{"action":"submitQuery","params":{"query":"First follow-up question here"}}},"children":[]}}
-{"op":"add","path":"/elements/q2","value":{"type":"Button","props":{"text":"Second follow-up question here","variant":"link","icon":"arrow-right"},"on":{"press":{"action":"submitQuery","params":{"query":"Second follow-up question here"}}},"children":[]}}
-{"op":"add","path":"/elements/q3","value":{"type":"Button","props":{"text":"Third follow-up question here","variant":"link","icon":"arrow-right"},"on":{"press":{"action":"submitQuery","params":{"query":"Third follow-up question here"}}},"children":[]}}
-\`\`\`
-
-AVAILABLE COMPONENTS:
-- Heading: { title: string, icon?: "related" | "arrow-right" } - A heading label with optional icon
-- Stack: { direction?: "vertical" | "horizontal", gap?: "xs" | "sm" | "md" | "lg" } - Layout container
-- Button: { text: string, icon?: "related" | "arrow-right", variant?: "default" | "outline" | "ghost" | "link" | "secondary" } - A clickable button that emits a press action. Use variant="link" with icon="arrow-right" for inline follow-up suggestions.
-
-AVAILABLE ACTIONS:
-- submitQuery: { query: string } - Submit a follow-up query
-
-SPEC RULES:
-1. If included, the related questions \`\`\`spec fence must appear at the END of your response.
-2. Every \`\`\`spec block must contain ONLY JSONL patches — no commentary inside.
-3. Keep each JSON object on a single line.
-4. The "text" prop and "query" param must be identical for each question.
-5. Emit at most ONE related questions spec block per answer, and none at all when the skip criteria above apply (image spec blocks are separate and may appear inline).
-6. Do NOT include follow-up suggestions or questions in your markdown text. Only use the spec block for them.
-`
-}
-
-/**
  * Returns the prompt section that instructs the LLM to optionally embed
  * inline image groups as ```spec fenced blocks within the response body.
  */
@@ -94,8 +30,7 @@ IMAGE SPEC RULES:
 3. The "aspectRatio" field SHOULD reflect the natural orientation of the subject: "1:1" for square (logos, portraits), "16:9" for wide (landscapes, scenes), "4:3" for standard photos. Images within the same Grid should generally use the SAME aspectRatio so they render at identical heights.
 4. Always wrap image groups in a Grid. Set "columns" to the exact number of Image children (1–4). For 1 image use columns=1, for 2 use columns=2, etc. Choose the number of images based on the situation — the variety and relevance of available images and how much visual context genuinely helps the answer.
 5. You MAY emit multiple \`\`\`spec image blocks, each placed at the position in the markdown where they are contextually relevant (e.g. right after the heading or paragraph they illustrate).
-6. Image spec blocks are separate from the related-questions spec block at the end (which is itself optional — see RELATED QUESTIONS).
-7. Each image spec block must contain ONLY JSONL patches — no commentary inside.
+6. Each image spec block must contain ONLY JSONL patches — no commentary inside.
 
 Example (inline image group embedded in markdown body):
 
