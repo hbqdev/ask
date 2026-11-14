@@ -16,6 +16,22 @@ behind the change. Lab-first work lives on `flow-design`. `git cherry-pick -x` l
 `(cherry picked from commit …)` trailer that points back to the lab original.
 :::
 
+## 2026-11 — November
+
+- **11-14** — Every answer now ends with 3 follow-up questions under "Related", whichever
+  model answered.
+  - **How:** after the turn finishes, the client calls `POST /api/chat/followups`. The
+    classifier model (`FOLLOWUP_MODEL_ID` overrides it) writes the questions in about
+    1–2 s, and they are saved on the message's `metadata.followups`. Web and the iOS and
+    Android apps show them.
+  - **Prompt changes:** the answering model's optional in-answer Related block (17% of prod
+    answers had one) is gone, and models are told not to end with follow-up offers.
+  - **Endpoint limits:** owner-only, both ids required, 20 requests per user per minute.
+  - See [Generative UI: follow-up questions](/request-lifecycle/generative-ui#followups).
+    Lab `d0f096cb`…`3aad968f`.
+- **11-11** — The idle embedder copy on NightFuryS (.160, P4000) was removed, and the boot
+  script now reconciles the live embedder on NightFuryX. Lab `a728dc82`.
+
 ## 2026-10 — October
 
 - **10-30** — Android app: the API's app CORS now allows `https://localhost` (the Android web

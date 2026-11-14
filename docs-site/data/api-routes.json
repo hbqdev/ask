@@ -7,7 +7,7 @@
     "supabase-otp": "Supabase auth callback (OTP / OAuth code exchange)",
     "public": "No auth check detected in the handler file (may still be gated by a feature flag or proxy.ts)."
   },
-  "count": 41,
+  "count": 42,
   "routes": [
     {
       "path": "/api/account",
@@ -94,6 +94,20 @@
       "guestAllowed": false,
       "summary": "GET /api/chat/[chatId]/stream — the resume endpoint the AI SDK's `useChat({ resume })` / DefaultChatTransport.reconnectToStream hits.",
       "file": "app/api/chat/[chatId]/stream/route.ts",
+      "dynamic": null
+    },
+    {
+      "path": "/api/chat/followups",
+      "methods": [
+        "POST"
+      ],
+      "auth": [
+        "user-session"
+      ],
+      "authVia": [],
+      "guestAllowed": false,
+      "summary": null,
+      "file": "app/api/chat/followups/route.ts",
       "dynamic": null
     },
     {
