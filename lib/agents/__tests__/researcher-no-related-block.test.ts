@@ -3,6 +3,9 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { createResearcher } from '../researcher'
 
+const NO_FOLLOWUP_LINE =
+  'Do NOT end your answer with follow-up suggestions or questions to the user (e.g. "Want me to…?"); suggested follow-ups are shown separately.'
+
 // Follow-up questions come from a separate endpoint now, so no answering
 // system prompt may ask the model to append its own "Related" spec block.
 // The direct-answer and stable-knowledge prompts are private to the
@@ -106,6 +109,30 @@ describe('createResearcher — no in-answer Related block', () => {
 
       expect(system).not.toContain('RELATED QUESTIONS')
       expect(system).not.toContain('submitQuery')
+    }
+  )
+
+  // The model's own "Want me to…?" closers would sit right above the
+  // suggested follow-ups the UI shows, so every answering prompt forbids them,
+  // exactly once (later duplicates only waste tokens).
+  it.each([
+    ['direct', { skipSearch: true, needsSources: true }],
+    ['stable-knowledge', { skipSearch: false, needsSources: false }],
+    [
+      'research (speed)',
+      { skipSearch: false, needsSources: true, searchMode: 'speed' as const }
+    ],
+    ['research (balanced)', { skipSearch: false, needsSources: true }],
+    [
+      'research (quality)',
+      { skipSearch: false, needsSources: true, searchMode: 'quality' as const }
+    ]
+  ])(
+    '%s system prompt forbids trailing follow-up suggestions, once',
+    async (_n, flags) => {
+      const system = await systemPromptFor(flags)
+
+      expect(system.split(NO_FOLLOWUP_LINE).length - 1).toBe(1)
     }
   )
 })

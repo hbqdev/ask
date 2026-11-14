@@ -46,6 +46,7 @@ import {
   getAdaptiveModePrompt,
   getQualityModePrompt,
   getQuickModePrompt,
+  NO_FOLLOWUP_SUGGESTIONS_RULE,
   UNTRUSTED_CONTENT_RULE
 } from './prompts/search-mode-prompts'
 import {
@@ -844,6 +845,10 @@ export async function createResearcher({
     // rule (every turn advertises or escape-hatches to those tools) that such
     // content is data, never commands. Pairs with the remember-gate below.
     systemPrompt = systemPrompt + UNTRUSTED_CONTENT_RULE
+
+    // Every answering turn: no "Want me to…?" closers; the follow-up
+    // questions are written separately and shown under the answer.
+    systemPrompt = systemPrompt + NO_FOLLOWUP_SUGGESTIONS_RULE
 
     // Offer image generation across every mode (skip/speed/quality/balanced)
     // when it's configured AND the turn has an authenticated user — generated

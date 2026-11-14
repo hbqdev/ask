@@ -9,7 +9,8 @@ import {
 import {
   getAdaptiveModePrompt,
   getQualityModePrompt,
-  getQuickModePrompt
+  getQuickModePrompt,
+  NO_FOLLOWUP_SUGGESTIONS_RULE
 } from '../search-mode-prompts'
 
 // Regression guard for a real production issue: models were decorating most
@@ -378,5 +379,27 @@ describe('search mode prompts — no in-answer Related block', () => {
     expect(prompt).not.toContain('submitQuery')
     expect(prompt).not.toMatch(/spec block for related questions/i)
     expect(prompt).toContain('IMAGE SPEC RULES')
+  })
+})
+
+// The answering model must not close with its own follow-up offers ("Want me
+// to…?"): suggested follow-ups are shown separately under the answer. The
+// researcher appends this rule once to every answering prompt (see
+// researcher-no-related-block.test.ts), so the mode builders leave it out.
+describe('no trailing follow-up suggestions rule', () => {
+  it('forbids ending the answer with follow-up suggestions or questions', () => {
+    expect(NO_FOLLOWUP_SUGGESTIONS_RULE).toContain(
+      'Do NOT end your answer with follow-up suggestions or questions to the user (e.g. "Want me to…?"); suggested follow-ups are shown separately.'
+    )
+    expect(NO_FOLLOWUP_SUGGESTIONS_RULE).not.toContain('RELATED QUESTIONS')
+    expect(NO_FOLLOWUP_SUGGESTIONS_RULE).not.toContain('submitQuery')
+  })
+
+  it.each([
+    ['quick', getQuickModePrompt],
+    ['balanced', getAdaptiveModePrompt],
+    ['quality', getQualityModePrompt]
+  ])('%s mode builder leaves it to the researcher', (_name, build) => {
+    expect(build()).not.toContain('Do NOT end your answer with follow-up')
   })
 })
