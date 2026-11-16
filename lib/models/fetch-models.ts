@@ -1,5 +1,9 @@
 import { createGateway } from '@ai-sdk/gateway'
 
+import {
+  fetchOllamaReleaseDates,
+  sortByReleaseDate
+} from '@/lib/models/ollama-release-order'
 import { Model } from '@/lib/types/models'
 import { isProviderEnabled } from '@/lib/utils/registry'
 
@@ -390,9 +394,11 @@ export async function fetchOllamaModels(): Promise<Model[]> {
 
   // Static list path: cloud models don't appear in /api/tags, so we read
   // OLLAMA_MODELS (comma-separated) the same way Vane manually lists models.
+  // Ordered newest-first by the date ollama.com lists for each model.
   const staticList = process.env.OLLAMA_MODELS
   if (staticList) {
-    return sortModels(
+    const releaseDates = await fetchOllamaReleaseDates()
+    return sortByReleaseDate(
       dedupeModels(
         staticList
           .split(',')
@@ -404,7 +410,8 @@ export async function fetchOllamaModels(): Promise<Model[]> {
             provider: 'Ollama Cloud',
             providerId: 'ollama'
           }))
-      )
+      ),
+      releaseDates
     )
   }
 
@@ -529,11 +536,14 @@ export async function fetchAvailableModels(options?: {
     ])
   )
 
-  // Keep stable ordering for each provider list.
+  // Keep stable ordering for each provider list. Ollama lists arrive already
+  // ordered (static list: newest release first), so they are left as-is.
   const normalized = Object.fromEntries(
     Object.entries(grouped).map(([provider, models]) => [
       provider,
-      sortModels(models)
+      models.every(model => model.providerId === 'ollama')
+        ? models
+        : sortModels(models)
     ])
   )
 
