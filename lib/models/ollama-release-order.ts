@@ -11,11 +11,13 @@ const FAILURE_TTL_MS = 5 * 60 * 1000
 
 let cache: { expiresAt: number; value: Map<string, number> } | undefined
 let inflight: Promise<Map<string, number>> | undefined
+let lastGood: Map<string, number> | undefined
 
 /** Test-only: drop the cached release dates. */
 export function __resetOllamaReleaseDatesCache(): void {
   cache = undefined
   inflight = undefined
+  lastGood = undefined
 }
 
 /** `X:cloud` → `X`; otherwise the part before the first `:`. */
@@ -89,7 +91,8 @@ async function loadReleaseDates(): Promise<Map<string, number>> {
 
 /**
  * Ollama library name → newest `modified_at` (epoch ms). Cached 6 h on
- * success; a failure is cached 5 min and yields an empty map.
+ * success; a failure is cached 5 min and serves the last good dates (an
+ * empty map if there has never been a success).
  */
 export async function fetchOllamaReleaseDates(): Promise<Map<string, number>> {
   if (cache && cache.expiresAt > Date.now()) return cache.value
@@ -97,12 +100,15 @@ export async function fetchOllamaReleaseDates(): Promise<Map<string, number>> {
 
   inflight = loadReleaseDates()
     .then(value => {
+      lastGood = value
       cache = { value, expiresAt: Date.now() + SUCCESS_TTL_MS }
       return value
     })
     .catch(error => {
       console.warn('[ModelFetch] Failed to fetch Ollama release dates:', error)
-      const value = new Map<string, number>()
+      // Stale-on-error: keep the last good dates (empty only if none yet)
+      // and back off before the next retry.
+      const value = lastGood ?? new Map<string, number>()
       cache = { value, expiresAt: Date.now() + FAILURE_TTL_MS }
       return value
     })

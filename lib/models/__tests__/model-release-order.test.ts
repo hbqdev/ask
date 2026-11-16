@@ -193,6 +193,28 @@ describe('fetchOllamaReleaseDates', () => {
     expect(dates.size).toBe(TAGS.models.length)
   })
 
+  it('keeps serving the last good dates when a refresh fails', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(okResponse(TAGS))
+    vi.stubGlobal('fetch', fetchMock)
+
+    const first = await fetchOllamaReleaseDates()
+    vi.advanceTimersByTime(6 * 60 * 60 * 1000 + 1000)
+    fetchMock.mockRejectedValue(new Error('ECONNRESET'))
+
+    const stale = await fetchOllamaReleaseDates()
+    expect(fetchMock).toHaveBeenCalledTimes(2)
+    expect(stale).toEqual(first)
+    expect(stale.size).toBe(TAGS.models.length)
+
+    vi.advanceTimersByTime(4 * 60 * 1000)
+    await expect(fetchOllamaReleaseDates()).resolves.toEqual(first)
+    expect(fetchMock).toHaveBeenCalledTimes(2)
+
+    vi.advanceTimersByTime(2 * 60 * 1000)
+    await fetchOllamaReleaseDates()
+    expect(fetchMock).toHaveBeenCalledTimes(3)
+  })
+
   it('returns an empty map on non-200', async () => {
     vi.stubGlobal(
       'fetch',
