@@ -3,20 +3,20 @@
     "ask": "ask",
     "ingestor": "ingestor"
   },
-  "count": 698,
+  "count": 699,
   "coverage": {
-    "files": 698,
-    "withPurpose": 698,
-    "header": 192,
+    "files": 699,
+    "withPurpose": 699,
+    "header": 193,
     "jsdoc": 53,
     "derived": 61,
     "override": 392,
-    "documented": 375
+    "documented": 376
   },
   "kinds": {
     "dockerfile": 3,
     "route-handler": 50,
-    "lib-module": 271,
+    "lib-module": 272,
     "page": 13,
     "stylesheet": 2,
     "layout": 2,
@@ -13950,7 +13950,8 @@
       ],
       "tests": [
         "app/api/settings/model/__tests__/route.test.ts",
-        "lib/models/__tests__/fetch-models.test.ts"
+        "lib/models/__tests__/fetch-models.test.ts",
+        "lib/models/__tests__/model-release-order.test.ts"
       ],
       "docs": [
         {
@@ -13964,6 +13965,38 @@
           "title": "Models & reasoning",
           "section": "The list",
           "anchor": "the-list"
+        }
+      ]
+    },
+    {
+      "path": "lib/models/ollama-release-order.ts",
+      "dir": "lib/models",
+      "area": "lib",
+      "project": "ask",
+      "kind": "lib-module",
+      "purpose": "Orders the Ollama model picker newest-first by the date ollama.com lists for each model (`modified_at` from the public library tags endpoint).",
+      "purposeSource": "header",
+      "exports": [
+        "__resetOllamaReleaseDatesCache",
+        "ollamaBaseName",
+        "releaseDateFor",
+        "sortByReleaseDate",
+        "fetchOllamaReleaseDates"
+      ],
+      "methods": [],
+      "route": null,
+      "usedBy": [
+        "lib/models/fetch-models.ts"
+      ],
+      "tests": [
+        "lib/models/__tests__/model-release-order.test.ts"
+      ],
+      "docs": [
+        {
+          "page": "/history/changelog",
+          "title": "Changelog",
+          "section": "2026-11 — November",
+          "anchor": "_2026-11-—-november"
         }
       ]
     },
@@ -18289,6 +18322,7 @@
         "lib/model-selector/get-model-selector-data.ts",
         "lib/model-selector/pick-fallback-model.ts",
         "lib/models/fetch-models.ts",
+        "lib/models/ollama-release-order.ts",
         "lib/streaming/types.ts",
         "lib/types/model-selector.ts",
         "lib/utils/context-window.ts",
@@ -18298,6 +18332,7 @@
       ],
       "tests": [
         "lib/model-selector/__tests__/get-model-selector-data.test.ts",
+        "lib/models/__tests__/model-release-order.test.ts",
         "lib/utils/__tests__/context-window.test.ts",
         "lib/utils/__tests__/model-selection.test.ts",
         "lib/utils/__tests__/resolve-context-window.test.ts"
@@ -19703,6 +19738,7 @@
         "lib/agents/__tests__/title-generator.test.ts",
         "lib/model-selector/__tests__/get-model-selector-data.test.ts",
         "lib/models/__tests__/fetch-models.test.ts",
+        "lib/models/__tests__/model-release-order.test.ts",
         "lib/render/__tests__/llm-image-output.e2e.test.ts",
         "lib/utils/__tests__/model-selection.test.ts"
       ],

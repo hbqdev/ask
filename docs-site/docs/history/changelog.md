@@ -18,6 +18,19 @@ behind the change. Lab-first work lives on `flow-design`. `git cherry-pick -x` l
 
 ## 2026-11 — November
 
+- **11-15** — The model picker lists Ollama cloud models newest-first instead of
+  alphabetically, on web and in the apps. It is sorted server-side in
+  `lib/models/ollama-release-order.ts`.
+  - **Order:** by the `modified_at` that ollama.com `/api/tags` reports, using each
+    model's newest revision (e.g. `deepseek-v4.1-flash:1017`). Ties go by name; models
+    Ollama doesn't list go last.
+  - **Caching:** the dates are cached for 6 h. If a refresh fails it keeps the last good
+    dates and retries after 5 min. Before any successful fetch, the list falls back to
+    name order. `OLLAMA_LIBRARY_TAGS_URL` overrides the source.
+  - **Side effect:** with no saved pick and the default not listed, the fallback model is
+    now the newest one, not the first by name.
+  - Lab `d7e6196b`, `28d1267f`.
+
 - **11-14** — Every answer now ends with 3 follow-up questions under "Related", whichever
   model answered.
   - **How:** after the turn finishes, the client calls `POST /api/chat/followups`. The
